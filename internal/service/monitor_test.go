@@ -104,3 +104,59 @@ func TestOrientConnectionMapsReplySideWhenReplySourceIsLocal(t *testing.T) {
 		t.Fatalf("unexpected rate mapping: %#v", view)
 	}
 }
+
+func TestDeriveLocalCIDRsIncludesLANIPv6AndExactNeighbors(t *testing.T) {
+	networks := deriveLocalCIDRs(
+		nil,
+		[]string{"pppoe-out1"},
+		[]routeros.IPAddress{
+			{Address: "10.0.0.1/24", Interface: "lan"},
+			{Address: "198.51.100.2/24", Interface: "wan"},
+		},
+		[]routeros.IPv6Address{
+			{Address: "fc00::1001/64", Interface: "lan"},
+			{Address: "2408:826c:6912:4516::1/64", Interface: "pppoe-out1"},
+			{Address: "fd00::1/64", Interface: "lo"},
+		},
+		[]routeros.IPv6Neighbor{
+			{Address: "240e:1234::88", Interface: "lan"},
+			{Address: "240e:9999::88", Interface: "wan"},
+		},
+	)
+
+	for _, address := range []string{"10.0.0.42", "fc00::2222", "240e:1234::88"} {
+		if !containsIP(networks, address) {
+			t.Errorf("expected %s to be recognized as local", address)
+		}
+	}
+	for _, address := range []string{"198.51.100.42", "2408:826c:6912:4516::99", "240e:1234::89", "240e:9999::88", "fd00::2"} {
+		if containsIP(networks, address) {
+			t.Errorf("expected %s to be excluded", address)
+		}
+	}
+}
+
+func TestTerminalFamilySummaryOnlyIncludesSelectedFamily(t *testing.T) {
+	terminal := model.Terminal{
+		IPv4:        []string{"10.0.0.2"},
+		IPv6:        []string{"fc00::2"},
+		PrimaryIPv4: "10.0.0.2",
+		PrimaryIPv6: "fc00::2",
+	}
+	connections := []model.TerminalConnection{
+		{Family: "ipv4", UploadBps: 10, DownloadBps: 20, UploadBytes: 100, DownloadBytes: 200},
+		{Family: "ipv6", UploadBps: 30, DownloadBps: 40, UploadBytes: 300, DownloadBytes: 400},
+		{Family: "ipv6", UploadBps: 50, DownloadBps: 60, UploadBytes: 500, DownloadBytes: 600},
+	}
+
+	summary := terminalFamilySummary(terminal, connections, "ipv6")
+	if summary.ConnectionCount != 2 || summary.CurrentUploadBps != 80 || summary.CurrentDownloadBps != 100 {
+		t.Fatalf("unexpected IPv6 current summary: %#v", summary)
+	}
+	if summary.TotalUploadBytes != 800 || summary.TotalDownloadBytes != 1000 {
+		t.Fatalf("unexpected IPv6 byte summary: %#v", summary)
+	}
+	if len(summary.IPv4) != 0 || summary.PrimaryIPv4 != "" || summary.PrimaryIPv6 != "fc00::2" {
+		t.Fatalf("unexpected IPv6 address projection: %#v", summary)
+	}
+}

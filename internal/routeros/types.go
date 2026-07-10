@@ -65,6 +65,13 @@ type IPAddress struct {
 	Network   string `json:"network"`
 }
 
+type IPv6Address struct {
+	Address   string `json:"address"`
+	Interface string `json:"interface"`
+	Dynamic   string `json:"dynamic"`
+	Disabled  string `json:"disabled"`
+}
+
 type DHCPLease struct {
 	Address    string `json:"address"`
 	Comment    string `json:"comment"`

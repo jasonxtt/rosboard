@@ -151,6 +151,10 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load ip addresses: %w", err)
 	}
+	ipv6Addresses, err := m.client.IPv6Addresses(pollCtx)
+	if err != nil {
+		return fmt.Errorf("load ipv6 addresses: %w", err)
+	}
 	leases, err := m.client.DHCPLeases(pollCtx)
 	if err != nil {
 		return fmt.Errorf("load dhcp leases: %w", err)
@@ -226,7 +230,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		return err
 	}
 
-	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses)
+	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
 	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
@@ -678,6 +682,14 @@ func (m *Monitor) buildTerminals(
 			FlowCategories: flows,
 			History:        history,
 			Capabilities:   terminalCapabilities(flows, history),
+			FamilySummaries: map[string]model.Terminal{
+				"ipv4": terminalFamilySummary(terminal, connectionMap[builder.ID], "ipv4"),
+				"ipv6": terminalFamilySummary(terminal, connectionMap[builder.ID], "ipv6"),
+			},
+			FamilyFlows: map[string][]model.TerminalFlowCategory{
+				"ipv4": terminalFamilyFlows(connectionMap[builder.ID], "ipv4"),
+				"ipv6": terminalFamilyFlows(connectionMap[builder.ID], "ipv6"),
+			},
 		}
 	}
 
@@ -686,6 +698,52 @@ func (m *Monitor) buildTerminals(
 	})
 
 	return terminals, details, nil
+}
+
+func terminalFamilySummary(terminal model.Terminal, connections []model.TerminalConnection, family string) model.Terminal {
+	summary := terminal
+	summary.ConnectionCount = 0
+	summary.CurrentUploadBps = 0
+	summary.CurrentDownloadBps = 0
+	summary.TotalUploadBytes = 0
+	summary.TotalDownloadBytes = 0
+	if family == "ipv4" {
+		summary.IPv6 = nil
+		summary.PrimaryIPv6 = ""
+	} else {
+		summary.IPv4 = nil
+		summary.PrimaryIPv4 = ""
+	}
+	for _, connection := range connections {
+		if connection.Family != family {
+			continue
+		}
+		summary.ConnectionCount++
+		summary.CurrentUploadBps += connection.UploadBps
+		summary.CurrentDownloadBps += connection.DownloadBps
+		summary.TotalUploadBytes += connection.UploadBytes
+		summary.TotalDownloadBytes += connection.DownloadBytes
+	}
+	return summary
+}
+
+func terminalFamilyFlows(connections []model.TerminalConnection, family string) []model.TerminalFlowCategory {
+	flows := map[string]*model.TerminalFlowCategory{}
+	for _, connection := range connections {
+		if connection.Family != family {
+			continue
+		}
+		flow := flows[connection.Application]
+		if flow == nil {
+			flow = &model.TerminalFlowCategory{Name: connection.Application, Estimated: true}
+			flows[connection.Application] = flow
+		}
+		flow.CurrentUploadBps += connection.UploadBps
+		flow.CurrentDownloadBps += connection.DownloadBps
+		flow.TotalUploadBytes += connection.UploadBytes
+		flow.TotalDownloadBytes += connection.DownloadBytes
+	}
+	return flattenFlows(flows)
 }
 
 type connectionView struct {
@@ -885,7 +943,7 @@ func interfaceAddresses(addresses []routeros.IPAddress, interfaceName string) []
 	return result
 }
 
-func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses []routeros.IPAddress) []*net.IPNet {
+func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses []routeros.IPAddress, ipv6Addresses []routeros.IPv6Address, neighbors []routeros.IPv6Neighbor) []*net.IPNet {
 	if len(configured) > 0 {
 		return parseCIDRs(configured)
 	}
@@ -908,7 +966,31 @@ func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses
 		}
 		cidrs = append(cidrs, address.Address)
 	}
+	for _, address := range ipv6Addresses {
+		if parseBool(address.Disabled) || excludedTerminalInterface(address.Interface, trafficSet) {
+			continue
+		}
+		cidrs = append(cidrs, address.Address)
+	}
+	for _, neighbor := range neighbors {
+		address := strings.TrimSpace(neighbor.Address)
+		if address == "" || excludedTerminalInterface(neighbor.Interface, trafficSet) {
+			continue
+		}
+		if ip := net.ParseIP(address); ip != nil && ip.To4() == nil {
+			cidrs = append(cidrs, address+"/128")
+		}
+	}
 	return parseCIDRs(cidrs)
+}
+
+func excludedTerminalInterface(name string, trafficSet map[string]struct{}) bool {
+	name = strings.TrimSpace(name)
+	if _, exists := trafficSet[name]; exists {
+		return true
+	}
+	lower := strings.ToLower(name)
+	return name == "" || lower == "lo" || strings.Contains(lower, "loopback") || strings.Contains(lower, "wan")
 }
 
 func parseCIDRs(values []string) []*net.IPNet {
