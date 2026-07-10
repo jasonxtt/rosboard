@@ -1,0 +1,141 @@
+package routeros
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	baseURL    string
+	username   string
+	password   string
+	httpClient *http.Client
+}
+
+func NewClient(baseURL, username, password string) *Client {
+	return &Client{
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		username: username,
+		password: password,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+	}
+}
+
+func (c *Client) SystemResource(ctx context.Context) (SystemResource, error) {
+	var resource SystemResource
+	err := c.getJSON(ctx, "/rest/system/resource", &resource)
+	return resource, err
+}
+
+func (c *Client) SystemHealth(ctx context.Context) (SystemHealth, error) {
+	var health SystemHealth
+	err := c.getJSON(ctx, "/rest/system/health", &health)
+	return health, err
+}
+
+func (c *Client) Interfaces(ctx context.Context) ([]Interface, error) {
+	var payload []Interface
+	err := c.getJSON(ctx, "/rest/interface", &payload)
+	return payload, err
+}
+
+func (c *Client) EthernetInterfaces(ctx context.Context) ([]EthernetInterface, error) {
+	var payload []EthernetInterface
+	err := c.getJSON(ctx, "/rest/interface/ethernet", &payload)
+	return payload, err
+}
+
+func (c *Client) MonitorTraffic(ctx context.Context, interfaceName string) (MonitorTrafficEntry, error) {
+	body, err := json.Marshal(map[string]string{
+		"interface": interfaceName,
+		"once":      "",
+	})
+	if err != nil {
+		return MonitorTrafficEntry{}, fmt.Errorf("marshal monitor request: %w", err)
+	}
+	var payload []MonitorTrafficEntry
+	if err := c.postJSON(ctx, "/rest/interface/monitor-traffic", body, &payload); err != nil {
+		return MonitorTrafficEntry{}, err
+	}
+	if len(payload) == 0 {
+		return MonitorTrafficEntry{}, fmt.Errorf("monitor traffic: empty response for %s", interfaceName)
+	}
+	return payload[0], nil
+}
+
+func (c *Client) IPAddresses(ctx context.Context) ([]IPAddress, error) {
+	var payload []IPAddress
+	err := c.getJSON(ctx, "/rest/ip/address", &payload)
+	return payload, err
+}
+
+func (c *Client) DHCPLeases(ctx context.Context) ([]DHCPLease, error) {
+	var payload []DHCPLease
+	err := c.getJSON(ctx, "/rest/ip/dhcp-server/lease", &payload)
+	return payload, err
+}
+
+func (c *Client) ARPEntries(ctx context.Context) ([]ARPEntry, error) {
+	var payload []ARPEntry
+	err := c.getJSON(ctx, "/rest/ip/arp", &payload)
+	return payload, err
+}
+
+func (c *Client) IPv6Neighbors(ctx context.Context) ([]IPv6Neighbor, error) {
+	var payload []IPv6Neighbor
+	err := c.getJSON(ctx, "/rest/ipv6/neighbor", &payload)
+	return payload, err
+}
+
+func (c *Client) FirewallConnectionsV4(ctx context.Context) ([]FirewallConnection, error) {
+	var payload []FirewallConnection
+	err := c.getJSON(ctx, "/rest/ip/firewall/connection", &payload)
+	return payload, err
+}
+
+func (c *Client) FirewallConnectionsV6(ctx context.Context) ([]FirewallConnection, error) {
+	var payload []FirewallConnection
+	err := c.getJSON(ctx, "/rest/ipv6/firewall/connection", &payload)
+	return payload, err
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", path, err)
+	}
+	return c.do(req, out)
+}
+
+func (c *Client) postJSON(ctx context.Context, path string, body []byte, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
+func (c *Client) do(req *http.Request, out any) error {
+	req.SetBasicAuth(c.username, c.password)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request %s: %w", req.URL.Path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("request %s: unexpected status %s", req.URL.Path, resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode %s: %w", req.URL.Path, err)
+	}
+	return nil
+}
