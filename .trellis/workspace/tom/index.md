@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-07-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~106 | Active |
+| `journal-1.md` | ~140 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-07-10 | 归属 RouterOS 本机 IPv6 连接并发布局域网实例 | `a5d1985`, `da3bdae` | `main` |
 | 3 | 2026-07-10 | 修复 IPv6 终端归属与详情范围 | `833be38` | `main` |
 | 2 | 2026-07-10 | Expand RouterOS monitoring console | `5071458` | `main` |
 | 1 | 2026-07-10 | Complete RouterOS monitor panel v1 | `6d7fec3` | `main` |

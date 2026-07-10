@@ -104,3 +104,37 @@ Reworked terminal monitoring and details, added full-interface rates and history
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 归属 RouterOS 本机 IPv6 连接并发布局域网实例
+
+**Date**: 2026-07-10
+**Task**: 归属 RouterOS 本机 IPv6 连接并发布局域网实例
+**Branch**: `main`
+
+### Summary
+
+将所有启用的 RouterOS IPv4/IPv6 精确地址合并为单一 RouterOS 本机终端，补齐此前遗漏的本机 IPv6 连接；列表统计按 All/IPv4/IPv6 分域，完成实机分类、浏览器和完整质量门禁，并构建正式二进制监听 0.0.0.0:8080 供局域网访问。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5d1985` | (see git log) |
+| `da3bdae` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
