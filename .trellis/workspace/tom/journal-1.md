@@ -204,3 +204,36 @@ Reworked terminal monitoring and details, added full-interface rates and history
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Restore live terminal and overview metrics
+
+**Date**: 2026-07-10
+**Task**: Restore live terminal and overview metrics
+**Branch**: `main`
+
+### Summary
+
+Replaced replay-backed acceptance with live RouterOS data, added LAN connected-device and raw conntrack overview metrics, clarified WAN TX/RX rates, rebuilt the embedded UI, and verified LAN access on port 8080.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b964136` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
