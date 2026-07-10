@@ -71,3 +71,36 @@ Reworked terminal monitoring and details, added full-interface rates and history
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 修复 IPv6 终端归属与详情范围
+
+**Date**: 2026-07-10
+**Task**: 修复 IPv6 终端归属与详情范围
+**Branch**: `main`
+
+### Summary
+
+补充 RouterOS IPv6 地址网络与 LAN 邻居归属，终端列表和详情按全部、IPv4、IPv6 入口严格分域；实机对照原始连接表并完成 API、浏览器、race、vet、build 验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `833be38` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
