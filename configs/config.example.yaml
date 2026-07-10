@@ -1,0 +1,15 @@
+listen_address: ":8080"
+data_dir: "./data"
+poll_interval_seconds: 5
+sample_retention_hours: 48
+allowed_cidrs:
+  - "10.0.0.0/8"
+  - "192.168.0.0/16"
+
+routeros:
+  base_url: "http://10.0.0.1"
+  username: "replace-me"
+  password: "replace-me"
+  traffic_interfaces:
+    - "pppoe-out1"
+  terminal_cidrs: []

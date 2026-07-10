@@ -1,0 +1,16 @@
+[Unit]
+Description=rosboard RouterOS monitoring panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rosboard
+ExecStart=/opt/rosboard/rosboard -config /opt/rosboard/config.yaml
+Restart=always
+RestartSec=5
+User=rosboard
+Group=rosboard
+
+[Install]
+WantedBy=multi-user.target
