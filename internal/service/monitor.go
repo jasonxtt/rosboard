@@ -230,12 +230,14 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		return err
 	}
 
+	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
 	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
 	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
 		now,
 		localCIDRs,
+		routerAddresses,
 		leases,
 		arpEntries,
 		ipv6Neighbors,
@@ -393,10 +395,18 @@ type terminalBuilder struct {
 	State              string
 }
 
+const routerTerminalID = "routeros:self"
+
+type routerAssignedAddress struct {
+	Family    string
+	Interface string
+}
+
 func (m *Monitor) buildTerminals(
 	ctx context.Context,
 	now time.Time,
 	localCIDRs []*net.IPNet,
+	routerAddresses map[string]routerAssignedAddress,
 	leases []routeros.DHCPLease,
 	arpEntries []routeros.ARPEntry,
 	ipv6Neighbors []routeros.IPv6Neighbor,
@@ -451,13 +461,18 @@ func (m *Monitor) buildTerminals(
 	connectionSnapshots := make([]store.ConnectionSnapshot, 0, len(connectionsV4)+len(connectionsV6))
 	ensureBuilder := func(address, family, mac string) *terminalBuilder {
 		mac = normalizeMAC(mac)
-		id := terminalID(mac, address)
+		id := terminalIdentity(mac, address, routerAddresses)
 		builder, exists := builders[id]
 		if !exists {
+			displayName := preferredName(nameByAddress[address], nameByMAC[mac], mac, address)
+			if id == routerTerminalID {
+				displayName = "RouterOS 本机"
+				mac = ""
+			}
 			builder = &terminalBuilder{
 				ID:               id,
 				MACAddress:       mac,
-				DisplayName:      preferredName(nameByAddress[address], nameByMAC[mac], mac, address),
+				DisplayName:      displayName,
 				IPv4:             map[string]struct{}{},
 				IPv6:             map[string]struct{}{},
 				PrimaryInterface: interfaceByAddress[address],
@@ -468,7 +483,7 @@ func (m *Monitor) buildTerminals(
 		if builder.DisplayName == "" {
 			builder.DisplayName = preferredName(nameByAddress[address], nameByMAC[mac], mac, address)
 		}
-		if mac != "" {
+		if mac != "" && id != routerTerminalID {
 			builder.MACAddress = mac
 		}
 		if builder.PrimaryInterface == "" {
@@ -487,6 +502,17 @@ func (m *Monitor) buildTerminals(
 			builder.State = state
 		}
 		builder.LastSeen = now
+	}
+
+	for address, assigned := range routerAddresses {
+		if err := m.store.MergeTerminal(ctx, terminalID("", address), routerTerminalID); err != nil {
+			return nil, nil, err
+		}
+		builder := ensureBuilder(address, assigned.Family, "")
+		if builder.PrimaryInterface == "" || assigned.Interface == "lan" {
+			builder.PrimaryInterface = assigned.Interface
+		}
+		markPresent(builder, "idle")
 	}
 
 	for _, lease := range leases {
@@ -524,12 +550,15 @@ func (m *Monitor) buildTerminals(
 
 	applyConnections := func(family string, connections []routeros.FirewallConnection) error {
 		for _, connection := range connections {
-			view, ok := orientConnection(family, connection, localCIDRs)
+			view, ok := orientConnection(family, connection, localCIDRs, routerAddresses)
 			if !ok {
 				continue
 			}
 
 			mac := normalizeMAC(macByAddress[view.LocalAddress])
+			if view.RouterSelf {
+				mac = ""
+			}
 			if mac != "" {
 				if err := m.store.MergeTerminal(ctx, terminalID("", view.LocalAddress), terminalID(mac, view.LocalAddress)); err != nil {
 					return err
@@ -541,7 +570,9 @@ func (m *Monitor) buildTerminals(
 			builder.CurrentUploadBps += view.UploadBps
 			builder.CurrentDownloadBps += view.DownloadBps
 			markPresent(builder, "online")
-			builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress], builder.MACAddress, view.LocalAddress)
+			if !view.RouterSelf {
+				builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress], builder.MACAddress, view.LocalAddress)
+			}
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
@@ -647,12 +678,23 @@ func (m *Monitor) buildTerminals(
 			LastSeen:           total.LastSeen,
 			State:              total.State,
 			OnlineSince:        total.OnlineSince,
+			FamilyStats: map[string]model.TerminalFamilyStats{
+				"ipv4": terminalFamilyStats(connectionMap[builder.ID], "ipv4"),
+				"ipv6": terminalFamilyStats(connectionMap[builder.ID], "ipv6"),
+			},
 		}
 		if len(terminal.IPv4) > 0 {
 			terminal.PrimaryIPv4 = terminal.IPv4[0]
 		}
 		if len(terminal.IPv6) > 0 {
 			terminal.PrimaryIPv6 = terminal.IPv6[0]
+		}
+		if terminal.ID == routerTerminalID {
+			terminal.PrimaryIPv4 = preferredRouterAddress(routerAddresses, "ipv4")
+			terminal.PrimaryIPv6 = preferredRouterAddress(routerAddresses, "ipv6")
+			if assigned, exists := routerAddresses[preferredName(terminal.PrimaryIPv4, terminal.PrimaryIPv6)]; exists {
+				terminal.PrimaryInterface = assigned.Interface
+			}
 		}
 		terminals = append(terminals, model.Terminal{
 			ID:                 terminal.ID,
@@ -673,6 +715,7 @@ func (m *Monitor) buildTerminals(
 			PrimaryIPv6:        terminal.PrimaryIPv6,
 			State:              terminal.State,
 			OnlineSince:        terminal.OnlineSince,
+			FamilyStats:        terminal.FamilyStats,
 		})
 
 		flows := flattenFlows(flowMap[builder.ID])
@@ -701,12 +744,13 @@ func (m *Monitor) buildTerminals(
 }
 
 func terminalFamilySummary(terminal model.Terminal, connections []model.TerminalConnection, family string) model.Terminal {
+	stats := terminalFamilyStats(connections, family)
 	summary := terminal
-	summary.ConnectionCount = 0
-	summary.CurrentUploadBps = 0
-	summary.CurrentDownloadBps = 0
-	summary.TotalUploadBytes = 0
-	summary.TotalDownloadBytes = 0
+	summary.ConnectionCount = stats.ConnectionCount
+	summary.CurrentUploadBps = stats.CurrentUploadBps
+	summary.CurrentDownloadBps = stats.CurrentDownloadBps
+	summary.TotalUploadBytes = stats.ActiveUploadBytes
+	summary.TotalDownloadBytes = stats.ActiveDownloadBytes
 	if family == "ipv4" {
 		summary.IPv6 = nil
 		summary.PrimaryIPv6 = ""
@@ -714,17 +758,22 @@ func terminalFamilySummary(terminal model.Terminal, connections []model.Terminal
 		summary.IPv4 = nil
 		summary.PrimaryIPv4 = ""
 	}
+	return summary
+}
+
+func terminalFamilyStats(connections []model.TerminalConnection, family string) model.TerminalFamilyStats {
+	var stats model.TerminalFamilyStats
 	for _, connection := range connections {
 		if connection.Family != family {
 			continue
 		}
-		summary.ConnectionCount++
-		summary.CurrentUploadBps += connection.UploadBps
-		summary.CurrentDownloadBps += connection.DownloadBps
-		summary.TotalUploadBytes += connection.UploadBytes
-		summary.TotalDownloadBytes += connection.DownloadBytes
+		stats.ConnectionCount++
+		stats.CurrentUploadBps += connection.UploadBps
+		stats.CurrentDownloadBps += connection.DownloadBps
+		stats.ActiveUploadBytes += connection.UploadBytes
+		stats.ActiveDownloadBytes += connection.DownloadBytes
 	}
-	return summary
+	return stats
 }
 
 func terminalFamilyFlows(connections []model.TerminalConnection, family string) []model.TerminalFlowCategory {
@@ -754,9 +803,12 @@ type connectionView struct {
 	UploadBps            float64
 	DownloadBps          float64
 	PublicAddress        string
+	RouterSelf           bool
 }
 
-func orientConnection(family string, connection routeros.FirewallConnection, localCIDRs []*net.IPNet) (connectionView, bool) {
+func orientConnection(family string, connection routeros.FirewallConnection, localCIDRs []*net.IPNet, routerAddresses map[string]routerAssignedAddress) (connectionView, bool) {
+	_, srcRouter := routerAddresses[assignedIP(connection.SrcAddress)]
+	_, replySrcRouter := routerAddresses[assignedIP(connection.ReplySrcAddress)]
 	srcLocal := containsIP(localCIDRs, connection.SrcAddress)
 	replySrcLocal := containsIP(localCIDRs, connection.ReplySrcAddress)
 
@@ -775,7 +827,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 	)
 
 	switch {
-	case srcLocal:
+	case srcRouter || srcLocal:
 		return connectionView{
 			LocalAddress:         connection.SrcAddress,
 			ConnectionKey:        key,
@@ -784,8 +836,9 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 			UploadBps:            parseFloat(connection.OrigRate),
 			DownloadBps:          parseFloat(connection.ReplRate),
 			PublicAddress:        externalAddress(connection.ReplyDstAddress, connection.SrcAddress),
+			RouterSelf:           srcRouter,
 		}, true
-	case replySrcLocal:
+	case replySrcRouter || replySrcLocal:
 		return connectionView{
 			LocalAddress:         connection.ReplySrcAddress,
 			ConnectionKey:        key,
@@ -794,6 +847,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 			UploadBps:            parseFloat(connection.ReplRate),
 			DownloadBps:          parseFloat(connection.OrigRate),
 			PublicAddress:        externalAddress(connection.DstAddress, connection.ReplySrcAddress),
+			RouterSelf:           replySrcRouter,
 		}, true
 	default:
 		return connectionView{}, false
@@ -984,6 +1038,61 @@ func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses
 	return parseCIDRs(cidrs)
 }
 
+func deriveRouterAddresses(addresses []routeros.IPAddress, ipv6Addresses []routeros.IPv6Address) map[string]routerAssignedAddress {
+	result := make(map[string]routerAssignedAddress, len(addresses)+len(ipv6Addresses))
+	for _, address := range addresses {
+		if parseBool(address.Disabled) {
+			continue
+		}
+		if ip := assignedIP(address.Address); ip != "" {
+			result[ip] = routerAssignedAddress{Family: "ipv4", Interface: strings.TrimSpace(address.Interface)}
+		}
+	}
+	for _, address := range ipv6Addresses {
+		if parseBool(address.Disabled) {
+			continue
+		}
+		if ip := assignedIP(address.Address); ip != "" {
+			result[ip] = routerAssignedAddress{Family: "ipv6", Interface: strings.TrimSpace(address.Interface)}
+		}
+	}
+	return result
+}
+
+func assignedIP(value string) string {
+	value = strings.TrimSpace(value)
+	if ip, _, err := net.ParseCIDR(value); err == nil {
+		return ip.String()
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
+
+func preferredRouterAddress(addresses map[string]routerAssignedAddress, family string) string {
+	candidates := make([]string, 0)
+	for address, assigned := range addresses {
+		if assigned.Family == family {
+			candidates = append(candidates, address)
+		}
+	}
+	sort.Slice(candidates, func(left, right int) bool {
+		leftAssigned := addresses[candidates[left]]
+		rightAssigned := addresses[candidates[right]]
+		leftLAN := leftAssigned.Interface == "lan"
+		rightLAN := rightAssigned.Interface == "lan"
+		if leftLAN != rightLAN {
+			return leftLAN
+		}
+		return bytes.Compare(net.ParseIP(candidates[left]).To16(), net.ParseIP(candidates[right]).To16()) < 0
+	})
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
 func excludedTerminalInterface(name string, trafficSet map[string]struct{}) bool {
 	name = strings.TrimSpace(name)
 	if _, exists := trafficSet[name]; exists {
@@ -1033,6 +1142,13 @@ func terminalID(mac, address string) string {
 		return "mac:" + mac
 	}
 	return "addr:" + strings.ToLower(strings.TrimSpace(address))
+}
+
+func terminalIdentity(mac, address string, routerAddresses map[string]routerAssignedAddress) string {
+	if _, exists := routerAddresses[assignedIP(address)]; exists {
+		return routerTerminalID
+	}
+	return terminalID(mac, address)
 }
 
 func normalizeMAC(value string) string {
