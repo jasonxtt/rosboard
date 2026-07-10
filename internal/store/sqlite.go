@@ -399,9 +399,15 @@ func (s *Store) MergeTerminal(ctx context.Context, fromID, toID string) error {
 		return fmt.Errorf("load terminal totals to merge: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, `UPDATE terminal_addresses SET terminal_id = ? WHERE terminal_id = ?`, toID, fromID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO terminal_addresses (terminal_id, family, address, last_seen)
+		SELECT ?, family, address, last_seen FROM terminal_addresses WHERE terminal_id = ?
+		ON CONFLICT(terminal_id, family, address) DO UPDATE SET
+			last_seen = max(terminal_addresses.last_seen, excluded.last_seen)`, toID, fromID)
 	if err != nil {
 		return fmt.Errorf("move terminal addresses: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM terminal_addresses WHERE terminal_id = ?`, fromID); err != nil {
+		return fmt.Errorf("delete merged terminal addresses: %w", err)
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE connection_state SET terminal_id = ? WHERE terminal_id = ?`, toID, fromID)
 	if err != nil {

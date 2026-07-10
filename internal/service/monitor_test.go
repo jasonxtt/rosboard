@@ -38,7 +38,7 @@ func TestSelectedTrafficRatesMapTXToUploadAndRXToDownload(t *testing.T) {
 	}
 }
 
-func TestConnectedLANDeviceCountExcludesRouterOfflineAndWAN(t *testing.T) {
+func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 	terminals := []model.Terminal{
 		{ID: routerTerminalID, State: "online", PrimaryInterface: "lan"},
 		{ID: "lan-online", State: "online", PrimaryInterface: "lan"},
@@ -46,11 +46,11 @@ func TestConnectedLANDeviceCountExcludesRouterOfflineAndWAN(t *testing.T) {
 		{ID: "wan-online", State: "online", PrimaryInterface: "wan"},
 		{ID: "pppoe-online", State: "online", PrimaryInterface: "pppoe-out1"},
 		{ID: "lan-offline", State: "offline", PrimaryInterface: "lan"},
-		{ID: "active-unknown-interface", State: "online"},
+		{ID: "online-unknown-interface", State: "online"},
 	}
 
-	if got := connectedLANDeviceCount(terminals, []string{"pppoe-out1"}); got != 3 {
-		t.Fatalf("expected 3 connected LAN devices, got %d", got)
+	if got := connectedLANDeviceCount(terminals, []string{"pppoe-out1"}); got != 2 {
+		t.Fatalf("expected 2 online LAN devices, got %d", got)
 	}
 }
 
