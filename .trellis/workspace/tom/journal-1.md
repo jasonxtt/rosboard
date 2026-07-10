@@ -138,3 +138,36 @@ Reworked terminal monitoring and details, added full-interface rates and history
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 审计 RouterOS 本机 IPv6 连接归属
+
+**Date**: 2026-07-10
+**Task**: 审计 RouterOS 本机 IPv6 连接归属
+**Branch**: `main`
+
+### Summary
+
+用同一份 166 条 RouterOS IPv6 conntrack 快照复算 69 条本机归属，确认 0 条命中 fc00::1001；63 条命中 PPPoE 公网 reply-src，其中 62 条为未回包 UDP/58680，未发现 NAT/转发误归属，但确认连接数文案混淆原始跟踪条目与有效双向连接。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c2c6ef` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
