@@ -62,6 +62,7 @@ type IPAddress struct {
 	Address   string `json:"address"`
 	Interface string `json:"interface"`
 	Dynamic   string `json:"dynamic"`
+	Disabled  string `json:"disabled"`
 	Network   string `json:"network"`
 }
 

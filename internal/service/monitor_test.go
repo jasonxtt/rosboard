@@ -40,7 +40,7 @@ func TestOrientConnectionMapsUploadAndDownloadForLocalSource(t *testing.T) {
 		ReplBytes:       "8192",
 		OrigRate:        "128000",
 		ReplRate:        "512000",
-	}, []*net.IPNet{network})
+	}, []*net.IPNet{network}, nil)
 	if !ok {
 		t.Fatal("expected connection to be oriented")
 	}
@@ -90,7 +90,7 @@ func TestOrientConnectionMapsReplySideWhenReplySourceIsLocal(t *testing.T) {
 		ReplBytes:       "4000",
 		OrigRate:        "640000",
 		ReplRate:        "128000",
-	}, []*net.IPNet{network})
+	}, []*net.IPNet{network}, nil)
 	if !ok {
 		t.Fatal("expected connection to be oriented")
 	}
@@ -158,5 +158,73 @@ func TestTerminalFamilySummaryOnlyIncludesSelectedFamily(t *testing.T) {
 	}
 	if len(summary.IPv4) != 0 || summary.PrimaryIPv4 != "" || summary.PrimaryIPv6 != "fc00::2" {
 		t.Fatalf("unexpected IPv6 address projection: %#v", summary)
+	}
+}
+
+func TestOrientConnectionPrefersExactRouterAddressOutsideTerminalCIDRs(t *testing.T) {
+	_, lan, _ := net.ParseCIDR("fc00::/64")
+	routerAddresses := map[string]routerAssignedAddress{
+		"2408:826c:6912:4516::1": {Family: "ipv6", Interface: "pppoe-out1"},
+	}
+
+	view, ok := orientConnection("ipv6", routeros.FirewallConnection{
+		Protocol:        "tcp",
+		SrcAddress:      "2001:db8::20",
+		DstAddress:      "2408:826c:6912:4516::1",
+		DstPort:         "8291",
+		ReplySrcAddress: "2408:826c:6912:4516::1",
+		ReplyDstAddress: "2001:db8::20",
+		OrigBytes:       "1000",
+		ReplBytes:       "250",
+	}, []*net.IPNet{lan}, routerAddresses)
+	if !ok || !view.RouterSelf {
+		t.Fatalf("expected exact WAN address to identify RouterOS self: %#v", view)
+	}
+	if view.LocalAddress != "2408:826c:6912:4516::1" || view.CurrentUploadBytes != 250 || view.CurrentDownloadBytes != 1000 {
+		t.Fatalf("unexpected RouterOS reply-side orientation: %#v", view)
+	}
+
+	_, ok = orientConnection("ipv6", routeros.FirewallConnection{
+		SrcAddress:      "2408:826c:6912:4516::99",
+		ReplySrcAddress: "2001:db8::20",
+	}, []*net.IPNet{lan}, routerAddresses)
+	if ok {
+		t.Fatal("expected another address in the WAN prefix to remain external")
+	}
+
+	view, ok = orientConnection("ipv6", routeros.FirewallConnection{
+		SrcAddress:      "fc00::20",
+		ReplySrcAddress: "2408:826c:6912:4516::1",
+	}, []*net.IPNet{lan}, routerAddresses)
+	if !ok || view.RouterSelf || view.LocalAddress != "fc00::20" {
+		t.Fatalf("expected original-source LAN terminal ownership to remain intact: %#v", view)
+	}
+}
+
+func TestRouterAddressesShareStableTerminalIdentity(t *testing.T) {
+	addresses := deriveRouterAddresses(
+		[]routeros.IPAddress{
+			{Address: "10.0.0.1/24", Interface: "lan"},
+			{Address: "198.51.100.2/32", Interface: "pppoe-out1"},
+			{Address: "192.0.2.1/24", Interface: "disabled", Disabled: "true"},
+		},
+		[]routeros.IPv6Address{
+			{Address: "fc00::1001/64", Interface: "lan"},
+			{Address: "::1/128", Interface: "lo"},
+		},
+	)
+	for _, address := range []string{"10.0.0.1", "198.51.100.2", "fc00::1001", "0:0:0:0:0:0:0:1"} {
+		if got := terminalIdentity("", address, addresses); got != routerTerminalID {
+			t.Errorf("expected %s to use %s, got %s", address, routerTerminalID, got)
+		}
+	}
+	if got := terminalIdentity("", "192.0.2.1", addresses); got == routerTerminalID {
+		t.Fatal("disabled address must not identify RouterOS self")
+	}
+	if got := preferredRouterAddress(addresses, "ipv4"); got != "10.0.0.1" {
+		t.Fatalf("expected LAN IPv4 to be preferred, got %s", got)
+	}
+	if got := preferredRouterAddress(addresses, "ipv6"); got != "fc00::1001" {
+		t.Fatalf("expected LAN IPv6 to be preferred, got %s", got)
 	}
 }

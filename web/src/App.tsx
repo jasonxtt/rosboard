@@ -82,6 +82,15 @@ type Terminal = {
   primaryIpv6: string
   state: 'online' | 'idle' | 'offline'
   onlineSince: string
+  familyStats: Record<'ipv4' | 'ipv6', TerminalFamilyStats>
+}
+
+type TerminalFamilyStats = {
+  connectionCount: number
+  currentUploadBps: number
+  currentDownloadBps: number
+  activeUploadBytes: number
+  activeDownloadBytes: number
 }
 
 type CapabilityNote = {
@@ -733,8 +742,8 @@ function TerminalsPage(props: {
             <SortHeader label="连接数" sortKey="connections" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="上行速率" sortKey="upload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="下行速率" sortKey="download" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="累计上行" sortKey="totalUpload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="累计下行" sortKey="totalDownload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label={props.family === 'all' ? '累计上行' : '活动累计上行'} sortKey="totalUpload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label={props.family === 'all' ? '累计下行' : '活动累计下行'} sortKey="totalDownload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="在线时长" sortKey="online" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="接口" sortKey="interface" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="设备" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
@@ -744,14 +753,15 @@ function TerminalsPage(props: {
           <tbody>
             {rows.map((terminal) => {
               const mainAddress = terminalPrimaryAddress(terminal, props.family)
+              const metrics = terminalMetrics(terminal, props.family)
               const addressCount = props.family === 'ipv4' ? terminal.ipv4.length : props.family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
               return <tr key={terminal.id}>
                 <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
                   <strong>{mainAddress || '-'}</strong>
                   <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{addressCount > 1 ? `  +${addressCount - 1}` : ''}</span>
                 </button></td>
-                <td>{terminal.connectionCount}</td><td>{formatBits(terminal.currentUploadBps)}</td><td>{formatBits(terminal.currentDownloadBps)}</td>
-                <td>{formatBytes(terminal.totalUploadBytes)}</td><td>{formatBytes(terminal.totalDownloadBytes)}</td>
+                <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
+                <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
                 <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'offline' ? '-' : formatOnlineDuration(terminal.onlineSince)}</td>
                 <td>{terminal.primaryInterface || '-'}</td>
                 <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== mainAddress ? terminal.displayName : '-'}</td>
@@ -1207,18 +1217,34 @@ function terminalPrimaryAddress(terminal: Terminal, family: TerminalFamily) {
   return terminal.primaryIpv4 || terminal.primaryIpv6 || '-'
 }
 
+function terminalMetrics(terminal: Terminal, family: TerminalFamily) {
+  if (family === 'all' || !terminal.familyStats?.[family]) {
+    return terminal
+  }
+  const stats = terminal.familyStats[family]
+  return {
+    connectionCount: stats.connectionCount,
+    currentUploadBps: stats.currentUploadBps,
+    currentDownloadBps: stats.currentDownloadBps,
+    totalUploadBytes: stats.activeUploadBytes,
+    totalDownloadBytes: stats.activeDownloadBytes,
+  }
+}
+
 function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey, family: TerminalFamily) {
   const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
+  const leftMetrics = terminalMetrics(left, family)
+  const rightMetrics = terminalMetrics(right, family)
   switch (key) {
     case 'address':
       if (family === 'ipv4') return compareIp(left.primaryIpv4, right.primaryIpv4) || text(left.macAddress, right.macAddress)
       if (family === 'ipv6') return compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
       return compareIp(left.primaryIpv4, right.primaryIpv4) || compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
-    case 'connections': return left.connectionCount - right.connectionCount
-    case 'upload': return left.currentUploadBps - right.currentUploadBps
-    case 'download': return left.currentDownloadBps - right.currentDownloadBps
-    case 'totalUpload': return left.totalUploadBytes - right.totalUploadBytes
-    case 'totalDownload': return left.totalDownloadBytes - right.totalDownloadBytes
+    case 'connections': return leftMetrics.connectionCount - rightMetrics.connectionCount
+    case 'upload': return leftMetrics.currentUploadBps - rightMetrics.currentUploadBps
+    case 'download': return leftMetrics.currentDownloadBps - rightMetrics.currentDownloadBps
+    case 'totalUpload': return leftMetrics.totalUploadBytes - rightMetrics.totalUploadBytes
+    case 'totalDownload': return leftMetrics.totalDownloadBytes - rightMetrics.totalDownloadBytes
     case 'online': return new Date(left.onlineSince || 0).getTime() - new Date(right.onlineSince || 0).getTime()
     case 'interface': return text(left.primaryInterface, right.primaryInterface)
     case 'device': return text(left.displayName, right.displayName)

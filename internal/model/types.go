@@ -70,24 +70,33 @@ type InterfaceDetail struct {
 }
 
 type Terminal struct {
-	ID                 string    `json:"id"`
-	DisplayName        string    `json:"displayName"`
-	Remark             string    `json:"remark"`
-	MACAddress         string    `json:"macAddress"`
-	PrimaryInterface   string    `json:"primaryInterface"`
-	IPv4               []string  `json:"ipv4"`
-	IPv6               []string  `json:"ipv6"`
-	ConnectionCount    int       `json:"connectionCount"`
-	CurrentUploadBps   float64   `json:"currentUploadBps"`
-	CurrentDownloadBps float64   `json:"currentDownloadBps"`
-	TotalUploadBytes   int64     `json:"totalUploadBytes"`
-	TotalDownloadBytes int64     `json:"totalDownloadBytes"`
-	TrackingSince      time.Time `json:"trackingSince"`
-	LastSeen           time.Time `json:"lastSeen"`
-	PrimaryIPv4        string    `json:"primaryIpv4"`
-	PrimaryIPv6        string    `json:"primaryIpv6"`
-	State              string    `json:"state"`
-	OnlineSince        time.Time `json:"onlineSince"`
+	ID                 string                         `json:"id"`
+	DisplayName        string                         `json:"displayName"`
+	Remark             string                         `json:"remark"`
+	MACAddress         string                         `json:"macAddress"`
+	PrimaryInterface   string                         `json:"primaryInterface"`
+	IPv4               []string                       `json:"ipv4"`
+	IPv6               []string                       `json:"ipv6"`
+	ConnectionCount    int                            `json:"connectionCount"`
+	CurrentUploadBps   float64                        `json:"currentUploadBps"`
+	CurrentDownloadBps float64                        `json:"currentDownloadBps"`
+	TotalUploadBytes   int64                          `json:"totalUploadBytes"`
+	TotalDownloadBytes int64                          `json:"totalDownloadBytes"`
+	TrackingSince      time.Time                      `json:"trackingSince"`
+	LastSeen           time.Time                      `json:"lastSeen"`
+	PrimaryIPv4        string                         `json:"primaryIpv4"`
+	PrimaryIPv6        string                         `json:"primaryIpv6"`
+	State              string                         `json:"state"`
+	OnlineSince        time.Time                      `json:"onlineSince"`
+	FamilyStats        map[string]TerminalFamilyStats `json:"familyStats"`
+}
+
+type TerminalFamilyStats struct {
+	ConnectionCount     int     `json:"connectionCount"`
+	CurrentUploadBps    float64 `json:"currentUploadBps"`
+	CurrentDownloadBps  float64 `json:"currentDownloadBps"`
+	ActiveUploadBytes   int64   `json:"activeUploadBytes"`
+	ActiveDownloadBytes int64   `json:"activeDownloadBytes"`
 }
 
 type TerminalConnection struct {
