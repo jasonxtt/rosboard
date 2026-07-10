@@ -76,6 +76,12 @@ func (c *Client) IPAddresses(ctx context.Context) ([]IPAddress, error) {
 	return payload, err
 }
 
+func (c *Client) IPv6Addresses(ctx context.Context) ([]IPv6Address, error) {
+	var payload []IPv6Address
+	err := c.getJSON(ctx, "/rest/ipv6/address", &payload)
+	return payload, err
+}
+
 func (c *Client) DHCPLeases(ctx context.Context) ([]DHCPLease, error) {
 	var payload []DHCPLease
 	err := c.getJSON(ctx, "/rest/ip/dhcp-server/lease", &payload)

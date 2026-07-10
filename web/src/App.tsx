@@ -157,11 +157,13 @@ type TerminalDetail = {
   flowCategories: TerminalFlowCategory[]
   history: TerminalHistoryEntry[]
   capabilities: TerminalCapability[]
+  familySummaries: Record<'ipv4' | 'ipv6', Terminal>
+  familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
 type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes'
 type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
-type ConnectionFamily = 'ipv4' | 'ipv6'
+type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
 
 function App() {
@@ -172,7 +174,8 @@ function App() {
   const [selectedTerminalID, setSelectedTerminalID] = useState<string | null>(null)
   const [terminalDetail, setTerminalDetail] = useState<TerminalDetail | null>(null)
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('basic')
-  const [connectionFamily, setConnectionFamily] = useState<ConnectionFamily>('ipv4')
+  const [connectionFamily, setConnectionFamily] = useState<ConnectionFamily>('all')
+  const [detailScope, setDetailScope] = useState<TerminalFamily>('all')
   const [remarkModalOpen, setRemarkModalOpen] = useState(false)
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
@@ -382,7 +385,7 @@ function App() {
             <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
             <p className="topbar-subtitle">
               {detailMode
-                ? `状态监控 > 终端监控 > ${currentTerminal?.ipv4[0] ? 'IPv4' : 'IPv6'}`
+                ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
                 : `更新时间 ${formatDateTime(dashboard.overview.updatedAt)}`}
             </p>
           </div>
@@ -413,6 +416,7 @@ function App() {
         {activeView === 'terminals' && !detailMode ? (
           <TerminalsPage
             terminals={filteredTerminals}
+            family={terminalFamily}
             query={query}
             onQueryChange={setQuery}
             refreshMs={dashboardRefreshMs}
@@ -421,7 +425,8 @@ function App() {
             onOpenDetail={(terminalID) => {
               setSelectedTerminalID(terminalID)
               setTerminalTab('basic')
-              setConnectionFamily('ipv4')
+              setDetailScope(terminalFamily)
+              setConnectionFamily(terminalFamily)
             }}
             onOpenRemark={(terminal) => {
               setSelectedTerminalID(terminal.id)
@@ -436,6 +441,7 @@ function App() {
             detail={terminalDetail}
             activeTab={terminalTab}
             connectionFamily={connectionFamily}
+            scope={detailScope}
             onBack={() => {
               setSelectedTerminalID(null)
               setTerminalDetail(null)
@@ -662,6 +668,7 @@ type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'tota
 
 function TerminalsPage(props: {
   terminals: Terminal[]
+  family: TerminalFamily
   query: string
   onQueryChange: (value: string) => void
   refreshMs: number
@@ -683,10 +690,10 @@ function TerminalsPage(props: {
       (interfaceFilter === 'all' || terminal.primaryInterface === interfaceFilter),
     )
     return [...visible].sort((left, right) => {
-      const comparison = compareTerminal(left, right, sortKey)
+      const comparison = compareTerminal(left, right, sortKey, props.family)
       return sortDirection === 'asc' ? comparison : -comparison
     })
-  }, [props.terminals, stateFilter, interfaceFilter, sortKey, sortDirection])
+  }, [props.terminals, props.family, stateFilter, interfaceFilter, sortKey, sortDirection])
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const rows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -735,21 +742,23 @@ function TerminalsPage(props: {
             <th>操作</th>
           </tr></thead>
           <tbody>
-            {rows.map((terminal) => (
-              <tr key={terminal.id}>
+            {rows.map((terminal) => {
+              const mainAddress = terminalPrimaryAddress(terminal, props.family)
+              const addressCount = props.family === 'ipv4' ? terminal.ipv4.length : props.family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
+              return <tr key={terminal.id}>
                 <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
-                  <strong>{terminal.primaryIpv4 || terminal.primaryIpv6 || '-'}</strong>
-                  <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{terminal.ipv4.length + terminal.ipv6.length > 2 ? `  +${terminal.ipv4.length + terminal.ipv6.length - 2}` : ''}</span>
+                  <strong>{mainAddress || '-'}</strong>
+                  <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{addressCount > 1 ? `  +${addressCount - 1}` : ''}</span>
                 </button></td>
                 <td>{terminal.connectionCount}</td><td>{formatBits(terminal.currentUploadBps)}</td><td>{formatBits(terminal.currentDownloadBps)}</td>
                 <td>{formatBytes(terminal.totalUploadBytes)}</td><td>{formatBytes(terminal.totalDownloadBytes)}</td>
                 <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'offline' ? '-' : formatOnlineDuration(terminal.onlineSince)}</td>
                 <td>{terminal.primaryInterface || '-'}</td>
-                <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== terminal.primaryIpv4 ? terminal.displayName : '-'}</td>
+                <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== mainAddress ? terminal.displayName : '-'}</td>
                 <td>{terminal.remark || '-'}</td>
                 <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>修改备注</button></div></td>
               </tr>
-            ))}
+            })}
           </tbody>
         </table>
       </div>
@@ -771,15 +780,18 @@ function TerminalDetailPage(props: {
   detail: TerminalDetail
   activeTab: TerminalTab
   connectionFamily: ConnectionFamily
+  scope: TerminalFamily
   onBack: () => void
   onTabChange: (value: TerminalTab) => void
   onConnectionFamilyChange: (value: ConnectionFamily) => void
 }) {
   const ipv4Connections = props.detail.connections.filter((item) => item.family === 'ipv4')
   const ipv6Connections = props.detail.connections.filter((item) => item.family === 'ipv6')
+  const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
+  const visibleFlows = props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? [])
   const [connectionQuery, setConnectionQuery] = useState('')
   const [protocolFilter, setProtocolFilter] = useState('all')
-  const familyConnections = props.connectionFamily === 'ipv4' ? ipv4Connections : ipv6Connections
+  const familyConnections = props.connectionFamily === 'all' ? props.detail.connections : props.connectionFamily === 'ipv4' ? ipv4Connections : ipv6Connections
   const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
   const visibleConnections = familyConnections.filter((connection) =>
     (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
@@ -791,12 +803,12 @@ function TerminalDetailPage(props: {
     <section className="detail-page">
       <div className="detail-page-head">
         <div className="detail-summary">
-          <DetailSummary label="主地址" value={props.detail.terminal.primaryIpv4 || props.detail.terminal.primaryIpv6 || '-'} />
-          <DetailSummary label="MAC" value={props.detail.terminal.macAddress || '-'} />
-          <DetailSummary label="状态" value={terminalStateText(props.detail.terminal.state)} />
-          <DetailSummary label="连接" value={`${props.detail.terminal.connectionCount}`} />
-          <DetailSummary label="当前上行" value={formatBits(props.detail.terminal.currentUploadBps)} />
-          <DetailSummary label="当前下行" value={formatBits(props.detail.terminal.currentDownloadBps)} />
+          <DetailSummary label="主地址" value={terminalPrimaryAddress(summary, props.scope)} />
+          <DetailSummary label="MAC" value={summary.macAddress || '-'} />
+          <DetailSummary label="状态" value={terminalStateText(summary.state)} />
+          <DetailSummary label="连接" value={`${summary.connectionCount}`} />
+          <DetailSummary label="当前上行" value={formatBits(summary.currentUploadBps)} />
+          <DetailSummary label="当前下行" value={formatBits(summary.currentDownloadBps)} />
         </div>
         <div className="detail-head-actions">
           <button type="button" className="close-button" onClick={props.onBack}>
@@ -809,25 +821,25 @@ function TerminalDetailPage(props: {
         <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
         <TabButton label="连接详情" active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
-        <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} />
+        {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
       </div>
 
       <section className="panel detail-panel">
         {props.activeTab === 'basic' ? (
           <div className="detail-grid">
-            <DetailItem label="IP 地址" value={props.detail.terminal.ipv4.join(' / ') || '-'} />
-            <DetailItem label="IPv6 地址" value={props.detail.terminal.ipv6.join(' / ') || '-'} />
-            <DetailItem label="MAC 地址" value={props.detail.terminal.macAddress || '-'} />
-            <DetailItem label="接入接口" value={props.detail.terminal.primaryInterface || '-'} />
-            <DetailItem label="连接数（IPv4+IPv6）" value={`${props.detail.terminal.connectionCount}`} />
-            <DetailItem label="本次在线时长" value={props.detail.terminal.state === 'offline' ? '-' : formatOnlineDuration(props.detail.terminal.onlineSince)} />
-            <DetailItem label="当前上行速率" value={formatBits(props.detail.terminal.currentUploadBps)} />
-            <DetailItem label="当前下行速率" value={formatBits(props.detail.terminal.currentDownloadBps)} />
-            <DetailItem label="累计上行" value={formatBytes(props.detail.terminal.totalUploadBytes)} />
-            <DetailItem label="累计下行" value={formatBytes(props.detail.terminal.totalDownloadBytes)} />
-            <DetailItem label="备注" value={props.detail.terminal.remark || '-'} />
-            <DetailItem label="面板开始统计" value={formatDateTime(props.detail.terminal.trackingSince)} />
-            <DetailItem label="最后活动时间" value={formatDateTime(props.detail.terminal.lastSeen)} />
+            {props.scope !== 'ipv6' ? <DetailItem label="IPv4 地址" value={summary.ipv4.join(' / ') || '-'} /> : null}
+            {props.scope !== 'ipv4' ? <DetailItem label="IPv6 地址" value={summary.ipv6.join(' / ') || '-'} /> : null}
+            <DetailItem label="MAC 地址" value={summary.macAddress || '-'} />
+            <DetailItem label="接入接口" value={summary.primaryInterface || '-'} />
+            <DetailItem label={props.scope === 'all' ? '连接数（IPv4+IPv6）' : `${props.scope.toUpperCase()} 连接数`} value={`${summary.connectionCount}`} />
+            <DetailItem label="本次在线时长" value={summary.state === 'offline' ? '-' : formatOnlineDuration(summary.onlineSince)} />
+            <DetailItem label="当前上行速率" value={formatBits(summary.currentUploadBps)} />
+            <DetailItem label="当前下行速率" value={formatBits(summary.currentDownloadBps)} />
+            <DetailItem label={props.scope === 'all' ? '累计上行' : '活动连接累计上行'} value={formatBytes(summary.totalUploadBytes)} />
+            <DetailItem label={props.scope === 'all' ? '累计下行' : '活动连接累计下行'} value={formatBytes(summary.totalDownloadBytes)} />
+            <DetailItem label="备注" value={summary.remark || '-'} />
+            <DetailItem label="面板开始统计" value={formatDateTime(summary.trackingSince)} />
+            <DetailItem label="最后活动时间" value={formatDateTime(summary.lastSeen)} />
           </div>
         ) : null}
 
@@ -835,16 +847,25 @@ function TerminalDetailPage(props: {
           <div>
             <div className="connection-toolbar">
               <div className="family-switch">
+              {props.scope === 'all' ? <TabButton
+                label={`全部连接 (${props.detail.connections.length})`}
+                active={props.connectionFamily === 'all'}
+                onClick={() => props.onConnectionFamilyChange('all')}
+              /> : null}
+              {props.scope !== 'ipv6' ? (
               <TabButton
                 label={`IPv4 连接详情 (${ipv4Connections.length})`}
                 active={props.connectionFamily === 'ipv4'}
                 onClick={() => props.onConnectionFamilyChange('ipv4')}
               />
+              ) : null}
+              {props.scope !== 'ipv4' ? (
               <TabButton
                 label={`IPv6 连接详情 (${ipv6Connections.length})`}
                 active={props.connectionFamily === 'ipv6'}
                 onClick={() => props.onConnectionFamilyChange('ipv6')}
               />
+              ) : null}
               </div>
               <select value={protocolFilter} onChange={(event) => setProtocolFilter(event.target.value)} aria-label="连接协议">
                 <option value="all">全部协议</option>{protocols.map((protocol) => <option key={protocol} value={protocol}>{protocol}</option>)}
@@ -873,7 +894,7 @@ function TerminalDetailPage(props: {
                   {visibleConnections.length === 0 ? (
                     <tr>
                       <td colSpan={13} className="empty-row">
-                        当前没有 {props.connectionFamily.toUpperCase()} 连接详情
+                        当前没有 {props.connectionFamily === 'all' ? '活动' : props.connectionFamily.toUpperCase()} 连接详情
                       </td>
                     </tr>
                   ) : (
@@ -915,14 +936,14 @@ function TerminalDetailPage(props: {
                   </tr>
                 </thead>
                 <tbody>
-                  {props.detail.flowCategories.length === 0 ? (
+                  {visibleFlows.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="empty-row">
                         当前暂无足够连接用于估算流量分布
                       </td>
                     </tr>
                   ) : (
-                    props.detail.flowCategories.map((flow) => (
+                    visibleFlows.map((flow) => (
                       <tr key={flow.name}>
                         <td>{flow.name}</td>
                         <td>{formatBits(flow.currentUploadBps)}</td>
@@ -1180,10 +1201,19 @@ function formatOnlineDuration(trackingSince: string) {
   return formatSeconds(seconds)
 }
 
-function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey) {
+function terminalPrimaryAddress(terminal: Terminal, family: TerminalFamily) {
+  if (family === 'ipv4') return terminal.primaryIpv4 || '-'
+  if (family === 'ipv6') return terminal.primaryIpv6 || '-'
+  return terminal.primaryIpv4 || terminal.primaryIpv6 || '-'
+}
+
+function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey, family: TerminalFamily) {
   const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
   switch (key) {
-    case 'address': return compareIp(left.primaryIpv4, right.primaryIpv4) || compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
+    case 'address':
+      if (family === 'ipv4') return compareIp(left.primaryIpv4, right.primaryIpv4) || text(left.macAddress, right.macAddress)
+      if (family === 'ipv6') return compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
+      return compareIp(left.primaryIpv4, right.primaryIpv4) || compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
     case 'connections': return left.connectionCount - right.connectionCount
     case 'upload': return left.currentUploadBps - right.currentUploadBps
     case 'download': return left.currentDownloadBps - right.currentDownloadBps

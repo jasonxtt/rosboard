@@ -135,11 +135,13 @@ type TerminalCapability struct {
 }
 
 type TerminalDetail struct {
-	Terminal       Terminal               `json:"terminal"`
-	Connections    []TerminalConnection   `json:"connections"`
-	FlowCategories []TerminalFlowCategory `json:"flowCategories"`
-	History        []TerminalHistoryEntry `json:"history"`
-	Capabilities   []TerminalCapability   `json:"capabilities"`
+	Terminal        Terminal                          `json:"terminal"`
+	Connections     []TerminalConnection              `json:"connections"`
+	FlowCategories  []TerminalFlowCategory            `json:"flowCategories"`
+	History         []TerminalHistoryEntry            `json:"history"`
+	Capabilities    []TerminalCapability              `json:"capabilities"`
+	FamilySummaries map[string]Terminal               `json:"familySummaries"`
+	FamilyFlows     map[string][]TerminalFlowCategory `json:"familyFlows"`
 }
 
 type CapabilityNote struct {
