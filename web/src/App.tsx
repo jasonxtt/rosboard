@@ -525,7 +525,7 @@ function OverviewPage(props: { dashboard: DashboardResponse }) {
           value={`${props.dashboard.overview.memoryUsedPercent.toFixed(1)}%`}
           detail={`${formatBytes(props.dashboard.overview.memoryUsedBytes)} / ${formatBytes(props.dashboard.overview.memoryTotalBytes)}`}
         />
-        <StatusTile label="连接设备" value={`${props.dashboard.overview.connectedDeviceCount} 台`} detail="在线 / 空闲 LAN 终端" />
+        <StatusTile label="连接设备" value={`${props.dashboard.overview.connectedDeviceCount} 台`} detail="仅在线 LAN 终端" />
         <StatusTile label="连接数" value={`${props.dashboard.overview.connectionCount}`} detail="IPv4 + IPv6 conntrack" />
         <StatusTile label="WAN 上行速率" value={formatBits(props.dashboard.overview.uploadBps)} detail={`TX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />
         <StatusTile label="WAN 下行速率" value={formatBits(props.dashboard.overview.downloadBps)} detail={`RX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />

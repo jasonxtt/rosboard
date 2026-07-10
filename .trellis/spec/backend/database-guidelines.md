@@ -1,51 +1,68 @@
 # Database Guidelines
 
-> Database patterns and conventions for this project.
+## Scenario: Merge a temporary terminal identity into a stable identity
 
----
+### 1. Scope / Trigger
 
-## Overview
+- Trigger: changes to terminal identity correlation or `Store.MergeTerminal` that move persisted data from an `addr:` identity to a `mac:` or `routeros:self` identity.
+- SQLite writes remain local panel state; they never write RouterOS configuration.
 
-<!--
-Document your project's database conventions here.
+### 2. Signatures
 
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
+- Store method: `MergeTerminal(ctx context.Context, fromID, toID string) error`.
+- Address key: `PRIMARY KEY (terminal_id, family, address)` in `terminal_addresses`.
+- Related rows: `terminal_totals`, `terminal_addresses`, `connection_state`, and `terminals` are updated in one transaction.
 
-(To be filled by the team)
+### 3. Contracts
 
----
+- Empty IDs and identical IDs are no-ops.
+- A source and target may already contain the same `(family, address)`; this is normal when neighbor discovery and MAC correlation overlap.
+- Address moves use insert/upsert into the target followed by deletion from the source. On conflict, retain `max(existing.last_seen, incoming.last_seen)`.
+- Do not delete source addresses until all target upserts succeed.
+- Totals, addresses, connection ownership, and source-terminal deletion commit atomically; any error rolls back the full merge.
+- A merge failure prevents `Monitor.refresh` from publishing its newly collected snapshot, so persistent failures appear in the UI as a frozen `updatedAt` and unchanged metrics.
 
-## Query Patterns
+### 4. Validation & Error Matrix
 
-<!-- How should queries be written? Batch operations? -->
+- `fromID == ""`, `toID == ""`, or IDs equal -> return nil without writes.
+- Source address absent from target -> insert it under target and remove it from source.
+- Source address already exists under target -> keep one target row with the greater `last_seen`, then remove the source row.
+- Any target address upsert fails -> roll back totals and all identity changes.
+- Dashboard `updatedAt` stops advancing -> inspect monitor logs for storage errors before changing frontend polling.
 
-(To be filled by the team)
+### 5. Good/Base/Bad Cases
 
----
+- Good: an IPv6 `addr:fc00::20` identity merges into a known MAC that already owns `fc00::20`; one target row survives with the newest timestamp.
+- Base: a source identity has only new addresses; all move to the target.
+- Bad: directly update `terminal_id` when the target can already own the same address; SQLite raises a unique-key error and every later monitor snapshot remains unpublished.
+- Bad: repair a merge conflict by deleting the database; this discards history and hides the identity-correlation defect.
 
-## Migrations
+### 6. Tests Required
 
-<!-- How to create and run migrations -->
+- Store unit: source and target share an address; merge succeeds and exactly one target row remains.
+- Store unit: merged duplicate uses the greater `last_seen` and a source-only address also moves.
+- Store unit: source address rows are empty after merge.
+- Live regression: use the existing database, verify monitor logs contain no merge constraint errors, and verify `/api/dashboard.overview.updatedAt` advances across at least two poll intervals.
 
-(To be filled by the team)
+### 7. Wrong vs Correct
 
----
+#### Wrong
 
-## Naming Conventions
+```sql
+UPDATE terminal_addresses
+SET terminal_id = :to_id
+WHERE terminal_id = :from_id;
+```
 
-<!-- Table names, column names, index names -->
+#### Correct
 
-(To be filled by the team)
+```sql
+INSERT INTO terminal_addresses (terminal_id, family, address, last_seen)
+SELECT :to_id, family, address, last_seen
+FROM terminal_addresses
+WHERE terminal_id = :from_id
+ON CONFLICT(terminal_id, family, address) DO UPDATE SET
+  last_seen = max(terminal_addresses.last_seen, excluded.last_seen);
 
----
-
-## Common Mistakes
-
-<!-- Database-related mistakes your team has made -->
-
-(To be filled by the team)
+DELETE FROM terminal_addresses WHERE terminal_id = :from_id;
+```

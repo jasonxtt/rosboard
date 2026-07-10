@@ -1111,7 +1111,7 @@ func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []str
 
 	count := 0
 	for _, terminal := range terminals {
-		if terminal.ID == routerTerminalID || terminal.State == "offline" {
+		if terminal.ID == routerTerminalID || terminal.State != "online" {
 			continue
 		}
 		if terminal.PrimaryInterface != "" && excludedTerminalInterface(terminal.PrimaryInterface, trafficSet) {
