@@ -171,3 +171,36 @@ Reworked terminal monitoring and details, added full-interface rates and history
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: 澄清 RouterOS 本机连接跟踪状态
+
+**Date**: 2026-07-10
+**Task**: 澄清 RouterOS 本机连接跟踪状态
+**Branch**: `main`
+
+### Summary
+
+将 RouterOS 合成终端改名为本机连接跟踪，贯通 seen-reply/assured 字段并显示 Winbox S/A 标志、已见/未见回包统计和 IPv6 端点括号格式；完整质量门禁通过，8080 以明确标注的 14:04 快照回放启动供局域网 UI 审阅，实时数据等待当前 REST 密码。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `023a8d0` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

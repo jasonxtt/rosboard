@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-07-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~173 | Active |
+| `journal-1.md` | ~206 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-07-10 | 澄清 RouterOS 本机连接跟踪状态 | `023a8d0` | `main` |
 | 5 | 2026-07-10 | 审计 RouterOS 本机 IPv6 连接归属 | `7c2c6ef` | `main` |
 | 4 | 2026-07-10 | 归属 RouterOS 本机 IPv6 连接并发布局域网实例 | `a5d1985`, `da3bdae` | `main` |
 | 3 | 2026-07-10 | 修复 IPv6 终端归属与详情范围 | `833be38` | `main` |
