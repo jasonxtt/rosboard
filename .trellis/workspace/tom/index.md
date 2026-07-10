@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-07-10
+- **Total Sessions**: 9
+- **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~272 | Active |
+| `journal-1.md` | ~305 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-07-11 | Polish terminal monitor controls | `1fff20e` | `main` |
 | 8 | 2026-07-10 | Fix online device count and live refresh | `aea8617` | `main` |
 | 7 | 2026-07-10 | Restore live terminal and overview metrics | `b964136` | `main` |
 | 6 | 2026-07-10 | 澄清 RouterOS 本机连接跟踪状态 | `023a8d0` | `main` |

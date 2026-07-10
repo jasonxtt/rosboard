@@ -270,3 +270,36 @@ Changed the overview device count to online-only, fixed duplicate terminal-addre
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Polish terminal monitor controls
+
+**Date**: 2026-07-11
+**Task**: Polish terminal monitor controls
+**Branch**: `main`
+
+### Summary
+
+Defaulted terminal lists to online devices, added an inactive-device toggle, aligned toolbar control sizing, removed native black borders from text-like device and action buttons, preserved keyboard focus visibility, rebuilt the UI, and verified the live LAN panel.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1fff20e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
