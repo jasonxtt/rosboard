@@ -29,6 +29,8 @@ type Overview = {
   storageUsedPercent: number
   storageUsedBytes: number
   storageTotalBytes: number
+  connectedDeviceCount: number
+  connectionCount: number
   uploadBps: number
   downloadBps: number
   trafficInterfaces: string[]
@@ -403,8 +405,8 @@ function App() {
           <div className="topbar-metrics">
             <span>CPU: {dashboard.overview.cpuLoadPercent}%</span>
             <span>内存: {dashboard.overview.memoryUsedPercent.toFixed(1)}%</span>
-            <span>上行速率: {formatBits(dashboard.overview.uploadBps)}</span>
-            <span>下行速率: {formatBits(dashboard.overview.downloadBps)}</span>
+            <span>WAN上行: {formatBits(dashboard.overview.uploadBps)}</span>
+            <span>WAN下行: {formatBits(dashboard.overview.downloadBps)}</span>
           </div>
         </header>
 
@@ -523,8 +525,10 @@ function OverviewPage(props: { dashboard: DashboardResponse }) {
           value={`${props.dashboard.overview.memoryUsedPercent.toFixed(1)}%`}
           detail={`${formatBytes(props.dashboard.overview.memoryUsedBytes)} / ${formatBytes(props.dashboard.overview.memoryTotalBytes)}`}
         />
-        <StatusTile label="上行总速率" value={formatBits(props.dashboard.overview.uploadBps)} />
-        <StatusTile label="下行总速率" value={formatBits(props.dashboard.overview.downloadBps)} />
+        <StatusTile label="连接设备" value={`${props.dashboard.overview.connectedDeviceCount} 台`} detail="在线 / 空闲 LAN 终端" />
+        <StatusTile label="连接数" value={`${props.dashboard.overview.connectionCount}`} detail="IPv4 + IPv6 conntrack" />
+        <StatusTile label="WAN 上行速率" value={formatBits(props.dashboard.overview.uploadBps)} detail={`TX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />
+        <StatusTile label="WAN 下行速率" value={formatBits(props.dashboard.overview.downloadBps)} detail={`RX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />
         <StatusTile label="在线接口" value={`${totalConnected}`} />
       </section>
 

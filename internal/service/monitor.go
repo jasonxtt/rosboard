@@ -257,13 +257,9 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	storagePercent := memoryUsedPercent(parseInt(resource.TotalHDD), parseInt(resource.FreeHDD))
 	uploadBps := totalSelectedTXBps(trafficRates, trafficInterfaces)
 	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
-	onlineTerminals := 0
-	for _, terminal := range terminals {
-		if terminal.State != "offline" {
-			onlineTerminals++
-		}
-	}
-	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: onlineTerminals, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
+	connectedDevices := connectedLANDeviceCount(terminals, trafficInterfaces)
+	connectionCount := len(connectionsV4) + len(connectionsV6)
+	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
 		return err
 	}
 
@@ -281,24 +277,26 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	snapshot := model.DashboardSnapshot{
 		Overview: model.Overview{
-			RouterName:         resource.BoardName,
-			Platform:           resource.Platform,
-			Version:            resource.Version,
-			BoardName:          resource.BoardName,
-			Uptime:             formatRouterOSUptime(resource.Uptime),
-			CPULoadPercent:     parseInt(resource.CPULoad),
-			MemoryUsedPercent:  memoryPercent,
-			MemoryUsedBytes:    parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
-			MemoryTotalBytes:   parseInt(resource.TotalMemory),
-			StorageUsedPercent: storagePercent,
-			StorageUsedBytes:   parseInt(resource.TotalHDD) - parseInt(resource.FreeHDD),
-			StorageTotalBytes:  parseInt(resource.TotalHDD),
-			UploadBps:          uploadBps,
-			DownloadBps:        downloadBps,
-			TrafficInterfaces:  trafficInterfaces,
-			HealthEnabled:      strings.EqualFold(health.State, "enabled"),
-			UpdatedAt:          now,
-			ChartSamples:       chartSamples,
+			RouterName:           resource.BoardName,
+			Platform:             resource.Platform,
+			Version:              resource.Version,
+			BoardName:            resource.BoardName,
+			Uptime:               formatRouterOSUptime(resource.Uptime),
+			CPULoadPercent:       parseInt(resource.CPULoad),
+			MemoryUsedPercent:    memoryPercent,
+			MemoryUsedBytes:      parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
+			MemoryTotalBytes:     parseInt(resource.TotalMemory),
+			StorageUsedPercent:   storagePercent,
+			StorageUsedBytes:     parseInt(resource.TotalHDD) - parseInt(resource.FreeHDD),
+			StorageTotalBytes:    parseInt(resource.TotalHDD),
+			ConnectedDeviceCount: connectedDevices,
+			ConnectionCount:      connectionCount,
+			UploadBps:            uploadBps,
+			DownloadBps:          downloadBps,
+			TrafficInterfaces:    trafficInterfaces,
+			HealthEnabled:        strings.EqualFold(health.State, "enabled"),
+			UpdatedAt:            now,
+			ChartSamples:         chartSamples,
 		},
 		Interfaces:   interfaceStatuses,
 		Terminals:    terminals,
@@ -1103,6 +1101,25 @@ func excludedTerminalInterface(name string, trafficSet map[string]struct{}) bool
 	}
 	lower := strings.ToLower(name)
 	return name == "" || lower == "lo" || strings.Contains(lower, "loopback") || strings.Contains(lower, "wan")
+}
+
+func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []string) int {
+	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
+	for _, name := range trafficInterfaces {
+		trafficSet[strings.TrimSpace(name)] = struct{}{}
+	}
+
+	count := 0
+	for _, terminal := range terminals {
+		if terminal.ID == routerTerminalID || terminal.State == "offline" {
+			continue
+		}
+		if terminal.PrimaryInterface != "" && excludedTerminalInterface(terminal.PrimaryInterface, trafficSet) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func parseCIDRs(values []string) []*net.IPNet {
