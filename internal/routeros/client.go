@@ -106,6 +106,36 @@ func (c *Client) FirewallConnectionsV6(ctx context.Context) ([]FirewallConnectio
 	return payload, err
 }
 
+func (c *Client) SimpleQueues(ctx context.Context) ([]SimpleQueue, error) {
+	var payload []SimpleQueue
+	err := c.getJSON(ctx, "/rest/queue/simple", &payload)
+	return payload, err
+}
+
+func (c *Client) QueueTrees(ctx context.Context) ([]QueueTree, error) {
+	var payload []QueueTree
+	err := c.getJSON(ctx, "/rest/queue/tree", &payload)
+	return payload, err
+}
+
+func (c *Client) MangleRules(ctx context.Context) ([]FirewallRule, error) {
+	var payload []FirewallRule
+	err := c.getJSON(ctx, "/rest/ip/firewall/mangle", &payload)
+	return payload, err
+}
+
+func (c *Client) RoutingRules(ctx context.Context) ([]RoutingRule, error) {
+	var payload []RoutingRule
+	err := c.getJSON(ctx, "/rest/routing/rule", &payload)
+	return payload, err
+}
+
+func (c *Client) IPRoutes(ctx context.Context) ([]IPRoute, error) {
+	var payload []IPRoute
+	err := c.getJSON(ctx, "/rest/ip/route", &payload)
+	return payload, err
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
