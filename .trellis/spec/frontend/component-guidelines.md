@@ -1,59 +1,53 @@
 # Component Guidelines
 
-> How components are built in this project.
+## Terminal monitor filter controls
 
----
+The terminal monitor uses component-local state for table presentation. Its initial state is the product default, while server data remains unchanged.
 
-## Overview
+- Default `stateFilter` to `online` so the first list shows only currently online terminals.
+- Keep the explicit status select for precise filtering.
+- The nearby inactive-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter.
+- Any filter change resets pagination to page 1.
 
-<!--
-Document your project's component conventions here.
+```tsx
+const [stateFilter, setStateFilter] = useState('online')
+const showingInactive = stateFilter !== 'online'
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
+<button
+  type="button"
+  aria-pressed={showingInactive}
+  onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
+>
+  {showingInactive ? '隐藏离线设备' : '显示离线设备'}
+</button>
+```
 
-(To be filled by the team)
+## Toolbar sizing
 
----
+Inputs and selects placed in `.data-toolbar` use a 34px control height. Search inputs should use a bounded width rather than `width: 100%` so they remain visually balanced with adjacent filters.
 
-## Component Structure
+## Text-like buttons
 
-<!-- Standard structure of a component file -->
+Address, detail, and remark actions are native buttons styled as text links. Reset native appearance and borders, but preserve a visible keyboard-only focus ring.
 
-(To be filled by the team)
+```css
+.link-button {
+  appearance: none;
+  border: 0;
+}
 
----
+.link-button:focus { outline: none; }
+.link-button:focus-visible {
+  outline: 2px solid rgba(47, 126, 230, .55);
+  outline-offset: 2px;
+}
+```
 
-## Props Conventions
+Do not use `outline: none` without a matching `:focus-visible` rule; that removes essential keyboard navigation feedback.
 
-<!-- How props should be defined and typed -->
+## Verification
 
-(To be filled by the team)
-
----
-
-## Styling Patterns
-
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Accessibility
-
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+- Browser: initial status is online and no idle/offline rows render.
+- Browser: the toggle expands to all states and returns to online.
+- Computed style: search and select heights are 34px; text-like button border is `0px none`.
+- Keyboard: tab focus on a text-like button displays the blue focus ring.

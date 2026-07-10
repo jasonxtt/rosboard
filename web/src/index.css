@@ -440,13 +440,28 @@ textarea {
 }
 
 .search-input {
-  width: 240px;
+  width: 170px;
+  height: 34px;
+  padding: 0 10px;
 }
 
 .link-button {
+  appearance: none;
   padding: 0;
   color: #2f7ee6;
   background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.link-button:focus {
+  outline: none;
+}
+
+.link-button:focus-visible {
+  outline: 2px solid rgba(47, 126, 230, .55);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .terminal-link {

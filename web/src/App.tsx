@@ -694,7 +694,7 @@ function TerminalsPage(props: {
 }) {
   const [sortKey, setSortKey] = useState<TerminalSortKey>('address')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [stateFilter, setStateFilter] = useState('all')
+  const [stateFilter, setStateFilter] = useState('online')
   const [interfaceFilter, setInterfaceFilter] = useState('all')
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
@@ -712,6 +712,7 @@ function TerminalsPage(props: {
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const rows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const showingInactive = stateFilter !== 'online'
 
   useEffect(() => setPage(1), [props.query, stateFilter, interfaceFilter, pageSize])
 
@@ -733,6 +734,14 @@ function TerminalsPage(props: {
         <select value={interfaceFilter} onChange={(event) => setInterfaceFilter(event.target.value)} aria-label="接入接口">
           <option value="all">全部接口</option>{interfaces.map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
+        <button
+          type="button"
+          className={showingInactive ? 'toolbar-button active' : 'toolbar-button'}
+          aria-pressed={showingInactive}
+          onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
+        >
+          {showingInactive ? '隐藏离线设备' : '显示离线设备'}
+        </button>
         <span className="toolbar-spacer" />
         <span className="result-count">共 {sorted.length} 台</span>
         <select value={props.refreshMs} onChange={(event) => props.onRefreshMsChange(Number(event.target.value))} aria-label="自动刷新">
