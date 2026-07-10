@@ -23,6 +23,37 @@ func TestSelectTrafficInterfacesPrefersPPPoE(t *testing.T) {
 	}
 }
 
+func TestSelectedTrafficRatesMapTXToUploadAndRXToDownload(t *testing.T) {
+	rates := map[string]routeros.MonitorTrafficEntry{
+		"pppoe-out1": {RXBitsPerSecond: "125000", TXBitsPerSecond: "750000"},
+		"lan":        {RXBitsPerSecond: "999999", TXBitsPerSecond: "999999"},
+	}
+	selected := []string{"pppoe-out1"}
+
+	if got := totalSelectedTXBps(rates, selected); got != 750000 {
+		t.Fatalf("expected selected TX to be WAN upload, got %.0f", got)
+	}
+	if got := totalSelectedRXBps(rates, selected); got != 125000 {
+		t.Fatalf("expected selected RX to be WAN download, got %.0f", got)
+	}
+}
+
+func TestConnectedLANDeviceCountExcludesRouterOfflineAndWAN(t *testing.T) {
+	terminals := []model.Terminal{
+		{ID: routerTerminalID, State: "online", PrimaryInterface: "lan"},
+		{ID: "lan-online", State: "online", PrimaryInterface: "lan"},
+		{ID: "vlan-idle", State: "idle", PrimaryInterface: "vlan2-aruba"},
+		{ID: "wan-online", State: "online", PrimaryInterface: "wan"},
+		{ID: "pppoe-online", State: "online", PrimaryInterface: "pppoe-out1"},
+		{ID: "lan-offline", State: "offline", PrimaryInterface: "lan"},
+		{ID: "active-unknown-interface", State: "online"},
+	}
+
+	if got := connectedLANDeviceCount(terminals, []string{"pppoe-out1"}); got != 3 {
+		t.Fatalf("expected 3 connected LAN devices, got %d", got)
+	}
+}
+
 func TestOrientConnectionMapsUploadAndDownloadForLocalSource(t *testing.T) {
 	_, network, _ := net.ParseCIDR("10.0.0.0/24")
 
