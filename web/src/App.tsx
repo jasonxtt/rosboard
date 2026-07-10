@@ -131,6 +131,8 @@ type TerminalConnection = {
   uploadBps: number
   downloadBps: number
   status: string
+  seenReply: boolean
+  assured: boolean
   publicAddress: string
   connectionMark: string
   estimated: boolean
@@ -797,6 +799,10 @@ function TerminalDetailPage(props: {
 }) {
   const ipv4Connections = props.detail.connections.filter((item) => item.family === 'ipv4')
   const ipv6Connections = props.detail.connections.filter((item) => item.family === 'ipv6')
+  const isRouterConntrack = props.detail.terminal.id === 'routeros:self'
+  const scopedConnections = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
+  const repliedConnections = scopedConnections.filter((item) => item.seenReply).length
+  const unrepliedConnections = scopedConnections.length - repliedConnections
   const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
   const visibleFlows = props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? [])
   const [connectionQuery, setConnectionQuery] = useState('')
@@ -816,7 +822,9 @@ function TerminalDetailPage(props: {
           <DetailSummary label="主地址" value={terminalPrimaryAddress(summary, props.scope)} />
           <DetailSummary label="MAC" value={summary.macAddress || '-'} />
           <DetailSummary label="状态" value={terminalStateText(summary.state)} />
-          <DetailSummary label="连接" value={`${summary.connectionCount}`} />
+          <DetailSummary label={isRouterConntrack ? '跟踪条目' : '连接'} value={`${summary.connectionCount}`} />
+          {isRouterConntrack ? <DetailSummary label="已见回包" value={`${repliedConnections}`} /> : null}
+          {isRouterConntrack ? <DetailSummary label="未见回包" value={`${unrepliedConnections}`} /> : null}
           <DetailSummary label="当前上行" value={formatBits(summary.currentUploadBps)} />
           <DetailSummary label="当前下行" value={formatBits(summary.currentDownloadBps)} />
         </div>
@@ -829,7 +837,7 @@ function TerminalDetailPage(props: {
 
       <div className="tab-row detail-tabs">
         <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
-        <TabButton label="连接详情" active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
+        <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
         {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
       </div>
@@ -841,7 +849,9 @@ function TerminalDetailPage(props: {
             {props.scope !== 'ipv4' ? <DetailItem label="IPv6 地址" value={summary.ipv6.join(' / ') || '-'} /> : null}
             <DetailItem label="MAC 地址" value={summary.macAddress || '-'} />
             <DetailItem label="接入接口" value={summary.primaryInterface || '-'} />
-            <DetailItem label={props.scope === 'all' ? '连接数（IPv4+IPv6）' : `${props.scope.toUpperCase()} 连接数`} value={`${summary.connectionCount}`} />
+            <DetailItem label={isRouterConntrack ? (props.scope === 'all' ? 'conntrack 条目（IPv4+IPv6）' : `${props.scope.toUpperCase()} conntrack 条目`) : (props.scope === 'all' ? '连接数（IPv4+IPv6）' : `${props.scope.toUpperCase()} 连接数`)} value={`${summary.connectionCount}`} />
+            {isRouterConntrack ? <DetailItem label="已见回包（S）" value={`${repliedConnections}`} /> : null}
+            {isRouterConntrack ? <DetailItem label="未见回包" value={`${unrepliedConnections}`} /> : null}
             <DetailItem label="本次在线时长" value={summary.state === 'offline' ? '-' : formatOnlineDuration(summary.onlineSince)} />
             <DetailItem label="当前上行速率" value={formatBits(summary.currentUploadBps)} />
             <DetailItem label="当前下行速率" value={formatBits(summary.currentDownloadBps)} />
@@ -858,20 +868,20 @@ function TerminalDetailPage(props: {
             <div className="connection-toolbar">
               <div className="family-switch">
               {props.scope === 'all' ? <TabButton
-                label={`全部连接 (${props.detail.connections.length})`}
+                label={`${isRouterConntrack ? '全部跟踪条目' : '全部连接'} (${props.detail.connections.length})`}
                 active={props.connectionFamily === 'all'}
                 onClick={() => props.onConnectionFamilyChange('all')}
               /> : null}
               {props.scope !== 'ipv6' ? (
               <TabButton
-                label={`IPv4 连接详情 (${ipv4Connections.length})`}
+                label={`IPv4 ${isRouterConntrack ? '跟踪条目' : '连接详情'} (${ipv4Connections.length})`}
                 active={props.connectionFamily === 'ipv4'}
                 onClick={() => props.onConnectionFamilyChange('ipv4')}
               />
               ) : null}
               {props.scope !== 'ipv4' ? (
               <TabButton
-                label={`IPv6 连接详情 (${ipv6Connections.length})`}
+                label={`IPv6 ${isRouterConntrack ? '跟踪条目' : '连接详情'} (${ipv6Connections.length})`}
                 active={props.connectionFamily === 'ipv6'}
                 onClick={() => props.onConnectionFamilyChange('ipv6')}
               />
@@ -897,14 +907,15 @@ function TerminalDetailPage(props: {
                     <th>当前下行</th>
                     <th>累计上行</th>
                     <th>累计下行</th>
+                    <th>标志</th>
                     <th>连接状态</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleConnections.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="empty-row">
-                        当前没有 {props.connectionFamily === 'all' ? '活动' : props.connectionFamily.toUpperCase()} 连接详情
+                      <td colSpan={14} className="empty-row">
+                        当前没有 {props.connectionFamily === 'all' ? '活动' : props.connectionFamily.toUpperCase()} {isRouterConntrack ? '跟踪条目' : '连接详情'}
                       </td>
                     </tr>
                   ) : (
@@ -913,7 +924,7 @@ function TerminalDetailPage(props: {
                         <td>{connection.application}</td>
                         <td>{connection.protocol}</td>
                         <td>{connection.line}</td>
-                        <td>{connection.sourceAddress}{connection.sourcePort ? `:${connection.sourcePort}` : ''}</td>
+                        <td>{formatEndpoint(connection.sourceAddress, connection.sourcePort)}</td>
                         <td>{connection.destinationAddress}</td>
                         <td>{connection.destinationPort || '-'}</td>
                         <td>{connection.publicAddress || '-'}</td>
@@ -921,6 +932,7 @@ function TerminalDetailPage(props: {
                         <td>{formatBits(connection.downloadBps)}</td>
                         <td>{formatBytes(connection.uploadBytes)}</td>
                         <td>{formatBytes(connection.downloadBytes)}</td>
+                        <td><span className="connection-flags" title="S=已见回包，A=Assured">{connection.seenReply ? 'S' : '-'} {connection.assured ? 'A' : '-'}</span></td>
                         <td>{connection.status}</td>
                       </tr>
                     ))
@@ -1215,6 +1227,11 @@ function terminalPrimaryAddress(terminal: Terminal, family: TerminalFamily) {
   if (family === 'ipv4') return terminal.primaryIpv4 || '-'
   if (family === 'ipv6') return terminal.primaryIpv6 || '-'
   return terminal.primaryIpv4 || terminal.primaryIpv6 || '-'
+}
+
+function formatEndpoint(address: string, port: string) {
+  if (!port) return address
+  return address.includes(':') ? `[${address}]:${port}` : `${address}:${port}`
 }
 
 function terminalMetrics(terminal: Terminal, family: TerminalFamily) {

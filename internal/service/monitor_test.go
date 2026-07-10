@@ -228,3 +228,20 @@ func TestRouterAddressesShareStableTerminalIdentity(t *testing.T) {
 		t.Fatalf("expected LAN IPv6 to be preferred, got %s", got)
 	}
 }
+
+func TestConnectionStatusUsesWinboxReplyAndAssuredFlags(t *testing.T) {
+	tests := []struct {
+		seenReply string
+		assured   string
+		want      string
+	}{
+		{seenReply: "false", assured: "false", want: "未见回包"},
+		{seenReply: "true", assured: "false", want: "已见回包"},
+		{seenReply: "true", assured: "true", want: "已见回包 · Assured"},
+	}
+	for _, test := range tests {
+		if got := connectionStatus(test.seenReply, test.assured); got != test.want {
+			t.Errorf("connectionStatus(%q, %q) = %q, want %q", test.seenReply, test.assured, got, test.want)
+		}
+	}
+}
