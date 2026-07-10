@@ -237,3 +237,36 @@ Replaced replay-backed acceptance with live RouterOS data, added LAN connected-d
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Fix online device count and live refresh
+
+**Date**: 2026-07-10
+**Task**: Fix online device count and live refresh
+**Branch**: `main`
+
+### Summary
+
+Changed the overview device count to online-only, fixed duplicate terminal-address merges that froze every monitor snapshot, added SQLite and service regressions, rebuilt the UI, and verified live RouterOS metrics continue updating on LAN port 8080.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aea8617` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
