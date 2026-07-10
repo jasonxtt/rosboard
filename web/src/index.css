@@ -619,6 +619,16 @@ textarea {
   font-weight: 500;
 }
 
+.connection-flags {
+  display: inline-block;
+  min-width: 42px;
+  color: #2f7ee6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
 .capability-hint {
   display: flex;
   align-items: center;

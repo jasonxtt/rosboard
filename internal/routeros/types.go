@@ -111,6 +111,7 @@ type FirewallConnection struct {
 	OrigRate        string `json:"orig-rate"`
 	ReplRate        string `json:"repl-rate"`
 	Assured         string `json:"assured"`
+	SeenReply       string `json:"seen-reply"`
 	Fasttrack       string `json:"fasttrack"`
 	ConnectionMark  string `json:"connection-mark"`
 	RoutingMark     string `json:"routing-mark"`

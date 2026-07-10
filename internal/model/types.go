@@ -114,6 +114,8 @@ type TerminalConnection struct {
 	UploadBps          float64 `json:"uploadBps"`
 	DownloadBps        float64 `json:"downloadBps"`
 	Status             string  `json:"status"`
+	SeenReply          bool    `json:"seenReply"`
+	Assured            bool    `json:"assured"`
 	PublicAddress      string  `json:"publicAddress"`
 	ConnectionMark     string  `json:"connectionMark"`
 	Estimated          bool    `json:"estimated"`

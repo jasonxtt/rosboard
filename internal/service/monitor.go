@@ -396,6 +396,7 @@ type terminalBuilder struct {
 }
 
 const routerTerminalID = "routeros:self"
+const routerTerminalDisplayName = "RouterOS 本机连接跟踪"
 
 type routerAssignedAddress struct {
 	Family    string
@@ -466,7 +467,7 @@ func (m *Monitor) buildTerminals(
 		if !exists {
 			displayName := preferredName(nameByAddress[address], nameByMAC[mac], mac, address)
 			if id == routerTerminalID {
-				displayName = "RouterOS 本机"
+				displayName = routerTerminalDisplayName
 				mac = ""
 			}
 			builder = &terminalBuilder{
@@ -591,7 +592,9 @@ func (m *Monitor) buildTerminals(
 				DownloadBytes:      view.CurrentDownloadBytes,
 				UploadBps:          view.UploadBps,
 				DownloadBps:        view.DownloadBps,
-				Status:             connectionStatus(connection.Assured),
+				Status:             connectionStatus(connection.SeenReply, connection.Assured),
+				SeenReply:          parseBool(connection.SeenReply),
+				Assured:            parseBool(connection.Assured),
 				PublicAddress:      view.PublicAddress,
 				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
 				Estimated:          true,
@@ -1331,11 +1334,14 @@ func remotePort(connection routeros.FirewallConnection, localAddress string) str
 	return connection.ReplyDstPort
 }
 
-func connectionStatus(assured string) string {
-	if parseBool(assured) {
-		return "已连接"
+func connectionStatus(seenReply, assured string) string {
+	if !parseBool(seenReply) {
+		return "未见回包"
 	}
-	return "等待"
+	if parseBool(assured) {
+		return "已见回包 · Assured"
+	}
+	return "已见回包"
 }
 
 func sortConnections(connections []model.TerminalConnection) []model.TerminalConnection {
