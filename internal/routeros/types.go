@@ -8,8 +8,10 @@ type SystemResource struct {
 	CPUFrequency     string `json:"cpu-frequency"`
 	CPULoad          string `json:"cpu-load"`
 	FreeMemory       string `json:"free-memory"`
+	FreeHDD          string `json:"free-hdd-space"`
 	Platform         string `json:"platform"`
 	TotalMemory      string `json:"total-memory"`
+	TotalHDD         string `json:"total-hdd-space"`
 	Uptime           string `json:"uptime"`
 	Version          string `json:"version"`
 }
@@ -32,6 +34,12 @@ type Interface struct {
 	ActualMTU      string `json:"actual-mtu"`
 	RXByte         string `json:"rx-byte"`
 	TXByte         string `json:"tx-byte"`
+	RXPacket       string `json:"rx-packet"`
+	TXPacket       string `json:"tx-packet"`
+	RXDrop         string `json:"rx-drop"`
+	TXDrop         string `json:"tx-drop"`
+	RXError        string `json:"rx-error"`
+	TXError        string `json:"tx-error"`
 }
 
 type EthernetInterface struct {
@@ -40,6 +48,8 @@ type EthernetInterface struct {
 	MACAddress string `json:"mac-address"`
 	RXBytes    string `json:"rx-bytes"`
 	TXBytes    string `json:"tx-bytes"`
+	Rate       string `json:"rate"`
+	FullDuplex string `json:"full-duplex"`
 }
 
 type MonitorTrafficEntry struct {
@@ -94,4 +104,57 @@ type FirewallConnection struct {
 	ReplRate        string `json:"repl-rate"`
 	Assured         string `json:"assured"`
 	Fasttrack       string `json:"fasttrack"`
+	ConnectionMark  string `json:"connection-mark"`
+	RoutingMark     string `json:"routing-mark"`
+	Confirmed       string `json:"confirmed"`
+	Dying           string `json:"dying"`
+}
+
+type SimpleQueue struct {
+	Name     string `json:"name"`
+	Target   string `json:"target"`
+	Rate     string `json:"rate"`
+	Bytes    string `json:"bytes"`
+	Packets  string `json:"packets"`
+	Disabled string `json:"disabled"`
+}
+
+type QueueTree struct {
+	Name       string `json:"name"`
+	Parent     string `json:"parent"`
+	PacketMark string `json:"packet-mark"`
+	Rate       string `json:"rate"`
+	Bytes      string `json:"bytes"`
+	Packets    string `json:"packets"`
+	Disabled   string `json:"disabled"`
+}
+
+type FirewallRule struct {
+	Chain             string `json:"chain"`
+	Action            string `json:"action"`
+	Comment           string `json:"comment"`
+	ConnectionMark    string `json:"connection-mark"`
+	NewConnectionMark string `json:"new-connection-mark"`
+	NewRoutingMark    string `json:"new-routing-mark"`
+	Bytes             string `json:"bytes"`
+	Packets           string `json:"packets"`
+	Disabled          string `json:"disabled"`
+}
+
+type RoutingRule struct {
+	Action     string `json:"action"`
+	SrcAddress string `json:"src-address"`
+	DstAddress string `json:"dst-address"`
+	Interface  string `json:"interface"`
+	Table      string `json:"table"`
+	Disabled   string `json:"disabled"`
+}
+
+type IPRoute struct {
+	DstAddress   string `json:"dst-address"`
+	Gateway      string `json:"gateway"`
+	RoutingTable string `json:"routing-table"`
+	Distance     string `json:"distance"`
+	Active       string `json:"active"`
+	Disabled     string `json:"disabled"`
 }

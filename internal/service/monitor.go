@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -69,6 +70,10 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	snapshot.Interfaces = append([]model.InterfaceStatus(nil), snapshot.Interfaces...)
 	snapshot.Terminals = append([]model.Terminal(nil), snapshot.Terminals...)
 	snapshot.Capabilities = append([]model.CapabilityNote(nil), snapshot.Capabilities...)
+	snapshot.Protocols = append([]model.ProtocolStat(nil), snapshot.Protocols...)
+	snapshot.Policies = append([]model.PolicyStat(nil), snapshot.Policies...)
+	snapshot.Routes = append([]model.RouteStat(nil), snapshot.Routes...)
+	snapshot.Warnings = append([]string(nil), snapshot.Warnings...)
 	snapshot.Overview.ChartSamples = append([]model.RateSample(nil), snapshot.Overview.ChartSamples...)
 	return snapshot
 }
@@ -95,11 +100,36 @@ func (m *Monitor) UpdateTerminalRemark(ctx context.Context, id, remark string) e
 	return m.refresh(ctx)
 }
 
+func (m *Monitor) LoadHistory(ctx context.Context, since time.Time) ([]model.LoadSample, error) {
+	return m.store.LoadSamples(ctx, since)
+}
+
+func (m *Monitor) ProtocolHistory(ctx context.Context, since time.Time) ([]model.ProtocolHistorySample, error) {
+	return m.store.ProtocolSamples(ctx, since)
+}
+
+func (m *Monitor) InterfaceDetail(ctx context.Context, name string, since time.Time) (model.InterfaceDetail, bool, error) {
+	snapshot := m.Snapshot()
+	for _, item := range snapshot.Interfaces {
+		if item.Name != name {
+			continue
+		}
+		samples, err := m.store.LoadInterfaceSamples(ctx, []string{name}, since)
+		if err != nil {
+			return model.InterfaceDetail{}, false, err
+		}
+		return model.InterfaceDetail{Interface: item, Samples: samples}, true, nil
+	}
+	return model.InterfaceDetail{}, false, nil
+}
+
 func (m *Monitor) refresh(ctx context.Context) error {
 	pollCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
 	now := time.Now().UTC()
+	previous := m.Snapshot()
+	warnings := make([]string, 0)
 
 	resource, err := m.client.SystemResource(pollCtx)
 	if err != nil {
@@ -141,13 +171,48 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load ipv6 connections: %w", err)
 	}
+	simpleQueues, err := m.client.SimpleQueues(pollCtx)
+	policyComplete := true
+	if err != nil {
+		m.logger.Printf("load simple queues failed: %v", err)
+		warnings = append(warnings, "Simple Queue 数据暂时不可用，保留上次有效策略数据。")
+		policyComplete = false
+	}
+	queueTrees, err := m.client.QueueTrees(pollCtx)
+	if err != nil {
+		m.logger.Printf("load queue trees failed: %v", err)
+		warnings = append(warnings, "Queue Tree 数据暂时不可用，保留上次有效策略数据。")
+		policyComplete = false
+	}
+	mangleRules, err := m.client.MangleRules(pollCtx)
+	if err != nil {
+		m.logger.Printf("load mangle rules failed: %v", err)
+		warnings = append(warnings, "Mangle 计数器暂时不可用，保留上次有效策略数据。")
+		policyComplete = false
+	}
+	routingRules, err := m.client.RoutingRules(pollCtx)
+	routesComplete := true
+	if err != nil {
+		m.logger.Printf("load routing rules failed: %v", err)
+		warnings = append(warnings, "Routing Rule 数据暂时不可用，保留上次有效路由数据。")
+		routesComplete = false
+	}
+	ipRoutes, err := m.client.IPRoutes(pollCtx)
+	if err != nil {
+		m.logger.Printf("load routes failed: %v", err)
+		warnings = append(warnings, "路由表暂时不可用，保留上次有效路由数据。")
+		routesComplete = false
+	}
 
 	trafficInterfaces := selectTrafficInterfaces(m.cfg.RouterOS.TrafficInterfaces, interfaces)
-	trafficRates := make(map[string]routeros.MonitorTrafficEntry, len(trafficInterfaces))
-	for _, name := range trafficInterfaces {
+	monitorInterfaces := selectMonitorableInterfaces(interfaces)
+	trafficRates := make(map[string]routeros.MonitorTrafficEntry, len(monitorInterfaces))
+	for _, name := range monitorInterfaces {
 		entry, err := m.client.MonitorTraffic(pollCtx, name)
 		if err != nil {
-			return fmt.Errorf("monitor traffic for %s: %w", name, err)
+			m.logger.Printf("monitor traffic for %s failed: %v", name, err)
+			warnings = append(warnings, fmt.Sprintf("接口 %s 实时速率暂时不可用。", name))
+			continue
 		}
 		trafficRates[name] = entry
 		if err := m.store.SaveInterfaceSample(pollCtx, now, name, parseFloat(entry.RXBitsPerSecond), parseFloat(entry.TXBitsPerSecond)); err != nil {
@@ -157,9 +222,12 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if err := m.store.PruneInterfaceSamples(pollCtx, now.Add(-time.Duration(m.cfg.SampleRetentionHours)*time.Hour)); err != nil {
 		return err
 	}
+	if err := m.store.PruneRuntimeState(pollCtx, now.Add(-2*time.Hour), now.Add(-35*24*time.Hour)); err != nil {
+		return err
+	}
 
 	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses)
-	interfaceStatuses := buildInterfaces(interfaces, ethernet, trafficRates)
+	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
 		now,
@@ -179,27 +247,60 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		return err
 	}
 
+	memoryPercent := memoryUsedPercent(parseInt(resource.TotalMemory), parseInt(resource.FreeMemory))
+	storagePercent := memoryUsedPercent(parseInt(resource.TotalHDD), parseInt(resource.FreeHDD))
+	uploadBps := totalSelectedTXBps(trafficRates, trafficInterfaces)
+	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
+	onlineTerminals := 0
+	for _, terminal := range terminals {
+		if terminal.State != "offline" {
+			onlineTerminals++
+		}
+	}
+	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: onlineTerminals, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
+		return err
+	}
+
+	protocols := aggregateProtocols(details)
+	if err := m.store.SaveProtocolSamples(pollCtx, now, protocols); err != nil {
+		return err
+	}
+	policies := buildPolicies(simpleQueues, queueTrees, mangleRules)
+	if !policyComplete && len(previous.Policies) > 0 {
+		policies = previous.Policies
+	}
+	routes := buildRoutes(routingRules, ipRoutes)
+	if !routesComplete && len(previous.Routes) > 0 {
+		routes = previous.Routes
+	}
 	snapshot := model.DashboardSnapshot{
 		Overview: model.Overview{
-			RouterName:        resource.BoardName,
-			Platform:          resource.Platform,
-			Version:           resource.Version,
-			BoardName:         resource.BoardName,
-			Uptime:            formatRouterOSUptime(resource.Uptime),
-			CPULoadPercent:    parseInt(resource.CPULoad),
-			MemoryUsedPercent: memoryUsedPercent(parseInt(resource.TotalMemory), parseInt(resource.FreeMemory)),
-			MemoryUsedBytes:   parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
-			MemoryTotalBytes:  parseInt(resource.TotalMemory),
-			UploadBps:         totalTXBps(trafficRates),
-			DownloadBps:       totalRXBps(trafficRates),
-			TrafficInterfaces: trafficInterfaces,
-			HealthEnabled:     strings.EqualFold(health.State, "enabled"),
-			UpdatedAt:         now,
-			ChartSamples:      chartSamples,
+			RouterName:         resource.BoardName,
+			Platform:           resource.Platform,
+			Version:            resource.Version,
+			BoardName:          resource.BoardName,
+			Uptime:             formatRouterOSUptime(resource.Uptime),
+			CPULoadPercent:     parseInt(resource.CPULoad),
+			MemoryUsedPercent:  memoryPercent,
+			MemoryUsedBytes:    parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
+			MemoryTotalBytes:   parseInt(resource.TotalMemory),
+			StorageUsedPercent: storagePercent,
+			StorageUsedBytes:   parseInt(resource.TotalHDD) - parseInt(resource.FreeHDD),
+			StorageTotalBytes:  parseInt(resource.TotalHDD),
+			UploadBps:          uploadBps,
+			DownloadBps:        downloadBps,
+			TrafficInterfaces:  trafficInterfaces,
+			HealthEnabled:      strings.EqualFold(health.State, "enabled"),
+			UpdatedAt:          now,
+			ChartSamples:       chartSamples,
 		},
 		Interfaces:   interfaceStatuses,
 		Terminals:    terminals,
 		Capabilities: buildCapabilities(strings.EqualFold(health.State, "enabled")),
+		Protocols:    protocols,
+		Policies:     policies,
+		Routes:       routes,
+		Warnings:     warnings,
 	}
 
 	m.mu.Lock()
@@ -208,6 +309,70 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	m.mu.Unlock()
 
 	return nil
+}
+
+func aggregateProtocols(details map[string]model.TerminalDetail) []model.ProtocolStat {
+	byName := map[string]*model.ProtocolStat{}
+	for _, detail := range details {
+		for _, connection := range detail.Connections {
+			name := connection.Application
+			stat := byName[name]
+			if stat == nil {
+				stat = &model.ProtocolStat{Name: name, Kind: connection.Protocol, Estimated: true}
+				byName[name] = stat
+			}
+			stat.Connections++
+			stat.UploadBps += connection.UploadBps
+			stat.DownloadBps += connection.DownloadBps
+			stat.UploadBytes += connection.UploadBytes
+			stat.DownloadBytes += connection.DownloadBytes
+		}
+	}
+	result := make([]model.ProtocolStat, 0, len(byName))
+	for _, stat := range byName {
+		result = append(result, *stat)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		return result[left].UploadBps+result[left].DownloadBps > result[right].UploadBps+result[right].DownloadBps
+	})
+	return result
+}
+
+func buildPolicies(simple []routeros.SimpleQueue, trees []routeros.QueueTree, mangle []routeros.FirewallRule) []model.PolicyStat {
+	result := make([]model.PolicyStat, 0, len(simple)+len(trees)+len(mangle))
+	for _, item := range simple {
+		result = append(result, model.PolicyStat{Kind: "simple queue", Name: item.Name, Target: item.Target, Rate: item.Rate, Bytes: parseCounterPair(item.Bytes), Packets: parseCounterPair(item.Packets), Disabled: parseBool(item.Disabled)})
+	}
+	for _, item := range trees {
+		result = append(result, model.PolicyStat{Kind: "queue tree", Name: item.Name, Target: item.Parent, Mark: item.PacketMark, Rate: item.Rate, Bytes: parseCounterPair(item.Bytes), Packets: parseCounterPair(item.Packets), Disabled: parseBool(item.Disabled)})
+	}
+	for index, item := range mangle {
+		mark := preferredName(item.NewRoutingMark, item.NewConnectionMark, item.ConnectionMark)
+		if mark == "" && parseInt(item.Bytes) == 0 && parseInt(item.Packets) == 0 {
+			continue
+		}
+		result = append(result, model.PolicyStat{Kind: "mangle", Name: preferredName(item.Comment, fmt.Sprintf("%s #%d", item.Chain, index+1)), Target: item.Action, Mark: mark, Bytes: parseInt(item.Bytes), Packets: parseInt(item.Packets), Disabled: parseBool(item.Disabled)})
+	}
+	return result
+}
+
+func buildRoutes(rules []routeros.RoutingRule, routes []routeros.IPRoute) []model.RouteStat {
+	result := make([]model.RouteStat, 0, len(rules)+len(routes))
+	for _, item := range rules {
+		result = append(result, model.RouteStat{Kind: "rule", Destination: item.DstAddress, Table: item.Table, Action: item.Action, Source: preferredName(item.SrcAddress, item.Interface), Disabled: parseBool(item.Disabled)})
+	}
+	for _, item := range routes {
+		result = append(result, model.RouteStat{Kind: "route", Destination: item.DstAddress, Gateway: item.Gateway, Table: item.RoutingTable, Distance: parseInt(item.Distance), Active: parseBool(item.Active), Disabled: parseBool(item.Disabled)})
+	}
+	return result
+}
+
+func parseCounterPair(value string) int64 {
+	total := int64(0)
+	for _, part := range strings.Split(value, "/") {
+		total += parseInt(part)
+	}
+	return total
 }
 
 type terminalBuilder struct {
@@ -221,6 +386,7 @@ type terminalBuilder struct {
 	CurrentUploadBps   float64
 	CurrentDownloadBps float64
 	LastSeen           time.Time
+	State              string
 }
 
 func (m *Monitor) buildTerminals(
@@ -278,6 +444,7 @@ func (m *Monitor) buildTerminals(
 	builders := map[string]*terminalBuilder{}
 	connectionMap := map[string][]model.TerminalConnection{}
 	flowMap := map[string]map[string]*model.TerminalFlowCategory{}
+	connectionSnapshots := make([]store.ConnectionSnapshot, 0, len(connectionsV4)+len(connectionsV6))
 	ensureBuilder := func(address, family, mac string) *terminalBuilder {
 		mac = normalizeMAC(mac)
 		id := terminalID(mac, address)
@@ -290,7 +457,7 @@ func (m *Monitor) buildTerminals(
 				IPv4:             map[string]struct{}{},
 				IPv6:             map[string]struct{}{},
 				PrimaryInterface: interfaceByAddress[address],
-				LastSeen:         now,
+				State:            "offline",
 			}
 			builders[id] = builder
 		}
@@ -311,6 +478,12 @@ func (m *Monitor) buildTerminals(
 		}
 		return builder
 	}
+	markPresent := func(builder *terminalBuilder, state string) {
+		if state == "online" || builder.State == "offline" {
+			builder.State = state
+		}
+		builder.LastSeen = now
+	}
 
 	for _, lease := range leases {
 		if !strings.EqualFold(lease.Status, "bound") {
@@ -320,7 +493,7 @@ func (m *Monitor) buildTerminals(
 		if address == "" {
 			continue
 		}
-		ensureBuilder(address, "ipv4", macByAddress[address])
+		markPresent(ensureBuilder(address, "ipv4", macByAddress[address]), "idle")
 	}
 
 	for _, entry := range arpEntries {
@@ -328,7 +501,10 @@ func (m *Monitor) buildTerminals(
 		if address == "" || normalizeMAC(entry.MACAddress) == "" {
 			continue
 		}
-		ensureBuilder(address, "ipv4", macByAddress[address])
+		builder := ensureBuilder(address, "ipv4", macByAddress[address])
+		if parseBool(entry.Complete) || strings.EqualFold(entry.Status, "reachable") || strings.EqualFold(entry.Status, "permanent") {
+			markPresent(builder, "idle")
+		}
 	}
 
 	for _, neighbor := range ipv6Neighbors {
@@ -336,7 +512,10 @@ func (m *Monitor) buildTerminals(
 		if address == "" || normalizeMAC(neighbor.MACAddress) == "" {
 			continue
 		}
-		ensureBuilder(address, "ipv6", macByAddress[address])
+		builder := ensureBuilder(address, "ipv6", macByAddress[address])
+		if strings.EqualFold(neighbor.Status, "reachable") || strings.EqualFold(neighbor.Status, "permanent") {
+			markPresent(builder, "idle")
+		}
 	}
 
 	applyConnections := func(family string, connections []routeros.FirewallConnection) error {
@@ -357,15 +536,10 @@ func (m *Monitor) buildTerminals(
 			builder.ConnectionCount++
 			builder.CurrentUploadBps += view.UploadBps
 			builder.CurrentDownloadBps += view.DownloadBps
-			builder.LastSeen = now
+			markPresent(builder, "online")
 			builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress], builder.MACAddress, view.LocalAddress)
 
-			if err := m.store.UpsertTerminal(ctx, builder.ID, builder.MACAddress, builder.DisplayName, now); err != nil {
-				return err
-			}
-			if err := m.store.ApplyConnectionSnapshot(ctx, view.ConnectionKey, builder.ID, view.CurrentUploadBytes, view.CurrentDownloadBytes, now); err != nil {
-				return err
-			}
+			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
 			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
 			connectionMap[builder.ID] = append(connectionMap[builder.ID], model.TerminalConnection{
@@ -373,7 +547,7 @@ func (m *Monitor) buildTerminals(
 				Family:             family,
 				Application:        application,
 				Protocol:           strings.ToLower(connection.Protocol),
-				Line:               preferredName(builder.PrimaryInterface, "-"),
+				Line:               "未知",
 				SourceAddress:      view.LocalAddress,
 				SourcePort:         localPort(connection, view.LocalAddress),
 				DestinationAddress: remoteAddress(connection, view.LocalAddress),
@@ -383,6 +557,9 @@ func (m *Monitor) buildTerminals(
 				UploadBps:          view.UploadBps,
 				DownloadBps:        view.DownloadBps,
 				Status:             connectionStatus(connection.Assured),
+				PublicAddress:      view.PublicAddress,
+				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
+				Estimated:          true,
 			})
 
 			if flowMap[builder.ID] == nil {
@@ -416,10 +593,16 @@ func (m *Monitor) buildTerminals(
 		if err := m.store.UpsertTerminal(ctx, builder.ID, builder.MACAddress, builder.DisplayName, builder.LastSeen); err != nil {
 			return nil, nil, err
 		}
-		if err := m.store.ReplaceTerminalAddresses(ctx, builder.ID, mapKeys(builder.IPv4), mapKeys(builder.IPv6), builder.LastSeen); err != nil {
+		if err := m.store.ReplaceTerminalAddresses(ctx, builder.ID, mapKeys(builder.IPv4), mapKeys(builder.IPv6), now); err != nil {
+			return nil, nil, err
+		}
+		if _, _, err := m.store.UpdateTerminalPresence(ctx, builder.ID, builder.State, builder.LastSeen); err != nil {
 			return nil, nil, err
 		}
 		ids = append(ids, builder.ID)
+	}
+	if err := m.store.ApplyConnectionSnapshots(ctx, connectionSnapshots); err != nil {
+		return nil, nil, err
 	}
 
 	totalsByID, err := m.store.TerminalTotals(ctx, ids)
@@ -432,8 +615,8 @@ func (m *Monitor) buildTerminals(
 	for _, builder := range builders {
 		total := totalsByID[builder.ID]
 		onlineSeconds := int64(0)
-		if !total.TrackingSince.IsZero() {
-			onlineSeconds = int64(now.Sub(total.TrackingSince).Seconds())
+		if !total.OnlineSince.IsZero() {
+			onlineSeconds = int64(now.Sub(total.OnlineSince).Seconds())
 		}
 		if err := m.store.SaveTerminalHistory(ctx, builder.ID, now, onlineSeconds, total.UploadBytes, total.DownloadBytes); err != nil {
 			return nil, nil, err
@@ -449,15 +632,23 @@ func (m *Monitor) buildTerminals(
 			Remark:             total.Remark,
 			MACAddress:         builder.MACAddress,
 			PrimaryInterface:   builder.PrimaryInterface,
-			IPv4:               mapKeys(builder.IPv4),
-			IPv6:               mapKeys(builder.IPv6),
+			IPv4:               sortedAddresses(builder.IPv4),
+			IPv6:               sortedAddresses(builder.IPv6),
 			ConnectionCount:    builder.ConnectionCount,
 			CurrentUploadBps:   builder.CurrentUploadBps,
 			CurrentDownloadBps: builder.CurrentDownloadBps,
 			TotalUploadBytes:   total.UploadBytes,
 			TotalDownloadBytes: total.DownloadBytes,
 			TrackingSince:      total.TrackingSince,
-			LastSeen:           builder.LastSeen,
+			LastSeen:           total.LastSeen,
+			State:              total.State,
+			OnlineSince:        total.OnlineSince,
+		}
+		if len(terminal.IPv4) > 0 {
+			terminal.PrimaryIPv4 = terminal.IPv4[0]
+		}
+		if len(terminal.IPv6) > 0 {
+			terminal.PrimaryIPv6 = terminal.IPv6[0]
 		}
 		terminals = append(terminals, model.Terminal{
 			ID:                 terminal.ID,
@@ -474,6 +665,10 @@ func (m *Monitor) buildTerminals(
 			TotalDownloadBytes: terminal.TotalDownloadBytes,
 			TrackingSince:      terminal.TrackingSince,
 			LastSeen:           terminal.LastSeen,
+			PrimaryIPv4:        terminal.PrimaryIPv4,
+			PrimaryIPv6:        terminal.PrimaryIPv6,
+			State:              terminal.State,
+			OnlineSince:        terminal.OnlineSince,
 		})
 
 		flows := flattenFlows(flowMap[builder.ID])
@@ -487,15 +682,7 @@ func (m *Monitor) buildTerminals(
 	}
 
 	sort.Slice(terminals, func(left, right int) bool {
-		leftRate := terminals[left].CurrentUploadBps + terminals[left].CurrentDownloadBps
-		rightRate := terminals[right].CurrentUploadBps + terminals[right].CurrentDownloadBps
-		if leftRate == rightRate {
-			if terminals[left].ConnectionCount == terminals[right].ConnectionCount {
-				return terminals[left].DisplayName < terminals[right].DisplayName
-			}
-			return terminals[left].ConnectionCount > terminals[right].ConnectionCount
-		}
-		return leftRate > rightRate
+		return compareTerminalAddress(terminals[left], terminals[right]) < 0
 	})
 
 	return terminals, details, nil
@@ -508,6 +695,7 @@ type connectionView struct {
 	CurrentDownloadBytes int64
 	UploadBps            float64
 	DownloadBps          float64
+	PublicAddress        string
 }
 
 func orientConnection(family string, connection routeros.FirewallConnection, localCIDRs []*net.IPNet) (connectionView, bool) {
@@ -537,6 +725,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 			CurrentDownloadBytes: parseInt(connection.ReplBytes),
 			UploadBps:            parseFloat(connection.OrigRate),
 			DownloadBps:          parseFloat(connection.ReplRate),
+			PublicAddress:        externalAddress(connection.ReplyDstAddress, connection.SrcAddress),
 		}, true
 	case replySrcLocal:
 		return connectionView{
@@ -546,6 +735,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 			CurrentDownloadBytes: parseInt(connection.OrigBytes),
 			UploadBps:            parseFloat(connection.ReplRate),
 			DownloadBps:          parseFloat(connection.OrigRate),
+			PublicAddress:        externalAddress(connection.DstAddress, connection.ReplySrcAddress),
 		}, true
 	default:
 		return connectionView{}, false
@@ -555,6 +745,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 func buildInterfaces(
 	interfaces []routeros.Interface,
 	ethernet []routeros.EthernetInterface,
+	addresses []routeros.IPAddress,
 	trafficRates map[string]routeros.MonitorTrafficEntry,
 ) []model.InterfaceStatus {
 	ethernetByName := map[string]routeros.EthernetInterface{}
@@ -590,6 +781,15 @@ func buildInterfaces(
 			TXBytes:        txBytes,
 			CurrentRXBps:   parseFloat(rate.RXBitsPerSecond),
 			CurrentTXBps:   parseFloat(rate.TXBitsPerSecond),
+			Addresses:      interfaceAddresses(addresses, iface.Name),
+			RXPackets:      parseInt(iface.RXPacket),
+			TXPackets:      parseInt(iface.TXPacket),
+			RXDrops:        parseInt(iface.RXDrop),
+			TXDrops:        parseInt(iface.TXDrop),
+			RXErrors:       parseInt(iface.RXError),
+			TXErrors:       parseInt(iface.TXError),
+			LinkRate:       ethernetByName[iface.Name].Rate,
+			FullDuplex:     parseBool(ethernetByName[iface.Name].FullDuplex),
 		})
 	}
 
@@ -661,6 +861,28 @@ func selectTrafficInterfaces(configured []string, interfaces []routeros.Interfac
 		}
 	}
 	return nil
+}
+
+func selectMonitorableInterfaces(interfaces []routeros.Interface) []string {
+	result := make([]string, 0, len(interfaces))
+	for _, iface := range interfaces {
+		if parseBool(iface.Disabled) || iface.Type == "loopback" {
+			continue
+		}
+		result = append(result, iface.Name)
+	}
+	return result
+}
+
+func interfaceAddresses(addresses []routeros.IPAddress, interfaceName string) []string {
+	result := make([]string, 0)
+	for _, address := range addresses {
+		if address.Interface == interfaceName && strings.TrimSpace(address.Address) != "" {
+			result = append(result, address.Address)
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses []routeros.IPAddress) []*net.IPNet {
@@ -744,6 +966,49 @@ func mapKeys(values map[string]struct{}) []string {
 	return keys
 }
 
+func sortedAddresses(values map[string]struct{}) []string {
+	addresses := mapKeys(values)
+	sort.Slice(addresses, func(left, right int) bool {
+		leftIP := net.ParseIP(addresses[left])
+		rightIP := net.ParseIP(addresses[right])
+		if leftIP == nil || rightIP == nil {
+			return addresses[left] < addresses[right]
+		}
+		return bytes.Compare(leftIP.To16(), rightIP.To16()) < 0
+	})
+	return addresses
+}
+
+func compareTerminalAddress(left, right model.Terminal) int {
+	if left.PrimaryIPv4 != "" && right.PrimaryIPv4 == "" {
+		return -1
+	}
+	if left.PrimaryIPv4 == "" && right.PrimaryIPv4 != "" {
+		return 1
+	}
+	for _, pair := range [][2]string{{left.PrimaryIPv4, right.PrimaryIPv4}, {left.PrimaryIPv6, right.PrimaryIPv6}, {left.MACAddress, right.MACAddress}} {
+		leftIP, rightIP := net.ParseIP(pair[0]), net.ParseIP(pair[1])
+		comparison := 0
+		if leftIP != nil && rightIP != nil {
+			comparison = bytes.Compare(leftIP.To16(), rightIP.To16())
+		} else {
+			comparison = strings.Compare(pair[0], pair[1])
+		}
+		if comparison != 0 {
+			return comparison
+		}
+	}
+	return strings.Compare(left.ID, right.ID)
+}
+
+func externalAddress(candidate, localAddress string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" || candidate == strings.TrimSpace(localAddress) {
+		return ""
+	}
+	return candidate
+}
+
 func parseInt(value string) int64 {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -780,10 +1045,26 @@ func totalRXBps(trafficRates map[string]routeros.MonitorTrafficEntry) float64 {
 	return total
 }
 
+func totalSelectedRXBps(trafficRates map[string]routeros.MonitorTrafficEntry, selected []string) float64 {
+	total := 0.0
+	for _, name := range selected {
+		total += parseFloat(trafficRates[name].RXBitsPerSecond)
+	}
+	return total
+}
+
 func totalTXBps(trafficRates map[string]routeros.MonitorTrafficEntry) float64 {
 	total := 0.0
 	for _, entry := range trafficRates {
 		total += parseFloat(entry.TXBitsPerSecond)
+	}
+	return total
+}
+
+func totalSelectedTXBps(trafficRates map[string]routeros.MonitorTrafficEntry, selected []string) float64 {
+	total := 0.0
+	for _, name := range selected {
+		total += parseFloat(trafficRates[name].TXBitsPerSecond)
 	}
 	return total
 }

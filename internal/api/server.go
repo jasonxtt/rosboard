@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"rosboard/internal/config"
 	"rosboard/internal/service"
@@ -57,12 +58,62 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{"capabilities": s.monitor.Snapshot().Capabilities})
 	case "/api/dashboard":
 		writeJSON(writer, http.StatusOK, s.monitor.Snapshot())
+	case "/api/load":
+		window := parseWindow(request.URL.Query().Get("window"))
+		samples, err := s.monitor.LoadHistory(request.Context(), time.Now().UTC().Add(-window))
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to load history")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"samples": samples})
+	case "/api/protocols":
+		history, err := s.monitor.ProtocolHistory(request.Context(), time.Now().UTC().Add(-30*time.Minute))
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to load protocol history")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"protocols": s.monitor.Snapshot().Protocols, "history": history})
+	case "/api/policies":
+		writeJSON(writer, http.StatusOK, map[string]any{"policies": s.monitor.Snapshot().Policies})
+	case "/api/routes":
+		writeJSON(writer, http.StatusOK, map[string]any{"routes": s.monitor.Snapshot().Routes})
 	default:
+		if strings.HasPrefix(request.URL.Path, "/api/interfaces/") && request.Method == http.MethodGet {
+			name, err := url.PathUnescape(strings.TrimPrefix(request.URL.Path, "/api/interfaces/"))
+			if err != nil || name == "" {
+				writeError(writer, http.StatusBadRequest, "invalid interface name")
+				return
+			}
+			detail, ok, err := s.monitor.InterfaceDetail(request.Context(), name, time.Now().UTC().Add(-time.Hour))
+			if err != nil {
+				writeError(writer, http.StatusInternalServerError, "failed to load interface detail")
+				return
+			}
+			if !ok {
+				writeError(writer, http.StatusNotFound, "interface not found")
+				return
+			}
+			writeJSON(writer, http.StatusOK, detail)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/api/terminals/") {
 			s.serveTerminalAPI(writer, request)
 			return
 		}
 		writeError(writer, http.StatusNotFound, "not found")
+	}
+}
+
+func parseWindow(value string) time.Duration {
+	switch value {
+	case "1d":
+		return 24 * time.Hour
+	case "1w":
+		return 7 * 24 * time.Hour
+	case "1m":
+		return 31 * 24 * time.Hour
+	default:
+		return time.Hour
 	}
 }
 

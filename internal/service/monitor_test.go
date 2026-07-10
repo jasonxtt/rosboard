@@ -2,8 +2,11 @@ package service
 
 import (
 	"net"
+	"reflect"
+	"sort"
 	"testing"
 
+	"rosboard/internal/model"
 	"rosboard/internal/routeros"
 )
 
@@ -49,6 +52,24 @@ func TestOrientConnectionMapsUploadAndDownloadForLocalSource(t *testing.T) {
 	}
 	if view.UploadBps != 128000 || view.DownloadBps != 512000 {
 		t.Fatalf("unexpected rate mapping: %#v", view)
+	}
+	if view.PublicAddress != "" {
+		t.Fatalf("expected unchanged local reply address to be omitted, got %q", view.PublicAddress)
+	}
+}
+
+func TestCompareTerminalAddressUsesNumericIPv4Order(t *testing.T) {
+	terminals := []model.Terminal{
+		{ID: "86", PrimaryIPv4: "10.0.0.86"},
+		{ID: "115", PrimaryIPv4: "10.0.0.115"},
+		{ID: "6", PrimaryIPv4: "10.0.0.6"},
+		{ID: "v6", PrimaryIPv6: "fc00::1"},
+	}
+	sort.Slice(terminals, func(left, right int) bool { return compareTerminalAddress(terminals[left], terminals[right]) < 0 })
+	got := []string{terminals[0].ID, terminals[1].ID, terminals[2].ID, terminals[3].ID}
+	want := []string{"6", "86", "115", "v6"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected order: got %v want %v", got, want)
 	}
 }
 

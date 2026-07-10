@@ -6,6 +6,16 @@ type RateSample = {
   downloadBps: number
 }
 
+type LoadSample = {
+  timestamp: string
+  cpuLoadPercent: number
+  memoryUsedPercent: number
+  storageUsedPercent: number
+  onlineTerminalCount: number
+  uploadBps: number
+  downloadBps: number
+}
+
 type Overview = {
   routerName: string
   platform: string
@@ -16,6 +26,9 @@ type Overview = {
   memoryUsedPercent: number
   memoryUsedBytes: number
   memoryTotalBytes: number
+  storageUsedPercent: number
+  storageUsedBytes: number
+  storageTotalBytes: number
   uploadBps: number
   downloadBps: number
   trafficInterfaces: string[]
@@ -38,7 +51,17 @@ type InterfaceStatus = {
   txBytes: number
   currentRxBps: number
   currentTxBps: number
+  addresses: string[]
+  rxPackets: number
+  txPackets: number
+  rxDrops: number
+  txDrops: number
+  rxErrors: number
+  txErrors: number
+  linkRate: string
+  fullDuplex: boolean
 }
+type InterfaceDetail = { interface: InterfaceStatus; samples: RateSample[] }
 
 type Terminal = {
   id: string
@@ -55,6 +78,10 @@ type Terminal = {
   totalDownloadBytes: number
   trackingSince: string
   lastSeen: string
+  primaryIpv4: string
+  primaryIpv6: string
+  state: 'online' | 'idle' | 'offline'
+  onlineSince: string
 }
 
 type CapabilityNote = {
@@ -64,11 +91,20 @@ type CapabilityNote = {
   details: string
 }
 
+type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean }
+type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
+type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
+type RouteStat = { kind: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean }
+
 type DashboardResponse = {
   overview: Overview
   interfaces: InterfaceStatus[]
   terminals: Terminal[]
   capabilities: CapabilityNote[]
+  protocols: ProtocolStat[]
+  policies: PolicyStat[]
+  routes: RouteStat[]
+  warnings: string[]
 }
 
 type TerminalConnection = {
@@ -86,6 +122,9 @@ type TerminalConnection = {
   uploadBps: number
   downloadBps: number
   status: string
+  publicAddress: string
+  connectionMark: string
+  estimated: boolean
 }
 
 type TerminalFlowCategory = {
@@ -120,9 +159,10 @@ type TerminalDetail = {
   capabilities: TerminalCapability[]
 }
 
-type ActiveView = 'overview' | 'interfaces' | 'terminals'
+type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes'
 type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 type ConnectionFamily = 'ipv4' | 'ipv6'
+type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
 
 function App() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -136,6 +176,11 @@ function App() {
   const [remarkModalOpen, setRemarkModalOpen] = useState(false)
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
+  const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>('all')
+  const [dashboardRefreshMs, setDashboardRefreshMs] = useState(5000)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const [loadWindow, setLoadWindow] = useState('1h')
+  const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -159,12 +204,12 @@ function App() {
     }
 
     refresh()
-    const timer = window.setInterval(refresh, 5000)
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(refresh, dashboardRefreshMs) : 0
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearInterval(timer)
     }
-  }, [])
+  }, [dashboardRefreshMs, refreshNonce])
 
   useEffect(() => {
     if (!selectedTerminalID) {
@@ -185,26 +230,44 @@ function App() {
       }
     }
 
-    load().catch((detailError) => {
+    const handleError = (detailError: unknown) => {
       if (!cancelled) {
         setError(detailError instanceof Error ? detailError.message : '终端详情读取失败')
       }
-    })
+    }
+    load().catch(handleError)
+    const timer = window.setInterval(() => load().catch(handleError), 3000)
 
     return () => {
       cancelled = true
+      window.clearInterval(timer)
     }
   }, [selectedTerminalID])
+
+  useEffect(() => {
+    if (activeView !== 'load') return
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch(`/api/load?window=${loadWindow}`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = (await response.json()) as { samples: LoadSample[] }
+      if (!cancelled) setLoadSamples(payload.samples)
+    }
+    load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '负载历史读取失败'))
+    const timer = window.setInterval(() => load().catch(() => undefined), 30000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [activeView, loadWindow])
 
   const filteredTerminals = useMemo(() => {
     if (!dashboard) {
       return []
     }
     const keyword = query.trim().toLowerCase()
-    if (!keyword) {
-      return dashboard.terminals
-    }
-    return dashboard.terminals.filter((terminal) =>
+    return dashboard.terminals.filter((terminal) => {
+      if (terminalFamily === 'ipv4' && terminal.ipv4.length === 0) return false
+      if (terminalFamily === 'ipv6' && terminal.ipv6.length === 0) return false
+      if (!keyword) return true
+      return (
       [
         terminal.displayName,
         terminal.remark,
@@ -215,9 +278,10 @@ function App() {
       ]
         .join(' ')
         .toLowerCase()
-        .includes(keyword),
-    )
-  }, [dashboard, query])
+        .includes(keyword)
+      )
+    })
+  }, [dashboard, query, terminalFamily])
 
   const currentTerminal = useMemo(() => {
     if (!dashboard || !selectedTerminalID) {
@@ -264,7 +328,7 @@ function App() {
             <button
               type="button"
               className={
-                activeView === 'interfaces' || activeView === 'terminals'
+                activeView !== 'overview'
                   ? 'menu-item active'
                   : 'menu-item'
               }
@@ -284,15 +348,29 @@ function App() {
                   setSelectedTerminalID(null)
                 }}
               >
-                接口状态
+                线路监控
               </button>
-              <button
-                type="button"
-                className={activeView === 'terminals' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => setActiveView('terminals')}
-              >
-                终端监控
-              </button>
+              <div className="submenu-section">终端监控</div>
+              {(['all', 'ipv4', 'ipv6'] as TerminalFamily[]).map((family) => (
+                <button
+                  key={family}
+                  type="button"
+                  className={activeView === 'terminals' && terminalFamily === family ? 'submenu-item nested active' : 'submenu-item nested'}
+                  onClick={() => {
+                    setActiveView('terminals')
+                    setTerminalFamily(family)
+                    setSelectedTerminalID(null)
+                  }}
+                >
+                  {family === 'all' ? '全部终端' : family.toUpperCase()}
+                </button>
+              ))}
+              <div className="submenu-section">流量监控</div>
+              <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null) }}>协议统计</button>
+              <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null) }}>策略统计</button>
+              <div className="submenu-section">运行监控</div>
+              <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null) }}>负载历史</button>
+              <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null) }}>路由 / 分流</button>
             </div>
           </div>
         </nav>
@@ -317,6 +395,7 @@ function App() {
         </header>
 
         {error ? <div className="global-error">最近一次刷新失败: {error}</div> : null}
+        {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
           <OverviewPage dashboard={dashboard} />
@@ -326,11 +405,19 @@ function App() {
           <InterfacesPage interfaces={dashboard.interfaces} />
         ) : null}
 
+        {activeView === 'load' ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
+        {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} /> : null}
+        {activeView === 'policies' ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'routes' ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
+
         {activeView === 'terminals' && !detailMode ? (
           <TerminalsPage
             terminals={filteredTerminals}
             query={query}
             onQueryChange={setQuery}
+            refreshMs={dashboardRefreshMs}
+            onRefreshMsChange={setDashboardRefreshMs}
+            onRefresh={() => setRefreshNonce((value) => value + 1)}
             onOpenDetail={(terminalID) => {
               setSelectedTerminalID(terminalID)
               setTerminalTab('basic')
@@ -355,10 +442,6 @@ function App() {
             }}
             onTabChange={setTerminalTab}
             onConnectionFamilyChange={setConnectionFamily}
-            onOpenRemark={() => {
-              setRemarkDraft(terminalDetail.terminal.remark ?? '')
-              setRemarkModalOpen(true)
-            }}
           />
         ) : null}
       </section>
@@ -438,20 +521,15 @@ function OverviewPage(props: { dashboard: DashboardResponse }) {
         </section>
 
         <section className="panel">
-          <div className="panel-head">
-            <h3>能力说明</h3>
-            <span>按当前 RouterOS 能力区分</span>
-          </div>
-          <div className="capability-list">
-            {props.dashboard.capabilities.map((note) => (
-              <article key={`${note.area}-${note.item}`} className="capability-card">
-                <div className="capability-top">
-                  <strong>{note.item}</strong>
-                  <span className={`badge badge-${note.status}`}>{statusText(note.status)}</span>
-                </div>
-                <p className="muted-text">{note.details}</p>
-              </article>
-            ))}
+          <div className="panel-head"><h3>设备信息</h3><span>RouterOS 只读连接</span></div>
+          <div className="detail-grid overview-info">
+            <DetailItem label="设备名称" value={props.dashboard.overview.routerName || '-'} />
+            <DetailItem label="平台" value={props.dashboard.overview.platform || '-'} />
+            <DetailItem label="硬件" value={props.dashboard.overview.boardName || '-'} />
+            <DetailItem label="版本" value={props.dashboard.overview.version || '-'} />
+            <DetailItem label="流量接口" value={props.dashboard.overview.trafficInterfaces.join(', ') || '-'} />
+            <DetailItem label="存储使用" value={props.dashboard.overview.storageTotalBytes ? `${props.dashboard.overview.storageUsedPercent.toFixed(1)}%（${formatBytes(props.dashboard.overview.storageUsedBytes)} / ${formatBytes(props.dashboard.overview.storageTotalBytes)}）` : '-'} />
+            <DetailItem label="硬件健康数据" value={props.dashboard.overview.healthEnabled ? '可用' : '当前 CHR 不提供'} />
           </div>
         </section>
       </section>
@@ -460,18 +538,33 @@ function OverviewPage(props: { dashboard: DashboardResponse }) {
 }
 
 function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const [detail, setDetail] = useState<InterfaceDetail | null>(null)
+  useEffect(() => {
+    if (!selected) { setDetail(null); return }
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch(`/api/interfaces/${encodeURIComponent(selected)}`)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = (await response.json()) as InterfaceDetail
+      if (!cancelled) setDetail(payload)
+    }
+    load().catch(() => undefined)
+    const timer = window.setInterval(() => load().catch(() => undefined), 5000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [selected])
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h3>接口状态</h3>
-        <span>当前接口与线路运行情况</span>
-      </div>
+    <div className="page-grid">
+    {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={detail.interface.running && !detail.interface.disabled ? '在线' : '离线'} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div><TrafficChart samples={detail.samples} /></section> : null}
+    <section className="panel compact-panel">
+      <div className="data-toolbar"><strong>接口运行状态</strong><span className="result-count">物理与逻辑接口只读监控</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>
       <div className="table-scroll">
         <table className="data-table">
           <thead>
             <tr>
               <th>接口</th>
               <th>类型</th>
+              <th>地址 / MAC</th>
               <th>状态</th>
               <th>上行速率</th>
               <th>下行速率</th>
@@ -479,13 +572,15 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
               <th>累计下行</th>
               <th>MTU</th>
               <th>掉线次数</th>
+              <th>错误 / 丢包</th>
             </tr>
           </thead>
           <tbody>
             {props.interfaces.map((item) => (
               <tr key={item.name}>
-                <td>{item.name}</td>
+                <td><button type="button" className="link-button" onClick={() => setSelected(item.name)}>{item.name}</button></td>
                 <td>{item.type}</td>
+                <td><div className="address-stack"><span>{item.addresses?.join(' / ') || '-'}</span><span className="muted-text">{item.macAddress || '-'}</span></div></td>
                 <td>{item.running && !item.disabled ? '在线' : '离线'}</td>
                 <td>{formatBits(item.currentTxBps)}</td>
                 <td>{formatBits(item.currentRxBps)}</td>
@@ -493,96 +588,183 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
                 <td>{formatBytes(item.rxBytes)}</td>
                 <td>{item.actualMtu || '-'}</td>
                 <td>{item.linkDowns}</td>
+                <td>{item.rxErrors + item.txErrors} / {item.rxDrops + item.txDrops}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </section>
+    </div>
   )
 }
+
+function LoadPage(props: { samples: LoadSample[]; window: string; onWindowChange: (value: string) => void }) {
+  const latest = props.samples[props.samples.length - 1]
+  return (
+    <div className="page-grid">
+      <div className="data-toolbar panel load-toolbar">
+        <strong>历史范围</strong>
+        {['1h', '1d', '1w', '1m'].map((value) => <button key={value} type="button" className={props.window === value ? 'toolbar-button active' : 'toolbar-button'} onClick={() => props.onWindowChange(value)}>{value === '1h' ? '1 小时' : value === '1d' ? '1 天' : value === '1w' ? '1 周' : '1 月'}</button>)}
+        <span className="toolbar-spacer" /><span className="result-count">每分钟聚合，保留 35 天</span>
+      </div>
+      <section className="load-grid">
+        <MetricHistory title="CPU 使用率" samples={props.samples} value={(sample) => sample.cpuLoadPercent} format={(value) => `${value.toFixed(1)}%`} />
+        <MetricHistory title="内存使用率" samples={props.samples} value={(sample) => sample.memoryUsedPercent} format={(value) => `${value.toFixed(1)}%`} />
+        <MetricHistory title="存储使用率" samples={props.samples} value={(sample) => sample.storageUsedPercent} format={(value) => `${value.toFixed(1)}%`} />
+        <MetricHistory title="在线终端" samples={props.samples} value={(sample) => sample.onlineTerminalCount} format={(value) => `${Math.round(value)} 台`} />
+        <MetricHistory title="总吞吐" samples={props.samples} value={(sample) => sample.uploadBps + sample.downloadBps} format={formatBits} />
+      </section>
+      {latest ? <div className="load-current">最新采样：CPU {latest.cpuLoadPercent.toFixed(1)}% · 内存 {latest.memoryUsedPercent.toFixed(1)}% · 存储 {latest.storageUsedPercent.toFixed(1)}% · 在线 {latest.onlineTerminalCount} 台 · 上行 {formatBits(latest.uploadBps)} · 下行 {formatBits(latest.downloadBps)}</div> : null}
+    </div>
+  )
+}
+
+function MetricHistory(props: { title: string; samples: LoadSample[]; value: (sample: LoadSample) => number; format: (value: number) => string }) {
+  const values = props.samples.map(props.value)
+  const maximum = Math.max(1, ...values)
+  const width = 520
+  const height = 170
+  const points = values.map((value, index) => `${values.length <= 1 ? width / 2 : 18 + index * (width - 36) / (values.length - 1)},${height - 24 - value / maximum * (height - 46)}`).join(' ')
+  return <section className="panel metric-history"><div className="panel-head"><h3>{props.title}</h3><span>当前 {values.length ? props.format(values[values.length - 1]) : '-'} · 最大 {props.format(Math.max(0, ...values))}</span></div>{values.length ? <><svg viewBox={`0 0 ${width} ${height}`}><line x1="18" x2={width - 18} y1={height - 24} y2={height - 24} className="grid-line" /><polyline points={points} className="metric-line" /></svg><div className="chart-time"><span>{formatShortTime(props.samples[0].timestamp)}</span><span>{formatShortTime(props.samples[props.samples.length - 1].timestamp)}</span></div></> : <div className="empty-chart">等待历史采样</div>}</section>
+}
+
+function ProtocolPage(props: { protocols: ProtocolStat[] }) {
+  const [history, setHistory] = useState<ProtocolHistorySample[]>([])
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch('/api/protocols?window=30m')
+      if (!response.ok) return
+      const payload = (await response.json()) as { history: ProtocolHistorySample[] }
+      if (!cancelled) setHistory(payload.history)
+    }
+    load().catch(() => undefined)
+    const timer = window.setInterval(() => load().catch(() => undefined), 30000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [])
+  const totalBytes = props.protocols.reduce((sum, item) => sum + item.uploadBytes + item.downloadBytes, 0)
+  const historyBytes = new Map<string, number>()
+  history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
+  const historyTotal = Array.from(historyBytes.values()).reduce((sum, value) => sum + value, 0)
+  return <section className="panel compact-panel"><div className="data-toolbar"><strong>当前连接协议分布</strong><span className="result-count">基于 RouterOS 连接跟踪与端口估算，不是 DPI</span><span className="toolbar-spacer" /><span>近 30 分钟 {history.length} 条采样</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
+}
+
+function PolicyPage(props: { policies: PolicyStat[] }) {
+  return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有 RouterOS 策略计数器</strong><span className="result-count">只读展示，不创建或修改规则</span><span className="toolbar-spacer" /><span>共 {props.policies.length} 条</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>来源</th><th>名称</th><th>目标 / 动作</th><th>标记</th><th>当前速率</th><th>累计流量</th><th>包数</th><th>状态</th></tr></thead><tbody>{props.policies.length ? props.policies.map((item, index) => <tr key={`${item.kind}-${item.name}-${index}`}><td>{item.kind}</td><td>{item.name}</td><td>{item.target || '-'}</td><td>{item.mark || '-'}</td><td>{item.rate || '-'}</td><td>{formatBytes(item.bytes)}</td><td>{item.packets}</td><td>{item.disabled ? '已禁用' : '生效中'}</td></tr>) : <tr><td colSpan={8} className="empty-row">当前 RouterOS 没有可展示的队列、队列树或带计数/标记的 mangle 策略</td></tr>}</tbody></table></div></section>
+}
+
+function RoutesPage(props: { routes: RouteStat[] }) {
+  return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有路由与分流状态</strong><span className="result-count">来自当前路由表和 routing rule</span><span className="toolbar-spacer" /><span>共 {props.routes.length} 条</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>类型</th><th>源地址 / 接口</th><th>目标网段</th><th>网关</th><th>路由表</th><th>动作</th><th>距离</th><th>状态</th></tr></thead><tbody>{props.routes.length ? props.routes.map((item, index) => <tr key={`${item.kind}-${item.destination}-${item.table}-${index}`}><td>{item.kind}</td><td>{item.source || '-'}</td><td>{item.destination || '-'}</td><td>{item.gateway || '-'}</td><td>{item.table || 'main'}</td><td>{item.action || '-'}</td><td>{item.distance || '-'}</td><td>{item.disabled ? '已禁用' : item.kind === 'route' ? (item.active ? '活动' : '非活动') : '生效中'}</td></tr>) : <tr><td colSpan={8} className="empty-row">当前没有可读取的路由或分流状态</td></tr>}</tbody></table></div></section>
+}
+
+type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'interface' | 'device' | 'remark'
 
 function TerminalsPage(props: {
   terminals: Terminal[]
   query: string
   onQueryChange: (value: string) => void
+  refreshMs: number
+  onRefreshMsChange: (value: number) => void
+  onRefresh: () => void
   onOpenDetail: (terminalID: string) => void
   onOpenRemark: (terminal: Terminal) => void
 }) {
+  const [sortKey, setSortKey] = useState<TerminalSortKey>('address')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [stateFilter, setStateFilter] = useState('all')
+  const [interfaceFilter, setInterfaceFilter] = useState('all')
+  const [pageSize, setPageSize] = useState(20)
+  const [page, setPage] = useState(1)
+  const interfaces = useMemo(() => Array.from(new Set(props.terminals.map((item) => item.primaryInterface).filter(Boolean))).sort(), [props.terminals])
+  const sorted = useMemo(() => {
+    const visible = props.terminals.filter((terminal) =>
+      (stateFilter === 'all' || terminal.state === stateFilter) &&
+      (interfaceFilter === 'all' || terminal.primaryInterface === interfaceFilter),
+    )
+    return [...visible].sort((left, right) => {
+      const comparison = compareTerminal(left, right, sortKey)
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [props.terminals, stateFilter, interfaceFilter, sortKey, sortDirection])
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const rows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => setPage(1), [props.query, stateFilter, interfaceFilter, pageSize])
+
+  const changeSort = (key: TerminalSortKey) => {
+    if (sortKey === key) setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')
+    else {
+      setSortKey(key)
+      setSortDirection('asc')
+    }
+  }
+
   return (
-    <section className="panel">
-      <div className="panel-head terminals-head">
-        <div>
-          <h3>终端监控</h3>
-          <span>按设备聚合显示，连接数和速率已合并 IPv4 / IPv6</span>
-        </div>
-        <input
-          className="search-input"
-          value={props.query}
-          onChange={(event) => props.onQueryChange(event.target.value)}
-          placeholder="备注 / IP / MAC"
-        />
+    <section className="panel compact-panel">
+      <div className="data-toolbar">
+        <input className="search-input" value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="备注 / 名称 / IP / MAC" />
+        <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="终端状态">
+          <option value="all">全部状态</option><option value="online">在线</option><option value="idle">空闲</option><option value="offline">离线</option>
+        </select>
+        <select value={interfaceFilter} onChange={(event) => setInterfaceFilter(event.target.value)} aria-label="接入接口">
+          <option value="all">全部接口</option>{interfaces.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+        <span className="toolbar-spacer" />
+        <span className="result-count">共 {sorted.length} 台</span>
+        <select value={props.refreshMs} onChange={(event) => props.onRefreshMsChange(Number(event.target.value))} aria-label="自动刷新">
+          <option value={0}>停止刷新</option><option value={3000}>3 秒刷新</option><option value={5000}>5 秒刷新</option><option value={10000}>10 秒刷新</option>
+        </select>
+        <button type="button" className="toolbar-button" onClick={props.onRefresh}>刷新</button>
       </div>
 
       <div className="table-scroll">
         <table className="data-table terminal-table">
-          <thead>
-            <tr>
-              <th>设备</th>
-              <th>地址</th>
-              <th>连接数</th>
-              <th>上行速率</th>
-              <th>下行速率</th>
-              <th>累计上行</th>
-              <th>累计下行</th>
-              <th>在线时长</th>
-              <th>备注</th>
-              <th>操作</th>
-            </tr>
-          </thead>
+          <thead><tr>
+            <SortHeader label="IP / MAC" sortKey="address" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="连接数" sortKey="connections" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="上行速率" sortKey="upload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="下行速率" sortKey="download" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="累计上行" sortKey="totalUpload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="累计下行" sortKey="totalDownload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="在线时长" sortKey="online" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="接口" sortKey="interface" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="设备" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="备注" sortKey="remark" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <th>操作</th>
+          </tr></thead>
           <tbody>
-            {props.terminals.map((terminal) => (
+            {rows.map((terminal) => (
               <tr key={terminal.id}>
-                <td>
-                  <button
-                    type="button"
-                    className="link-button terminal-link"
-                    onClick={() => props.onOpenDetail(terminal.id)}
-                  >
-                    <strong>{terminal.remark || terminal.displayName || terminal.macAddress || '未知设备'}</strong>
-                    <span className="muted-text">{terminal.macAddress || 'MAC 未知'}</span>
-                  </button>
-                </td>
-                <td>
-                  <div className="address-stack">
-                    {terminal.ipv4.length > 0 ? <span>IPv4: {terminal.ipv4.join(' / ')}</span> : null}
-                    {terminal.ipv6.length > 0 ? <span>IPv6: {terminal.ipv6.join(' / ')}</span> : <span className="muted-text">IPv6: 无</span>}
-                  </div>
-                </td>
-                <td>{terminal.connectionCount}</td>
-                <td>{formatBits(terminal.currentUploadBps)}</td>
-                <td>{formatBits(terminal.currentDownloadBps)}</td>
-                <td>{formatBytes(terminal.totalUploadBytes)}</td>
-                <td>{formatBytes(terminal.totalDownloadBytes)}</td>
-                <td>{formatOnlineDuration(terminal.trackingSince)}</td>
+                <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
+                  <strong>{terminal.primaryIpv4 || terminal.primaryIpv6 || '-'}</strong>
+                  <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{terminal.ipv4.length + terminal.ipv6.length > 2 ? `  +${terminal.ipv4.length + terminal.ipv6.length - 2}` : ''}</span>
+                </button></td>
+                <td>{terminal.connectionCount}</td><td>{formatBits(terminal.currentUploadBps)}</td><td>{formatBits(terminal.currentDownloadBps)}</td>
+                <td>{formatBytes(terminal.totalUploadBytes)}</td><td>{formatBytes(terminal.totalDownloadBytes)}</td>
+                <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'offline' ? '-' : formatOnlineDuration(terminal.onlineSince)}</td>
+                <td>{terminal.primaryInterface || '-'}</td>
+                <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== terminal.primaryIpv4 ? terminal.displayName : '-'}</td>
                 <td>{terminal.remark || '-'}</td>
-                <td>
-                  <div className="action-links">
-                    <button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>
-                      详情
-                    </button>
-                    <button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>
-                      修改备注
-                    </button>
-                  </div>
-                </td>
+                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>修改备注</button></div></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <div className="pagination">
+        <span>每页</span><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
+        <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+        <span>{currentPage} / {totalPages}</span>
+        <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
+      </div>
     </section>
   )
+}
+
+function SortHeader(props: { label: string; sortKey: TerminalSortKey; activeKey: TerminalSortKey; direction: 'asc' | 'desc'; onSort: (key: TerminalSortKey) => void }) {
+  return <th><button type="button" className="sort-button" onClick={() => props.onSort(props.sortKey)}>{props.label}<span>{props.activeKey === props.sortKey ? (props.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>
 }
 
 function TerminalDetailPage(props: {
@@ -592,40 +774,31 @@ function TerminalDetailPage(props: {
   onBack: () => void
   onTabChange: (value: TerminalTab) => void
   onConnectionFamilyChange: (value: ConnectionFamily) => void
-  onOpenRemark: () => void
 }) {
-  const capabilityByTab = Object.fromEntries(
-    props.detail.capabilities.map((item) => [item.tab, item]),
-  )
   const ipv4Connections = props.detail.connections.filter((item) => item.family === 'ipv4')
   const ipv6Connections = props.detail.connections.filter((item) => item.family === 'ipv6')
-  const visibleConnections =
-    props.connectionFamily === 'ipv4' ? ipv4Connections : ipv6Connections
+  const [connectionQuery, setConnectionQuery] = useState('')
+  const [protocolFilter, setProtocolFilter] = useState('all')
+  const familyConnections = props.connectionFamily === 'ipv4' ? ipv4Connections : ipv6Connections
+  const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
+  const visibleConnections = familyConnections.filter((connection) =>
+    (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
+    [connection.application, connection.sourceAddress, connection.destinationAddress, connection.publicAddress, connection.connectionMark]
+      .join(' ').toLowerCase().includes(connectionQuery.trim().toLowerCase()),
+  )
 
   return (
     <section className="detail-page">
-      <div className="detail-breadcrumb">
-        <span>状态监控</span>
-        <span>&gt;</span>
-        <span>终端监控</span>
-        <span>&gt;</span>
-        <span>{props.detail.terminal.ipv4[0] || props.detail.terminal.ipv6[0] || props.detail.terminal.macAddress}</span>
-      </div>
-
       <div className="detail-page-head">
-        <div>
-          <h3>
-            终端详情（IP:
-            {props.detail.terminal.ipv4[0] || props.detail.terminal.ipv6[0] || '-'}）
-          </h3>
-          <p className="muted-text">
-            设备主体按 MAC 聚合，概览速率与连接数已合并 IPv4 / IPv6
-          </p>
+        <div className="detail-summary">
+          <DetailSummary label="主地址" value={props.detail.terminal.primaryIpv4 || props.detail.terminal.primaryIpv6 || '-'} />
+          <DetailSummary label="MAC" value={props.detail.terminal.macAddress || '-'} />
+          <DetailSummary label="状态" value={terminalStateText(props.detail.terminal.state)} />
+          <DetailSummary label="连接" value={`${props.detail.terminal.connectionCount}`} />
+          <DetailSummary label="当前上行" value={formatBits(props.detail.terminal.currentUploadBps)} />
+          <DetailSummary label="当前下行" value={formatBits(props.detail.terminal.currentDownloadBps)} />
         </div>
         <div className="detail-head-actions">
-          <button type="button" className="primary-button" onClick={props.onOpenRemark}>
-            修改备注
-          </button>
           <button type="button" className="close-button" onClick={props.onBack}>
             返回
           </button>
@@ -647,20 +820,21 @@ function TerminalDetailPage(props: {
             <DetailItem label="MAC 地址" value={props.detail.terminal.macAddress || '-'} />
             <DetailItem label="接入接口" value={props.detail.terminal.primaryInterface || '-'} />
             <DetailItem label="连接数（IPv4+IPv6）" value={`${props.detail.terminal.connectionCount}`} />
-            <DetailItem label="在线时长" value={formatOnlineDuration(props.detail.terminal.trackingSince)} />
+            <DetailItem label="本次在线时长" value={props.detail.terminal.state === 'offline' ? '-' : formatOnlineDuration(props.detail.terminal.onlineSince)} />
             <DetailItem label="当前上行速率" value={formatBits(props.detail.terminal.currentUploadBps)} />
             <DetailItem label="当前下行速率" value={formatBits(props.detail.terminal.currentDownloadBps)} />
             <DetailItem label="累计上行" value={formatBytes(props.detail.terminal.totalUploadBytes)} />
             <DetailItem label="累计下行" value={formatBytes(props.detail.terminal.totalDownloadBytes)} />
             <DetailItem label="备注" value={props.detail.terminal.remark || '-'} />
+            <DetailItem label="面板开始统计" value={formatDateTime(props.detail.terminal.trackingSince)} />
             <DetailItem label="最后活动时间" value={formatDateTime(props.detail.terminal.lastSeen)} />
           </div>
         ) : null}
 
         {props.activeTab === 'connections' ? (
           <div>
-            <CapabilityHint capability={capabilityByTab['连接详情']} />
-            <div className="family-switch">
+            <div className="connection-toolbar">
+              <div className="family-switch">
               <TabButton
                 label={`IPv4 连接详情 (${ipv4Connections.length})`}
                 active={props.connectionFamily === 'ipv4'}
@@ -671,6 +845,11 @@ function TerminalDetailPage(props: {
                 active={props.connectionFamily === 'ipv6'}
                 onClick={() => props.onConnectionFamilyChange('ipv6')}
               />
+              </div>
+              <select value={protocolFilter} onChange={(event) => setProtocolFilter(event.target.value)} aria-label="连接协议">
+                <option value="all">全部协议</option>{protocols.map((protocol) => <option key={protocol} value={protocol}>{protocol}</option>)}
+              </select>
+              <input value={connectionQuery} onChange={(event) => setConnectionQuery(event.target.value)} placeholder="目标地址 / 应用 / 标记" />
             </div>
             <div className="table-scroll">
               <table className="data-table">
@@ -678,10 +857,13 @@ function TerminalDetailPage(props: {
                   <tr>
                     <th>应用</th>
                     <th>协议</th>
-                    <th>线路</th>
-                    <th>源端口</th>
+                    <th>出口线路</th>
+                    <th>本地地址 / 端口</th>
                     <th>目的地址</th>
                     <th>目的端口</th>
+                    <th>外网地址</th>
+                    <th>当前上行</th>
+                    <th>当前下行</th>
                     <th>累计上行</th>
                     <th>累计下行</th>
                     <th>连接状态</th>
@@ -690,7 +872,7 @@ function TerminalDetailPage(props: {
                 <tbody>
                   {visibleConnections.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="empty-row">
+                      <td colSpan={13} className="empty-row">
                         当前没有 {props.connectionFamily.toUpperCase()} 连接详情
                       </td>
                     </tr>
@@ -700,9 +882,12 @@ function TerminalDetailPage(props: {
                         <td>{connection.application}</td>
                         <td>{connection.protocol}</td>
                         <td>{connection.line}</td>
-                        <td>{connection.sourcePort || '-'}</td>
+                        <td>{connection.sourceAddress}{connection.sourcePort ? `:${connection.sourcePort}` : ''}</td>
                         <td>{connection.destinationAddress}</td>
                         <td>{connection.destinationPort || '-'}</td>
+                        <td>{connection.publicAddress || '-'}</td>
+                        <td>{formatBits(connection.uploadBps)}</td>
+                        <td>{formatBits(connection.downloadBps)}</td>
                         <td>{formatBytes(connection.uploadBytes)}</td>
                         <td>{formatBytes(connection.downloadBytes)}</td>
                         <td>{connection.status}</td>
@@ -717,7 +902,7 @@ function TerminalDetailPage(props: {
 
         {props.activeTab === 'flows' ? (
           <div>
-            <CapabilityHint capability={capabilityByTab['流量分布']} />
+            <p className="table-note">按当前活动连接的协议和端口估算，不等同于 DPI 应用识别。</p>
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -755,7 +940,7 @@ function TerminalDetailPage(props: {
 
         {props.activeTab === 'history' ? (
           <div>
-            <CapabilityHint capability={capabilityByTab['历史记录']} />
+            <p className="table-note">每分钟保存一条面板本地累计快照。</p>
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -864,14 +1049,11 @@ function DetailItem(props: { label: string; value: string }) {
   )
 }
 
-function CapabilityHint(props: { capability?: TerminalCapability }) {
-  if (!props.capability) {
-    return null
-  }
+function DetailSummary(props: { label: string; value: string }) {
   return (
-    <div className="capability-hint">
-      <span className={`badge badge-${props.capability.status}`}>{statusText(props.capability.status)}</span>
-      <p>{props.capability.details}</p>
+    <div className="detail-summary-item">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
     </div>
   )
 }
@@ -929,29 +1111,26 @@ function viewTitle(view: ActiveView) {
     case 'overview':
       return '系统概况'
     case 'interfaces':
-      return '接口状态'
+      return '线路监控'
     case 'terminals':
       return '终端监控'
+    case 'load':
+      return '负载历史'
+    case 'protocols':
+      return '协议统计'
+    case 'policies':
+      return '策略统计'
+    case 'routes':
+      return '路由 / 分流'
     default:
       return ''
   }
 }
 
-function statusText(value: string) {
-  switch (value) {
-    case 'supported_now':
-      return '当前可用'
-    case 'supported_with_panel_persistence':
-      return '面板本地累计'
-    case 'not_natively_feasible':
-      return '当前不适合做'
-    case 'deferred':
-      return '后续扩展'
-    case 'limited':
-      return '当前数据有限'
-    default:
-      return value
-  }
+function terminalStateText(value: Terminal['state']) {
+  if (value === 'online') return '在线'
+  if (value === 'idle') return '空闲'
+  return '离线'
 }
 
 function formatBits(value: number) {
@@ -977,7 +1156,10 @@ function formatBytes(value: number) {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('zh-CN', {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -986,12 +1168,47 @@ function formatDateTime(value: string) {
   })
 }
 
+function formatShortTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 function formatOnlineDuration(trackingSince: string) {
   if (!trackingSince) {
     return '-'
   }
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(trackingSince).getTime()) / 1000))
   return formatSeconds(seconds)
+}
+
+function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey) {
+  const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
+  switch (key) {
+    case 'address': return compareIp(left.primaryIpv4, right.primaryIpv4) || compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
+    case 'connections': return left.connectionCount - right.connectionCount
+    case 'upload': return left.currentUploadBps - right.currentUploadBps
+    case 'download': return left.currentDownloadBps - right.currentDownloadBps
+    case 'totalUpload': return left.totalUploadBytes - right.totalUploadBytes
+    case 'totalDownload': return left.totalDownloadBytes - right.totalDownloadBytes
+    case 'online': return new Date(left.onlineSince || 0).getTime() - new Date(right.onlineSince || 0).getTime()
+    case 'interface': return text(left.primaryInterface, right.primaryInterface)
+    case 'device': return text(left.displayName, right.displayName)
+    case 'remark': return text(left.remark, right.remark)
+  }
+}
+
+function compareIp(left: string, right: string) {
+  if (left && !right) return -1
+  if (!left && right) return 1
+  if (!left && !right) return 0
+  const leftV4 = left.split('.').map(Number)
+  const rightV4 = right.split('.').map(Number)
+  if (leftV4.length === 4 && rightV4.length === 4) {
+    for (let index = 0; index < 4; index += 1) {
+      if (leftV4[index] !== rightV4[index]) return leftV4[index] - rightV4[index]
+    }
+    return 0
+  }
+  return left.localeCompare(right, 'en', { numeric: true })
 }
 
 function formatSeconds(seconds: number) {
