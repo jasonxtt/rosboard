@@ -54,12 +54,28 @@ func (m *Monitor) Start(ctx context.Context) error {
 			case <-ticker.C:
 				if err := m.refresh(ctx); err != nil {
 					m.logger.Printf("refresh failed: %v", err)
+					m.recordRefreshError(err)
 				}
 			}
 		}
 	}()
 
 	return nil
+}
+
+func (m *Monitor) recordRefreshError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	alert := model.AlertEvent{ID: "dashboard-refresh", Level: "error", Source: "核心采集", Message: err.Error(), Timestamp: time.Now().UTC()}
+	alerts := make([]model.AlertEvent, 0, len(m.snapshot.Alerts)+1)
+	alerts = append(alerts, alert)
+	for _, existing := range m.snapshot.Alerts {
+		if existing.ID != alert.ID && len(alerts) < 50 {
+			alerts = append(alerts, existing)
+		}
+	}
+	m.snapshot.Alerts = alerts
 }
 
 func (m *Monitor) Snapshot() model.DashboardSnapshot {
@@ -73,6 +89,7 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	snapshot.Protocols = append([]model.ProtocolStat(nil), snapshot.Protocols...)
 	snapshot.Policies = append([]model.PolicyStat(nil), snapshot.Policies...)
 	snapshot.Routes = append([]model.RouteStat(nil), snapshot.Routes...)
+	snapshot.Alerts = append([]model.AlertEvent(nil), snapshot.Alerts...)
 	snapshot.Warnings = append([]string(nil), snapshot.Warnings...)
 	snapshot.Overview.ChartSamples = append([]model.RateSample(nil), snapshot.Overview.ChartSamples...)
 	return snapshot
@@ -130,6 +147,11 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	now := time.Now().UTC()
 	previous := m.Snapshot()
 	warnings := make([]string, 0)
+	alertsByID := make(map[string]model.AlertEvent)
+	addWarning := func(id, source, message string) {
+		warnings = append(warnings, message)
+		alertsByID[id] = model.AlertEvent{ID: id, Level: "warning", Source: source, Message: message, Timestamp: now}
+	}
 
 	resource, err := m.client.SystemResource(pollCtx)
 	if err != nil {
@@ -179,32 +201,32 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	policyComplete := true
 	if err != nil {
 		m.logger.Printf("load simple queues failed: %v", err)
-		warnings = append(warnings, "Simple Queue 数据暂时不可用，保留上次有效策略数据。")
+		addWarning("simple-queues", "策略采集", "Simple Queue 数据暂时不可用，保留上次有效策略数据。")
 		policyComplete = false
 	}
 	queueTrees, err := m.client.QueueTrees(pollCtx)
 	if err != nil {
 		m.logger.Printf("load queue trees failed: %v", err)
-		warnings = append(warnings, "Queue Tree 数据暂时不可用，保留上次有效策略数据。")
+		addWarning("queue-trees", "策略采集", "Queue Tree 数据暂时不可用，保留上次有效策略数据。")
 		policyComplete = false
 	}
 	mangleRules, err := m.client.MangleRules(pollCtx)
 	if err != nil {
 		m.logger.Printf("load mangle rules failed: %v", err)
-		warnings = append(warnings, "Mangle 计数器暂时不可用，保留上次有效策略数据。")
+		addWarning("mangle-rules", "策略采集", "Mangle 计数器暂时不可用，保留上次有效策略数据。")
 		policyComplete = false
 	}
 	routingRules, err := m.client.RoutingRules(pollCtx)
 	routesComplete := true
 	if err != nil {
 		m.logger.Printf("load routing rules failed: %v", err)
-		warnings = append(warnings, "Routing Rule 数据暂时不可用，保留上次有效路由数据。")
+		addWarning("routing-rules", "路由采集", "Routing Rule 数据暂时不可用，保留上次有效路由数据。")
 		routesComplete = false
 	}
 	ipRoutes, err := m.client.IPRoutes(pollCtx)
 	if err != nil {
 		m.logger.Printf("load routes failed: %v", err)
-		warnings = append(warnings, "路由表暂时不可用，保留上次有效路由数据。")
+		addWarning("ip-routes", "路由采集", "路由表暂时不可用，保留上次有效路由数据。")
 		routesComplete = false
 	}
 
@@ -215,7 +237,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		entry, err := m.client.MonitorTraffic(pollCtx, name)
 		if err != nil {
 			m.logger.Printf("monitor traffic for %s failed: %v", name, err)
-			warnings = append(warnings, fmt.Sprintf("接口 %s 实时速率暂时不可用。", name))
+			addWarning("traffic-"+name, "接口采集", fmt.Sprintf("接口 %s 实时速率暂时不可用。", name))
 			continue
 		}
 		trafficRates[name] = entry
@@ -275,6 +297,14 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if !routesComplete && len(previous.Routes) > 0 {
 		routes = previous.Routes
 	}
+	alerts := make([]model.AlertEvent, 0, len(alertsByID))
+	for _, alert := range alertsByID {
+		alerts = append(alerts, alert)
+	}
+	sort.Slice(alerts, func(i, j int) bool { return alerts[i].Timestamp.After(alerts[j].Timestamp) })
+	if len(alerts) > 50 {
+		alerts = alerts[:50]
+	}
 	snapshot := model.DashboardSnapshot{
 		Overview: model.Overview{
 			RouterName:           resource.BoardName,
@@ -304,6 +334,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		Protocols:    protocols,
 		Policies:     policies,
 		Routes:       routes,
+		Alerts:       alerts,
 		Warnings:     warnings,
 	}
 
@@ -391,6 +422,7 @@ type terminalBuilder struct {
 	CurrentDownloadBps float64
 	LastSeen           time.Time
 	State              string
+	StrongEvidence     bool
 }
 
 const routerTerminalID = "routeros:self"
@@ -496,10 +528,9 @@ func (m *Monitor) buildTerminals(
 		}
 		return builder
 	}
-	markPresent := func(builder *terminalBuilder, state string) {
-		if state == "online" || builder.State == "offline" {
-			builder.State = state
-		}
+	markOnline := func(builder *terminalBuilder) {
+		builder.StrongEvidence = true
+		builder.State = "online"
 		builder.LastSeen = now
 	}
 
@@ -511,7 +542,7 @@ func (m *Monitor) buildTerminals(
 		if builder.PrimaryInterface == "" || assigned.Interface == "lan" {
 			builder.PrimaryInterface = assigned.Interface
 		}
-		markPresent(builder, "online")
+		markOnline(builder)
 	}
 
 	for _, lease := range leases {
@@ -522,7 +553,7 @@ func (m *Monitor) buildTerminals(
 		if address == "" {
 			continue
 		}
-		markPresent(ensureBuilder(address, "ipv4", macByAddress[address]), "online")
+		ensureBuilder(address, "ipv4", macByAddress[address])
 	}
 
 	for _, entry := range arpEntries {
@@ -531,8 +562,8 @@ func (m *Monitor) buildTerminals(
 			continue
 		}
 		builder := ensureBuilder(address, "ipv4", macByAddress[address])
-		if parseBool(entry.Complete) || strings.EqualFold(entry.Status, "reachable") || strings.EqualFold(entry.Status, "permanent") {
-			markPresent(builder, "online")
+		if strings.EqualFold(entry.Status, "reachable") || strings.EqualFold(entry.Status, "permanent") {
+			markOnline(builder)
 		}
 	}
 
@@ -543,7 +574,7 @@ func (m *Monitor) buildTerminals(
 		}
 		builder := ensureBuilder(address, "ipv6", macByAddress[address])
 		if strings.EqualFold(neighbor.Status, "reachable") || strings.EqualFold(neighbor.Status, "permanent") {
-			markPresent(builder, "online")
+			markOnline(builder)
 		}
 	}
 
@@ -568,7 +599,7 @@ func (m *Monitor) buildTerminals(
 			builder.ConnectionCount++
 			builder.CurrentUploadBps += view.UploadBps
 			builder.CurrentDownloadBps += view.DownloadBps
-			markPresent(builder, "online")
+			markOnline(builder)
 			if !view.RouterSelf {
 				builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress], builder.MACAddress, view.LocalAddress)
 			}
@@ -632,10 +663,25 @@ func (m *Monitor) buildTerminals(
 		if err := m.store.ReplaceTerminalAddresses(ctx, builder.ID, mapKeys(builder.IPv4), mapKeys(builder.IPv6), now); err != nil {
 			return nil, nil, err
 		}
+		ids = append(ids, builder.ID)
+	}
+	previousTotals, err := m.store.TerminalTotals(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, builder := range builders {
+		if !builder.StrongEvidence {
+			lastSeen := previousTotals[builder.ID].LastSeen
+			if !lastSeen.IsZero() && now.Sub(lastSeen) <= 5*time.Minute {
+				builder.State = "inactive"
+			} else {
+				builder.State = "offline"
+			}
+			builder.LastSeen = time.Time{}
+		}
 		if _, _, err := m.store.UpdateTerminalPresence(ctx, builder.ID, builder.State, builder.LastSeen); err != nil {
 			return nil, nil, err
 		}
-		ids = append(ids, builder.ID)
 	}
 	if err := m.store.ApplyConnectionSnapshots(ctx, connectionSnapshots); err != nil {
 		return nil, nil, err

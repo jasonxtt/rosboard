@@ -342,10 +342,10 @@ func (s *Store) UpdateTerminalPresence(ctx context.Context, id, state string, se
 	_, err := s.db.ExecContext(ctx, `UPDATE terminals SET
 		state = ?,
 		online_since = CASE
-			WHEN ? = 'offline' THEN 0
-			WHEN state = 'offline' OR online_since = 0 THEN ?
+			WHEN ? <> 'online' THEN 0
+			WHEN state <> 'online' OR online_since = 0 THEN ?
 			ELSE online_since END,
-		last_seen = CASE WHEN ? <> 'offline' THEN ? ELSE last_seen END
+		last_seen = CASE WHEN ? = 'online' THEN ? ELSE last_seen END
 		WHERE id = ?`, state, state, now, state, now, id)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("update terminal presence: %w", err)

@@ -14,7 +14,9 @@ export function viewTitle(view: ActiveView) {
 }
 
 export function terminalStateText(value: Terminal['state']) {
-  return value === 'online' ? '在线' : '离线'
+  if (value === 'online') return '在线'
+  if (value === 'inactive') return '近期未活跃'
+  return '离线'
 }
 
 export function formatBits(value: number) {
