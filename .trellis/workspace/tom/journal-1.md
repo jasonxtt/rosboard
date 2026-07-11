@@ -402,3 +402,36 @@ Defaulted terminal lists to online devices, added an inactive-device toggle, ali
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Refine monitoring navigation and presence
+
+**Date**: 2026-07-11
+**Task**: Refine monitoring navigation and presence
+**Branch**: `main`
+
+### Summary
+
+Implemented accordion monitoring navigation, structured current alerts, non-duplicative system status, and strong-evidence three-state terminal presence with live RouterOS and browser verification.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0c114d7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
