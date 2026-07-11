@@ -303,3 +303,36 @@ Defaulted terminal lists to online devices, added an inactive-device toggle, ali
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: YAML startup and binary terminal states
+
+**Date**: 2026-07-11
+**Task**: YAML startup and binary terminal states
+**Branch**: `main`
+
+### Summary
+
+正式纳入取消空闲状态改动，将终端状态收敛为在线/离线；建立受 Git 忽略的真实 YAML 配置和固定启动脚本，重建前端并验证 8080 局域网访问与实时更新。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `80c3360` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

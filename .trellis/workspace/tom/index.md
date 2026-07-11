@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~305 | Active |
+| `journal-1.md` | ~338 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-07-11 | YAML startup and binary terminal states | `80c3360` | `main` |
 | 9 | 2026-07-11 | Polish terminal monitor controls | `1fff20e` | `main` |
 | 8 | 2026-07-10 | Fix online device count and live refresh | `aea8617` | `main` |
 | 7 | 2026-07-10 | Restore live terminal and overview metrics | `b964136` | `main` |
