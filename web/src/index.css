@@ -422,7 +422,6 @@ textarea {
 }
 
 .state-online { background: #21a67a; }
-.state-idle { background: #e3a52b; }
 .state-offline { background: #aeb7c4; }
 
 .terminals-head {

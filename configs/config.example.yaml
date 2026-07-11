@@ -3,6 +3,8 @@ data_dir: "./data"
 poll_interval_seconds: 5
 sample_retention_hours: 48
 allowed_cidrs:
+  - "127.0.0.0/8"
+  - "::1/128"
   - "10.0.0.0/8"
   - "192.168.0.0/16"
 
