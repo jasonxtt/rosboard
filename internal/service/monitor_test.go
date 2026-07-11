@@ -1,13 +1,16 @@
 package service
 
 import (
+	"context"
 	"net"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"rosboard/internal/model"
 	"rosboard/internal/routeros"
+	"rosboard/internal/store"
 )
 
 func TestSelectTrafficInterfacesPrefersPPPoE(t *testing.T) {
@@ -42,7 +45,6 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 	terminals := []model.Terminal{
 		{ID: routerTerminalID, State: "online", PrimaryInterface: "lan"},
 		{ID: "lan-online", State: "online", PrimaryInterface: "lan"},
-		{ID: "vlan-idle", State: "idle", PrimaryInterface: "vlan2-aruba"},
 		{ID: "wan-online", State: "online", PrimaryInterface: "wan"},
 		{ID: "pppoe-online", State: "online", PrimaryInterface: "pppoe-out1"},
 		{ID: "lan-offline", State: "offline", PrimaryInterface: "lan"},
@@ -51,6 +53,39 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 
 	if got := connectedLANDeviceCount(terminals, []string{"pppoe-out1"}); got != 2 {
 		t.Fatalf("expected 2 online LAN devices, got %d", got)
+	}
+}
+
+func TestBuildTerminalsMarksPresenceEvidenceOnline(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage}
+	now := time.Unix(1000, 0).UTC()
+	terminals, _, err := monitor.buildTerminals(
+		context.Background(),
+		now,
+		nil,
+		map[string]routerAssignedAddress{"10.0.0.1": {Family: "ipv4", Interface: "lan"}},
+		[]routeros.DHCPLease{{Address: "10.0.0.2", MACAddress: "00:11:22:33:44:02", Status: "bound"}},
+		[]routeros.ARPEntry{{Address: "10.0.0.3", MACAddress: "00:11:22:33:44:03", Interface: "lan", Complete: "true"}},
+		[]routeros.IPv6Neighbor{{Address: "fc00::4", MACAddress: "00:11:22:33:44:04", Interface: "lan", Status: "reachable"}},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build terminals: %v", err)
+	}
+	if len(terminals) != 4 {
+		t.Fatalf("expected four terminals, got %d", len(terminals))
+	}
+	for _, terminal := range terminals {
+		if terminal.State != "online" {
+			t.Errorf("expected %s to be online, got %s", terminal.ID, terminal.State)
+		}
 	}
 }
 

@@ -47,6 +47,18 @@ You can override the RouterOS connection fields with environment variables:
 - `ROSBOARD_ROUTEROS_USERNAME`
 - `ROSBOARD_ROUTEROS_PASSWORD`
 
+## Local non-interactive start
+
+Create the ignored local configuration once, then start the built binary without environment variables:
+
+```bash
+cp configs/config.example.yaml configs/config.local.yaml
+chmod 600 configs/config.local.yaml
+./scripts/run-local.sh
+```
+
+`configs/config.local.yaml` is intentionally ignored because it contains the RouterOS password. Environment variables remain optional overrides and are not used by `scripts/run-local.sh`.
+
 ## Build
 
 ```bash

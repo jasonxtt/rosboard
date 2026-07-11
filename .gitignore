@@ -1,3 +1,4 @@
 rosboard
 data/
 web/node_modules/
+configs/config.local.yaml

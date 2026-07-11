@@ -47,7 +47,7 @@ Do not use `outline: none` without a matching `:focus-visible` rule; that remove
 
 ## Verification
 
-- Browser: initial status is online and no idle/offline rows render.
+- Browser: initial status is online and no offline rows render.
 - Browser: the toggle expands to all states and returns to online.
 - Computed style: search and select heights are 34px; text-like button border is `0px none`.
 - Keyboard: tab focus on a text-like button displays the blue focus ring.

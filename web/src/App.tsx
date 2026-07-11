@@ -82,7 +82,7 @@ type Terminal = {
   lastSeen: string
   primaryIpv4: string
   primaryIpv6: string
-  state: 'online' | 'idle' | 'offline'
+  state: 'online' | 'offline'
   onlineSince: string
   familyStats: Record<'ipv4' | 'ipv6', TerminalFamilyStats>
 }
@@ -729,7 +729,7 @@ function TerminalsPage(props: {
       <div className="data-toolbar">
         <input className="search-input" value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="备注 / 名称 / IP / MAC" />
         <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="终端状态">
-          <option value="all">全部状态</option><option value="online">在线</option><option value="idle">空闲</option><option value="offline">离线</option>
+          <option value="all">全部状态</option><option value="online">在线</option><option value="offline">离线</option>
         </select>
         <select value={interfaceFilter} onChange={(event) => setInterfaceFilter(event.target.value)} aria-label="接入接口">
           <option value="all">全部接口</option>{interfaces.map((name) => <option key={name} value={name}>{name}</option>)}
@@ -1185,7 +1185,6 @@ function viewTitle(view: ActiveView) {
 
 function terminalStateText(value: Terminal['state']) {
   if (value === 'online') return '在线'
-  if (value === 'idle') return '空闲'
   return '离线'
 }
 

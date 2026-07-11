@@ -511,7 +511,7 @@ func (m *Monitor) buildTerminals(
 		if builder.PrimaryInterface == "" || assigned.Interface == "lan" {
 			builder.PrimaryInterface = assigned.Interface
 		}
-		markPresent(builder, "idle")
+		markPresent(builder, "online")
 	}
 
 	for _, lease := range leases {
@@ -522,7 +522,7 @@ func (m *Monitor) buildTerminals(
 		if address == "" {
 			continue
 		}
-		markPresent(ensureBuilder(address, "ipv4", macByAddress[address]), "idle")
+		markPresent(ensureBuilder(address, "ipv4", macByAddress[address]), "online")
 	}
 
 	for _, entry := range arpEntries {
@@ -532,7 +532,7 @@ func (m *Monitor) buildTerminals(
 		}
 		builder := ensureBuilder(address, "ipv4", macByAddress[address])
 		if parseBool(entry.Complete) || strings.EqualFold(entry.Status, "reachable") || strings.EqualFold(entry.Status, "permanent") {
-			markPresent(builder, "idle")
+			markPresent(builder, "online")
 		}
 	}
 
@@ -543,7 +543,7 @@ func (m *Monitor) buildTerminals(
 		}
 		builder := ensureBuilder(address, "ipv6", macByAddress[address])
 		if strings.EqualFold(neighbor.Status, "reachable") || strings.EqualFold(neighbor.Status, "permanent") {
-			markPresent(builder, "idle")
+			markPresent(builder, "online")
 		}
 	}
 
