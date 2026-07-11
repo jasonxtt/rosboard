@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
+- **Total Sessions**: 12
 - **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~371 | Active |
+| `journal-1.md` | ~404 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-07-11 | 按参考图重塑 Rosboard 系统概览 | `9131a8a` | `main` |
 | 11 | 2026-07-11 | 重塑 Rosboard 前端 UI | `4471a3c` | `main` |
 | 10 | 2026-07-11 | YAML startup and binary terminal states | `80c3360` | `main` |
 | 9 | 2026-07-11 | Polish terminal monitor controls | `1fff20e` | `main` |

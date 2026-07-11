@@ -369,3 +369,36 @@ Defaulted terminal lists to online devices, added an inactive-device toggle, ali
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: 按参考图重塑 Rosboard 系统概览
+
+**Date**: 2026-07-11
+**Task**: 按参考图重塑 Rosboard 系统概览
+**Branch**: `main`
+
+### Summary
+
+以用户参考图为硬性结构基准，重做四指标卡、真实趋势、实时流量、系统状态、接口摘要、当前事件、图标侧栏和全局刷新控件，并通过多轮浏览器截图对照、多视口及全页面回归验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9131a8a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
