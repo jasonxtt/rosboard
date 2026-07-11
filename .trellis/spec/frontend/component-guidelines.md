@@ -51,3 +51,49 @@ Do not use `outline: none` without a matching `:focus-visible` rule; that remove
 - Browser: the toggle expands to all states and returns to online.
 - Computed style: search and select heights are 34px; text-like button border is `0px none`.
 - Keyboard: tab focus on a text-like button displays the blue focus ring.
+
+## Responsive application shell
+
+The monitoring console is desktop/tablet-first but must remain fully usable on mobile.
+
+- At widths below 1200px, replace the fixed sidebar with an off-canvas drawer and a labelled menu button.
+- The drawer needs a full-page backdrop that closes it and must not create page-level horizontal overflow.
+- At widths below 768px, use one-column cards and 44px minimum touch targets.
+- Dense terminal and interface tables show only key columns on mobile. Keep the terminal detail/interface detail action available so hidden fields remain reachable.
+- Exceptionally wide connection-detail tables may scroll inside `.table-scroll`; the document itself must not scroll horizontally.
+
+```css
+@media (max-width: 767px) {
+  .terminal-table { min-width: 0; }
+  .terminal-table th:nth-child(5),
+  .terminal-table td:nth-child(5) { display: none; }
+}
+```
+
+Verify document overflow at 375, 768, 1024, and 1440px, and verify the mobile drawer open/close state rather than checking CSS alone.
+
+## Visual tokens
+
+New UI colors, radii, surfaces, shadows, and focus colors belong in semantic custom properties under `:root`. Components consume tokens rather than defining parallel brand colors.
+
+```css
+:root {
+  --color-primary: #2563eb;
+  --color-surface: #fff;
+  --color-border: #dce4ef;
+}
+```
+
+Status colors must be paired with text or another non-color cue. The current UI is light-only, but semantic tokens preserve a clean future theme boundary.
+
+## Embedded frontend verification
+
+`npm run build` writes to `internal/ui/dist`, but an already-running `rosboard` binary still serves the assets embedded when that binary was compiled. After a frontend build, rebuild the Go binary and restart it before browser verification:
+
+```bash
+npm --prefix web run build
+go build -o ./rosboard ./cmd/rosboard
+./scripts/run-local.sh
+```
+
+If the browser still shows the previous title, brand casing, or asset hash after reload, check the running process before diagnosing the React/CSS change.

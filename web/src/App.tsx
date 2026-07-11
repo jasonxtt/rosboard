@@ -1,183 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
-
-type RateSample = {
-  timestamp: string
-  uploadBps: number
-  downloadBps: number
-}
-
-type LoadSample = {
-  timestamp: string
-  cpuLoadPercent: number
-  memoryUsedPercent: number
-  storageUsedPercent: number
-  onlineTerminalCount: number
-  uploadBps: number
-  downloadBps: number
-}
-
-type Overview = {
-  routerName: string
-  platform: string
-  version: string
-  boardName: string
-  uptime: string
-  cpuLoadPercent: number
-  memoryUsedPercent: number
-  memoryUsedBytes: number
-  memoryTotalBytes: number
-  storageUsedPercent: number
-  storageUsedBytes: number
-  storageTotalBytes: number
-  connectedDeviceCount: number
-  connectionCount: number
-  uploadBps: number
-  downloadBps: number
-  trafficInterfaces: string[]
-  healthEnabled: boolean
-  updatedAt: string
-  chartSamples: RateSample[]
-}
-
-type InterfaceStatus = {
-  name: string
-  type: string
-  running: boolean
-  disabled: boolean
-  macAddress: string
-  status: string
-  lastLinkUpTime: string
-  linkDowns: number
-  actualMtu: number
-  rxBytes: number
-  txBytes: number
-  currentRxBps: number
-  currentTxBps: number
-  addresses: string[]
-  rxPackets: number
-  txPackets: number
-  rxDrops: number
-  txDrops: number
-  rxErrors: number
-  txErrors: number
-  linkRate: string
-  fullDuplex: boolean
-}
-type InterfaceDetail = { interface: InterfaceStatus; samples: RateSample[] }
-
-type Terminal = {
-  id: string
-  displayName: string
-  remark: string
-  macAddress: string
-  primaryInterface: string
-  ipv4: string[]
-  ipv6: string[]
-  connectionCount: number
-  currentUploadBps: number
-  currentDownloadBps: number
-  totalUploadBytes: number
-  totalDownloadBytes: number
-  trackingSince: string
-  lastSeen: string
-  primaryIpv4: string
-  primaryIpv6: string
-  state: 'online' | 'offline'
-  onlineSince: string
-  familyStats: Record<'ipv4' | 'ipv6', TerminalFamilyStats>
-}
-
-type TerminalFamilyStats = {
-  connectionCount: number
-  currentUploadBps: number
-  currentDownloadBps: number
-  activeUploadBytes: number
-  activeDownloadBytes: number
-}
-
-type CapabilityNote = {
-  area: string
-  item: string
-  status: string
-  details: string
-}
-
-type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean }
-type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
-type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
-type RouteStat = { kind: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean }
-
-type DashboardResponse = {
-  overview: Overview
-  interfaces: InterfaceStatus[]
-  terminals: Terminal[]
-  capabilities: CapabilityNote[]
-  protocols: ProtocolStat[]
-  policies: PolicyStat[]
-  routes: RouteStat[]
-  warnings: string[]
-}
-
-type TerminalConnection = {
-  key: string
-  family: string
-  application: string
-  protocol: string
-  line: string
-  sourceAddress: string
-  sourcePort: string
-  destinationAddress: string
-  destinationPort: string
-  uploadBytes: number
-  downloadBytes: number
-  uploadBps: number
-  downloadBps: number
-  status: string
-  seenReply: boolean
-  assured: boolean
-  publicAddress: string
-  connectionMark: string
-  estimated: boolean
-}
-
-type TerminalFlowCategory = {
-  name: string
-  currentUploadBps: number
-  currentDownloadBps: number
-  totalUploadBytes: number
-  totalDownloadBytes: number
-  uploadPercent: number
-  downloadPercent: number
-  estimated: boolean
-}
-
-type TerminalHistoryEntry = {
-  timestamp: string
-  onlineSeconds: number
-  totalUploadBytes: number
-  totalDownloadBytes: number
-}
-
-type TerminalCapability = {
-  tab: string
-  status: string
-  details: string
-}
-
-type TerminalDetail = {
-  terminal: Terminal
-  connections: TerminalConnection[]
-  flowCategories: TerminalFlowCategory[]
-  history: TerminalHistoryEntry[]
-  capabilities: TerminalCapability[]
-  familySummaries: Record<'ipv4' | 'ipv6', Terminal>
-  familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
-}
-
-type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes'
-type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
-type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
-type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
+import rosboardMark from './assets/rosboard-mark.svg'
+import {
+  compareTerminal,
+  formatBits,
+  formatBytes,
+  formatDateTime,
+  formatEndpoint,
+  formatOnlineDuration,
+  formatSeconds,
+  formatShortTime,
+  terminalMetrics,
+  terminalPrimaryAddress,
+  terminalStateText,
+  viewTitle,
+} from './lib/format'
+import type {
+  ActiveView,
+  ConnectionFamily,
+  DashboardResponse,
+  InterfaceDetail,
+  InterfaceStatus,
+  LoadSample,
+  PolicyStat,
+  ProtocolHistorySample,
+  ProtocolStat,
+  RateSample,
+  RouteStat,
+  Terminal,
+  TerminalDetail,
+  TerminalFamily,
+  TerminalSortKey,
+  TerminalTab,
+} from './lib/types'
 
 function App() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -197,6 +51,7 @@ function App() {
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -310,7 +165,8 @@ function App() {
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
-          <h1>rosboard</h1>
+          <img className="brand-mark" src={rosboardMark} alt="" />
+          <h1>Rosboard</h1>
           <p>正在读取 RouterOS 数据。</p>
           {error ? <p className="error-text">{error}</p> : null}
         </div>
@@ -321,14 +177,23 @@ function App() {
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
 
   return (
-    <main className="shell">
+    <main className={sidebarOpen ? 'shell sidebar-open' : 'shell'}>
+      <button
+        type="button"
+        className="sidebar-backdrop"
+        aria-label="关闭导航"
+        onClick={() => setSidebarOpen(false)}
+      />
       <aside className="sidebar">
         <div className="brand">
-          <h1>rosboard</h1>
-          <p>{dashboard.overview.version}</p>
+          <img className="brand-mark" src={rosboardMark} alt="" />
+          <div className="brand-copy">
+            <h1>Rosboard</h1>
+            <p>{dashboard.overview.version}</p>
+          </div>
         </div>
 
-        <nav className="menu">
+        <nav className="menu" onClick={() => setSidebarOpen(false)}>
           <button
             type="button"
             className={activeView === 'overview' ? 'menu-item active' : 'menu-item'}
@@ -394,13 +259,24 @@ function App() {
 
       <section className="content">
         <header className="topbar">
-          <div>
-            <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
-            <p className="topbar-subtitle">
-              {detailMode
-                ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
-                : `更新时间 ${formatDateTime(dashboard.overview.updatedAt)}`}
-            </p>
+          <div className="topbar-title">
+            <button
+              type="button"
+              className="mobile-menu-button"
+              aria-label="打开导航"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+            >
+              <span />
+            </button>
+            <div>
+              <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
+              <p className="topbar-subtitle">
+                {detailMode
+                  ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
+                  : `系统正常 · 更新于 ${formatDateTime(dashboard.overview.updatedAt)}`}
+              </p>
+            </div>
           </div>
           <div className="topbar-metrics">
             <span>CPU: {dashboard.overview.cpuLoadPercent}%</span>
@@ -580,7 +456,7 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
     <section className="panel compact-panel">
       <div className="data-toolbar"><strong>接口运行状态</strong><span className="result-count">物理与逻辑接口只读监控</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>
       <div className="table-scroll">
-        <table className="data-table">
+        <table className="data-table interface-table">
           <thead>
             <tr>
               <th>接口</th>
@@ -678,8 +554,6 @@ function PolicyPage(props: { policies: PolicyStat[] }) {
 function RoutesPage(props: { routes: RouteStat[] }) {
   return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有路由与分流状态</strong><span className="result-count">来自当前路由表和 routing rule</span><span className="toolbar-spacer" /><span>共 {props.routes.length} 条</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>类型</th><th>源地址 / 接口</th><th>目标网段</th><th>网关</th><th>路由表</th><th>动作</th><th>距离</th><th>状态</th></tr></thead><tbody>{props.routes.length ? props.routes.map((item, index) => <tr key={`${item.kind}-${item.destination}-${item.table}-${index}`}><td>{item.kind}</td><td>{item.source || '-'}</td><td>{item.destination || '-'}</td><td>{item.gateway || '-'}</td><td>{item.table || 'main'}</td><td>{item.action || '-'}</td><td>{item.distance || '-'}</td><td>{item.disabled ? '已禁用' : item.kind === 'route' ? (item.active ? '活动' : '非活动') : '生效中'}</td></tr>) : <tr><td colSpan={8} className="empty-row">当前没有可读取的路由或分流状态</td></tr>}</tbody></table></div></section>
 }
-
-type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'interface' | 'device' | 'remark'
 
 function TerminalsPage(props: {
   terminals: Terminal[]
@@ -1160,157 +1034,6 @@ function TrafficChart(props: { samples: RateSample[] }) {
       </div>
     </div>
   )
-}
-
-function viewTitle(view: ActiveView) {
-  switch (view) {
-    case 'overview':
-      return '系统概况'
-    case 'interfaces':
-      return '线路监控'
-    case 'terminals':
-      return '终端监控'
-    case 'load':
-      return '负载历史'
-    case 'protocols':
-      return '协议统计'
-    case 'policies':
-      return '策略统计'
-    case 'routes':
-      return '路由 / 分流'
-    default:
-      return ''
-  }
-}
-
-function terminalStateText(value: Terminal['state']) {
-  if (value === 'online') return '在线'
-  return '离线'
-}
-
-function formatBits(value: number) {
-  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
-  let output = value / 8
-  let index = 0
-  while (output >= 1024 && index < units.length - 1) {
-    output /= 1024
-    index += 1
-  }
-  return `${output.toFixed(output >= 100 ? 0 : output >= 10 ? 1 : 2)} ${units[index]}`
-}
-
-function formatBytes(value: number) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let output = value
-  let index = 0
-  while (output >= 1024 && index < units.length - 1) {
-    output /= 1024
-    index += 1
-  }
-  return `${output.toFixed(output >= 100 ? 0 : output >= 10 ? 1 : 2)} ${units[index]}`
-}
-
-function formatDateTime(value: string) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
-
-function formatShortTime(value: string) {
-  return new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function formatOnlineDuration(trackingSince: string) {
-  if (!trackingSince) {
-    return '-'
-  }
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(trackingSince).getTime()) / 1000))
-  return formatSeconds(seconds)
-}
-
-function terminalPrimaryAddress(terminal: Terminal, family: TerminalFamily) {
-  if (family === 'ipv4') return terminal.primaryIpv4 || '-'
-  if (family === 'ipv6') return terminal.primaryIpv6 || '-'
-  return terminal.primaryIpv4 || terminal.primaryIpv6 || '-'
-}
-
-function formatEndpoint(address: string, port: string) {
-  if (!port) return address
-  return address.includes(':') ? `[${address}]:${port}` : `${address}:${port}`
-}
-
-function terminalMetrics(terminal: Terminal, family: TerminalFamily) {
-  if (family === 'all' || !terminal.familyStats?.[family]) {
-    return terminal
-  }
-  const stats = terminal.familyStats[family]
-  return {
-    connectionCount: stats.connectionCount,
-    currentUploadBps: stats.currentUploadBps,
-    currentDownloadBps: stats.currentDownloadBps,
-    totalUploadBytes: stats.activeUploadBytes,
-    totalDownloadBytes: stats.activeDownloadBytes,
-  }
-}
-
-function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey, family: TerminalFamily) {
-  const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
-  const leftMetrics = terminalMetrics(left, family)
-  const rightMetrics = terminalMetrics(right, family)
-  switch (key) {
-    case 'address':
-      if (family === 'ipv4') return compareIp(left.primaryIpv4, right.primaryIpv4) || text(left.macAddress, right.macAddress)
-      if (family === 'ipv6') return compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
-      return compareIp(left.primaryIpv4, right.primaryIpv4) || compareIp(left.primaryIpv6, right.primaryIpv6) || text(left.macAddress, right.macAddress)
-    case 'connections': return leftMetrics.connectionCount - rightMetrics.connectionCount
-    case 'upload': return leftMetrics.currentUploadBps - rightMetrics.currentUploadBps
-    case 'download': return leftMetrics.currentDownloadBps - rightMetrics.currentDownloadBps
-    case 'totalUpload': return leftMetrics.totalUploadBytes - rightMetrics.totalUploadBytes
-    case 'totalDownload': return leftMetrics.totalDownloadBytes - rightMetrics.totalDownloadBytes
-    case 'online': return new Date(left.onlineSince || 0).getTime() - new Date(right.onlineSince || 0).getTime()
-    case 'interface': return text(left.primaryInterface, right.primaryInterface)
-    case 'device': return text(left.displayName, right.displayName)
-    case 'remark': return text(left.remark, right.remark)
-  }
-}
-
-function compareIp(left: string, right: string) {
-  if (left && !right) return -1
-  if (!left && right) return 1
-  if (!left && !right) return 0
-  const leftV4 = left.split('.').map(Number)
-  const rightV4 = right.split('.').map(Number)
-  if (leftV4.length === 4 && rightV4.length === 4) {
-    for (let index = 0; index < 4; index += 1) {
-      if (leftV4[index] !== rightV4[index]) return leftV4[index] - rightV4[index]
-    }
-    return 0
-  }
-  return left.localeCompare(right, 'en', { numeric: true })
-}
-
-function formatSeconds(seconds: number) {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const remainSeconds = seconds % 60
-  if (days > 0) {
-    return `${days}天${hours}小时${minutes}分`
-  }
-  if (hours > 0) {
-    return `${hours}小时${minutes}分${remainSeconds}秒`
-  }
-  if (minutes > 0) {
-    return `${minutes}分${remainSeconds}秒`
-  }
-  return `${remainSeconds}秒`
 }
 
 export default App
