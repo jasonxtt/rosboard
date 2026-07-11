@@ -97,3 +97,22 @@ go build -o ./rosboard ./cmd/rosboard
 ```
 
 If the browser still shows the previous title, brand casing, or asset hash after reload, check the running process before diagnosing the React/CSS change.
+
+## Reference-driven UI fidelity
+
+When the user approves a high-fidelity reference image, treat its information architecture as an implementation contract, not a loose palette suggestion.
+
+- Inventory the reference before coding: card count, major grid ratios, panel order, table density, icons, status rows, and topbar/sidebar controls.
+- Map every visible metric to a real API field. If the reference includes unsupported sensors or historical events, replace them with honest current-state rows rather than inventing values.
+- Validate with an actual 1440×900 browser screenshot and compare the rendered structure to the reference. A passing build is not visual acceptance.
+- Repeat the render/compare loop while major structural gaps remain.
+
+```tsx
+// Correct: preserve the four-card reference structure with real Rosboard fields.
+<MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} />
+<MetricCard title="内存使用率" value={`${overview.memoryUsedPercent}%`} />
+<MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} />
+<MetricCard title="活动连接" value={`${overview.connectionCount}`} />
+```
+
+Do not replace an approved four-card dashboard with eight generic tiles merely because more fields are available. Extra facts belong in the status panel or detail pages.

@@ -33,6 +33,41 @@ import type {
   TerminalTab,
 } from './lib/types'
 
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check'
+
+function Icon(props: { name: IconName }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    overview: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
+    status: <><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>,
+    network: <><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="m7 11 10-4M7 13l10 4"/></>,
+    terminal: <><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M8 22h8M9 9l2 2-2 2m4 0h3"/></>,
+    traffic: <><path d="M5 20V10m5 10V4m5 16v-7m5 7V7"/></>,
+    policy: <><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></>,
+    runtime: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m6 14 3-3 3 2 4-5 2 3"/></>,
+    route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
+    refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
+    cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
+    memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
+    connections: <><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="18" r="3"/><path d="m8.5 9 2 6m5-6-2 6M9 7h6"/></>,
+    shield: <><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></>,
+    router: <><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 12h.01M11 12h.01M15 12h3M8 7V4m8 3V4"/></>,
+    storage: <><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></>,
+    alert: <><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5m0 3h.01"/></>,
+    info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></>,
+    check: <><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>,
+  }
+  return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
+}
+
+function NavLabel(props: { icon: IconName; label: string }) { return <span className="nav-label"><Icon name={props.icon} /><span>{props.label}</span></span> }
+
+function relativeUpdateTime(value: string) {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
+  if (seconds < 10) return '刚刚'
+  if (seconds < 60) return `${seconds} 秒前`
+  return `${Math.floor(seconds / 60)} 分钟前`
+}
+
 function App() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>('overview')
@@ -116,13 +151,13 @@ function App() {
   }, [selectedTerminalID])
 
   useEffect(() => {
-    if (activeView !== 'load') return
+    if (activeView !== 'load' && activeView !== 'overview') return
     let cancelled = false
     const load = async () => {
-      const response = await fetch(`/api/load?window=${loadWindow}`)
+      const response = await fetch(`/api/load?window=${activeView === 'overview' ? '1h' : loadWindow}`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const payload = (await response.json()) as { samples: LoadSample[] }
-      if (!cancelled) setLoadSamples(payload.samples)
+      if (!cancelled) setLoadSamples(payload.samples ?? [])
     }
     load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '负载历史读取失败'))
     const timer = window.setInterval(() => load().catch(() => undefined), 30000)
@@ -202,7 +237,7 @@ function App() {
               setSelectedTerminalID(null)
             }}
           >
-            系统概况
+            <NavLabel icon="overview" label="系统概览" />
           </button>
 
           <div className="menu-group">
@@ -218,7 +253,7 @@ function App() {
                 setSelectedTerminalID(null)
               }}
             >
-              状态监控
+              <NavLabel icon="status" label="状态监控" />
             </button>
             <div className="submenu">
               <button
@@ -229,7 +264,7 @@ function App() {
                   setSelectedTerminalID(null)
                 }}
               >
-                线路监控
+                <NavLabel icon="network" label="线路监控" />
               </button>
               <div className="submenu-section">终端监控</div>
               {(['all', 'ipv4', 'ipv6'] as TerminalFamily[]).map((family) => (
@@ -243,22 +278,29 @@ function App() {
                     setSelectedTerminalID(null)
                   }}
                 >
-                  {family === 'all' ? '全部终端' : family.toUpperCase()}
+                  <NavLabel icon="terminal" label={family === 'all' ? '全部终端' : family.toUpperCase()} />
                 </button>
               ))}
               <div className="submenu-section">流量监控</div>
-              <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null) }}>协议统计</button>
-              <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null) }}>策略统计</button>
+              <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null) }}><NavLabel icon="traffic" label="协议统计" /></button>
+              <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null) }}><NavLabel icon="policy" label="策略统计" /></button>
               <div className="submenu-section">运行监控</div>
-              <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null) }}>负载历史</button>
-              <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null) }}>路由 / 分流</button>
+              <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null) }}><NavLabel icon="runtime" label="负载历史" /></button>
+              <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null) }}><NavLabel icon="route" label="路由 / 分流" /></button>
             </div>
           </div>
         </nav>
+        <div className="sidebar-device-card">
+          <dl>
+            <div><dt>设备名称</dt><dd>{dashboard.overview.routerName || '-'}</dd></div>
+            <div><dt>RouterOS 版本</dt><dd>{dashboard.overview.version || '-'}</dd></div>
+            <div><dt>运行时间</dt><dd>{dashboard.overview.uptime || '-'}</dd></div>
+          </dl>
+        </div>
       </aside>
 
       <section className="content">
-        <header className="topbar">
+        <header className={activeView === 'overview' && !detailMode ? 'topbar overview-topbar' : 'topbar'}>
           <div className="topbar-title">
             <button
               type="button"
@@ -278,11 +320,13 @@ function App() {
               </p>
             </div>
           </div>
-          <div className="topbar-metrics">
-            <span>CPU: {dashboard.overview.cpuLoadPercent}%</span>
-            <span>内存: {dashboard.overview.memoryUsedPercent.toFixed(1)}%</span>
-            <span>WAN上行: {formatBits(dashboard.overview.uploadBps)}</span>
-            <span>WAN下行: {formatBits(dashboard.overview.downloadBps)}</span>
+          <div className="topbar-controls">
+            <span className="system-ok"><i />系统正常</span>
+            <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
+            <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
+            <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
+              <option value={0}>停止刷新</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
+            </select>
           </div>
         </header>
 
@@ -290,7 +334,7 @@ function App() {
         {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
-          <OverviewPage dashboard={dashboard} />
+          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} />
         ) : null}
 
         {activeView === 'interfaces' ? (
@@ -386,53 +430,122 @@ function App() {
   )
 }
 
-function OverviewPage(props: { dashboard: DashboardResponse }) {
-  const totalConnected = props.dashboard.interfaces.filter(
-    (item) => item.running && !item.disabled,
-  ).length
+function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[] }) {
+  const { overview } = props.dashboard
+  const terminals = props.dashboard.terminals ?? []
+  const interfaces = props.dashboard.interfaces ?? []
+  const protocols = props.dashboard.protocols ?? []
+  const warnings = props.dashboard.warnings ?? []
+  const samples = props.loadSamples ?? []
+  const cpuValues = samples.map((item) => item.cpuLoadPercent)
+  const memoryValues = samples.map((item) => item.memoryUsedPercent)
+  const terminalValues = samples.map((item) => item.onlineTerminalCount)
+  const online = overview.connectedDeviceCount
+  const offline = Math.max(0, terminals.length - online)
+  const protocolCounts = protocols.reduce<Record<string, number>>((result, item) => {
+    const key = item.kind.toUpperCase()
+    result[key] = (result[key] ?? 0) + item.connections
+    return result
+  }, {})
+  const interfaceRows = [...interfaces]
+    .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
+    .slice(0, 7)
+  const events = buildCurrentEvents(warnings, interfaces, overview)
 
   return (
-    <div className="page-grid">
-      <section className="panel summary-grid">
-        <StatusTile label="运行时间" value={props.dashboard.overview.uptime} />
-        <StatusTile label="CPU 占用" value={`${props.dashboard.overview.cpuLoadPercent}%`} />
-        <StatusTile
-          label="内存占用"
-          value={`${props.dashboard.overview.memoryUsedPercent.toFixed(1)}%`}
-          detail={`${formatBytes(props.dashboard.overview.memoryUsedBytes)} / ${formatBytes(props.dashboard.overview.memoryTotalBytes)}`}
-        />
-        <StatusTile label="连接设备" value={`${props.dashboard.overview.connectedDeviceCount} 台`} detail="仅在线 LAN 终端" />
-        <StatusTile label="连接数" value={`${props.dashboard.overview.connectionCount}`} detail="IPv4 + IPv6 conntrack" />
-        <StatusTile label="WAN 上行速率" value={formatBits(props.dashboard.overview.uploadBps)} detail={`TX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />
-        <StatusTile label="WAN 下行速率" value={formatBits(props.dashboard.overview.downloadBps)} detail={`RX · ${props.dashboard.overview.trafficInterfaces.join(', ') || '-'}`} />
-        <StatusTile label="在线接口" value={`${totalConnected}`} />
+    <div className="overview-dashboard">
+      <section className="reference-metric-grid">
+        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
+        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={`${formatBytes(overview.memoryUsedBytes)} / ${formatBytes(overview.memoryTotalBytes)}`} icon="memory" tone="green" values={memoryValues} footerLeft={`已用 ${formatBytes(overview.memoryUsedBytes)}`} footerRight={`可用 ${formatBytes(Math.max(0, overview.memoryTotalBytes - overview.memoryUsedBytes))}`} progress={overview.memoryUsedPercent} />
+        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={`/ ${terminals.length}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`在线 ${online}`} footerRight={`离线 ${offline}`} />
+        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} detail="IPv4 + IPv6 conntrack" icon="connections" tone="orange" footerLeft={`TCP ${protocolCounts.TCP ?? 0}`} footerRight={`UDP ${protocolCounts.UDP ?? 0}`} />
       </section>
 
-      <section className="two-column">
-        <section className="panel">
-          <div className="panel-head">
-            <h3>近 5 分钟上下行速率</h3>
-            <span>采样接口: {props.dashboard.overview.trafficInterfaces.join(', ')}</span>
+      <section className="overview-main-grid">
+        <section className="panel reference-panel traffic-panel">
+          <div className="panel-head reference-panel-head">
+            <div><h3>实时流量</h3><div className="inline-legend"><span className="download-key">下载 (bps)</span><span className="upload-key">上传 (bps)</span></div></div>
+            <span className="range-pills"><b>5 分钟</b></span>
           </div>
-          <TrafficChart samples={props.dashboard.overview.chartSamples} />
+          <TrafficChart samples={overview.chartSamples} />
         </section>
 
-        <section className="panel">
-          <div className="panel-head"><h3>设备信息</h3><span>RouterOS 只读连接</span></div>
-          <div className="detail-grid overview-info">
-            <DetailItem label="设备名称" value={props.dashboard.overview.routerName || '-'} />
-            <DetailItem label="平台" value={props.dashboard.overview.platform || '-'} />
-            <DetailItem label="硬件" value={props.dashboard.overview.boardName || '-'} />
-            <DetailItem label="版本" value={props.dashboard.overview.version || '-'} />
-            <DetailItem label="流量接口" value={props.dashboard.overview.trafficInterfaces.join(', ') || '-'} />
-            <DetailItem label="存储使用" value={props.dashboard.overview.storageTotalBytes ? `${props.dashboard.overview.storageUsedPercent.toFixed(1)}%（${formatBytes(props.dashboard.overview.storageUsedBytes)} / ${formatBytes(props.dashboard.overview.storageTotalBytes)}）` : '-'} />
-            <DetailItem label="硬件健康数据" value={props.dashboard.overview.healthEnabled ? '可用' : '当前 CHR 不提供'} />
+        <section className="panel reference-panel status-panel">
+          <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
+          <SystemStatusList dashboard={props.dashboard} />
+        </section>
+      </section>
+
+      <section className="overview-bottom-grid">
+        <section className="panel reference-panel interface-summary-panel">
+          <div className="panel-head reference-panel-head"><h3>接口状态</h3><span>{interfaces.length} 个接口</span></div>
+          <div className="table-scroll">
+            <table className="overview-interface-table">
+              <thead><tr><th>接口名称</th><th>类型</th><th>状态</th><th>链路</th><th>接收速率</th><th>发送速率</th><th>接收流量</th><th>发送流量</th></tr></thead>
+              <tbody>{interfaceRows.map((item) => <tr key={item.name}><td><strong>{item.name}</strong></td><td>{item.type || '-'}</td><td><StatusText ok={item.running && !item.disabled} trueText="已连接" falseText={item.disabled ? '已禁用' : '未连接'} /></td><td>{item.linkRate || (item.running ? '运行中' : '-')}</td><td>{formatBits(item.currentRxBps)}</td><td>{formatBits(item.currentTxBps)}</td><td>{formatBytes(item.rxBytes)}</td><td>{formatBytes(item.txBytes)}</td></tr>)}</tbody>
+            </table>
           </div>
+        </section>
+
+        <section className="panel reference-panel events-panel">
+          <div className="panel-head reference-panel-head"><h3>当前告警</h3><span>{events.filter((item) => item.level !== 'success').length ? '需要关注' : '全部正常'}</span></div>
+          <div className="event-list">{events.slice(0, 5).map((item, index) => <div className={`event-row event-${item.level}`} key={`${item.text}-${index}`}><span className="event-icon"><Icon name={item.level === 'success' ? 'check' : item.level === 'danger' ? 'alert' : 'info'} /></span><span>{item.text}</span><small>当前</small></div>)}</div>
+          <div className="event-summary"><span className="danger-dot">严重 {events.filter((item) => item.level === 'danger').length}</span><span className="warning-dot">重要 {events.filter((item) => item.level === 'warning').length}</span><span className="info-dot">提示 {events.filter((item) => item.level === 'info').length}</span></div>
         </section>
       </section>
     </div>
   )
 }
+
+function MetricCard(props: { title: string; value: string; detail: string; icon: IconName; tone: string; values?: number[]; footerLeft: string; footerRight: string; progress?: number }) {
+  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong><small>{props.detail}</small></div>{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
+}
+
+function MiniSparkline(props: { values: number[] }) {
+  const width = 116; const height = 34; const max = Math.max(1, ...props.values); const min = Math.min(...props.values); const range = Math.max(1, max - min)
+  const points = props.values.map((value, index) => `${index * width / Math.max(1, props.values.length - 1)},${height - 3 - (value - min) / range * (height - 6)}`).join(' ')
+  return <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden="true"><polyline points={points} /></svg>
+}
+
+function SystemStatusList(props: { dashboard: DashboardResponse }) {
+  const { overview } = props.dashboard
+  const interfaces = props.dashboard.interfaces ?? []
+  const warnings = props.dashboard.warnings ?? []
+  const activeInterfaces = interfaces.filter((item) => item.running && !item.disabled).length
+  const rows = [
+    { icon: 'shield' as IconName, label: '系统状态', value: warnings.length ? `${warnings.length} 项提示` : '正常', ok: warnings.length === 0 },
+    { icon: 'router' as IconName, label: 'RouterOS 运行状态', value: overview.version || '-', ok: true },
+    { icon: 'cpu' as IconName, label: 'CPU 使用率', value: `${overview.cpuLoadPercent}%`, ok: overview.cpuLoadPercent < 85 },
+    { icon: 'memory' as IconName, label: '内存使用率', value: `${overview.memoryUsedPercent.toFixed(1)}%`, ok: overview.memoryUsedPercent < 85 },
+    { icon: 'storage' as IconName, label: '磁盘使用率', value: overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '不可用', ok: !overview.storageTotalBytes || overview.storageUsedPercent < 85 },
+    { icon: 'network' as IconName, label: '活动接口', value: `${activeInterfaces} / ${interfaces.length}`, ok: activeInterfaces > 0 },
+  ]
+  return <div className="system-status-list">{rows.map((row) => <div className="system-status-row" key={row.label}><span className="status-row-icon"><Icon name={row.icon} /></span><span>{row.label}</span><strong>{row.value}</strong><StatusText ok={row.ok} trueText="正常" falseText="注意" /></div>)}</div>
+}
+
+function StatusText(props: { ok: boolean; trueText: string; falseText: string }) { return <span className={props.ok ? 'status-text status-good' : 'status-text status-bad'}><i />{props.ok ? props.trueText : props.falseText}</span> }
+
+function buildCurrentEvents(warnings: string[], interfaces: InterfaceStatus[], overview: DashboardResponse['overview']) {
+  const events: { text: string; level: 'danger' | 'warning' | 'info' | 'success' }[] = warnings.map((text) => ({ text, level: 'warning' }))
+  interfaces.filter((item) => !item.running && !item.disabled).slice(0, 3).forEach((item) => events.push({ text: `接口 ${item.name} 当前未连接`, level: 'warning' }))
+  interfaces.filter((item) => item.rxErrors + item.txErrors > 0).slice(0, 2).forEach((item) => events.push({ text: `接口 ${item.name} 检测到收发错误`, level: 'danger' }))
+  if (overview.memoryUsedPercent >= 85) events.push({ text: `内存使用率较高（${overview.memoryUsedPercent.toFixed(1)}%）`, level: 'danger' })
+  const facts: { text: string; level: 'success' | 'info' }[] = [
+    { text: 'RouterOS 连接正常', level: 'success' },
+    { text: `监控数据已更新 · ${overview.trafficInterfaces.join(', ') || '默认接口'}`, level: 'info' },
+    { text: `CPU 当前负载 ${overview.cpuLoadPercent}%`, level: 'info' },
+    { text: `内存当前使用 ${overview.memoryUsedPercent.toFixed(1)}%`, level: 'info' },
+    { text: '系统监控服务运行正常', level: 'success' },
+  ]
+  for (const fact of facts) {
+    if (events.length >= 5) break
+    events.push(fact)
+  }
+  return events
+}
+
+function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0 }
+function maximum(values: number[]) { return values.length ? Math.max(...values) : 0 }
 
 function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -948,16 +1061,6 @@ function RemarkModal(props: {
   )
 }
 
-function StatusTile(props: { label: string; value: string; detail?: string }) {
-  return (
-    <article className="status-tile">
-      <p>{props.label}</p>
-      <h3>{props.value}</h3>
-      {props.detail ? <span>{props.detail}</span> : null}
-    </article>
-  )
-}
-
 function TabButton(props: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -991,7 +1094,7 @@ function DetailSummary(props: { label: string; value: string }) {
 function TrafficChart(props: { samples: RateSample[] }) {
   const width = 820
   const height = 280
-  const padding = 28
+  const padding = 42
 
   if (props.samples.length === 0) {
     return <div className="empty-chart">暂无速率采样</div>
@@ -1014,10 +1117,16 @@ function TrafficChart(props: { samples: RateSample[] }) {
   return (
     <div className="chart-box">
       <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg">
+        <defs>
+          <linearGradient id="upload-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#22a559" stopOpacity=".16"/><stop offset="1" stopColor="#22a559" stopOpacity="0"/></linearGradient>
+          <linearGradient id="download-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2f7ee6" stopOpacity=".14"/><stop offset="1" stopColor="#2f7ee6" stopOpacity="0"/></linearGradient>
+        </defs>
         {[0, 0.25, 0.5, 0.75, 1].map((step) => {
           const y = height - padding - step * (height - padding * 2)
-          return <line key={step} x1={padding} x2={width - padding} y1={y} y2={y} className="grid-line" />
+          return <g key={step}><line x1={padding} x2={width - padding} y1={y} y2={y} className="grid-line" /><text x={padding - 8} y={y + 3} className="chart-axis-label" textAnchor="end">{formatBits(maxValue * step)}</text></g>
         })}
+        <polygon className="chart-area upload-area" points={`${padding},${height - padding} ${props.samples.map((sample, index) => toPoint(sample.uploadBps, index)).join(' ')} ${width - padding},${height - padding}`} />
+        <polygon className="chart-area download-area" points={`${padding},${height - padding} ${props.samples.map((sample, index) => toPoint(sample.downloadBps, index)).join(' ')} ${width - padding},${height - padding}`} />
         <polyline
           className="polyline upload"
           points={props.samples.map((sample, index) => toPoint(sample.uploadBps, index)).join(' ')}
@@ -1026,6 +1135,9 @@ function TrafficChart(props: { samples: RateSample[] }) {
           className="polyline download"
           points={props.samples.map((sample, index) => toPoint(sample.downloadBps, index)).join(' ')}
         />
+        <text x={padding} y={height - 12} className="chart-axis-label" textAnchor="start">{formatChartTime(props.samples[0].timestamp)}</text>
+        <text x={width / 2} y={height - 12} className="chart-axis-label" textAnchor="middle">{formatChartTime(props.samples[Math.floor(props.samples.length / 2)].timestamp)}</text>
+        <text x={width - padding} y={height - 12} className="chart-axis-label" textAnchor="end">{formatChartTime(props.samples[props.samples.length - 1].timestamp)}</text>
       </svg>
       <div className="legend">
         <span><i className="legend-dot upload"></i>上行</span>
@@ -1034,6 +1146,11 @@ function TrafficChart(props: { samples: RateSample[] }) {
       </div>
     </div>
   )
+}
+
+function formatChartTime(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default App
