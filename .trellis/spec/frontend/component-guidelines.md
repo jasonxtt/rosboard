@@ -6,7 +6,7 @@ The terminal monitor uses component-local state for table presentation. Its init
 
 - Default `stateFilter` to `online` so the first list shows only currently online terminals.
 - Keep the explicit status select for precise filtering.
-- The nearby inactive-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter.
+- The nearby non-online-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter. It covers both `inactive` and `offline` states.
 - Any filter change resets pagination to page 1.
 
 ```tsx
@@ -18,7 +18,7 @@ const showingInactive = stateFilter !== 'online'
   aria-pressed={showingInactive}
   onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
 >
-  {showingInactive ? '隐藏离线设备' : '显示离线设备'}
+  {showingInactive ? '隐藏非在线设备' : '显示非在线设备'}
 </button>
 ```
 

@@ -90,6 +90,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .submenu-item.active { color: #fff; background: rgba(37, 99, 235, .28); }
 .submenu-item.active::before { position: absolute; inset: 8px auto 8px -14px; width: 3px; content: ""; background: #60a5fa; border-radius: 3px; }
 .submenu-section { padding: 12px 11px 4px; color: #6f89a5; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.submenu-toggle { width: 100%; border: 0; background: transparent; cursor: pointer; text-align: left; border-radius: var(--radius-sm); }
+.submenu-toggle:hover { color: #fff; background: rgba(255,255,255,.07); }
+.submenu-toggle[aria-expanded="true"] { color: #dbeafe; }
 .submenu-item.nested { padding-left: 20px; }
 
 .content { min-width: 0; padding: 0 18px 22px; }
@@ -124,6 +127,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar-controls { display: flex; align-items: center; gap: 12px; color: #52637a; font-size: 11px; }
 .system-ok { display: inline-flex; align-items: center; gap: 7px; color: #334155; white-space: nowrap; }
 .system-ok i { width: 7px; height: 7px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 0 3px rgba(22, 163, 74, .1); }
+.system-alerting { color: #92400e; }
+.system-alerting i { background: var(--color-warning); box-shadow: 0 0 0 3px rgba(217, 119, 6, .1); }
 .last-updated { padding-left: 12px; border-left: 1px solid var(--color-border); white-space: nowrap; }
 .topbar-controls select, .icon-button { height: 32px; color: #475569; background: #fff; border: 1px solid var(--color-border); border-radius: 5px; }
 .topbar-controls select { padding: 0 28px 0 10px; }
@@ -183,6 +188,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .event-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 36px; padding: 0 9px; color: #455468; border-bottom: 1px solid var(--color-border-soft); font-size: 9px; }
 .event-row:last-child { border-bottom: 0; }
 .event-row small { color: #8491a4; }
+.event-empty { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 108px; color: var(--color-text-muted); font-size: 11px; }
+.event-empty .ui-icon { color: var(--color-success); font-size: 18px; }
 .event-icon { display: grid; place-items: center; width: 18px; height: 18px; color: #fff; background: var(--event-color); border-radius: 50%; }
 .event-icon .ui-icon { font-size: 11px; }
 .event-danger { --event-color: var(--color-danger); }.event-warning { --event-color: var(--color-warning); }.event-info { --event-color: var(--color-info); }.event-success { --event-color: var(--color-success); }
@@ -249,6 +256,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .terminal-table tbody td { vertical-align: middle; }
 .state-dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; }
 .state-online { background: var(--color-success); box-shadow: 0 0 0 3px rgba(22, 163, 74, .1); }
+.state-inactive { background: var(--color-warning); box-shadow: 0 0 0 3px rgba(217, 119, 6, .1); }
 .state-offline { background: #94a3b8; }
 
 .search-input, .remark-textarea { width: 100%; padding: 10px 12px; color: var(--color-text); background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); }
@@ -271,6 +279,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .identity-state::before { width: 6px; height: 6px; content: ""; background: #94a3b8; border-radius: 50%; }
 .identity-state.online { color: #15803d; }
 .identity-state.online::before { background: var(--color-success); }
+.identity-state.inactive { color: #b45309; }
+.identity-state.inactive::before { background: var(--color-warning); }
 .detail-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; }
 .detail-summary-item { display: grid; gap: 2px; }
 .detail-summary-item span { color: var(--color-text-muted); font-size: 11px; }

@@ -56,7 +56,7 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 	}
 }
 
-func TestBuildTerminalsMarksPresenceEvidenceOnline(t *testing.T) {
+func TestBuildTerminalsDistinguishesStrongAndWeakPresenceEvidence(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -71,7 +71,7 @@ func TestBuildTerminalsMarksPresenceEvidenceOnline(t *testing.T) {
 		nil,
 		map[string]routerAssignedAddress{"10.0.0.1": {Family: "ipv4", Interface: "lan"}},
 		[]routeros.DHCPLease{{Address: "10.0.0.2", MACAddress: "00:11:22:33:44:02", Status: "bound"}},
-		[]routeros.ARPEntry{{Address: "10.0.0.3", MACAddress: "00:11:22:33:44:03", Interface: "lan", Complete: "true"}},
+		[]routeros.ARPEntry{{Address: "10.0.0.3", MACAddress: "00:11:22:33:44:03", Interface: "lan", Complete: "true", Status: "stale"}},
 		[]routeros.IPv6Neighbor{{Address: "fc00::4", MACAddress: "00:11:22:33:44:04", Interface: "lan", Status: "reachable"}},
 		nil,
 		nil,
@@ -82,10 +82,64 @@ func TestBuildTerminalsMarksPresenceEvidenceOnline(t *testing.T) {
 	if len(terminals) != 4 {
 		t.Fatalf("expected four terminals, got %d", len(terminals))
 	}
+	states := map[string]string{}
 	for _, terminal := range terminals {
-		if terminal.State != "online" {
-			t.Errorf("expected %s to be online, got %s", terminal.ID, terminal.State)
-		}
+		states[terminal.PrimaryIPv4+terminal.PrimaryIPv6] = terminal.State
+	}
+	if states["10.0.0.1"] != "online" || states["fc00::4"] != "online" {
+		t.Fatalf("strong evidence should be online: %#v", states)
+	}
+	if states["10.0.0.2"] != "offline" || states["10.0.0.3"] != "offline" {
+		t.Fatalf("lease and stale ARP must not be online: %#v", states)
+	}
+}
+
+func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage}
+	ctx := context.Background()
+	firstSeen := time.Unix(2000, 0).UTC()
+	strongARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "reachable"}}
+	staleARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "stale"}}
+
+	terminals, _, err := monitor.buildTerminals(ctx, firstSeen, nil, nil, nil, strongARP, nil, nil, nil)
+	if err != nil || len(terminals) != 1 || terminals[0].State != "online" {
+		t.Fatalf("expected initial strong evidence online, terminals=%#v err=%v", terminals, err)
+	}
+
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(time.Minute), nil, nil, nil, staleARP, nil, nil, nil)
+	if err != nil || terminals[0].State != "inactive" {
+		t.Fatalf("expected stale evidence inside grace period inactive, terminals=%#v err=%v", terminals, err)
+	}
+	if !terminals[0].LastSeen.Equal(firstSeen) {
+		t.Fatalf("stale evidence advanced lastSeen: got %v want %v", terminals[0].LastSeen, firstSeen)
+	}
+
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(6*time.Minute), nil, nil, nil, staleARP, nil, nil, nil)
+	if err != nil || terminals[0].State != "offline" {
+		t.Fatalf("expected stale evidence after grace period offline, terminals=%#v err=%v", terminals, err)
+	}
+	if !terminals[0].LastSeen.Equal(firstSeen) {
+		t.Fatalf("offline stale evidence advanced lastSeen: got %v want %v", terminals[0].LastSeen, firstSeen)
+	}
+}
+
+func TestRecordRefreshErrorDeduplicatesCurrentAlert(t *testing.T) {
+	monitor := &Monitor{snapshot: model.DashboardSnapshot{Alerts: []model.AlertEvent{{ID: "policy", Level: "warning"}}}}
+	monitor.recordRefreshError(context.DeadlineExceeded)
+	monitor.recordRefreshError(context.Canceled)
+
+	snapshot := monitor.Snapshot()
+	if len(snapshot.Alerts) != 2 {
+		t.Fatalf("expected one refresh error plus existing alert, got %#v", snapshot.Alerts)
+	}
+	if snapshot.Alerts[0].ID != "dashboard-refresh" || snapshot.Alerts[0].Level != "error" || snapshot.Alerts[0].Message != context.Canceled.Error() {
+		t.Fatalf("unexpected refresh alert: %#v", snapshot.Alerts[0])
 	}
 }
 

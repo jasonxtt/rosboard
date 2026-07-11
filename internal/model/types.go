@@ -215,5 +215,14 @@ type DashboardSnapshot struct {
 	Protocols    []ProtocolStat    `json:"protocols"`
 	Policies     []PolicyStat      `json:"policies"`
 	Routes       []RouteStat       `json:"routes"`
+	Alerts       []AlertEvent      `json:"alerts"`
 	Warnings     []string          `json:"warnings"`
+}
+
+type AlertEvent struct {
+	ID        string    `json:"id"`
+	Level     string    `json:"level"`
+	Source    string    `json:"source"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
 }

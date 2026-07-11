@@ -85,7 +85,7 @@ export type Terminal = {
   lastSeen: string
   primaryIpv4: string
   primaryIpv6: string
-  state: 'online' | 'offline'
+  state: 'online' | 'inactive' | 'offline'
   onlineSince: string
   familyStats: Record<'ipv4' | 'ipv6', TerminalFamilyStats>
 }
@@ -104,8 +104,11 @@ export type DashboardResponse = {
   protocols: ProtocolStat[]
   policies: PolicyStat[]
   routes: RouteStat[]
+  alerts: AlertEvent[]
   warnings: string[]
 }
+
+export type AlertEvent = { id: string; level: 'warning' | 'error'; source: string; message: string; timestamp: string }
 
 export type TerminalConnection = {
   key: string

@@ -87,6 +87,16 @@ function App() {
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [statusExpanded, setStatusExpanded] = useState(true)
+  const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
+
+  useEffect(() => {
+    if (activeView === 'overview') return
+    setStatusExpanded(true)
+    if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
+    if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
+    if (activeView === 'load' || activeView === 'routes') setExpandedMonitorGroup('runtime')
+  }, [activeView])
 
   useEffect(() => {
     let cancelled = false
@@ -228,13 +238,14 @@ function App() {
           </div>
         </div>
 
-        <nav className="menu" onClick={() => setSidebarOpen(false)}>
+        <nav className="menu">
           <button
             type="button"
             className={activeView === 'overview' ? 'menu-item active' : 'menu-item'}
             onClick={() => {
               setActiveView('overview')
               setSelectedTerminalID(null)
+              setSidebarOpen(false)
             }}
           >
             <NavLabel icon="overview" label="系统概览" />
@@ -248,26 +259,26 @@ function App() {
                   ? 'menu-item active'
                   : 'menu-item'
               }
-              onClick={() => {
-                setActiveView('interfaces')
-                setSelectedTerminalID(null)
-              }}
+              aria-expanded={statusExpanded}
+              aria-controls="status-monitor-menu"
+              onClick={() => setStatusExpanded((value) => !value)}
             >
               <NavLabel icon="status" label="状态监控" />
             </button>
-            <div className="submenu">
+            {statusExpanded ? <div className="submenu" id="status-monitor-menu">
               <button
                 type="button"
                 className={activeView === 'interfaces' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
                   setActiveView('interfaces')
                   setSelectedTerminalID(null)
+                  setSidebarOpen(false)
                 }}
               >
                 <NavLabel icon="network" label="线路监控" />
               </button>
-              <div className="submenu-section">终端监控</div>
-              {(['all', 'ipv4', 'ipv6'] as TerminalFamily[]).map((family) => (
+              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'terminals'} onClick={() => setExpandedMonitorGroup((value) => value === 'terminals' ? null : 'terminals')}><NavLabel icon="terminal" label="终端监控" /></button>
+              {expandedMonitorGroup === 'terminals' ? (['all', 'ipv4', 'ipv6'] as TerminalFamily[]).map((family) => (
                 <button
                   key={family}
                   type="button"
@@ -276,18 +287,23 @@ function App() {
                     setActiveView('terminals')
                     setTerminalFamily(family)
                     setSelectedTerminalID(null)
+                    setSidebarOpen(false)
                   }}
                 >
                   <NavLabel icon="terminal" label={family === 'all' ? '全部终端' : family.toUpperCase()} />
                 </button>
-              ))}
-              <div className="submenu-section">流量监控</div>
-              <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null) }}><NavLabel icon="traffic" label="协议统计" /></button>
-              <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null) }}><NavLabel icon="policy" label="策略统计" /></button>
-              <div className="submenu-section">运行监控</div>
-              <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null) }}><NavLabel icon="runtime" label="负载历史" /></button>
-              <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null) }}><NavLabel icon="route" label="路由 / 分流" /></button>
-            </div>
+              )) : null}
+              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'traffic'} onClick={() => setExpandedMonitorGroup((value) => value === 'traffic' ? null : 'traffic')}><NavLabel icon="traffic" label="流量监控" /></button>
+              {expandedMonitorGroup === 'traffic' ? <>
+                <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="协议统计" /></button>
+                <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="policy" label="策略统计" /></button>
+              </> : null}
+              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'runtime'} onClick={() => setExpandedMonitorGroup((value) => value === 'runtime' ? null : 'runtime')}><NavLabel icon="runtime" label="运行监控" /></button>
+              {expandedMonitorGroup === 'runtime' ? <>
+                <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="负载历史" /></button>
+                <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="route" label="路由 / 分流" /></button>
+              </> : null}
+            </div> : null}
           </div>
         </nav>
         <div className="sidebar-device-card">
@@ -321,7 +337,7 @@ function App() {
             </div>
           </div>
           <div className="topbar-controls">
-            <span className="system-ok"><i />系统正常</span>
+            <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
@@ -435,13 +451,13 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   const terminals = props.dashboard.terminals ?? []
   const interfaces = props.dashboard.interfaces ?? []
   const protocols = props.dashboard.protocols ?? []
-  const warnings = props.dashboard.warnings ?? []
+  const alerts = props.dashboard.alerts ?? []
   const samples = props.loadSamples ?? []
   const cpuValues = samples.map((item) => item.cpuLoadPercent)
   const memoryValues = samples.map((item) => item.memoryUsedPercent)
   const terminalValues = samples.map((item) => item.onlineTerminalCount)
-  const online = overview.connectedDeviceCount
-  const offline = Math.max(0, terminals.length - online)
+  const inactive = terminals.filter((item) => item.state === 'inactive').length
+  const offline = terminals.filter((item) => item.state === 'offline').length
   const protocolCounts = protocols.reduce<Record<string, number>>((result, item) => {
     const key = item.kind.toUpperCase()
     result[key] = (result[key] ?? 0) + item.connections
@@ -450,14 +466,13 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   const interfaceRows = [...interfaces]
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
-  const events = buildCurrentEvents(warnings, interfaces, overview)
 
   return (
     <div className="overview-dashboard">
       <section className="reference-metric-grid">
         <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
         <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={`${formatBytes(overview.memoryUsedBytes)} / ${formatBytes(overview.memoryTotalBytes)}`} icon="memory" tone="green" values={memoryValues} footerLeft={`已用 ${formatBytes(overview.memoryUsedBytes)}`} footerRight={`可用 ${formatBytes(Math.max(0, overview.memoryTotalBytes - overview.memoryUsedBytes))}`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={`/ ${terminals.length}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`在线 ${online}`} footerRight={`离线 ${offline}`} />
+        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={`/ ${terminals.length}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`未活跃 ${inactive}`} footerRight={`离线 ${offline}`} />
         <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} detail="IPv4 + IPv6 conntrack" icon="connections" tone="orange" footerLeft={`TCP ${protocolCounts.TCP ?? 0}`} footerRight={`UDP ${protocolCounts.UDP ?? 0}`} />
       </section>
 
@@ -488,9 +503,9 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
         </section>
 
         <section className="panel reference-panel events-panel">
-          <div className="panel-head reference-panel-head"><h3>当前告警</h3><span>{events.filter((item) => item.level !== 'success').length ? '需要关注' : '全部正常'}</span></div>
-          <div className="event-list">{events.slice(0, 5).map((item, index) => <div className={`event-row event-${item.level}`} key={`${item.text}-${index}`}><span className="event-icon"><Icon name={item.level === 'success' ? 'check' : item.level === 'danger' ? 'alert' : 'info'} /></span><span>{item.text}</span><small>当前</small></div>)}</div>
-          <div className="event-summary"><span className="danger-dot">严重 {events.filter((item) => item.level === 'danger').length}</span><span className="warning-dot">重要 {events.filter((item) => item.level === 'warning').length}</span><span className="info-dot">提示 {events.filter((item) => item.level === 'info').length}</span></div>
+          <div className="panel-head reference-panel-head"><h3>当前告警</h3><span>{alerts.length ? `${alerts.length} 项需要关注` : '全部正常'}</span></div>
+          <div className="event-list">{alerts.length ? alerts.slice(0, 5).map((item) => <div className={`event-row event-${item.level === 'error' ? 'danger' : 'warning'}`} key={item.id}><span className="event-icon"><Icon name={item.level === 'error' ? 'alert' : 'info'} /></span><span><strong>{item.source}</strong> · {item.message}</span><small>{formatShortTime(item.timestamp)}</small></div>) : <div className="event-empty"><Icon name="check" /><span>当前没有采集告警</span></div>}</div>
+          <div className="event-summary"><span className="danger-dot">严重 {alerts.filter((item) => item.level === 'error').length}</span><span className="warning-dot">警告 {alerts.filter((item) => item.level === 'warning').length}</span></div>
         </section>
       </section>
     </div>
@@ -510,39 +525,22 @@ function MiniSparkline(props: { values: number[] }) {
 function SystemStatusList(props: { dashboard: DashboardResponse }) {
   const { overview } = props.dashboard
   const interfaces = props.dashboard.interfaces ?? []
-  const warnings = props.dashboard.warnings ?? []
   const activeInterfaces = interfaces.filter((item) => item.running && !item.disabled).length
+  const updatedAt = new Date(overview.updatedAt)
+  const freshnessSeconds = Math.max(0, (Date.now() - updatedAt.getTime()) / 1000)
+  const fresh = Number.isFinite(freshnessSeconds) && freshnessSeconds <= 30
   const rows = [
-    { icon: 'shield' as IconName, label: '系统状态', value: warnings.length ? `${warnings.length} 项提示` : '正常', ok: warnings.length === 0 },
-    { icon: 'router' as IconName, label: 'RouterOS 运行状态', value: overview.version || '-', ok: true },
-    { icon: 'cpu' as IconName, label: 'CPU 使用率', value: `${overview.cpuLoadPercent}%`, ok: overview.cpuLoadPercent < 85 },
-    { icon: 'memory' as IconName, label: '内存使用率', value: `${overview.memoryUsedPercent.toFixed(1)}%`, ok: overview.memoryUsedPercent < 85 },
-    { icon: 'storage' as IconName, label: '磁盘使用率', value: overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '不可用', ok: !overview.storageTotalBytes || overview.storageUsedPercent < 85 },
+    { icon: 'runtime' as IconName, label: '运行时间', value: overview.uptime || '-', ok: Boolean(overview.uptime) },
+    { icon: 'router' as IconName, label: 'RouterOS 版本', value: overview.version || '-', ok: Boolean(overview.version) },
+    { icon: 'refresh' as IconName, label: '最后成功采集', value: Number.isNaN(updatedAt.getTime()) ? '-' : formatDateTime(overview.updatedAt), ok: fresh },
     { icon: 'network' as IconName, label: '活动接口', value: `${activeInterfaces} / ${interfaces.length}`, ok: activeInterfaces > 0 },
+    { icon: 'storage' as IconName, label: '存储使用率', value: overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '-', ok: !overview.storageTotalBytes || overview.storageUsedPercent < 85 },
+    { icon: 'shield' as IconName, label: '数据新鲜度', value: Number.isFinite(freshnessSeconds) ? relativeUpdateTime(overview.updatedAt) : '-', ok: fresh },
   ]
   return <div className="system-status-list">{rows.map((row) => <div className="system-status-row" key={row.label}><span className="status-row-icon"><Icon name={row.icon} /></span><span>{row.label}</span><strong>{row.value}</strong><StatusText ok={row.ok} trueText="正常" falseText="注意" /></div>)}</div>
 }
 
 function StatusText(props: { ok: boolean; trueText: string; falseText: string }) { return <span className={props.ok ? 'status-text status-good' : 'status-text status-bad'}><i />{props.ok ? props.trueText : props.falseText}</span> }
-
-function buildCurrentEvents(warnings: string[], interfaces: InterfaceStatus[], overview: DashboardResponse['overview']) {
-  const events: { text: string; level: 'danger' | 'warning' | 'info' | 'success' }[] = warnings.map((text) => ({ text, level: 'warning' }))
-  interfaces.filter((item) => !item.running && !item.disabled).slice(0, 3).forEach((item) => events.push({ text: `接口 ${item.name} 当前未连接`, level: 'warning' }))
-  interfaces.filter((item) => item.rxErrors + item.txErrors > 0).slice(0, 2).forEach((item) => events.push({ text: `接口 ${item.name} 检测到收发错误`, level: 'danger' }))
-  if (overview.memoryUsedPercent >= 85) events.push({ text: `内存使用率较高（${overview.memoryUsedPercent.toFixed(1)}%）`, level: 'danger' })
-  const facts: { text: string; level: 'success' | 'info' }[] = [
-    { text: 'RouterOS 连接正常', level: 'success' },
-    { text: `监控数据已更新 · ${overview.trafficInterfaces.join(', ') || '默认接口'}`, level: 'info' },
-    { text: `CPU 当前负载 ${overview.cpuLoadPercent}%`, level: 'info' },
-    { text: `内存当前使用 ${overview.memoryUsedPercent.toFixed(1)}%`, level: 'info' },
-    { text: '系统监控服务运行正常', level: 'success' },
-  ]
-  for (const fact of facts) {
-    if (events.length >= 5) break
-    events.push(fact)
-  }
-  return events
-}
 
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0 }
 function maximum(values: number[]) { return values.length ? Math.max(...values) : 0 }
@@ -716,7 +714,7 @@ function TerminalsPage(props: {
       <div className="data-toolbar">
         <input className="search-input" value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="备注 / 名称 / IP / MAC" />
         <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="终端状态">
-          <option value="all">全部状态</option><option value="online">在线</option><option value="offline">离线</option>
+          <option value="all">全部状态</option><option value="online">在线</option><option value="inactive">近期未活跃</option><option value="offline">离线</option>
         </select>
         <select value={interfaceFilter} onChange={(event) => setInterfaceFilter(event.target.value)} aria-label="接入接口">
           <option value="all">全部接口</option>{interfaces.map((name) => <option key={name} value={name}>{name}</option>)}
@@ -727,7 +725,7 @@ function TerminalsPage(props: {
           aria-pressed={showingInactive}
           onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
         >
-          {showingInactive ? '隐藏离线设备' : '显示离线设备'}
+          {showingInactive ? '隐藏非在线设备' : '显示非在线设备'}
         </button>
         <span className="toolbar-spacer" />
         <span className="result-count">共 {sorted.length} 台</span>
@@ -764,7 +762,7 @@ function TerminalsPage(props: {
                 </button></td>
                 <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
-                <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'offline' ? '-' : formatOnlineDuration(terminal.onlineSince)}</td>
+                <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : terminalStateText(terminal.state)}</td>
                 <td>{terminal.primaryInterface || '-'}</td>
                 <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== mainAddress ? terminal.displayName : '-'}</td>
                 <td>{terminal.remark || '-'}</td>
@@ -822,7 +820,7 @@ function TerminalDetailPage(props: {
           <h3>{terminalPrimaryAddress(summary, props.scope)}</h3>
           <div className="detail-identity-meta">
             <span>MAC {summary.macAddress || '-'}</span>
-            <span className={summary.state === 'online' ? 'identity-state online' : 'identity-state'}>{terminalStateText(summary.state)}</span>
+            <span className={`identity-state ${summary.state}`}>{terminalStateText(summary.state)}</span>
             <span>{isRouterConntrack ? '跟踪条目' : '连接'} {summary.connectionCount}</span>
             {isRouterConntrack ? <span>已回包 {repliedConnections} / 未回包 {unrepliedConnections}</span> : null}
             <span>↑ {formatBits(summary.currentUploadBps)}</span>
@@ -853,7 +851,7 @@ function TerminalDetailPage(props: {
             <DetailItem label={isRouterConntrack ? (props.scope === 'all' ? 'conntrack 条目（IPv4+IPv6）' : `${props.scope.toUpperCase()} conntrack 条目`) : (props.scope === 'all' ? '连接数（IPv4+IPv6）' : `${props.scope.toUpperCase()} 连接数`)} value={`${summary.connectionCount}`} />
             {isRouterConntrack ? <DetailItem label="已见回包（S）" value={`${repliedConnections}`} /> : null}
             {isRouterConntrack ? <DetailItem label="未见回包" value={`${unrepliedConnections}`} /> : null}
-            <DetailItem label="本次在线时长" value={summary.state === 'offline' ? '-' : formatOnlineDuration(summary.onlineSince)} />
+            <DetailItem label="本次在线时长" value={summary.state === 'online' ? formatOnlineDuration(summary.onlineSince) : '-'} />
             <DetailItem label="当前上行速率" value={formatBits(summary.currentUploadBps)} />
             <DetailItem label="当前下行速率" value={formatBits(summary.currentDownloadBps)} />
             <DetailItem label={props.scope === 'all' ? '累计上行' : '活动连接累计上行'} value={formatBytes(summary.totalUploadBytes)} />
