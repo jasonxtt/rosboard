@@ -112,6 +112,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar h2 { color: #0f172a; font-size: 21px; font-weight: 700; letter-spacing: -.025em; }
 .topbar-subtitle { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; }
 .overview-topbar .topbar-subtitle { display: none; }
+.detail-topbar { display: none; }
 .ui-icon { display: block; width: 1.25em; height: 1.25em; }
 .nav-label { display: flex; align-items: center; gap: 9px; }
 .nav-label .ui-icon { flex: 0 0 auto; font-size: 15px; opacity: .92; }
@@ -260,18 +261,30 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .terminal-link { text-align: left; }
 .action-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
-.detail-page { display: grid; gap: 12px; }
+.detail-page { display: grid; gap: 8px; }
 .detail-breadcrumb { display: flex; align-items: center; gap: 8px; color: var(--color-text-muted); font-size: 12px; }
-.detail-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.detail-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding: 9px 14px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.detail-identity { min-width: 0; }
+.detail-identity h3 { margin: 0 0 5px; color: #0f172a; font-size: 18px; line-height: 1.1; }
+.detail-identity-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.identity-state { display: inline-flex; align-items: center; gap: 5px; color: #64748b; }
+.identity-state::before { width: 6px; height: 6px; content: ""; background: #94a3b8; border-radius: 50%; }
+.identity-state.online { color: #15803d; }
+.identity-state.online::before { background: var(--color-success); }
 .detail-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; }
 .detail-summary-item { display: grid; gap: 2px; }
 .detail-summary-item span { color: var(--color-text-muted); font-size: 11px; }
 .detail-summary-item strong { font-size: 13px; font-weight: 600; }
 .detail-head-actions { display: flex; gap: 10px; }
 .detail-tabs, .family-switch { display: flex; justify-content: center; gap: 0; }
+.detail-tabs { justify-content: flex-start; min-height: 38px; padding: 0 12px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.detail-tabs .tab-button { min-width: 78px; min-height: 36px; padding: 0 12px; color: #64748b; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
+.detail-tabs .tab-button + .tab-button { margin-left: 4px; }
+.detail-tabs .tab-button.active { color: var(--color-primary); background: transparent; border-bottom-color: var(--color-primary); font-weight: 600; }
 .detail-panel { min-height: 0; }
 .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.connection-toolbar { margin-bottom: 10px; }
+.connection-toolbar { margin-bottom: 8px; padding: 7px 8px; background: #f8fafc; border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); }
+.connection-toolbar .family-switch .tab-button { min-width: auto; min-height: 32px; padding: 0 10px; font-size: 11px; }
 .connection-toolbar input { min-width: 240px; }
 .table-note { margin: 0 0 8px; color: var(--color-text-muted); font-size: 12px; }
 .pagination { justify-content: flex-end; padding: 10px 14px; color: var(--color-text-muted); border-top: 1px solid var(--color-border-soft); }
@@ -368,7 +381,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .detail-head-actions { width: 100%; }
   .detail-head-actions button { width: 100%; min-height: 44px; }
   .detail-tabs { justify-content: flex-start; max-width: 100%; overflow-x: auto; }
-  .tab-button { min-height: 44px; white-space: nowrap; }
+  .tab-button, .detail-tabs .tab-button, .connection-toolbar .family-switch .tab-button { min-height: 44px; white-space: nowrap; }
   .pagination { justify-content: center; flex-wrap: wrap; }
   .pagination button, .pagination select { min-height: 44px; }
   .dialog-backdrop { padding: 12px; }
