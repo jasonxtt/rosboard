@@ -300,7 +300,7 @@ function App() {
       </aside>
 
       <section className="content">
-        <header className={activeView === 'overview' && !detailMode ? 'topbar overview-topbar' : 'topbar'}>
+        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : 'topbar'}>
           <div className="topbar-title">
             <button
               type="button"
@@ -818,15 +818,16 @@ function TerminalDetailPage(props: {
   return (
     <section className="detail-page">
       <div className="detail-page-head">
-        <div className="detail-summary">
-          <DetailSummary label="主地址" value={terminalPrimaryAddress(summary, props.scope)} />
-          <DetailSummary label="MAC" value={summary.macAddress || '-'} />
-          <DetailSummary label="状态" value={terminalStateText(summary.state)} />
-          <DetailSummary label={isRouterConntrack ? '跟踪条目' : '连接'} value={`${summary.connectionCount}`} />
-          {isRouterConntrack ? <DetailSummary label="已见回包" value={`${repliedConnections}`} /> : null}
-          {isRouterConntrack ? <DetailSummary label="未见回包" value={`${unrepliedConnections}`} /> : null}
-          <DetailSummary label="当前上行" value={formatBits(summary.currentUploadBps)} />
-          <DetailSummary label="当前下行" value={formatBits(summary.currentDownloadBps)} />
+        <div className="detail-identity">
+          <h3>{terminalPrimaryAddress(summary, props.scope)}</h3>
+          <div className="detail-identity-meta">
+            <span>MAC {summary.macAddress || '-'}</span>
+            <span className={summary.state === 'online' ? 'identity-state online' : 'identity-state'}>{terminalStateText(summary.state)}</span>
+            <span>{isRouterConntrack ? '跟踪条目' : '连接'} {summary.connectionCount}</span>
+            {isRouterConntrack ? <span>已回包 {repliedConnections} / 未回包 {unrepliedConnections}</span> : null}
+            <span>↑ {formatBits(summary.currentUploadBps)}</span>
+            <span>↓ {formatBits(summary.currentDownloadBps)}</span>
+          </div>
         </div>
         <div className="detail-head-actions">
           <button type="button" className="close-button" onClick={props.onBack}>
