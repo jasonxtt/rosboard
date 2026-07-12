@@ -10,9 +10,11 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rosboard/internal/config"
 	"rosboard/internal/service"
+	"rosboard/internal/store"
 )
 
 type Server struct {
@@ -150,12 +152,48 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		if err := s.monitor.UpdateTerminalRemark(request.Context(), terminalID, strings.TrimSpace(payload.Remark)); err != nil {
+			if errors.Is(err, store.ErrTerminalNotFound) {
+				writeError(writer, http.StatusNotFound, "terminal not found")
+				return
+			}
 			writeError(writer, http.StatusInternalServerError, "failed to update remark")
 			return
 		}
 		detail, ok := s.monitor.TerminalDetail(terminalID)
 		if !ok {
 			writeError(writer, http.StatusNotFound, "terminal not found")
+			return
+		}
+		writeJSON(writer, http.StatusOK, detail)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "metadata" && request.Method == http.MethodPost {
+		var payload struct {
+			CustomName string `json:"customName"`
+			Remark     string `json:"remark"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		payload.CustomName = strings.TrimSpace(payload.CustomName)
+		payload.Remark = strings.TrimSpace(payload.Remark)
+		if utf8.RuneCountInString(payload.CustomName) > 100 {
+			writeError(writer, http.StatusBadRequest, "device name is too long")
+			return
+		}
+		if utf8.RuneCountInString(payload.Remark) > 500 {
+			writeError(writer, http.StatusBadRequest, "remark is too long")
+			return
+		}
+		detail, err := s.monitor.UpdateTerminalMetadata(request.Context(), terminalID, payload.CustomName, payload.Remark)
+		if errors.Is(err, store.ErrTerminalNotFound) {
+			writeError(writer, http.StatusNotFound, "terminal not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to update terminal metadata")
 			return
 		}
 		writeJSON(writer, http.StatusOK, detail)

@@ -2,9 +2,37 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestUpdateTerminalMetadataPersistsCustomNameAndRemark(t *testing.T) {
+	ctx := context.Background()
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	id := "mac:00:11:22:33:44:55"
+	if err := storage.UpsertTerminal(ctx, id, "00:11:22:33:44:55", "iphone", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert terminal: %v", err)
+	}
+	if err := storage.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机"); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	totals, err := storage.TerminalTotals(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("load totals: %v", err)
+	}
+	if totals[id].AutoName != "iphone" || totals[id].CustomName != "iPhone 13 PM" || totals[id].Remark != "Tom 的手机" {
+		t.Fatalf("unexpected metadata: %#v", totals[id])
+	}
+	if err := storage.UpdateTerminalMetadata(ctx, "missing", "name", "remark"); !errors.Is(err, ErrTerminalNotFound) {
+		t.Fatalf("expected ErrTerminalNotFound, got %v", err)
+	}
+}
 
 func TestMergeTerminalDeduplicatesAddresses(t *testing.T) {
 	ctx := context.Background()

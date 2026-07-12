@@ -143,6 +143,62 @@ func TestRecordRefreshErrorDeduplicatesCurrentAlert(t *testing.T) {
 	}
 }
 
+func TestEffectiveTerminalNamePrefersCustomThenAutomaticThenAddress(t *testing.T) {
+	tests := []struct {
+		terminal model.Terminal
+		want     string
+	}{
+		{terminal: model.Terminal{CustomName: "iPhone 13 PM", AutoName: "iphone", PrimaryIPv4: "10.0.0.8"}, want: "iPhone 13 PM"},
+		{terminal: model.Terminal{AutoName: "iphone", PrimaryIPv4: "10.0.0.8"}, want: "iphone"},
+		{terminal: model.Terminal{PrimaryIPv4: "10.0.0.8", MACAddress: "00:11:22:33:44:55"}, want: "10.0.0.8"},
+		{terminal: model.Terminal{MACAddress: "00:11:22:33:44:55"}, want: "00:11:22:33:44:55"},
+	}
+	for _, test := range tests {
+		if got := effectiveTerminalName(test.terminal); got != test.want {
+			t.Errorf("effectiveTerminalName(%#v) = %q, want %q", test.terminal, got, test.want)
+		}
+	}
+}
+
+func TestRecognizedAutoNameRejectsAddressFallbacks(t *testing.T) {
+	if got := recognizedAutoName("00:11:22:33:44:55", "00:11:22:33:44:55"); got != "" {
+		t.Fatalf("MAC fallback must not be an automatic name: %q", got)
+	}
+	if got := recognizedAutoName("10.0.0.8", "00:11:22:33:44:55", []string{"10.0.0.8"}); got != "" {
+		t.Fatalf("IP fallback must not be an automatic name: %q", got)
+	}
+	if got := recognizedAutoName("iphone", "00:11:22:33:44:55", []string{"10.0.0.8"}); got != "iphone" {
+		t.Fatalf("expected DHCP hostname to remain, got %q", got)
+	}
+}
+
+func TestUpdateTerminalMetadataUpdatesSnapshotAndDetailsWithoutRefresh(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	ctx := context.Background()
+	id := "mac:00:11:22:33:44:55"
+	if err := storage.UpsertTerminal(ctx, id, "00:11:22:33:44:55", "iphone", time.Now().UTC()); err != nil {
+		t.Fatalf("upsert terminal: %v", err)
+	}
+	terminal := model.Terminal{ID: id, AutoName: "iphone", DisplayName: "iphone", PrimaryIPv4: "10.0.0.8"}
+	monitor := &Monitor{store: storage, snapshot: model.DashboardSnapshot{Terminals: []model.Terminal{terminal}}, terminalDetails: map[string]model.TerminalDetail{id: {Terminal: terminal, FamilySummaries: map[string]model.Terminal{"ipv4": terminal}}}}
+
+	detail, err := monitor.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机")
+	if err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	if detail.Terminal.DisplayName != "iPhone 13 PM" || detail.Terminal.Remark != "Tom 的手机" || detail.FamilySummaries["ipv4"].CustomName != "iPhone 13 PM" {
+		t.Fatalf("detail not updated: %#v", detail)
+	}
+	snapshot := monitor.Snapshot()
+	if snapshot.Terminals[0].DisplayName != "iPhone 13 PM" || snapshot.Terminals[0].Remark != "Tom 的手机" {
+		t.Fatalf("snapshot not updated: %#v", snapshot.Terminals[0])
+	}
+}
+
 func TestOrientConnectionMapsUploadAndDownloadForLocalSource(t *testing.T) {
 	_, network, _ := net.ParseCIDR("10.0.0.0/24")
 

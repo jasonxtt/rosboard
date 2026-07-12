@@ -71,6 +71,8 @@ export type TerminalFamilyStats = {
 export type Terminal = {
   id: string
   displayName: string
+  autoName: string
+  customName: string
   remark: string
   macAddress: string
   primaryInterface: string
@@ -160,4 +162,4 @@ export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'pro
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
-export type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'interface' | 'device' | 'remark'
+export type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'device' | 'remark'

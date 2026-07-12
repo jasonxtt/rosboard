@@ -267,6 +267,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .link-button:focus-visible { outline: 2px solid rgba(37, 99, 235, .6); outline-offset: 2px; border-radius: 2px; }
 .terminal-link, .address-stack { display: grid; gap: 3px; }
 .terminal-link { text-align: left; }
+.terminal-name-link { max-width: 180px; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .action-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .detail-page { display: grid; gap: 8px; }
@@ -319,6 +320,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .remark-modal { width: min(520px, 100%); overflow: hidden; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--color-border-soft); }
 .remark-modal-body { display: grid; gap: 14px; padding: 20px; }
+.metadata-field { display: grid; gap: 7px; color: #334155; font-size: 12px; font-weight: 600; }
+.metadata-field input { width: 100%; height: 38px; padding: 0 11px; color: var(--color-text); background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); }
+.metadata-field small { color: var(--color-text-muted); font-size: 10px; font-weight: 400; }
 .remark-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .close-button, .primary-button, .tab-button { min-height: 38px; padding: 8px 14px; border-radius: var(--radius-sm); transition: background .18s ease, color .18s ease, box-shadow .18s ease; }
 .close-button { color: #334155; background: #eef2f7; }
@@ -404,13 +408,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .interface-table th:nth-child(9), .interface-table td:nth-child(9),
   .interface-table th:nth-child(10), .interface-table td:nth-child(10),
   .interface-table th:nth-child(11), .interface-table td:nth-child(11) { display: none; }
-  .terminal-table th:nth-child(2), .terminal-table td:nth-child(2),
+  .terminal-table th:nth-child(3), .terminal-table td:nth-child(3),
+  .terminal-table th:nth-child(4), .terminal-table td:nth-child(4),
   .terminal-table th:nth-child(5), .terminal-table td:nth-child(5),
   .terminal-table th:nth-child(6), .terminal-table td:nth-child(6),
   .terminal-table th:nth-child(7), .terminal-table td:nth-child(7),
-  .terminal-table th:nth-child(8), .terminal-table td:nth-child(8),
-  .terminal-table th:nth-child(9), .terminal-table td:nth-child(9),
-  .terminal-table th:nth-child(10), .terminal-table td:nth-child(10) { display: none; }
+  .terminal-table th:nth-child(9), .terminal-table td:nth-child(9) { display: none; }
   .interface-table th, .interface-table td, .terminal-table th, .terminal-table td { padding-inline: 9px; }
   .terminal-table .action-links { display: grid; gap: 6px; }
 }
