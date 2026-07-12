@@ -95,6 +95,22 @@ function App() {
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
 
   useEffect(() => {
+    const heartbeat = () => {
+      if (document.visibilityState !== 'visible') return
+      void fetch('/api/viewer-heartbeat', { method: 'POST' }).catch(() => undefined)
+    }
+    const handleVisibilityChange = () => heartbeat()
+
+    heartbeat()
+    const timer = window.setInterval(heartbeat, 10000)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
     if (activeView === 'overview') return
     setStatusExpanded(true)
     if (activeView === 'terminals') setExpandedMonitorGroup('terminals')

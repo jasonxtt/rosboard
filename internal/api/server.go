@@ -54,6 +54,13 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
 	case "/api/realtime":
 		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
+	case "/api/viewer-heartbeat":
+		if request.Method != http.MethodPost {
+			writer.Header().Set("Allow", http.MethodPost)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"activeUntil": s.monitor.ViewerHeartbeat()})
 	case "/api/interfaces":
 		writeJSON(writer, http.StatusOK, map[string]any{"interfaces": s.monitor.Snapshot().Interfaces})
 	case "/api/terminals":
