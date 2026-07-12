@@ -22,6 +22,7 @@ import type {
   InterfaceDetail,
   InterfaceStatus,
   LoadSample,
+  Overview,
   PolicyStat,
   ProtocolHistorySample,
   ProtocolStat,
@@ -85,7 +86,7 @@ function App() {
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
   const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>('all')
-  const [dashboardRefreshMs, setDashboardRefreshMs] = useState(5000)
+  const [dashboardRefreshMs, setDashboardRefreshMs] = useState(1000)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
@@ -103,8 +104,11 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
+    let refreshing = false
 
     const refresh = async () => {
+      if (refreshing) return
+      refreshing = true
       try {
         const response = await fetch('/api/dashboard')
         if (!response.ok) {
@@ -112,23 +116,59 @@ function App() {
         }
         const payload = (await response.json()) as DashboardResponse
         if (!cancelled) {
-          setDashboard(payload)
+          setDashboard((current) => {
+            if (!current || new Date(payload.overview.updatedAt).getTime() >= new Date(current.overview.updatedAt).getTime()) return payload
+            return { ...payload, overview: current.overview }
+          })
           setError(null)
         }
       } catch (refreshError) {
         if (!cancelled) {
           setError(refreshError instanceof Error ? refreshError.message : '读取失败')
         }
+      } finally {
+        refreshing = false
       }
     }
 
     refresh()
-    const timer = dashboardRefreshMs > 0 ? window.setInterval(refresh, dashboardRefreshMs) : 0
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(refresh, 3000) : 0
     return () => {
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
   }, [dashboardRefreshMs, refreshNonce])
+
+  useEffect(() => {
+    if (activeView !== 'overview' || dashboardRefreshMs <= 0) return
+    let cancelled = false
+    let refreshing = false
+
+    const refreshRealtime = async () => {
+      if (refreshing) return
+      refreshing = true
+      try {
+        const response = await fetch('/api/realtime')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const overview = (await response.json()) as Overview
+        if (!cancelled) {
+          setDashboard((current) => current ? { ...current, overview } : current)
+          setError(null)
+        }
+      } catch (refreshError) {
+        if (!cancelled) setError(refreshError instanceof Error ? refreshError.message : '读取失败')
+      } finally {
+        refreshing = false
+      }
+    }
+
+    refreshRealtime()
+    const timer = window.setInterval(refreshRealtime, dashboardRefreshMs)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [activeView, dashboardRefreshMs, refreshNonce])
 
   useEffect(() => {
     if (!selectedTerminalID) {
@@ -343,7 +383,7 @@ function App() {
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-              <option value={0}>停止刷新</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
+              <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
             </select>
           </div>
         </header>

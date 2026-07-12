@@ -45,7 +45,8 @@ func (m *Monitor) Start(ctx context.Context) error {
 	}
 
 	go func() {
-		ticker := time.NewTicker(time.Duration(m.cfg.PollIntervalSeconds) * time.Second)
+		realtimeInterval := time.Duration(m.cfg.RealtimePollIntervalSeconds) * time.Second
+		ticker := time.NewTicker(realtimeInterval)
 		defer ticker.Stop()
 
 		for {
@@ -53,14 +54,201 @@ func (m *Monitor) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := m.refresh(ctx); err != nil {
-					m.logger.Printf("refresh failed: %v", err)
+				if err := m.refreshRealtime(ctx); err != nil {
+					m.logger.Printf("realtime refresh failed: %v", err)
 					m.recordRefreshError(err)
 				}
 			}
 		}
 	}()
 
+	go func() {
+		terminalInterval := time.Duration(m.cfg.TerminalPollIntervalSeconds) * time.Second
+		fullInterval := time.Duration(m.cfg.PollIntervalSeconds) * time.Second
+		nextTerminal := time.Now().Add(terminalInterval)
+		nextFull := time.Now().Add(fullInterval)
+
+		for {
+			due := nextTerminal
+			if nextFull.Before(due) {
+				due = nextFull
+			}
+			timer := time.NewTimer(time.Until(due))
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+
+			var err error
+			if !nextFull.After(time.Now()) {
+				err = m.refresh(ctx)
+				nextFull = time.Now().Add(fullInterval)
+				nextTerminal = time.Now().Add(terminalInterval)
+			} else {
+				err = m.refreshTerminals(ctx)
+				nextTerminal = time.Now().Add(terminalInterval)
+			}
+			if err != nil {
+				m.logger.Printf("background refresh failed: %v", err)
+				m.recordRefreshError(err)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (m *Monitor) refreshRealtime(ctx context.Context) error {
+	pollCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	now := time.Now().UTC()
+	resource, err := m.client.SystemResource(pollCtx)
+	if err != nil {
+		return fmt.Errorf("load realtime system resource: %w", err)
+	}
+
+	previous := m.Snapshot()
+	trafficInterfaces := append([]string(nil), m.cfg.RouterOS.TrafficInterfaces...)
+	if len(trafficInterfaces) == 0 {
+		trafficInterfaces = append(trafficInterfaces, previous.Overview.TrafficInterfaces...)
+	}
+	trafficRates := make(map[string]routeros.MonitorTrafficEntry, len(trafficInterfaces))
+	for _, name := range trafficInterfaces {
+		entry, err := m.client.MonitorTraffic(pollCtx, name)
+		if err != nil {
+			return fmt.Errorf("monitor realtime traffic for %s: %w", name, err)
+		}
+		trafficRates[name] = entry
+		if err := m.store.SaveInterfaceSample(pollCtx, now, name, parseFloat(entry.RXBitsPerSecond), parseFloat(entry.TXBitsPerSecond)); err != nil {
+			return err
+		}
+	}
+	chartSamples, err := m.store.LoadInterfaceSamples(pollCtx, trafficInterfaces, now.Add(-5*time.Minute))
+	if err != nil {
+		return err
+	}
+	chartSamples = fillRateSampleGaps(chartSamples)
+
+	memoryPercent := memoryUsedPercent(parseInt(resource.TotalMemory), parseInt(resource.FreeMemory))
+	uploadBps := totalSelectedTXBps(trafficRates, trafficInterfaces)
+	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
+	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{
+		Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent,
+		StorageUsedPercent: previous.Overview.StorageUsedPercent, OnlineTerminalCount: previous.Overview.ConnectedDeviceCount,
+		UploadBps: uploadBps, DownloadBps: downloadBps,
+	}); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	m.snapshot.Overview.CPULoadPercent = parseInt(resource.CPULoad)
+	m.snapshot.Overview.MemoryUsedPercent = memoryPercent
+	m.snapshot.Overview.MemoryUsedBytes = parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory)
+	m.snapshot.Overview.MemoryTotalBytes = parseInt(resource.TotalMemory)
+	m.snapshot.Overview.UploadBps = uploadBps
+	m.snapshot.Overview.DownloadBps = downloadBps
+	m.snapshot.Overview.TrafficInterfaces = trafficInterfaces
+	m.snapshot.Overview.ChartSamples = chartSamples
+	m.snapshot.Overview.UpdatedAt = now
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Monitor) refreshTerminals(ctx context.Context) error {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
+	pollCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	now := time.Now().UTC()
+
+	var addresses []routeros.IPAddress
+	var ipv6Addresses []routeros.IPv6Address
+	var leases []routeros.DHCPLease
+	var arpEntries []routeros.ARPEntry
+	var ipv6Neighbors []routeros.IPv6Neighbor
+	var connectionsV4 []routeros.FirewallConnection
+	var connectionsV6 []routeros.FirewallConnection
+	resultErrors := make(chan error, 7)
+	var waitGroup sync.WaitGroup
+	waitGroup.Go(func() {
+		var err error
+		addresses, err = m.client.IPAddresses(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal ip addresses: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		ipv6Addresses, err = m.client.IPv6Addresses(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal ipv6 addresses: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		leases, err = m.client.DHCPLeases(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal dhcp leases: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		arpEntries, err = m.client.ARPEntries(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal arp entries: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		ipv6Neighbors, err = m.client.IPv6Neighbors(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal ipv6 neighbors: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		connectionsV4, err = m.client.FirewallConnectionsV4(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal ipv4 connections: %w", err)
+		}
+	})
+	waitGroup.Go(func() {
+		var err error
+		connectionsV6, err = m.client.FirewallConnectionsV6(pollCtx)
+		if err != nil {
+			resultErrors <- fmt.Errorf("load terminal ipv6 connections: %w", err)
+		}
+	})
+	waitGroup.Wait()
+	close(resultErrors)
+	if err := <-resultErrors; err != nil {
+		return err
+	}
+
+	previous := m.Snapshot()
+	trafficInterfaces := previous.Overview.TrafficInterfaces
+	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
+	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
+	terminals, details, err := m.buildTerminals(pollCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6)
+	if err != nil {
+		return err
+	}
+	protocols := aggregateProtocols(details)
+	if err := m.store.SaveProtocolSamples(pollCtx, now, protocols); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	m.snapshot.Terminals = terminals
+	m.snapshot.Protocols = protocols
+	m.snapshot.Overview.ConnectedDeviceCount = connectedLANDeviceCount(terminals, trafficInterfaces)
+	m.snapshot.Overview.ConnectionCount = len(connectionsV4) + len(connectionsV6)
+	m.terminalDetails = details
+	m.mu.Unlock()
 	return nil
 }
 
@@ -336,6 +524,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	chartSamples = fillRateSampleGaps(chartSamples)
 
 	memoryPercent := memoryUsedPercent(parseInt(resource.TotalMemory), parseInt(resource.FreeMemory))
 	storagePercent := memoryUsedPercent(parseInt(resource.TotalHDD), parseInt(resource.FreeHDD))
@@ -401,11 +590,44 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
+	if m.snapshot.Overview.UpdatedAt.After(snapshot.Overview.UpdatedAt) {
+		copyRealtimeOverview(&snapshot.Overview, m.snapshot.Overview)
+	}
 	m.snapshot = snapshot
 	m.terminalDetails = details
 	m.mu.Unlock()
 
 	return nil
+}
+
+func copyRealtimeOverview(destination *model.Overview, source model.Overview) {
+	destination.CPULoadPercent = source.CPULoadPercent
+	destination.MemoryUsedPercent = source.MemoryUsedPercent
+	destination.MemoryUsedBytes = source.MemoryUsedBytes
+	destination.MemoryTotalBytes = source.MemoryTotalBytes
+	destination.UploadBps = source.UploadBps
+	destination.DownloadBps = source.DownloadBps
+	destination.TrafficInterfaces = append([]string(nil), source.TrafficInterfaces...)
+	destination.ChartSamples = append([]model.RateSample(nil), source.ChartSamples...)
+	destination.UpdatedAt = source.UpdatedAt
+}
+
+func fillRateSampleGaps(samples []model.RateSample) []model.RateSample {
+	if len(samples) < 2 {
+		return samples
+	}
+	result := make([]model.RateSample, 0, len(samples))
+	result = append(result, samples[0])
+	for _, sample := range samples[1:] {
+		previous := result[len(result)-1]
+		for timestamp := previous.Timestamp.Add(time.Second); timestamp.Before(sample.Timestamp); timestamp = timestamp.Add(time.Second) {
+			result = append(result, model.RateSample{
+				Timestamp: timestamp, UploadBps: previous.UploadBps, DownloadBps: previous.DownloadBps,
+			})
+		}
+		result = append(result, sample)
+	}
+	return result
 }
 
 func aggregateProtocols(details map[string]model.TerminalDetail) []model.ProtocolStat {

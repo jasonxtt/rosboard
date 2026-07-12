@@ -421,3 +421,27 @@ func TestConnectionStatusUsesWinboxReplyAndAssuredFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestFillRateSampleGapsCarriesLastMeasuredRate(t *testing.T) {
+	start := time.Date(2026, time.July, 13, 0, 0, 11, 0, time.UTC)
+	samples := []model.RateSample{
+		{Timestamp: start, UploadBps: 10, DownloadBps: 20},
+		{Timestamp: start.Add(3 * time.Second), UploadBps: 40, DownloadBps: 50},
+	}
+
+	got := fillRateSampleGaps(samples)
+	if len(got) != 4 {
+		t.Fatalf("expected four continuous samples, got %d", len(got))
+	}
+	for index := 0; index < 3; index++ {
+		if !got[index].Timestamp.Equal(start.Add(time.Duration(index) * time.Second)) {
+			t.Fatalf("sample %d timestamp = %s", index, got[index].Timestamp)
+		}
+	}
+	if got[1].UploadBps != 10 || got[2].DownloadBps != 20 {
+		t.Fatalf("gap samples must retain the last measured rate: %#v", got)
+	}
+	if got[3].UploadBps != 40 || got[3].DownloadBps != 50 {
+		t.Fatalf("actual sample must remain unchanged: %#v", got[3])
+	}
+}

@@ -11,12 +11,14 @@ import (
 )
 
 type Config struct {
-	ListenAddress        string         `yaml:"listen_address"`
-	DataDir              string         `yaml:"data_dir"`
-	PollIntervalSeconds  int            `yaml:"poll_interval_seconds"`
-	SampleRetentionHours int            `yaml:"sample_retention_hours"`
-	AllowedCIDRs         []string       `yaml:"allowed_cidrs"`
-	RouterOS             RouterOSConfig `yaml:"routeros"`
+	ListenAddress               string         `yaml:"listen_address"`
+	DataDir                     string         `yaml:"data_dir"`
+	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
+	RouterOS                    RouterOSConfig `yaml:"routeros"`
 }
 
 type RouterOSConfig struct {
@@ -29,10 +31,12 @@ type RouterOSConfig struct {
 
 func Load(path string) (Config, error) {
 	cfg := Config{
-		ListenAddress:        ":8080",
-		DataDir:              "./data",
-		PollIntervalSeconds:  5,
-		SampleRetentionHours: 48,
+		ListenAddress:               ":8080",
+		DataDir:                     "./data",
+		PollIntervalSeconds:         10,
+		RealtimePollIntervalSeconds: 1,
+		TerminalPollIntervalSeconds: 3,
+		SampleRetentionHours:        48,
 	}
 
 	if path != "" {
@@ -90,6 +94,12 @@ func (c Config) validate() error {
 	}
 	if c.PollIntervalSeconds <= 0 {
 		return errors.New("poll_interval_seconds must be positive")
+	}
+	if c.RealtimePollIntervalSeconds <= 0 {
+		return errors.New("realtime_poll_interval_seconds must be positive")
+	}
+	if c.TerminalPollIntervalSeconds <= 0 {
+		return errors.New("terminal_poll_interval_seconds must be positive")
 	}
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
