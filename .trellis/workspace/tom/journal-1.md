@@ -468,3 +468,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: 重做概览实时流量图表
+
+**Date**: 2026-07-12
+**Task**: 重做概览实时流量图表
+**Branch**: `main`
+
+### Summary
+
+参考 mosdns 的 ECharts 实现重做实时流量图，实时速率改为上下两行显示，扩大图表并完成桌面端和移动端验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2b72c24` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
