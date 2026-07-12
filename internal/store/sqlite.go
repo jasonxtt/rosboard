@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"rosboard/internal/model"
 )
 
+var ErrTerminalNotFound = errors.New("terminal not found")
+
 type Store struct {
 	db *sql.DB
 }
@@ -22,6 +25,8 @@ type TerminalTotal struct {
 	DownloadBytes int64
 	TrackingSince time.Time
 	Remark        string
+	AutoName      string
+	CustomName    string
 	State         string
 	OnlineSince   time.Time
 	LastSeen      time.Time
@@ -134,6 +139,9 @@ func (s *Store) initSchema() error {
 	}
 	if _, err := s.db.Exec(`ALTER TABLE terminals ADD COLUMN online_since INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add terminals.online_since: %w", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE terminals ADD COLUMN custom_name TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add terminals.custom_name: %w", err)
 	}
 	if _, err := s.db.Exec(`ALTER TABLE load_samples ADD COLUMN storage_percent REAL NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add load_samples.storage_percent: %w", err)
@@ -512,7 +520,8 @@ func (s *Store) TerminalTotals(ctx context.Context, ids []string) (map[string]Te
 
 	query := fmt.Sprintf(
 		`SELECT tt.terminal_id, tt.upload_bytes, tt.download_bytes, tt.tracking_since,
-		        COALESCE(t.remark, ''), COALESCE(t.state, 'offline'), COALESCE(t.online_since, 0), COALESCE(t.last_seen, 0)
+		        COALESCE(t.remark, ''), COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
+		        COALESCE(t.state, 'offline'), COALESCE(t.online_since, 0), COALESCE(t.last_seen, 0)
 		 FROM terminal_totals tt
 		 LEFT JOIN terminals t ON t.id = tt.terminal_id
 		 WHERE tt.terminal_id IN (%s)`,
@@ -533,7 +542,7 @@ func (s *Store) TerminalTotals(ctx context.Context, ids []string) (map[string]Te
 		var id string
 		var total TerminalTotal
 		var trackingSince, onlineSince, lastSeen int64
-		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.Remark, &total.State, &onlineSince, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.Remark, &total.AutoName, &total.CustomName, &total.State, &onlineSince, &lastSeen); err != nil {
 			return nil, fmt.Errorf("scan terminal totals: %w", err)
 		}
 		total.TrackingSince = time.Unix(trackingSince, 0).UTC()
@@ -619,14 +628,27 @@ func (s *Store) TerminalHistory(ctx context.Context, terminalID string, limit in
 }
 
 func (s *Store) UpdateTerminalRemark(ctx context.Context, terminalID, remark string) error {
-	_, err := s.db.ExecContext(
-		ctx,
-		`UPDATE terminals SET remark = ? WHERE id = ?`,
-		remark,
-		terminalID,
-	)
+	var customName string
+	if err := s.db.QueryRowContext(ctx, `SELECT custom_name FROM terminals WHERE id = ?`, terminalID).Scan(&customName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrTerminalNotFound
+		}
+		return fmt.Errorf("load terminal custom name: %w", err)
+	}
+	return s.UpdateTerminalMetadata(ctx, terminalID, customName, remark)
+}
+
+func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customName, remark string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ?, remark = ? WHERE id = ?`, customName, remark, terminalID)
 	if err != nil {
-		return fmt.Errorf("update terminal remark: %w", err)
+		return fmt.Errorf("update terminal metadata: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read terminal metadata result: %w", err)
+	}
+	if rows == 0 {
+		return ErrTerminalNotFound
 	}
 	return nil
 }

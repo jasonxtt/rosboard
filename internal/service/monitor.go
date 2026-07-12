@@ -24,6 +24,7 @@ type Monitor struct {
 	store  *store.Store
 	logger *log.Logger
 
+	refreshMu       sync.Mutex
 	mu              sync.RWMutex
 	snapshot        model.DashboardSnapshot
 	terminalDetails map[string]model.TerminalDetail
@@ -111,10 +112,68 @@ func (m *Monitor) TerminalDetail(id string) (model.TerminalDetail, bool) {
 }
 
 func (m *Monitor) UpdateTerminalRemark(ctx context.Context, id, remark string) error {
-	if err := m.store.UpdateTerminalRemark(ctx, id, remark); err != nil {
-		return err
+	detail, ok := m.TerminalDetail(id)
+	if !ok {
+		return store.ErrTerminalNotFound
 	}
-	return m.refresh(ctx)
+	_, err := m.UpdateTerminalMetadata(ctx, id, detail.Terminal.CustomName, remark)
+	return err
+}
+
+func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, remark string) (model.TerminalDetail, error) {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
+	if _, ok := m.TerminalDetail(id); !ok {
+		return model.TerminalDetail{}, store.ErrTerminalNotFound
+	}
+	if err := m.store.UpdateTerminalMetadata(ctx, id, customName, remark); err != nil {
+		return model.TerminalDetail{}, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for index := range m.snapshot.Terminals {
+		if m.snapshot.Terminals[index].ID == id {
+			applyTerminalMetadata(&m.snapshot.Terminals[index], customName, remark)
+		}
+	}
+	detail, ok := m.terminalDetails[id]
+	if !ok {
+		return model.TerminalDetail{}, store.ErrTerminalNotFound
+	}
+	applyTerminalMetadata(&detail.Terminal, customName, remark)
+	for family, summary := range detail.FamilySummaries {
+		applyTerminalMetadata(&summary, customName, remark)
+		detail.FamilySummaries[family] = summary
+	}
+	m.terminalDetails[id] = detail
+	return detail, nil
+}
+
+func applyTerminalMetadata(terminal *model.Terminal, customName, remark string) {
+	terminal.CustomName = customName
+	terminal.Remark = remark
+	terminal.DisplayName = effectiveTerminalName(*terminal)
+}
+
+func effectiveTerminalName(terminal model.Terminal) string {
+	return preferredName(terminal.CustomName, terminal.AutoName, terminal.PrimaryIPv4, terminal.PrimaryIPv6, terminal.MACAddress, "未命名设备")
+}
+
+func recognizedAutoName(value, mac string, addressGroups ...[]string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, strings.TrimSpace(mac)) {
+		return ""
+	}
+	for _, addresses := range addressGroups {
+		for _, address := range addresses {
+			if value == strings.TrimSpace(address) {
+				return ""
+			}
+		}
+	}
+	return value
 }
 
 func (m *Monitor) LoadHistory(ctx context.Context, since time.Time) ([]model.LoadSample, error) {
@@ -141,6 +200,9 @@ func (m *Monitor) InterfaceDetail(ctx context.Context, name string, since time.T
 }
 
 func (m *Monitor) refresh(ctx context.Context) error {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
 	pollCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
@@ -495,7 +557,7 @@ func (m *Monitor) buildTerminals(
 		id := terminalIdentity(mac, address, routerAddresses)
 		builder, exists := builders[id]
 		if !exists {
-			displayName := preferredName(nameByAddress[address], nameByMAC[mac], mac, address)
+			displayName := preferredName(nameByAddress[address], nameByMAC[mac])
 			if id == routerTerminalID {
 				displayName = routerTerminalDisplayName
 				mac = ""
@@ -512,7 +574,7 @@ func (m *Monitor) buildTerminals(
 			builders[id] = builder
 		}
 		if builder.DisplayName == "" {
-			builder.DisplayName = preferredName(nameByAddress[address], nameByMAC[mac], mac, address)
+			builder.DisplayName = preferredName(nameByAddress[address], nameByMAC[mac])
 		}
 		if mac != "" && id != routerTerminalID {
 			builder.MACAddress = mac
@@ -601,7 +663,7 @@ func (m *Monitor) buildTerminals(
 			builder.CurrentDownloadBps += view.DownloadBps
 			markOnline(builder)
 			if !view.RouterSelf {
-				builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress], builder.MACAddress, view.LocalAddress)
+				builder.DisplayName = preferredName(nameByAddress[view.LocalAddress], nameByMAC[builder.MACAddress])
 			}
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
@@ -710,7 +772,8 @@ func (m *Monitor) buildTerminals(
 
 		terminal := model.Terminal{
 			ID:                 builder.ID,
-			DisplayName:        builder.DisplayName,
+			AutoName:           recognizedAutoName(total.AutoName, builder.MACAddress, mapKeys(builder.IPv4), mapKeys(builder.IPv6)),
+			CustomName:         total.CustomName,
 			Remark:             total.Remark,
 			MACAddress:         builder.MACAddress,
 			PrimaryInterface:   builder.PrimaryInterface,
@@ -743,9 +806,12 @@ func (m *Monitor) buildTerminals(
 				terminal.PrimaryInterface = assigned.Interface
 			}
 		}
+		terminal.DisplayName = effectiveTerminalName(terminal)
 		terminals = append(terminals, model.Terminal{
 			ID:                 terminal.ID,
 			DisplayName:        terminal.DisplayName,
+			AutoName:           terminal.AutoName,
+			CustomName:         terminal.CustomName,
 			Remark:             terminal.Remark,
 			MACAddress:         terminal.MACAddress,
 			PrimaryInterface:   terminal.PrimaryInterface,

@@ -78,7 +78,8 @@ function App() {
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('basic')
   const [connectionFamily, setConnectionFamily] = useState<ConnectionFamily>('all')
   const [detailScope, setDetailScope] = useState<TerminalFamily>('all')
-  const [remarkModalOpen, setRemarkModalOpen] = useState(false)
+  const [editingTerminalID, setEditingTerminalID] = useState<string | null>(null)
+  const [customNameDraft, setCustomNameDraft] = useState('')
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
   const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>('all')
@@ -142,7 +143,6 @@ function App() {
       const payload = (await response.json()) as TerminalDetail
       if (!cancelled) {
         setTerminalDetail(payload)
-        setRemarkDraft(payload.terminal.remark ?? '')
       }
     }
 
@@ -199,12 +199,12 @@ function App() {
     })
   }, [dashboard, query, terminalFamily])
 
-  const currentTerminal = useMemo(() => {
-    if (!dashboard || !selectedTerminalID) {
+  const editingTerminal = useMemo(() => {
+    if (!dashboard || !editingTerminalID) {
       return null
     }
-    return dashboard.terminals.find((terminal) => terminal.id === selectedTerminalID) ?? null
-  }, [dashboard, selectedTerminalID])
+    return dashboard.terminals.find((terminal) => terminal.id === editingTerminalID) ?? null
+  }, [dashboard, editingTerminalID])
 
   if (!dashboard) {
     return (
@@ -378,9 +378,9 @@ function App() {
               setConnectionFamily(terminalFamily)
             }}
             onOpenRemark={(terminal) => {
-              setSelectedTerminalID(terminal.id)
+              setEditingTerminalID(terminal.id)
+              setCustomNameDraft(terminal.customName ?? '')
               setRemarkDraft(terminal.remark ?? '')
-              setRemarkModalOpen(true)
             }}
           />
         ) : null}
@@ -401,25 +401,29 @@ function App() {
         ) : null}
       </section>
 
-      {remarkModalOpen && currentTerminal ? (
-        <RemarkModal
-          value={remarkDraft}
+      {editingTerminal ? (
+        <TerminalMetadataModal
+          terminal={editingTerminal}
+          customName={customNameDraft}
+          remark={remarkDraft}
           saving={savingRemark}
-          onChange={setRemarkDraft}
-          onClose={() => setRemarkModalOpen(false)}
+          onCustomNameChange={setCustomNameDraft}
+          onRemarkChange={setRemarkDraft}
+          onClose={() => setEditingTerminalID(null)}
           onSave={async () => {
             setSavingRemark(true)
             try {
               const response = await fetch(
-                `/api/terminals/${encodeURIComponent(currentTerminal.id)}/remark`,
+                `/api/terminals/${encodeURIComponent(editingTerminal.id)}/metadata`,
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ remark: remarkDraft }),
+                  body: JSON.stringify({ customName: customNameDraft, remark: remarkDraft }),
                 },
               )
               if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                const failure = await response.json().catch(() => null) as { error?: string } | null
+                throw new Error(failure?.error || `HTTP ${response.status}`)
               }
               const payload = (await response.json()) as TerminalDetail
               setTerminalDetail(payload)
@@ -433,7 +437,8 @@ function App() {
                     }
                   : previous,
               )
-              setRemarkModalOpen(false)
+              setEditingTerminalID(null)
+              setError(null)
             } catch (saveError) {
               setError(saveError instanceof Error ? saveError.message : '备注保存失败')
             } finally {
@@ -677,7 +682,7 @@ function TerminalsPage(props: {
   onOpenDetail: (terminalID: string) => void
   onOpenRemark: (terminal: Terminal) => void
 }) {
-  const [sortKey, setSortKey] = useState<TerminalSortKey>('address')
+  const [sortKey, setSortKey] = useState<TerminalSortKey>('device')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [stateFilter, setStateFilter] = useState('online')
   const [interfaceFilter, setInterfaceFilter] = useState('all')
@@ -738,6 +743,7 @@ function TerminalsPage(props: {
       <div className="table-scroll">
         <table className="data-table terminal-table">
           <thead><tr>
+            <SortHeader label="设备名称" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="IP / MAC" sortKey="address" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="连接数" sortKey="connections" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="上行速率" sortKey="upload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
@@ -745,8 +751,6 @@ function TerminalsPage(props: {
             <SortHeader label={props.family === 'all' ? '累计上行' : '活动累计上行'} sortKey="totalUpload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label={props.family === 'all' ? '累计下行' : '活动累计下行'} sortKey="totalDownload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="在线时长" sortKey="online" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="接口" sortKey="interface" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="设备" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="备注" sortKey="remark" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <th>操作</th>
           </tr></thead>
@@ -756,6 +760,7 @@ function TerminalsPage(props: {
               const metrics = terminalMetrics(terminal, props.family)
               const addressCount = props.family === 'ipv4' ? terminal.ipv4.length : props.family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
               return <tr key={terminal.id}>
+                <td><button type="button" className="link-button terminal-name-link" onClick={() => props.onOpenDetail(terminal.id)}><strong>{terminal.displayName}</strong></button></td>
                 <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
                   <strong>{mainAddress || '-'}</strong>
                   <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{addressCount > 1 ? `  +${addressCount - 1}` : ''}</span>
@@ -763,10 +768,8 @@ function TerminalsPage(props: {
                 <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
                 <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : terminalStateText(terminal.state)}</td>
-                <td>{terminal.primaryInterface || '-'}</td>
-                <td>{terminal.displayName && terminal.displayName !== terminal.macAddress && terminal.displayName !== mainAddress ? terminal.displayName : '-'}</td>
                 <td>{terminal.remark || '-'}</td>
-                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>修改备注</button></div></td>
+                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>编辑终端</button></div></td>
               </tr>
             })}
           </tbody>
@@ -817,8 +820,9 @@ function TerminalDetailPage(props: {
     <section className="detail-page">
       <div className="detail-page-head">
         <div className="detail-identity">
-          <h3>{terminalPrimaryAddress(summary, props.scope)}</h3>
+          <h3>{summary.displayName}</h3>
           <div className="detail-identity-meta">
+            <span>IP {terminalPrimaryAddress(summary, props.scope) || '-'}</span>
             <span>MAC {summary.macAddress || '-'}</span>
             <span className={`identity-state ${summary.state}`}>{terminalStateText(summary.state)}</span>
             <span>{isRouterConntrack ? '跟踪条目' : '连接'} {summary.connectionCount}</span>
@@ -844,6 +848,8 @@ function TerminalDetailPage(props: {
       <section className="panel detail-panel">
         {props.activeTab === 'basic' ? (
           <div className="detail-grid">
+            <DetailItem label="设备名称" value={summary.displayName} />
+            <DetailItem label="自动识别名称" value={summary.autoName || '暂未识别'} />
             {props.scope !== 'ipv6' ? <DetailItem label="IPv4 地址" value={summary.ipv4.join(' / ') || '-'} /> : null}
             {props.scope !== 'ipv4' ? <DetailItem label="IPv6 地址" value={summary.ipv6.join(' / ') || '-'} /> : null}
             <DetailItem label="MAC 地址" value={summary.macAddress || '-'} />
@@ -1020,10 +1026,13 @@ function TerminalDetailPage(props: {
   )
 }
 
-function RemarkModal(props: {
-  value: string
+function TerminalMetadataModal(props: {
+  terminal: Terminal
+  customName: string
+  remark: string
   saving: boolean
-  onChange: (value: string) => void
+  onCustomNameChange: (value: string) => void
+  onRemarkChange: (value: string) => void
   onClose: () => void
   onSave: () => void
 }) {
@@ -1032,20 +1041,29 @@ function RemarkModal(props: {
       <div className="remark-modal">
         <div className="dialog-head">
           <div>
-            <h3>修改备注</h3>
-            <p className="muted-text">备注只保存到面板本地，不写回 RouterOS。</p>
+            <h3>编辑终端</h3>
+            <p className="muted-text">设备名称和备注只保存到面板本地，不写回 RouterOS。</p>
           </div>
           <button type="button" className="close-button" onClick={props.onClose}>
             关闭
           </button>
         </div>
         <div className="remark-modal-body">
+          <label className="metadata-field">
+            <span>设备名称</span>
+            <input value={props.customName} onChange={(event) => props.onCustomNameChange(event.target.value)} maxLength={100} placeholder={props.terminal.displayName} />
+            <small>自动识别：{props.terminal.autoName || '暂未识别'}；清空后恢复自动名称。</small>
+          </label>
+          <label className="metadata-field">
+            <span>备注</span>
           <textarea
-            value={props.value}
-            onChange={(event) => props.onChange(event.target.value)}
+            value={props.remark}
+            onChange={(event) => props.onRemarkChange(event.target.value)}
             rows={5}
+            maxLength={500}
             className="remark-textarea"
           />
+          </label>
           <div className="remark-modal-actions">
             <button type="button" className="close-button" onClick={props.onClose}>
               取消

@@ -74,6 +74,8 @@ type InterfaceDetail struct {
 type Terminal struct {
 	ID                 string                         `json:"id"`
 	DisplayName        string                         `json:"displayName"`
+	AutoName           string                         `json:"autoName"`
+	CustomName         string                         `json:"customName"`
 	Remark             string                         `json:"remark"`
 	MACAddress         string                         `json:"macAddress"`
 	PrimaryInterface   string                         `json:"primaryInterface"`
