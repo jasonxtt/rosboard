@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
   compareTerminal,
+  formatBitRate,
   formatBits,
   formatBytes,
   formatDateTime,
@@ -24,7 +25,6 @@ import type {
   PolicyStat,
   ProtocolHistorySample,
   ProtocolStat,
-  RateSample,
   RouteStat,
   Terminal,
   TerminalDetail,
@@ -34,6 +34,8 @@ import type {
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check'
+
+const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
 function Icon(props: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -484,10 +486,10 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
       <section className="overview-main-grid">
         <section className="panel reference-panel traffic-panel">
           <div className="panel-head reference-panel-head">
-            <div><h3>实时流量</h3><div className="inline-legend"><span className="download-key">下载 (bps)</span><span className="upload-key">上传 (bps)</span></div></div>
+            <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span></div></div>
             <span className="range-pills"><b>5 分钟</b></span>
           </div>
-          <TrafficChart samples={overview.chartSamples} />
+          {overview.chartSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={overview.chartSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
         </section>
 
         <section className="panel reference-panel status-panel">
@@ -568,7 +570,7 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
   }, [selected])
   return (
     <div className="page-grid">
-    {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={detail.interface.running && !detail.interface.disabled ? '在线' : '离线'} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div><TrafficChart samples={detail.samples} /></section> : null}
+    {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={detail.interface.running && !detail.interface.disabled ? '在线' : '离线'} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
     <section className="panel compact-panel">
       <div className="data-toolbar"><strong>接口运行状态</strong><span className="result-count">物理与逻辑接口只读监控</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>
       <div className="table-scroll">
@@ -1106,68 +1108,6 @@ function DetailSummary(props: { label: string; value: string }) {
       <strong>{props.value}</strong>
     </div>
   )
-}
-
-function TrafficChart(props: { samples: RateSample[] }) {
-  const width = 820
-  const height = 280
-  const padding = 42
-
-  if (props.samples.length === 0) {
-    return <div className="empty-chart">暂无速率采样</div>
-  }
-
-  const maxValue = Math.max(
-    1,
-    ...props.samples.flatMap((sample) => [sample.uploadBps, sample.downloadBps]),
-  )
-
-  const toPoint = (value: number, index: number) => {
-    const x =
-      props.samples.length === 1
-        ? width / 2
-        : padding + (index * (width - padding * 2)) / (props.samples.length - 1)
-    const y = height - padding - (value / maxValue) * (height - padding * 2)
-    return `${x},${y}`
-  }
-
-  return (
-    <div className="chart-box">
-      <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg">
-        <defs>
-          <linearGradient id="upload-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#22a559" stopOpacity=".16"/><stop offset="1" stopColor="#22a559" stopOpacity="0"/></linearGradient>
-          <linearGradient id="download-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2f7ee6" stopOpacity=".14"/><stop offset="1" stopColor="#2f7ee6" stopOpacity="0"/></linearGradient>
-        </defs>
-        {[0, 0.25, 0.5, 0.75, 1].map((step) => {
-          const y = height - padding - step * (height - padding * 2)
-          return <g key={step}><line x1={padding} x2={width - padding} y1={y} y2={y} className="grid-line" /><text x={padding - 8} y={y + 3} className="chart-axis-label" textAnchor="end">{formatBits(maxValue * step)}</text></g>
-        })}
-        <polygon className="chart-area upload-area" points={`${padding},${height - padding} ${props.samples.map((sample, index) => toPoint(sample.uploadBps, index)).join(' ')} ${width - padding},${height - padding}`} />
-        <polygon className="chart-area download-area" points={`${padding},${height - padding} ${props.samples.map((sample, index) => toPoint(sample.downloadBps, index)).join(' ')} ${width - padding},${height - padding}`} />
-        <polyline
-          className="polyline upload"
-          points={props.samples.map((sample, index) => toPoint(sample.uploadBps, index)).join(' ')}
-        />
-        <polyline
-          className="polyline download"
-          points={props.samples.map((sample, index) => toPoint(sample.downloadBps, index)).join(' ')}
-        />
-        <text x={padding} y={height - 12} className="chart-axis-label" textAnchor="start">{formatChartTime(props.samples[0].timestamp)}</text>
-        <text x={width / 2} y={height - 12} className="chart-axis-label" textAnchor="middle">{formatChartTime(props.samples[Math.floor(props.samples.length / 2)].timestamp)}</text>
-        <text x={width - padding} y={height - 12} className="chart-axis-label" textAnchor="end">{formatChartTime(props.samples[props.samples.length - 1].timestamp)}</text>
-      </svg>
-      <div className="legend">
-        <span><i className="legend-dot upload"></i>上行</span>
-        <span><i className="legend-dot download"></i>下行</span>
-        <span>峰值 {formatBits(maxValue)}</span>
-      </div>
-    </div>
-  )
-}
-
-function formatChartTime(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default App

@@ -162,14 +162,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .reference-panel { padding: 14px; border-radius: 7px; box-shadow: 0 1px 3px rgba(15, 23, 42, .03); }
 .reference-panel-head { min-height: 28px; margin-bottom: 6px; }
 .reference-panel-head h3 { font-size: 14px; }
-.inline-legend { display: flex; gap: 16px; margin-top: 6px; color: #64748b; font-size: 9px; font-weight: 500; }
-.inline-legend span::before { display: inline-block; width: 6px; height: 6px; margin-right: 6px; content: ""; border-radius: 50%; }
+.traffic-heading-block { display: grid; gap: 8px; }
+.traffic-live-values { display: grid; gap: 5px; color: #52637a; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.traffic-live-values span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.traffic-live-values span::before { width: 7px; height: 7px; content: ""; border-radius: 50%; }
 .download-key::before { background: var(--color-primary); }
 .upload-key::before { background: var(--color-success); }
 .range-pills b { display: inline-block; padding: 5px 10px; color: var(--color-primary); border: 1px solid var(--color-primary); border-radius: 4px; font-size: 9px; font-weight: 500; }
-.traffic-panel .chart-box { min-height: 225px; }
-.traffic-panel .chart-svg { height: 195px; }
-.traffic-panel .legend { display: none; }
+.realtime-traffic-chart { width: 100%; height: 280px; min-height: 280px; }
+.chart-loading { display: grid; place-items: center; color: var(--color-text-muted); font-size: 11px; }
 .system-status-list { border: 1px solid var(--color-border-soft); border-radius: 5px; }
 .system-status-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 62px; align-items: center; gap: 7px; min-height: 34px; padding: 0 9px; color: #445168; border-bottom: 1px solid var(--color-border-soft); font-size: 10px; }
 .system-status-row:last-child { border-bottom: 0; }
@@ -383,6 +384,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .panel-head span { text-align: left; }
   .chart-box { min-height: 220px; }
   .chart-svg { height: 190px; }
+  .realtime-traffic-chart { height: 220px; min-height: 220px; }
   .data-toolbar, .connection-toolbar { align-items: stretch; flex-wrap: wrap; }
   .data-toolbar strong { width: 100%; }
   .toolbar-spacer { display: none; }

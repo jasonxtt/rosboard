@@ -30,6 +30,17 @@ export function formatBits(value: number) {
   return `${output.toFixed(output >= 100 ? 0 : output >= 10 ? 1 : 2)} ${units[index]}`
 }
 
+export function formatBitRate(value: number) {
+  const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps']
+  let output = Math.max(0, Number.isFinite(value) ? value : 0)
+  let index = 0
+  while (output >= 1000 && index < units.length - 1) {
+    output /= 1000
+    index += 1
+  }
+  return `${output.toFixed(output >= 100 ? 0 : output >= 10 ? 1 : 2)} ${units[index]}`
+}
+
 export function formatBytes(value: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let output = value
