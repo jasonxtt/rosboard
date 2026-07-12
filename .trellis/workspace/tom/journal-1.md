@@ -501,3 +501,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 分层刷新系统概览采集
+
+**Date**: 2026-07-13
+**Task**: 分层刷新系统概览采集
+**Branch**: `main`
+
+### Summary
+
+实现 1 秒实时、3 秒终端连接、10 秒全量分层采集；修复慢轮次阻塞导致流量图跳秒，补充轻量 API、默认 1 秒前端刷新、连续采样与配置回归测试。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c8eafcf` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
