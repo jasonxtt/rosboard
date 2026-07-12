@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
-- **Last Active**: 2026-07-11
+- **Total Sessions**: 14
+- **Last Active**: 2026-07-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~437 | Active |
+| `journal-1.md` | ~470 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-07-12 | Reliable terminal metadata editing | `ed937d3` | `main` |
 | 13 | 2026-07-11 | Refine monitoring navigation and presence | `0c114d7` | `main` |
 | 12 | 2026-07-11 | 按参考图重塑 Rosboard 系统概览 | `9131a8a` | `main` |
 | 11 | 2026-07-11 | 重塑 Rosboard 前端 UI | `4471a3c` | `main` |

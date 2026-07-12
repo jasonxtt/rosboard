@@ -435,3 +435,36 @@ Implemented accordion monitoring navigation, structured current alerts, non-dupl
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Reliable terminal metadata editing
+
+**Date**: 2026-07-12
+**Task**: Reliable terminal metadata editing
+**Branch**: `main`
+
+### Summary
+
+Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added editable custom device names with automatic-name fallback, and reorganized terminal table columns.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed937d3` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
