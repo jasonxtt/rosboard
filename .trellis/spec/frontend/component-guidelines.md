@@ -116,3 +116,65 @@ When the user approves a high-fidelity reference image, treat its information ar
 ```
 
 Do not replace an approved four-card dashboard with eight generic tiles merely because more fields are available. Extra facts belong in the status panel or detail pages.
+
+## Scenario: Real-time traffic chart
+
+### 1. Scope / Trigger
+
+- Trigger: changes to overview/interface time-series charts, current WAN rate labels, ECharts dependencies, or chart responsive sizing.
+
+### 2. Signatures
+
+- Data: `RateSample { timestamp, uploadBps, downloadBps }`; values are bits per second.
+- Formatter: `formatBitRate(value)` returns `bps`, `Kbps`, `Mbps`, `Gbps`, or `Tbps` without dividing by eight.
+- Component: `RealtimeTrafficChart({ samples, ariaLabel? })`.
+- Dependency: ECharts 6.1+ via `echarts/core`, registered with line, grid, tooltip, and canvas modules only.
+
+### 3. Contracts
+
+- Overview current values, y-axis labels, and tooltip values must use the same bit-rate formatter.
+- Download is blue and listed first; upload is green and listed second. Visible text labels accompany colors.
+- The chart component is React-lazy-loaded so ECharts remains outside the initial application chunk.
+- Initialize one Canvas instance, update it with `setOption`, resize through `ResizeObserver`, and dispose it on unmount.
+- Use a 280px desktop height and 220px mobile height; the Canvas fills the panel content width.
+
+### 4. Validation & Error Matrix
+
+- Empty samples -> render the explicit empty state instead of an empty Canvas.
+- Non-finite/negative rate -> format as `0 bps`.
+- Reduced-motion preference -> disable chart animation.
+- Container resize -> Canvas width follows the container; document width must not exceed viewport width.
+- Dependency audit finding -> use a patched ECharts release rather than copying an older reference version exactly.
+
+### 5. Good/Base/Bad Cases
+
+- Good: API reports `1_795_328`; visible current rate and tooltip show `1.80 Mbps`.
+- Base: 61 five-minute samples render as smooth lines with gradient areas and no permanent point markers.
+- Bad: label says `bps` while the formatter divides by eight and emits `MB/s`.
+- Bad: fixed SVG viewBox plus forced CSS height leaves large horizontal whitespace on a wide dashboard panel.
+
+### 6. Tests Required
+
+- Build/lint: TypeScript and production Vite build pass with ECharts in a separate lazy chunk.
+- Security: `npm audit` reports zero known vulnerabilities.
+- Browser desktop: Canvas inner width matches panel content width and height is 280px.
+- Browser mobile: Canvas height is 220px, fills available width, and the page has no horizontal overflow.
+- Browser runtime: continuous dashboard refresh produces no console warning/error.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+<span>下载 (bps)</span>
+<svg viewBox="0 0 820 280" className="chart-svg" />
+```
+
+#### Correct
+
+```tsx
+<span>下载（{formatBitRate(overview.downloadBps)}）</span>
+<Suspense fallback={<div className="realtime-traffic-chart chart-loading" />}>
+  <RealtimeTrafficChart samples={overview.chartSamples} />
+</Suspense>
+```
