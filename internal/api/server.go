@@ -52,6 +52,8 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
 	case "/api/overview":
 		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
+	case "/api/realtime":
+		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
 	case "/api/interfaces":
 		writeJSON(writer, http.StatusOK, map[string]any{"interfaces": s.monitor.Snapshot().Interfaces})
 	case "/api/terminals":

@@ -1,6 +1,8 @@
 listen_address: ":8080"
 data_dir: "./data"
-poll_interval_seconds: 5
+poll_interval_seconds: 10
+realtime_poll_interval_seconds: 1
+terminal_poll_interval_seconds: 3
 sample_retention_hours: 48
 allowed_cidrs:
   - "127.0.0.0/8"

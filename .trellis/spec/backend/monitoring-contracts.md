@@ -1,5 +1,67 @@
 # Monitoring Contracts
 
+## Scenario: Tiered overview polling
+
+### 1. Scope / Trigger
+
+- Trigger: changes to Monitor scheduling, RouterOS polling intervals, overview realtime fields, `/api/realtime`, or the dashboard refresh selector.
+
+### 2. Signatures
+
+- Config: `realtime_poll_interval_seconds` (default 1), `terminal_poll_interval_seconds` (default 3), and legacy/full `poll_interval_seconds` (default 10); all are positive integer seconds.
+- API: `GET /api/realtime` returns `model.Overview` from the in-memory snapshot and never initiates RouterOS work.
+- Service: `refreshRealtime`, `refreshTerminals`, and `refresh` own the realtime, terminal/connection, and full data layers respectively.
+
+### 3. Contracts
+
+- The realtime scheduler runs independently from the terminal/full scheduler. A slow conntrack or route read must not block CPU, memory, or selected-WAN traffic sampling.
+- Terminal and full refreshes share `refreshMu` and never overlap each other. Terminal source REST reads may run concurrently within one terminal refresh.
+- Realtime snapshot writes use `mu`. A full refresh that started before a newer realtime update preserves the newer CPU, memory, traffic, chart samples, selected interfaces, and `updatedAt` fields when committing.
+- Missing one-second chart slots carry forward the last measured rate for display continuity. The next actual measurement is not interpolated or altered.
+- Overview clients poll `/api/realtime` at the selected interval (default 1 second) and `/api/dashboard` every 3 seconds; neither browser endpoint directly polls RouterOS.
+
+### 4. Validation & Error Matrix
+
+- Any configured interval <= 0 -> configuration load fails with the owning YAML key in the error.
+- Realtime RouterOS failure -> keep the last valid overview and record a refresh alert; the next tick retries.
+- Terminal/full failure -> keep the last valid snapshot for that layer; realtime polling continues.
+- Realtime response arrives before an older dashboard response -> frontend retains the newer Overview by comparing `updatedAt`.
+- RouterOS response exceeds one second -> no overlapping realtime request is started; missing visual seconds use the previous valid sample.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a 10-second full route refresh is running while 1-second WAN samples continue and the last 30 chart timestamps remain consecutive.
+- Base: one RouterOS traffic request is late; the graph carries its previous value for that second and resumes with the next real value.
+- Bad: put all three layers behind `refreshMu`; a terminal refresh blocks the graph and timestamps jump from `:13` to `:20`.
+- Bad: let a late full refresh replace the entire snapshot and roll `updatedAt` and chart samples backward.
+
+### 6. Tests Required
+
+- Unit: default intervals are 1/3/10 and non-positive realtime/terminal values fail validation.
+- Unit: chart gap filling produces consecutive timestamps, retains the last measured value only for missing points, and preserves the next actual sample.
+- Go race/behavior: terminal/full writes and realtime writes use the documented lock boundary; full commit preserves newer realtime fields.
+- Browser: refresh select defaults to 1 second, chart Canvas loads, live values change, and console/global error output remains empty.
+- Live: inspect at least 30 recent `/api/realtime` chart timestamps for one-second continuity while terminal/full scheduling runs; verify local and LAN HTTP 200.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+refreshMu.Lock()
+defer refreshMu.Unlock()
+refreshRealtime(ctx) // blocked behind conntrack and route collection
+```
+
+#### Correct
+
+```go
+// Realtime owns only its short RouterOS reads and merges through snapshot mu.
+go runRealtimeSchedule(ctx)
+// Expensive terminal and full refreshes remain mutually exclusive.
+go runBackgroundSchedule(ctx)
+```
+
 ## Scenario: RouterOS self and IP-family terminal attribution
 
 ### 1. Scope / Trigger
