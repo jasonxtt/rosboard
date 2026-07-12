@@ -28,14 +28,55 @@ type Monitor struct {
 	mu              sync.RWMutex
 	snapshot        model.DashboardSnapshot
 	terminalDetails map[string]model.TerminalDetail
+	activityMu      sync.RWMutex
+	activeUntil     time.Time
+	realtimeWake    chan struct{}
+	backgroundWake  chan struct{}
 }
+
+const (
+	viewerHeartbeatTTL = 30 * time.Second
+	idlePollInterval   = 60 * time.Second
+)
 
 func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, logger *log.Logger) *Monitor {
 	return &Monitor{
-		cfg:    cfg,
-		client: client,
-		store:  store,
-		logger: logger,
+		cfg:            cfg,
+		client:         client,
+		store:          store,
+		logger:         logger,
+		realtimeWake:   make(chan struct{}, 1),
+		backgroundWake: make(chan struct{}, 1),
+	}
+}
+
+func (m *Monitor) ViewerHeartbeat() time.Time {
+	activeUntil, becameActive := m.markViewerActive(time.Now())
+	if becameActive {
+		notifyWake(m.realtimeWake)
+		notifyWake(m.backgroundWake)
+	}
+	return activeUntil
+}
+
+func (m *Monitor) markViewerActive(now time.Time) (time.Time, bool) {
+	m.activityMu.Lock()
+	defer m.activityMu.Unlock()
+	becameActive := !now.Before(m.activeUntil)
+	m.activeUntil = now.Add(viewerHeartbeatTTL)
+	return m.activeUntil, becameActive
+}
+
+func (m *Monitor) viewerActive(now time.Time) bool {
+	m.activityMu.RLock()
+	defer m.activityMu.RUnlock()
+	return now.Before(m.activeUntil)
+}
+
+func notifyWake(channel chan struct{}) {
+	select {
+	case channel <- struct{}{}:
+	default:
 	}
 }
 
@@ -46,18 +87,26 @@ func (m *Monitor) Start(ctx context.Context) error {
 
 	go func() {
 		realtimeInterval := time.Duration(m.cfg.RealtimePollIntervalSeconds) * time.Second
-		ticker := time.NewTicker(realtimeInterval)
-		defer ticker.Stop()
-
 		for {
+			interval := idlePollInterval
+			if m.viewerActive(time.Now()) {
+				interval = realtimeInterval
+			}
+			timer := time.NewTimer(interval)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-ticker.C:
-				if err := m.refreshRealtime(ctx); err != nil {
-					m.logger.Printf("realtime refresh failed: %v", err)
-					m.recordRefreshError(err)
+			case <-m.realtimeWake:
+				timer.Stop()
+			case <-timer.C:
+				if !m.viewerActive(time.Now()) {
+					continue
 				}
+			}
+			if err := m.refreshRealtime(ctx); err != nil {
+				m.logger.Printf("realtime refresh failed: %v", err)
+				m.recordRefreshError(err)
 			}
 		}
 	}()
@@ -67,22 +116,47 @@ func (m *Monitor) Start(ctx context.Context) error {
 		fullInterval := time.Duration(m.cfg.PollIntervalSeconds) * time.Second
 		nextTerminal := time.Now().Add(terminalInterval)
 		nextFull := time.Now().Add(fullInterval)
+		nextIdleFull := time.Now().Add(idlePollInterval)
+		wasActive := false
 
 		for {
-			due := nextTerminal
-			if nextFull.Before(due) {
-				due = nextFull
+			now := time.Now()
+			active := m.viewerActive(now)
+			if !active && wasActive {
+				nextIdleFull = now.Add(idlePollInterval)
+			}
+			wasActive = active
+			due := nextIdleFull
+			if active {
+				due = nextTerminal
+				if nextFull.Before(due) {
+					due = nextFull
+				}
 			}
 			timer := time.NewTimer(time.Until(due))
+			woken := false
 			select {
 			case <-ctx.Done():
 				timer.Stop()
 				return
+			case <-m.backgroundWake:
+				timer.Stop()
+				woken = true
 			case <-timer.C:
 			}
 
 			var err error
-			if !nextFull.After(time.Now()) {
+			if woken && m.viewerActive(time.Now()) {
+				err = m.refresh(ctx)
+				nextFull = time.Now().Add(fullInterval)
+				nextTerminal = time.Now().Add(terminalInterval)
+				nextIdleFull = time.Now().Add(idlePollInterval)
+				wasActive = true
+			} else if !m.viewerActive(time.Now()) {
+				err = m.refresh(ctx)
+				nextIdleFull = time.Now().Add(idlePollInterval)
+				wasActive = false
+			} else if !nextFull.After(time.Now()) {
 				err = m.refresh(ctx)
 				nextFull = time.Now().Add(fullInterval)
 				nextTerminal = time.Now().Add(terminalInterval)

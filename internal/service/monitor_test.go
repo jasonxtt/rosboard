@@ -445,3 +445,20 @@ func TestFillRateSampleGapsCarriesLastMeasuredRate(t *testing.T) {
 		t.Fatalf("actual sample must remain unchanged: %#v", got[3])
 	}
 }
+
+func TestViewerActivityExtendsWithoutRepeatedTransition(t *testing.T) {
+	monitor := &Monitor{}
+	start := time.Date(2026, time.July, 13, 1, 0, 0, 0, time.UTC)
+
+	activeUntil, becameActive := monitor.markViewerActive(start)
+	if !becameActive || !activeUntil.Equal(start.Add(viewerHeartbeatTTL)) {
+		t.Fatalf("first heartbeat must activate until %s: until=%s active=%v", start.Add(viewerHeartbeatTTL), activeUntil, becameActive)
+	}
+	activeUntil, becameActive = monitor.markViewerActive(start.Add(10 * time.Second))
+	if becameActive || !activeUntil.Equal(start.Add(40*time.Second)) {
+		t.Fatalf("renewal must only extend activity: until=%s active=%v", activeUntil, becameActive)
+	}
+	if !monitor.viewerActive(start.Add(39*time.Second)) || monitor.viewerActive(start.Add(40*time.Second)) {
+		t.Fatal("activity must expire exactly at activeUntil")
+	}
+}

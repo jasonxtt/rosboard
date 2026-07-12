@@ -1,5 +1,65 @@
 # Monitoring Contracts
 
+## Scenario: Viewer-aware idle polling
+
+### 1. Scope / Trigger
+
+- Trigger: changes to viewer heartbeats, page visibility handling, active/idle Monitor scheduling, or polling while no dashboard is being viewed.
+
+### 2. Signatures
+
+- API: `POST /api/viewer-heartbeat` returns `{ "activeUntil": <RFC3339 timestamp> }`; other methods return 405 with `Allow: POST`.
+- Service: `ViewerHeartbeat()` extends activity by 30 seconds. `viewerHeartbeatTTL` is 30 seconds and `idlePollInterval` is 60 seconds.
+- Frontend: a visible document sends a heartbeat immediately, every 10 seconds, and on `visibilitychange` back to visible.
+
+### 3. Contracts
+
+- Any visible Rosboard page counts as a viewer. Multiple tabs share one process-local `activeUntil`; no viewer identity is persisted.
+- The first heartbeat after expiry sends one non-blocking wake signal to each scheduler. Renewal heartbeats only extend the deadline and never trigger additional immediate collections.
+- Active mode retains 1-second realtime, 3-second terminal, and 10-second full polling. After activity expires, realtime and terminal polling stop; one full refresh runs every 60 seconds.
+- React sends no heartbeat while `document.visibilityState !== "visible"`. Closing or hiding the last page requires no unload request; activity expires naturally.
+- The heartbeat handler updates memory and returns without waiting for RouterOS. Scheduler wake-up performs the immediate realtime/full refresh asynchronously.
+
+### 4. Validation & Error Matrix
+
+- GET/PUT heartbeat -> HTTP 405 and `Allow: POST`.
+- Repeated heartbeat inside TTL -> extend `activeUntil`; do not enqueue another wake transition.
+- No heartbeat for 30 seconds -> active mode expires without an alert.
+- Stale wake signal while already idle -> at most one buffered signal; channels never block the API handler.
+- Page becomes visible after idle -> heartbeat immediately restores active scheduling; existing snapshot remains readable during refresh.
+
+### 5. Good/Base/Bad Cases
+
+- Good: the last page closes, `updatedAt` stops advancing each second, then advances once around the next 60-second idle refresh.
+- Base: two visible tabs heartbeat every 10 seconds; closing one does not enter idle while the other remains visible.
+- Bad: use `beforeunload` as the only close signal; mobile suspension and crashes leave the server permanently active.
+- Bad: call `refresh()` inside the heartbeat HTTP handler; page load waits on RouterOS and simultaneous tabs create a collection storm.
+
+### 6. Tests Required
+
+- Unit: first heartbeat transitions to active, renewal only extends, and activity is false exactly at the deadline.
+- API: POST returns a future `activeUntil`; GET returns 405 with `Allow: POST`.
+- Race: activity reads/writes and scheduler wake channels pass `go test -race`.
+- Live idle: after heartbeat expiry, repeated `/api/realtime` reads show a stable `updatedAt`; after about 60 seconds it advances once.
+- Browser wake: loading a visible page restores one-second updates, default chart behavior remains intact, and console/global errors are empty.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+window.addEventListener('beforeunload', () => fetch('/api/stop-monitoring'))
+```
+
+#### Correct
+
+```tsx
+if (document.visibilityState === 'visible') {
+  void fetch('/api/viewer-heartbeat', { method: 'POST' })
+}
+// The server TTL handles close, suspension, crashes, and lost networks.
+```
+
 ## Scenario: Tiered overview polling
 
 ### 1. Scope / Trigger
