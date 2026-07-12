@@ -534,3 +534,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: 浏览器无人查看时降低采集频率
+
+**Date**: 2026-07-13
+**Task**: 浏览器无人查看时降低采集频率
+**Branch**: `main`
+
+### Summary
+
+新增可见页面心跳：30 秒无心跳后停止秒级/终端采集并改为每 60 秒全量采集；重新查看页面异步立即唤醒并恢复 1/3/10 秒，完成真实空闲与唤醒时序验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a593168` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-07-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~536 | Active |
+| `journal-1.md` | ~569 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-07-13 | 浏览器无人查看时降低采集频率 | `a593168` | `main` |
 | 16 | 2026-07-13 | 分层刷新系统概览采集 | `c8eafcf` | `main` |
 | 15 | 2026-07-12 | 重做概览实时流量图表 | `2b72c24` | `main` |
 | 14 | 2026-07-12 | Reliable terminal metadata editing | `ed937d3` | `main` |
