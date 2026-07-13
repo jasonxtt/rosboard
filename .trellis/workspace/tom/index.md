@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
+- **Total Sessions**: 19
 - **Last Active**: 2026-07-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~602 | Active |
+| `journal-1.md` | ~635 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-07-13 | 完善连接表排序与筛选交互 | `65172f8` | `main` |
 | 18 | 2026-07-13 | 优化终端监控移动端与连接表筛选 | `257838c` | `main` |
 | 17 | 2026-07-13 | 浏览器无人查看时降低采集频率 | `a593168` | `main` |
 | 16 | 2026-07-13 | 分层刷新系统概览采集 | `c8eafcf` | `main` |

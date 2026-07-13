@@ -600,3 +600,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: 完善连接表排序与筛选交互
+
+**Date**: 2026-07-13
+**Task**: 完善连接表排序与筛选交互
+**Branch**: `main`
+
+### Summary
+
+连接表列名独立切换升降序，筛选箭头独立放大并按点击列锚定浮层；搜索左侧新增 SVG 清理按钮，一键清除筛选、搜索和排序，并完成桌面与手机交互验证。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `65172f8` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
