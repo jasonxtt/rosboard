@@ -37,7 +37,7 @@ const showingInactive = stateFilter !== 'online'
 
 ### 3. Contracts
 
-- Terminal mobile controls form a three-column, three-row grid: search spans two columns with the result count beside it; state, interface, and non-online controls share the second row; refresh period spans two columns with manual refresh beside it. Every interactive control is at least 44px high.
+- Terminal mobile controls form a five-column, two-row grid. Search spans the first four columns and the result count occupies the fifth; state, interface, non-online, refresh-period, and manual-refresh controls occupy the second row. Every interactive control is exactly 44px high, and mobile-only short text keeps narrow controls readable.
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
 - Family, application, protocol, line, local endpoint, destination endpoint, flags, and status filters open from their column headers. Active filters use both blue styling and accessible state/labels.
@@ -50,6 +50,7 @@ const showingInactive = stateFilter !== 'online'
 - Reserve enough width and right padding in the final connection-status header for the floating clear/search actions. The action buttons must not overlap the status label even when the inner table is horizontally scrolled to the end.
 - The legacy `.connection-toolbar` and family tab strip do not render.
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
+- Mobile detail tabs use a fixed three- or four-column grid, with an additional auto-sized action column only on connection details. The row must not scroll horizontally. Clear/search use 36px visible boxes with pseudo-element hit areas extending to 44px, and they must not cover the history tab.
 - Second-level monitor group toggles use the same 12px typography and visual weight as the line-monitor item.
 
 ### 4. Validation & Error Matrix
@@ -74,7 +75,7 @@ const showingInactive = stateFilter !== 'online'
 ### 6. Tests Required
 
 - Build/lint/audit: production TypeScript build, oxlint, and dependency audit pass.
-- Browser 375px: terminal toolbar is a two-column grid, refresh value is `1000`, back target is 44px, and document width does not exceed viewport.
+- Browser 375px: terminal toolbar has exactly two 44px control rows, refresh value is `1000`, back target is 44px, and document width does not exceed viewport.
 - Browser sort: first addresses demonstrate numeric ascending order including `.8` before `.10`.
 - Browser all scope: both badge families appear and the family filter removes the opposite family.
 - Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
@@ -82,7 +83,7 @@ const showingInactive = stateFilter !== 'online'
 - Browser interaction: application ascending begins with `常用协议`, descending begins with `未知应用`; filtering preserves sort until clear.
 - Browser geometry: desktop filter panel left equals its trigger left when space permits; mobile arrow is 44x44 and the clamped panel stays within the viewport.
 - Browser geometry: unsorted filterable headers have a zero-width visual gap between the sort button and filter button; at maximum horizontal table scroll, the final status controls end before the clear button begins.
-- Browser mobile: terminal toolbar has three rows, connection actions are 44px and remain in the active tab row, and switching to another detail tab removes them.
+- Browser mobile: terminal toolbar has two rows; every interactive control is 44px high; all available detail tabs fit without horizontal scrolling; 36px connection-action visuals do not overlap history; switching to another detail tab removes the actions.
 
 ### 7. Wrong vs Correct
 
