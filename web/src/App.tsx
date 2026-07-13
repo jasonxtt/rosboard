@@ -28,13 +28,14 @@ import type {
   ProtocolStat,
   RouteStat,
   Terminal,
+  TerminalConnection,
   TerminalDetail,
   TerminalFamily,
   TerminalSortKey,
   TerminalTab,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear'
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
@@ -59,6 +60,7 @@ function Icon(props: { name: IconName }) {
     info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></>,
     check: <><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></>,
+    clear: <><path d="m15 3-7.5 11.5"/><path d="M6 13l5 3-3 5H3l-1-2 4-6Z"/><path d="M4 17h5"/></>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
 }
@@ -849,9 +851,44 @@ function SortHeader(props: { label: string; sortKey: TerminalSortKey; activeKey:
 }
 
 type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'line' | 'local' | 'destination' | 'flags' | 'status' | 'search'
+type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'line' | 'local' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'flags' | 'status'
 
-function ConnectionFilterHeader(props: { label: string; filterKey: ConnectionFilterKey; active: boolean; onOpen: (key: ConnectionFilterKey) => void }) {
-  return <th><button type="button" className={props.active ? 'column-filter-button active' : 'column-filter-button'} aria-label={`筛选${props.label}`} onClick={() => props.onOpen(props.filterKey)}><span>{props.label}</span><span aria-hidden="true">▾</span></button></th>
+function ConnectionColumnHeader(props: {
+  label: string
+  sortKey: ConnectionSortKey
+  activeSort: ConnectionSortKey | null
+  sortDirection: 'asc' | 'desc'
+  filterKey?: ConnectionFilterKey
+  filterActive?: boolean
+  onSort: (key: ConnectionSortKey) => void
+  onOpenFilter: (key: ConnectionFilterKey, anchor: HTMLElement) => void
+}) {
+  const sorting = props.activeSort === props.sortKey
+  const filterKey = props.filterKey
+  return <th><div className="connection-header-controls">
+    <button type="button" className={sorting ? 'connection-sort-button active' : 'connection-sort-button'} aria-label={`${props.label}${sorting ? `，当前${props.sortDirection === 'asc' ? '升序' : '降序'}` : ''}，点击排序`} onClick={() => props.onSort(props.sortKey)}><span>{props.label}</span><span className="connection-sort-indicator" aria-hidden="true">{sorting ? (props.sortDirection === 'asc' ? '↑' : '↓') : ''}</span></button>
+    {filterKey ? <button type="button" className={props.filterActive ? 'column-filter-button active' : 'column-filter-button'} aria-label={`筛选${props.label}`} aria-pressed={Boolean(props.filterActive)} onClick={(event) => props.onOpenFilter(filterKey, event.currentTarget)}><span aria-hidden="true">▾</span></button> : null}
+  </div></th>
+}
+
+function compareConnection(left: TerminalConnection, right: TerminalConnection, key: ConnectionSortKey) {
+  const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
+  switch (key) {
+    case 'family': return text(left.family, right.family)
+    case 'application': return text(left.application, right.application)
+    case 'protocol': return text(left.protocol, right.protocol)
+    case 'line': return text(left.line, right.line)
+    case 'local': return text(formatEndpoint(left.sourceAddress, left.sourcePort), formatEndpoint(right.sourceAddress, right.sourcePort))
+    case 'destination': return text(left.destinationAddress, right.destinationAddress)
+    case 'destinationPort': return text(left.destinationPort, right.destinationPort)
+    case 'publicAddress': return text(left.publicAddress, right.publicAddress)
+    case 'upload': return left.uploadBps - right.uploadBps
+    case 'download': return left.downloadBps - right.downloadBps
+    case 'uploadBytes': return left.uploadBytes - right.uploadBytes
+    case 'downloadBytes': return left.downloadBytes - right.downloadBytes
+    case 'flags': return Number(left.seenReply) * 2 + Number(left.assured) - Number(right.seenReply) * 2 - Number(right.assured)
+    case 'status': return text(left.status, right.status)
+  }
 }
 
 function TerminalDetailPage(props: {
@@ -880,6 +917,9 @@ function TerminalDetailPage(props: {
   const [flagsFilter, setFlagsFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [activeConnectionFilter, setActiveConnectionFilter] = useState<ConnectionFilterKey | null>(null)
+  const [connectionSortKey, setConnectionSortKey] = useState<ConnectionSortKey | null>(null)
+  const [connectionSortDirection, setConnectionSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [filterPanelLeft, setFilterPanelLeft] = useState(7)
   const scopedConnectionRows = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
   const selectedFamily = props.scope === 'all' ? props.connectionFamily : props.scope
   const familyConnections = selectedFamily === 'all' ? scopedConnectionRows : scopedConnectionRows.filter((item) => item.family === selectedFamily)
@@ -887,7 +927,7 @@ function TerminalDetailPage(props: {
   const lines = Array.from(new Set(familyConnections.map((item) => item.line).filter(Boolean))).sort()
   const statuses = Array.from(new Set(familyConnections.map((item) => item.status).filter(Boolean))).sort()
   const normalizedGlobalQuery = connectionQuery.trim().toLowerCase()
-  const visibleConnections = familyConnections.filter((connection) =>
+  const filteredConnections = familyConnections.filter((connection) =>
     (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
     (lineFilter === 'all' || connection.line === lineFilter) &&
     (statusFilter === 'all' || connection.status === statusFilter) &&
@@ -898,6 +938,10 @@ function TerminalDetailPage(props: {
     [connection.application, connection.protocol, connection.line, connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
       .join(' ').toLowerCase().includes(normalizedGlobalQuery),
   )
+  const visibleConnections = connectionSortKey ? [...filteredConnections].sort((left, right) => {
+    const comparison = compareConnection(left, right, connectionSortKey)
+    return connectionSortDirection === 'asc' ? comparison : -comparison
+  }) : filteredConnections
 
   const filterActive: Record<ConnectionFilterKey, boolean> = {
     family: props.scope === 'all' && props.connectionFamily !== 'all',
@@ -911,7 +955,44 @@ function TerminalDetailPage(props: {
     search: Boolean(connectionQuery),
   }
 
-  const filterPanel = activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选">
+  const openConnectionFilter = (key: ConnectionFilterKey, anchor: HTMLElement) => {
+    const shell = anchor.closest('.connection-table-shell')
+    if (shell) {
+      const shellRect = shell.getBoundingClientRect()
+      const anchorRect = anchor.getBoundingClientRect()
+      const preferredWidth = shellRect.width < 600 ? 240 : 300
+      const panelWidth = Math.min(preferredWidth, Math.max(220, shellRect.width - 14))
+      setFilterPanelLeft(Math.max(7, Math.min(anchorRect.left - shellRect.left, shellRect.width - panelWidth - 7)))
+    }
+    setActiveConnectionFilter((value) => value === key ? null : key)
+  }
+
+  const changeConnectionSort = (key: ConnectionSortKey) => {
+    if (connectionSortKey === key) setConnectionSortDirection((value) => value === 'asc' ? 'desc' : 'asc')
+    else {
+      setConnectionSortKey(key)
+      setConnectionSortDirection('asc')
+    }
+  }
+
+  const clearConnectionTableState = () => {
+    props.onConnectionFamilyChange(props.scope === 'all' ? 'all' : props.scope)
+    setApplicationQuery('')
+    setProtocolFilter('all')
+    setLineFilter('all')
+    setLocalQuery('')
+    setDestinationQuery('')
+    setFlagsFilter('all')
+    setStatusFilter('all')
+    setConnectionQuery('')
+    setConnectionSortKey(null)
+    setConnectionSortDirection('asc')
+    setActiveConnectionFilter(null)
+  }
+
+  const hasConnectionTableState = connectionSortKey !== null || Object.values(filterActive).some(Boolean)
+
+  const filterPanel = activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: filterPanelLeft }}>
     <div className="connection-filter-panel-head"><strong>{activeConnectionFilter === 'search' ? '搜索全部连接字段' : '筛选连接'}</strong><button type="button" className="link-button" onClick={() => setActiveConnectionFilter(null)}>关闭</button></div>
     {activeConnectionFilter === 'family' ? <select value={selectedFamily} onChange={(event) => props.onConnectionFamilyChange(event.target.value as ConnectionFamily)} aria-label="IP 版本筛选"><option value="all">全部 ({scopedConnectionRows.length})</option><option value="ipv4">IPv4 ({ipv4Connections.length})</option><option value="ipv6">IPv6 ({ipv6Connections.length})</option></select> : null}
     {activeConnectionFilter === 'application' ? <input value={applicationQuery} onChange={(event) => setApplicationQuery(event.target.value)} placeholder="输入应用名称" aria-label="应用筛选" /> : null}
@@ -979,26 +1060,27 @@ function TerminalDetailPage(props: {
         {props.activeTab === 'connections' ? (
           <div>
             <div className="connection-table-shell">
-              <button type="button" className={filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={activeConnectionFilter === 'search'} onClick={() => setActiveConnectionFilter((value) => value === 'search' ? null : 'search')}><Icon name="search" /></button>
+              <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!hasConnectionTableState} onClick={clearConnectionTableState}><Icon name="clear" /></button>
+              <button type="button" className={filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={activeConnectionFilter === 'search'} onClick={(event) => openConnectionFilter('search', event.currentTarget)}><Icon name="search" /></button>
               {filterPanel}
               <div className="table-scroll">
               <table className="data-table connection-table">
                 <thead>
                   <tr>
-                    {props.scope === 'all' ? <ConnectionFilterHeader label="IP版本" filterKey="family" active={filterActive.family} onOpen={setActiveConnectionFilter} /> : <th>IP版本</th>}
-                    <ConnectionFilterHeader label="应用" filterKey="application" active={filterActive.application} onOpen={setActiveConnectionFilter} />
-                    <ConnectionFilterHeader label="协议" filterKey="protocol" active={filterActive.protocol} onOpen={setActiveConnectionFilter} />
-                    <ConnectionFilterHeader label="出口线路" filterKey="line" active={filterActive.line} onOpen={setActiveConnectionFilter} />
-                    <ConnectionFilterHeader label="本地地址 / 端口" filterKey="local" active={filterActive.local} onOpen={setActiveConnectionFilter} />
-                    <ConnectionFilterHeader label="目的地址" filterKey="destination" active={filterActive.destination} onOpen={setActiveConnectionFilter} />
-                    <th>目的端口</th>
-                    <th>外网地址</th>
-                    <th>当前上行</th>
-                    <th>当前下行</th>
-                    <th>累计上行</th>
-                    <th>累计下行</th>
-                    <ConnectionFilterHeader label="标志" filterKey="flags" active={filterActive.flags} onOpen={setActiveConnectionFilter} />
-                    <ConnectionFilterHeader label="连接状态" filterKey="status" active={filterActive.status} onOpen={setActiveConnectionFilter} />
+                    <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey={props.scope === 'all' ? 'family' : undefined} filterActive={filterActive.family} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="应用" sortKey="application" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="application" filterActive={filterActive.application} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="protocol" filterActive={filterActive.protocol} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="出口线路" sortKey="line" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="line" filterActive={filterActive.line} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="本地地址 / 端口" sortKey="local" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="local" filterActive={filterActive.local} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="destination" filterActive={filterActive.destination} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="目的端口" sortKey="destinationPort" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="外网地址" sortKey="publicAddress" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="当前上行" sortKey="upload" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="当前下行" sortKey="download" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="标志" sortKey="flags" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="flags" filterActive={filterActive.flags} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="status" filterActive={filterActive.status} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                   </tr>
                 </thead>
                 <tbody>
