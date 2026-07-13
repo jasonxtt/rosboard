@@ -250,9 +250,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .data-table { width: 100%; min-width: 900px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .data-table thead th { padding: 10px 12px; color: #52637a; background: #f7f9fc; border-bottom: 1px solid var(--color-border); font-size: 11px; font-weight: 700; text-align: left; letter-spacing: .025em; white-space: nowrap; }
 .sort-button { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; text-align: left; }
-.column-filter-button { display: inline-flex; align-items: center; gap: 6px; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; font: inherit; font-weight: inherit; white-space: nowrap; }
+.connection-header-controls { display: flex; align-items: center; gap: 2px; }
+.connection-sort-button { display: inline-flex; min-height: 28px; align-items: center; gap: 5px; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; font: inherit; font-weight: inherit; white-space: nowrap; }
+.connection-sort-button.active { color: var(--color-primary); }
+.connection-sort-indicator { min-width: 10px; font-size: 12px; }
+.column-filter-button { display: inline-grid; width: 28px; height: 28px; padding: 0; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 3px; cursor: pointer; font: inherit; font-size: 18px; font-weight: 800; line-height: 1; }
 .column-filter-button.active { color: var(--color-primary); }
-.column-filter-button:focus-visible, .table-search-button:focus-visible { outline: 2px solid rgba(37, 99, 235, .6); outline-offset: 2px; border-radius: 3px; }
+.connection-sort-button:focus-visible, .column-filter-button:focus-visible, .table-search-button:focus-visible, .table-clear-button:focus-visible { outline: 2px solid rgba(37, 99, 235, .6); outline-offset: 2px; border-radius: 3px; }
 .data-table tbody td { padding: 11px 12px; color: #334155; border-bottom: 1px solid var(--color-border-soft); font-size: 13px; vertical-align: top; }
 .data-table tbody tr { transition: background .15s ease; }
 .data-table tbody tr:hover { background: #f8fbff; }
@@ -299,11 +303,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .detail-panel { min-height: 0; }
 .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .connection-table-shell { position: relative; }
-.connection-table thead th:last-child { padding-right: 52px; }
-.table-search-button { position: absolute; top: 4px; right: 7px; z-index: 4; display: grid; width: 32px; height: 32px; padding: 0; place-items: center; color: #52637a; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, .08); }
+.connection-table thead th:last-child { padding-right: 92px; }
+.table-search-button, .table-clear-button { position: absolute; top: 4px; z-index: 4; display: grid; width: 32px; height: 32px; padding: 0; place-items: center; color: #52637a; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, .08); }
+.table-search-button { right: 7px; }
+.table-clear-button { right: 45px; }
 .table-search-button:hover, .table-search-button.active { color: var(--color-primary); border-color: var(--color-primary); background: var(--color-primary-soft); }
-.table-search-button .ui-icon { width: 16px; height: 16px; }
-.connection-filter-panel { position: absolute; top: 42px; right: 7px; z-index: 5; display: grid; gap: 10px; width: min(300px, calc(100vw - 46px)); padding: 12px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: 0 12px 30px rgba(15, 23, 42, .18); }
+.table-clear-button:hover:not(:disabled) { color: var(--color-primary); border-color: var(--color-primary); background: var(--color-primary-soft); }
+.table-clear-button:disabled { cursor: not-allowed; opacity: .38; }
+.table-search-button .ui-icon, .table-clear-button .ui-icon { width: 16px; height: 16px; }
+.connection-filter-panel { position: absolute; top: 42px; z-index: 5; display: grid; gap: 10px; width: min(300px, calc(100vw - 46px)); padding: 12px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: 0 12px 30px rgba(15, 23, 42, .18); }
 .connection-filter-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #334155; font-size: 12px; }
 .connection-filter-panel input, .connection-filter-panel select { width: 100%; height: 38px; padding: 0 10px; color: #334155; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); font-size: 13px; }
 .ip-family-badge { display: inline-flex; min-width: 42px; min-height: 22px; align-items: center; justify-content: center; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; font-size: 10px; font-weight: 700; }
@@ -414,7 +422,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .terminal-toolbar .terminal-state-filter, .terminal-toolbar .terminal-interface-filter, .terminal-toolbar .terminal-presence-toggle, .terminal-toolbar .terminal-refresh-select, .terminal-toolbar .terminal-refresh-button { width: 100%; min-width: 0; }
   .terminal-toolbar .result-count { margin: 0; align-self: center; justify-self: end; }
   .connection-filter-panel input, .connection-filter-panel select { min-height: 44px; font-size: 16px; }
-  .table-search-button { width: 36px; height: 36px; }
+  .connection-filter-panel { width: min(240px, calc(100vw - 46px)); }
+  .connection-sort-button { min-height: 44px; }
+  .column-filter-button { width: 44px; height: 44px; font-size: 21px; }
+  .table-search-button, .table-clear-button { width: 36px; height: 36px; }
+  .table-clear-button { right: 49px; }
   .pagination { justify-content: center; flex-wrap: wrap; }
   .pagination button, .pagination select { min-height: 44px; }
   .dialog-backdrop { padding: 12px; }

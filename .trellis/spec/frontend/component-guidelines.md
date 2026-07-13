@@ -33,7 +33,7 @@ const showingInactive = stateFilter !== 'online'
 
 - Terminal default sort: `TerminalSortKey = "address"`, direction `"asc"`; reuse `compareTerminal` and its numeric IPv4 comparison.
 - Detail scope: `TerminalFamily = "all" | "ipv4" | "ipv6"`; connection filter: `ConnectionFamily` with the same values.
-- UI: `ConnectionFilterHeader({ label, filterKey, active, onOpen })`; global search is `.table-search-button` plus a floating `.connection-filter-panel`.
+- UI: `ConnectionColumnHeader({ label, sortKey, filterKey?, ... })`; global search is `.table-search-button` plus a floating `.connection-filter-panel`.
 
 ### 3. Contracts
 
@@ -41,7 +41,10 @@ const showingInactive = stateFilter !== 'online'
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
 - Family, application, protocol, line, local endpoint, destination endpoint, flags, and status filters open from their column headers. Active filters use both blue styling and accessible state/labels.
+- Every connection column label is a dedicated sort button. First click selects ascending, the next click toggles descending; a separate filter-arrow button never triggers sorting.
+- Filter panels compute their horizontal position from the clicked arrow's bounding rect. Desktop panels align to the trigger when space permits; mobile panels use 240px width and clamp inside the visible table shell.
 - Global fuzzy search is an icon button at table-header height. Its floating input searches application, protocol, line, local/destination/public address, ports, and connection mark without adding a permanent toolbar row.
+- A textless SVG clear button sits immediately left of global search. It clears all connection filters, search, family selection, panel, and sorting; it is disabled when no table state is active.
 - The legacy `.connection-toolbar` and family tab strip do not render.
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
 
@@ -51,6 +54,8 @@ const showingInactive = stateFilter !== 'online'
 - `ipv4` or `ipv6` scope -> no family filter button; every rendered row matches the scope.
 - Filter combination has no matches -> one empty row spans all 14 table columns.
 - Search/filter panel opens -> it overlays the table and does not increase document width or add a toolbar row.
+- Column label click -> changes only sort state; filter-arrow click -> changes only the active filter panel.
+- Clear with active sort/filter -> reset to unsorted scope rows and disable the clear button.
 - Live detail refresh -> local filter state remains component-local and continues filtering the new connection snapshot.
 
 ### 5. Good/Base/Bad Cases
@@ -69,6 +74,8 @@ const showingInactive = stateFilter !== 'online'
 - Browser all scope: both badge families appear and the family filter removes the opposite family.
 - Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
 - Browser runtime: header filters and global search work with no console errors.
+- Browser interaction: application ascending begins with `常用协议`, descending begins with `未知应用`; filtering preserves sort until clear.
+- Browser geometry: desktop filter panel left equals its trigger left when space permits; mobile arrow is 44x44 and the clamped panel stays within the viewport.
 
 ### 7. Wrong vs Correct
 
@@ -85,8 +92,8 @@ const showingInactive = stateFilter !== 'online'
 #### Correct
 
 ```tsx
-<ConnectionFilterHeader label="协议" filterKey="protocol" active={protocolFilter !== 'all'} onOpen={setActiveFilter} />
-<button className="table-search-button" aria-label="搜索全部连接字段"><Icon name="search" /></button>
+<ConnectionColumnHeader label="协议" sortKey="protocol" filterKey="protocol" onSort={changeSort} onOpenFilter={openFilter} />
+<button className="table-clear-button" aria-label="清除全部筛选和排序"><Icon name="clear" /></button>
 ```
 
 ## Toolbar sizing
