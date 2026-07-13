@@ -567,3 +567,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: 优化终端监控移动端与连接表筛选
+
+**Date**: 2026-07-13
+**Task**: 优化终端监控移动端与连接表筛选
+**Branch**: `main`
+
+### Summary
+
+修复终端列表默认 IPv4 数值升序和手机工具栏网格；详情返回移至右上角；删除连接工具栏并改为表头列筛选、IP 版本标签与悬浮全局搜索，严格隔离全部/IPv4/IPv6 入口范围。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `257838c` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
