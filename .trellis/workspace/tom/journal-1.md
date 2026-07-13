@@ -633,3 +633,36 @@ Fixed polling-overwritten terminal edit drafts and false HTTP 500 saves, added e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Refine mobile terminal and connection filters
+
+**Date**: 2026-07-13
+**Task**: Refine mobile terminal and connection filters
+**Branch**: `main`
+
+### Summary
+
+Compacted the mobile terminal toolbar, moved mobile connection actions into the active tab row, aligned monitor menu typography, and added direct connection filter choices with verified desktop/mobile geometry.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ca3f1b2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
