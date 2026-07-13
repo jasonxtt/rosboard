@@ -791,7 +791,8 @@ function TerminalsPage(props: {
           aria-pressed={showingInactive}
           onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
         >
-          {showingInactive ? '隐藏非在线设备' : '显示非在线设备'}
+          <span className="presence-label-full">{showingInactive ? '隐藏非在线设备' : '显示非在线设备'}</span>
+          <span className="presence-label-mobile">{showingInactive ? '只看在线' : '非在线'}</span>
         </button>
         <span className="toolbar-spacer" />
         <span className="result-count">共 {sorted.length} 台</span>
@@ -1042,7 +1043,7 @@ function TerminalDetailPage(props: {
         </div>
       </div>
 
-      <div className={props.activeTab === 'connections' ? 'tab-row detail-tabs with-mobile-actions' : 'tab-row detail-tabs'}>
+      <div className={`tab-row detail-tabs${props.scope === 'all' ? ' has-history' : ''}${props.activeTab === 'connections' ? ' with-mobile-actions' : ''}`}>
         <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
         <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
