@@ -238,9 +238,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .capability-card { padding: 14px; }
 .capability-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 
-.data-toolbar, .connection-toolbar, .pagination { display: flex; align-items: center; gap: 8px; }
+.data-toolbar, .pagination { display: flex; align-items: center; gap: 8px; }
 .data-toolbar { min-height: 56px; padding: 10px 14px; background: var(--color-surface); border-bottom: 1px solid var(--color-border-soft); }
-.data-toolbar select, .connection-toolbar select, .connection-toolbar input, .pagination select, .pagination button, .toolbar-button {
+.data-toolbar select, .pagination select, .pagination button, .toolbar-button {
   height: 34px; padding: 0 10px; color: #334155; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 .data-toolbar select:hover, .toolbar-button:hover { border-color: #94a3b8; background: #f8fafc; }
@@ -250,6 +250,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .data-table { width: 100%; min-width: 900px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .data-table thead th { padding: 10px 12px; color: #52637a; background: #f7f9fc; border-bottom: 1px solid var(--color-border); font-size: 11px; font-weight: 700; text-align: left; letter-spacing: .025em; white-space: nowrap; }
 .sort-button { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; text-align: left; }
+.column-filter-button { display: inline-flex; align-items: center; gap: 6px; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; font: inherit; font-weight: inherit; white-space: nowrap; }
+.column-filter-button.active { color: var(--color-primary); }
+.column-filter-button:focus-visible, .table-search-button:focus-visible { outline: 2px solid rgba(37, 99, 235, .6); outline-offset: 2px; border-radius: 3px; }
 .data-table tbody td { padding: 11px 12px; color: #334155; border-bottom: 1px solid var(--color-border-soft); font-size: 13px; vertical-align: top; }
 .data-table tbody tr { transition: background .15s ease; }
 .data-table tbody tr:hover { background: #f8fbff; }
@@ -288,16 +291,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .detail-summary-item span { color: var(--color-text-muted); font-size: 11px; }
 .detail-summary-item strong { font-size: 13px; font-weight: 600; }
 .detail-head-actions { display: flex; gap: 10px; }
-.detail-tabs, .family-switch { display: flex; justify-content: center; gap: 0; }
+.detail-tabs { display: flex; justify-content: center; gap: 0; }
 .detail-tabs { justify-content: flex-start; min-height: 38px; padding: 0 12px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .detail-tabs .tab-button { min-width: 78px; min-height: 36px; padding: 0 12px; color: #64748b; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
 .detail-tabs .tab-button + .tab-button { margin-left: 4px; }
 .detail-tabs .tab-button.active { color: var(--color-primary); background: transparent; border-bottom-color: var(--color-primary); font-weight: 600; }
 .detail-panel { min-height: 0; }
 .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.connection-toolbar { margin-bottom: 8px; padding: 7px 8px; background: #f8fafc; border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); }
-.connection-toolbar .family-switch .tab-button { min-width: auto; min-height: 32px; padding: 0 10px; font-size: 11px; }
-.connection-toolbar input { min-width: 240px; }
+.connection-table-shell { position: relative; }
+.connection-table thead th:last-child { padding-right: 52px; }
+.table-search-button { position: absolute; top: 4px; right: 7px; z-index: 4; display: grid; width: 32px; height: 32px; padding: 0; place-items: center; color: #52637a; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, .08); }
+.table-search-button:hover, .table-search-button.active { color: var(--color-primary); border-color: var(--color-primary); background: var(--color-primary-soft); }
+.table-search-button .ui-icon { width: 16px; height: 16px; }
+.connection-filter-panel { position: absolute; top: 42px; right: 7px; z-index: 5; display: grid; gap: 10px; width: min(300px, calc(100vw - 46px)); padding: 12px; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: 0 12px 30px rgba(15, 23, 42, .18); }
+.connection-filter-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #334155; font-size: 12px; }
+.connection-filter-panel input, .connection-filter-panel select { width: 100%; height: 38px; padding: 0 10px; color: #334155; background: #fff; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); font-size: 13px; }
+.ip-family-badge { display: inline-flex; min-width: 42px; min-height: 22px; align-items: center; justify-content: center; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; font-size: 10px; font-weight: 700; }
+.ip-family-badge.ipv6 { color: #6d28d9; background: #f5f3ff; border-color: #ddd6fe; }
 .table-note { margin: 0 0 8px; color: var(--color-text-muted); font-size: 12px; }
 .pagination { justify-content: flex-end; padding: 10px 14px; color: var(--color-text-muted); border-top: 1px solid var(--color-border-soft); }
 .pagination button:disabled { cursor: not-allowed; opacity: .45; }
@@ -385,19 +395,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .chart-box { min-height: 220px; }
   .chart-svg { height: 190px; }
   .realtime-traffic-chart { height: 220px; min-height: 220px; }
-  .data-toolbar, .connection-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .data-toolbar { align-items: stretch; flex-wrap: wrap; }
   .data-toolbar strong { width: 100%; }
   .toolbar-spacer { display: none; }
   .search-input { width: 100%; height: 44px; font-size: 16px; }
-  .data-toolbar select, .data-toolbar .toolbar-button, .connection-toolbar select, .connection-toolbar input { min-height: 44px; }
+  .data-toolbar select, .data-toolbar .toolbar-button { min-height: 44px; }
   .result-count { margin-left: auto; align-self: center; }
   .load-grid, .detail-grid { grid-template-columns: 1fr; }
-  .detail-page-head { align-items: flex-start; flex-direction: column; }
+  .detail-page-head { position: relative; align-items: flex-start; padding-right: 82px; }
+  .detail-identity { width: 100%; }
   .detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .detail-head-actions { width: 100%; }
-  .detail-head-actions button { width: 100%; min-height: 44px; }
+  .detail-head-actions { position: absolute; top: 9px; right: 9px; width: auto; }
+  .detail-head-actions button { width: auto; min-width: 60px; min-height: 44px; }
   .detail-tabs { justify-content: flex-start; max-width: 100%; overflow-x: auto; }
-  .tab-button, .detail-tabs .tab-button, .connection-toolbar .family-switch .tab-button { min-height: 44px; white-space: nowrap; }
+  .tab-button, .detail-tabs .tab-button { min-height: 44px; white-space: nowrap; }
+  .terminal-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 12px; }
+  .terminal-toolbar .search-input { grid-column: 1 / -1; }
+  .terminal-toolbar .terminal-state-filter, .terminal-toolbar .terminal-interface-filter, .terminal-toolbar .terminal-presence-toggle, .terminal-toolbar .terminal-refresh-select, .terminal-toolbar .terminal-refresh-button { width: 100%; min-width: 0; }
+  .terminal-toolbar .result-count { margin: 0; align-self: center; justify-self: end; }
+  .connection-filter-panel input, .connection-filter-panel select { min-height: 44px; font-size: 16px; }
+  .table-search-button { width: 36px; height: 36px; }
   .pagination { justify-content: center; flex-wrap: wrap; }
   .pagination button, .pagination select { min-height: 44px; }
   .dialog-backdrop { padding: 12px; }
