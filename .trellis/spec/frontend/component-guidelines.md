@@ -8,6 +8,7 @@ The terminal monitor uses component-local state for table presentation. Its init
 - Keep the explicit status select for precise filtering.
 - The nearby non-online-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter. It covers both `inactive` and `offline` states.
 - Any filter change resets pagination to page 1.
+- Default terminal sorting is numeric address ascending (`sortKey = "address"`), not device-name sorting.
 
 ```tsx
 const [stateFilter, setStateFilter] = useState('online')
@@ -20,6 +21,72 @@ const showingInactive = stateFilter !== 'online'
 >
   {showingInactive ? '隐藏非在线设备' : '显示非在线设备'}
 </button>
+```
+
+## Scenario: Terminal connection column filters
+
+### 1. Scope / Trigger
+
+- Trigger: changes to terminal list mobile controls, terminal detail header, connection family scope, connection search, or connection table filters.
+
+### 2. Signatures
+
+- Terminal default sort: `TerminalSortKey = "address"`, direction `"asc"`; reuse `compareTerminal` and its numeric IPv4 comparison.
+- Detail scope: `TerminalFamily = "all" | "ipv4" | "ipv6"`; connection filter: `ConnectionFamily` with the same values.
+- UI: `ConnectionFilterHeader({ label, filterKey, active, onOpen })`; global search is `.table-search-button` plus a floating `.connection-filter-panel`.
+
+### 3. Contracts
+
+- Terminal mobile controls form a two-column grid: full-width search, state/interface row, non-online toggle/count row, and refresh-period/manual-refresh row. Every control is at least 44px high.
+- Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
+- Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
+- Family, application, protocol, line, local endpoint, destination endpoint, flags, and status filters open from their column headers. Active filters use both blue styling and accessible state/labels.
+- Global fuzzy search is an icon button at table-header height. Its floating input searches application, protocol, line, local/destination/public address, ports, and connection mark without adding a permanent toolbar row.
+- The legacy `.connection-toolbar` and family tab strip do not render.
+- On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
+
+### 4. Validation & Error Matrix
+
+- `all` scope + IPv4 filter -> zero IPv6 badges, active family header indicator.
+- `ipv4` or `ipv6` scope -> no family filter button; every rendered row matches the scope.
+- Filter combination has no matches -> one empty row spans all 14 table columns.
+- Search/filter panel opens -> it overlays the table and does not increase document width or add a toolbar row.
+- Live detail refresh -> local filter state remains component-local and continues filtering the new connection snapshot.
+
+### 5. Good/Base/Bad Cases
+
+- Good: addresses render in `10.0.0.8, 10.0.0.10` order and `IP / MAC ↑` is visible initially.
+- Good: an all-scope detail contains both IPv4 and IPv6 badges; selecting IPv4 removes only IPv6 rows.
+- Base: clicking the protocol header opens a select in the common floating panel.
+- Bad: connection family tabs and search controls consume a separate row above the table.
+- Bad: entering through IPv6 but filtering from the unscoped connection array leaks IPv4 rows.
+
+### 6. Tests Required
+
+- Build/lint/audit: production TypeScript build, oxlint, and dependency audit pass.
+- Browser 375px: terminal toolbar is a two-column grid, refresh value is `1000`, back target is 44px, and document width does not exceed viewport.
+- Browser sort: first addresses demonstrate numeric ascending order including `.8` before `.10`.
+- Browser all scope: both badge families appear and the family filter removes the opposite family.
+- Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
+- Browser runtime: header filters and global search work with no console errors.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+<div className="connection-toolbar">
+  <FamilyTabs />
+  <select aria-label="连接协议" />
+  <input placeholder="目标地址" />
+</div>
+```
+
+#### Correct
+
+```tsx
+<ConnectionFilterHeader label="协议" filterKey="protocol" active={protocolFilter !== 'all'} onOpen={setActiveFilter} />
+<button className="table-search-button" aria-label="搜索全部连接字段"><Icon name="search" /></button>
 ```
 
 ## Toolbar sizing
