@@ -666,3 +666,36 @@ Compacted the mobile terminal toolbar, moved mobile connection actions into the 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Compact mobile terminal controls
+
+**Date**: 2026-07-13
+**Task**: Compact mobile terminal controls
+**Branch**: `main`
+
+### Summary
+
+Reduced the terminal monitor toolbar to two equal-height rows, replaced narrow mobile labels, fixed the terminal detail tabs to a non-scrolling grid, and shrank connection actions without covering history.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c2a1d2c` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
