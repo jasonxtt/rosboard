@@ -866,9 +866,19 @@ function ConnectionColumnHeader(props: {
   const sorting = props.activeSort === props.sortKey
   const filterKey = props.filterKey
   return <th><div className="connection-header-controls">
-    <button type="button" className={sorting ? 'connection-sort-button active' : 'connection-sort-button'} aria-label={`${props.label}${sorting ? `，当前${props.sortDirection === 'asc' ? '升序' : '降序'}` : ''}，点击排序`} onClick={() => props.onSort(props.sortKey)}><span>{props.label}</span><span className="connection-sort-indicator" aria-hidden="true">{sorting ? (props.sortDirection === 'asc' ? '↑' : '↓') : ''}</span></button>
+    <button type="button" className={sorting ? 'connection-sort-button active' : 'connection-sort-button'} aria-label={`${props.label}${sorting ? `，当前${props.sortDirection === 'asc' ? '升序' : '降序'}` : ''}，点击排序`} onClick={() => props.onSort(props.sortKey)}><span>{props.label}</span>{sorting ? <span className="connection-sort-indicator" aria-hidden="true">{props.sortDirection === 'asc' ? '↑' : '↓'}</span> : null}</button>
     {filterKey ? <button type="button" className={props.filterActive ? 'column-filter-button active' : 'column-filter-button'} aria-label={`筛选${props.label}`} aria-pressed={Boolean(props.filterActive)} onClick={(event) => props.onOpenFilter(filterKey, event.currentTarget)}><span aria-hidden="true">▾</span></button> : null}
   </div></th>
+}
+
+function ConnectionFilterOptions(props: {
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+}) {
+  return <div className="connection-filter-options">
+    {props.options.map((option) => <button key={option.value} type="button" className={props.value === option.value ? 'active' : ''} aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}>{option.label}</button>)}
+  </div>
 }
 
 function compareConnection(left: TerminalConnection, right: TerminalConnection, key: ConnectionSortKey) {
@@ -923,6 +933,7 @@ function TerminalDetailPage(props: {
   const scopedConnectionRows = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
   const selectedFamily = props.scope === 'all' ? props.connectionFamily : props.scope
   const familyConnections = selectedFamily === 'all' ? scopedConnectionRows : scopedConnectionRows.filter((item) => item.family === selectedFamily)
+  const applications = Array.from(new Set(familyConnections.map((item) => item.application).filter(Boolean))).sort()
   const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
   const lines = Array.from(new Set(familyConnections.map((item) => item.line).filter(Boolean))).sort()
   const statuses = Array.from(new Set(familyConnections.map((item) => item.status).filter(Boolean))).sort()
@@ -932,7 +943,7 @@ function TerminalDetailPage(props: {
     (lineFilter === 'all' || connection.line === lineFilter) &&
     (statusFilter === 'all' || connection.status === statusFilter) &&
     (flagsFilter === 'all' || (flagsFilter === 'replied' && connection.seenReply) || (flagsFilter === 'assured' && connection.assured) || (flagsFilter === 'unreplied' && !connection.seenReply)) &&
-    connection.application.toLowerCase().includes(applicationQuery.trim().toLowerCase()) &&
+    (!applicationQuery || connection.application === applicationQuery) &&
     formatEndpoint(connection.sourceAddress, connection.sourcePort).toLowerCase().includes(localQuery.trim().toLowerCase()) &&
     [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase()) &&
     [connection.application, connection.protocol, connection.line, connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
@@ -991,16 +1002,20 @@ function TerminalDetailPage(props: {
   }
 
   const hasConnectionTableState = connectionSortKey !== null || Object.values(filterActive).some(Boolean)
+  const chooseConnectionFilter = (apply: () => void) => {
+    apply()
+    setActiveConnectionFilter(null)
+  }
 
   const filterPanel = activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: filterPanelLeft }}>
     <div className="connection-filter-panel-head"><strong>{activeConnectionFilter === 'search' ? '搜索全部连接字段' : '筛选连接'}</strong><button type="button" className="link-button" onClick={() => setActiveConnectionFilter(null)}>关闭</button></div>
-    {activeConnectionFilter === 'family' ? <select value={selectedFamily} onChange={(event) => props.onConnectionFamilyChange(event.target.value as ConnectionFamily)} aria-label="IP 版本筛选"><option value="all">全部 ({scopedConnectionRows.length})</option><option value="ipv4">IPv4 ({ipv4Connections.length})</option><option value="ipv6">IPv6 ({ipv6Connections.length})</option></select> : null}
-    {activeConnectionFilter === 'application' ? <input value={applicationQuery} onChange={(event) => setApplicationQuery(event.target.value)} placeholder="输入应用名称" aria-label="应用筛选" /> : null}
-    {activeConnectionFilter === 'protocol' ? <select value={protocolFilter} onChange={(event) => setProtocolFilter(event.target.value)} aria-label="协议筛选"><option value="all">全部协议</option>{protocols.map((protocol) => <option key={protocol} value={protocol}>{protocol}</option>)}</select> : null}
-    {activeConnectionFilter === 'line' ? <select value={lineFilter} onChange={(event) => setLineFilter(event.target.value)} aria-label="出口线路筛选"><option value="all">全部线路</option>{lines.map((line) => <option key={line} value={line}>{line}</option>)}</select> : null}
+    {activeConnectionFilter === 'family' ? <ConnectionFilterOptions value={selectedFamily} options={[{ value: 'all', label: `全部 (${scopedConnectionRows.length})` }, { value: 'ipv4', label: `IPv4 (${ipv4Connections.length})` }, { value: 'ipv6', label: `IPv6 (${ipv6Connections.length})` }]} onChange={(value) => chooseConnectionFilter(() => props.onConnectionFamilyChange(value as ConnectionFamily))} /> : null}
+    {activeConnectionFilter === 'application' ? <ConnectionFilterOptions value={applicationQuery} options={[{ value: '', label: '全部应用' }, ...applications.map((application) => ({ value: application, label: application }))]} onChange={(value) => chooseConnectionFilter(() => setApplicationQuery(value))} /> : null}
+    {activeConnectionFilter === 'protocol' ? <ConnectionFilterOptions value={protocolFilter} options={[{ value: 'all', label: '全部协议' }, ...protocols.map((protocol) => ({ value: protocol, label: protocol }))]} onChange={(value) => chooseConnectionFilter(() => setProtocolFilter(value))} /> : null}
+    {activeConnectionFilter === 'line' ? <ConnectionFilterOptions value={lineFilter} options={[{ value: 'all', label: '全部线路' }, ...lines.map((line) => ({ value: line, label: line }))]} onChange={(value) => chooseConnectionFilter(() => setLineFilter(value))} /> : null}
     {activeConnectionFilter === 'local' ? <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="本地 IP 或端口" aria-label="本地地址筛选" /> : null}
     {activeConnectionFilter === 'destination' ? <input value={destinationQuery} onChange={(event) => setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /> : null}
-    {activeConnectionFilter === 'flags' ? <select value={flagsFilter} onChange={(event) => setFlagsFilter(event.target.value)} aria-label="连接标志筛选"><option value="all">全部标志</option><option value="replied">已见回包 S</option><option value="assured">Assured A</option><option value="unreplied">未见回包</option></select> : null}
+    {activeConnectionFilter === 'flags' ? <ConnectionFilterOptions value={flagsFilter} options={[{ value: 'all', label: '全部标志' }, { value: 'replied', label: '已见回包 S' }, { value: 'assured', label: 'Assured A' }, { value: 'unreplied', label: '未见回包' }]} onChange={(value) => chooseConnectionFilter(() => setFlagsFilter(value))} /> : null}
     {activeConnectionFilter === 'status' ? <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
     {activeConnectionFilter === 'search' ? <input value={connectionQuery} onChange={(event) => setConnectionQuery(event.target.value)} placeholder="地址 / 端口 / 应用 / 标记" aria-label="搜索全部连接字段" /> : null}
   </div> : null
@@ -1027,11 +1042,15 @@ function TerminalDetailPage(props: {
         </div>
       </div>
 
-      <div className="tab-row detail-tabs">
+      <div className={props.activeTab === 'connections' ? 'tab-row detail-tabs with-mobile-actions' : 'tab-row detail-tabs'}>
         <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
         <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
         {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
+        {props.activeTab === 'connections' ? <div className="connection-mobile-actions">
+          <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!hasConnectionTableState} onClick={clearConnectionTableState}><Icon name="clear" /></button>
+          <button type="button" className={filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={activeConnectionFilter === 'search'} onClick={() => { setFilterPanelLeft(7); setActiveConnectionFilter((value) => value === 'search' ? null : 'search') }}><Icon name="search" /></button>
+        </div> : null}
       </div>
 
       <section className="panel detail-panel">
