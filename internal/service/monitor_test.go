@@ -56,6 +56,57 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 	}
 }
 
+func TestTerminalScopeSummariesAggregateEligibleOnlineLANDevices(t *testing.T) {
+	terminals := []model.Terminal{
+		{
+			ID: "dual-stack", State: "online", PrimaryInterface: "lan",
+			IPv4: []string{"10.0.0.2"}, IPv6: []string{"fd00::2"},
+			FamilyStats: map[string]model.TerminalFamilyStats{
+				"ipv4": {ConnectionCount: 2, CurrentUploadBps: 80, CurrentDownloadBps: 160, ActiveUploadBytes: 1000, ActiveDownloadBytes: 2000},
+				"ipv6": {ConnectionCount: 3, CurrentUploadBps: 40, CurrentDownloadBps: 120, ActiveUploadBytes: 3000, ActiveDownloadBytes: 4000},
+			},
+		},
+		{
+			ID: "ipv4-only", State: "online", PrimaryInterface: "lan", IPv4: []string{"10.0.0.3"},
+			FamilyStats: map[string]model.TerminalFamilyStats{
+				"ipv4": {ConnectionCount: 5, CurrentUploadBps: 800, CurrentDownloadBps: 1600, ActiveUploadBytes: 5000, ActiveDownloadBytes: 6000},
+			},
+		},
+		{
+			ID: "ipv6-only", State: "online", IPv6: []string{"fd00::4"},
+			FamilyStats: map[string]model.TerminalFamilyStats{
+				"ipv6": {ConnectionCount: 7, CurrentUploadBps: 400, CurrentDownloadBps: 1200, ActiveUploadBytes: 7000, ActiveDownloadBytes: 8000},
+			},
+		},
+		{ID: routerTerminalID, State: "online", PrimaryInterface: "lan", IPv4: []string{"10.0.0.1"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv4": {ConnectionCount: 100}}},
+		{ID: "inactive", State: "inactive", PrimaryInterface: "lan", IPv4: []string{"10.0.0.5"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv4": {ConnectionCount: 100}}},
+		{ID: "offline", State: "offline", PrimaryInterface: "lan", IPv6: []string{"fd00::6"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv6": {ConnectionCount: 100}}},
+		{ID: "wan", State: "online", PrimaryInterface: "wan", IPv4: []string{"198.51.100.7"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv4": {ConnectionCount: 100}}},
+		{ID: "loopback", State: "online", PrimaryInterface: "lo", IPv4: []string{"127.0.0.1"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv4": {ConnectionCount: 100}}},
+		{ID: "selected-traffic", State: "online", PrimaryInterface: "pppoe-out1", IPv6: []string{"2001:db8::8"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv6": {ConnectionCount: 100}}},
+	}
+
+	got := terminalScopeSummaries(terminals, []string{"pppoe-out1"})
+	want := map[string]model.TerminalScopeSummary{
+		"all":  {DeviceCount: 3, ConnectionCount: 17, CurrentUploadBps: 1320, CurrentDownloadBps: 3080, ActiveUploadBytes: 16000, ActiveDownloadBytes: 20000},
+		"ipv4": {DeviceCount: 2, ConnectionCount: 7, CurrentUploadBps: 880, CurrentDownloadBps: 1760, ActiveUploadBytes: 6000, ActiveDownloadBytes: 8000},
+		"ipv6": {DeviceCount: 2, ConnectionCount: 10, CurrentUploadBps: 440, CurrentDownloadBps: 1320, ActiveUploadBytes: 10000, ActiveDownloadBytes: 12000},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected terminal scope summaries:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestTerminalScopeSummariesEmpty(t *testing.T) {
+	got := terminalScopeSummaries(nil, nil)
+	want := map[string]model.TerminalScopeSummary{
+		"all": {}, "ipv4": {}, "ipv6": {},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected empty terminal scope summaries: %#v", got)
+	}
+}
+
 func TestBuildTerminalsDistinguishesStrongAndWeakPresenceEvidence(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {

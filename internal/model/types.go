@@ -103,6 +103,15 @@ type TerminalFamilyStats struct {
 	ActiveDownloadBytes int64   `json:"activeDownloadBytes"`
 }
 
+type TerminalScopeSummary struct {
+	DeviceCount         int     `json:"deviceCount"`
+	ConnectionCount     int     `json:"connectionCount"`
+	CurrentUploadBps    float64 `json:"currentUploadBps"`
+	CurrentDownloadBps  float64 `json:"currentDownloadBps"`
+	ActiveUploadBytes   int64   `json:"activeUploadBytes"`
+	ActiveDownloadBytes int64   `json:"activeDownloadBytes"`
+}
+
 type TerminalConnection struct {
 	Key                string  `json:"key"`
 	Family             string  `json:"family"`
@@ -210,15 +219,16 @@ type RouteStat struct {
 }
 
 type DashboardSnapshot struct {
-	Overview     Overview          `json:"overview"`
-	Interfaces   []InterfaceStatus `json:"interfaces"`
-	Terminals    []Terminal        `json:"terminals"`
-	Capabilities []CapabilityNote  `json:"capabilities"`
-	Protocols    []ProtocolStat    `json:"protocols"`
-	Policies     []PolicyStat      `json:"policies"`
-	Routes       []RouteStat       `json:"routes"`
-	Alerts       []AlertEvent      `json:"alerts"`
-	Warnings     []string          `json:"warnings"`
+	Overview               Overview                        `json:"overview"`
+	Interfaces             []InterfaceStatus               `json:"interfaces"`
+	Terminals              []Terminal                      `json:"terminals"`
+	TerminalScopeSummaries map[string]TerminalScopeSummary `json:"terminalScopeSummaries"`
+	Capabilities           []CapabilityNote                `json:"capabilities"`
+	Protocols              []ProtocolStat                  `json:"protocols"`
+	Policies               []PolicyStat                    `json:"policies"`
+	Routes                 []RouteStat                     `json:"routes"`
+	Alerts                 []AlertEvent                    `json:"alerts"`
+	Warnings               []string                        `json:"warnings"`
 }
 
 type AlertEvent struct {

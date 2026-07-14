@@ -104,6 +104,14 @@ const showingInactive = stateFilter !== 'online'
 <button className="table-clear-button" aria-label="清除全部筛选和排序"><Icon name="clear" /></button>
 ```
 
+## Terminal scope summary layout
+
+- Render the selected `terminalScopeSummaries` entry only in the terminal-list topbar, between the title and global refresh controls. Do not place it in the terminal filter toolbar.
+- Desktop uses the terminal-detail header's muted 11-12px inline typography and tabular numerals. Mobile uses a full-width second topbar row with a two-row, three-column grid.
+- The six labels are device count, connection count, upload, download, active cumulative upload, and active cumulative download. Use `formatBits` for current bit/s values and `formatBytes` for active bytes.
+- Unexpectedly missing summary data renders zero values; never fall back to persisted combined terminal totals.
+- Verify 375px layout has no document-level overflow and the existing two-row, 44px terminal toolbar remains unchanged.
+
 ## Toolbar sizing
 
 Inputs and selects placed in `.data-toolbar` use a 34px control height. Search inputs should use a bounded width rather than `width: 100%` so they remain visually balanced with adjacent filters.

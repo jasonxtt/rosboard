@@ -318,6 +318,7 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 
 	m.mu.Lock()
 	m.snapshot.Terminals = terminals
+	m.snapshot.TerminalScopeSummaries = terminalScopeSummaries(terminals, trafficInterfaces)
 	m.snapshot.Protocols = protocols
 	m.snapshot.Overview.ConnectedDeviceCount = connectedLANDeviceCount(terminals, trafficInterfaces)
 	m.snapshot.Overview.ConnectionCount = len(connectionsV4) + len(connectionsV6)
@@ -653,14 +654,15 @@ func (m *Monitor) refresh(ctx context.Context) error {
 			UpdatedAt:            now,
 			ChartSamples:         chartSamples,
 		},
-		Interfaces:   interfaceStatuses,
-		Terminals:    terminals,
-		Capabilities: buildCapabilities(strings.EqualFold(health.State, "enabled")),
-		Protocols:    protocols,
-		Policies:     policies,
-		Routes:       routes,
-		Alerts:       alerts,
-		Warnings:     warnings,
+		Interfaces:             interfaceStatuses,
+		Terminals:              terminals,
+		TerminalScopeSummaries: terminalScopeSummaries(terminals, trafficInterfaces),
+		Capabilities:           buildCapabilities(strings.EqualFold(health.State, "enabled")),
+		Protocols:              protocols,
+		Policies:               policies,
+		Routes:                 routes,
+		Alerts:                 alerts,
+		Warnings:               warnings,
 	}
 
 	m.mu.Lock()
@@ -1519,15 +1521,56 @@ func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []str
 
 	count := 0
 	for _, terminal := range terminals {
-		if terminal.ID == routerTerminalID || terminal.State != "online" {
-			continue
-		}
-		if terminal.PrimaryInterface != "" && excludedTerminalInterface(terminal.PrimaryInterface, trafficSet) {
+		if !connectedLANTerminal(terminal, trafficSet) {
 			continue
 		}
 		count++
 	}
 	return count
+}
+
+func connectedLANTerminal(terminal model.Terminal, trafficSet map[string]struct{}) bool {
+	if terminal.ID == routerTerminalID || terminal.State != "online" {
+		return false
+	}
+	return terminal.PrimaryInterface == "" || !excludedTerminalInterface(terminal.PrimaryInterface, trafficSet)
+}
+
+func terminalScopeSummaries(terminals []model.Terminal, trafficInterfaces []string) map[string]model.TerminalScopeSummary {
+	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
+	for _, name := range trafficInterfaces {
+		trafficSet[strings.TrimSpace(name)] = struct{}{}
+	}
+	summaries := map[string]model.TerminalScopeSummary{
+		"all": {}, "ipv4": {}, "ipv6": {},
+	}
+	for _, terminal := range terminals {
+		if !connectedLANTerminal(terminal, trafficSet) {
+			continue
+		}
+		all := summaries["all"]
+		all.DeviceCount++
+		for _, family := range []string{"ipv4", "ipv6"} {
+			familySummary := summaries[family]
+			if (family == "ipv4" && len(terminal.IPv4) > 0) || (family == "ipv6" && len(terminal.IPv6) > 0) {
+				familySummary.DeviceCount++
+			}
+			stats := terminal.FamilyStats[family]
+			familySummary.ConnectionCount += stats.ConnectionCount
+			familySummary.CurrentUploadBps += stats.CurrentUploadBps
+			familySummary.CurrentDownloadBps += stats.CurrentDownloadBps
+			familySummary.ActiveUploadBytes += stats.ActiveUploadBytes
+			familySummary.ActiveDownloadBytes += stats.ActiveDownloadBytes
+			summaries[family] = familySummary
+			all.ConnectionCount += stats.ConnectionCount
+			all.CurrentUploadBps += stats.CurrentUploadBps
+			all.CurrentDownloadBps += stats.CurrentDownloadBps
+			all.ActiveUploadBytes += stats.ActiveUploadBytes
+			all.ActiveDownloadBytes += stats.ActiveDownloadBytes
+		}
+		summaries["all"] = all
+	}
+	return summaries
 }
 
 func parseCIDRs(values []string) []*net.IPNet {

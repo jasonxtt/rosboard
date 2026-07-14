@@ -256,6 +256,59 @@ if strings.EqualFold(entry.Status, "reachable") || strings.EqualFold(entry.Statu
 // Stale/complete rows may populate identity metadata, but never lastSeen.
 ```
 
+## Scenario: Terminal scope summaries
+
+### 1. Scope / Trigger
+
+- Trigger: changes to terminal-list header totals, LAN-terminal eligibility, family statistics, or the `terminalScopeSummaries` dashboard payload.
+
+### 2. Signatures
+
+- Dashboard projection: `terminalScopeSummaries.{all,ipv4,ipv6}` contains `deviceCount`, `connectionCount`, `currentUploadBps`, `currentDownloadBps`, `activeUploadBytes`, and `activeDownloadBytes`.
+- Service aggregation: `terminalScopeSummaries(terminals, trafficInterfaces)` runs after both terminal-only and full refreshes.
+
+### 3. Contracts
+
+- Aggregate from the complete terminal snapshot before frontend search, state/interface filters, sorting, pagination, or page-size state.
+- All six values use the same online-LAN eligibility predicate as `connectedDeviceCount`: exclude `routeros:self`, inactive/offline terminals, selected traffic interfaces, loopback, and WAN-like interfaces; retain an online terminal whose interface is unknown.
+- `all.deviceCount` deduplicates dual-stack terminals. Family device counts require at least one address in that family.
+- Connection, rate, and active-byte values come only from `Terminal.FamilyStats`. All-scope values equal IPv4 plus IPv6 for the same snapshot.
+- `activeUploadBytes` and `activeDownloadBytes` are active conntrack cumulative bytes, not persisted terminal lifetime totals.
+
+### 4. Validation & Error Matrix
+
+- Empty terminal snapshot -> return all three keys with six zero values.
+- Missing family stats -> add zero for that family.
+- Family address missing -> exclude only from that family's device count; never synthesize an address or row.
+- Search/filter/pagination change -> summary remains unchanged while the table result count may change.
+
+### 5. Good/Base/Bad Cases
+
+- Good: one dual-stack client contributes once to `all.deviceCount`, once to each family device count, and both family traffic totals to `all`.
+- Base: an online IPv4-only LAN client contributes to all and IPv4, but not IPv6 device count.
+- Bad: aggregate from filtered React rows or use `TotalUploadBytes` / `TotalDownloadBytes` in the summary.
+
+### 6. Tests Required
+
+- Unit: mixed dual-stack, IPv4-only, and IPv6-only terminals preserve the all-equals-family-sum invariant for connection/rate/active bytes.
+- Unit: RouterOS self, inactive/offline, selected-interface, WAN, and loopback terminals contribute to none of the six fields.
+- Unit: empty input returns `all`, `ipv4`, and `ipv6` zero summaries.
+- Browser: switching scope changes the six values; search, table filters, sorting, and pagination do not.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const summary = aggregate(filteredTerminals)
+```
+
+#### Correct
+
+```tsx
+const summary = dashboard.terminalScopeSummaries[terminalFamily]
+```
+
 ## Scenario: Editable terminal metadata
 
 ### 1. Scope / Trigger
