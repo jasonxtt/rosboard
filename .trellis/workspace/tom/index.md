@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
-- **Last Active**: 2026-07-13
+- **Total Sessions**: 22
+- **Last Active**: 2026-07-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~701 | Active |
+| `journal-1.md` | ~734 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-07-14 | Improve overview data typography | `68a95c9` | `main` |
 | 21 | 2026-07-13 | Compact mobile terminal controls | `c2a1d2c` | `main` |
 | 20 | 2026-07-13 | Refine mobile terminal and connection filters | `ca3f1b2` | `main` |
 | 19 | 2026-07-13 | 完善连接表排序与筛选交互 | `65172f8` | `main` |

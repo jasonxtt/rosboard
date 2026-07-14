@@ -699,3 +699,36 @@ Reduced the terminal monitor toolbar to two equal-height rows, replaced narrow m
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Improve overview data typography
+
+**Date**: 2026-07-14
+**Task**: Improve overview data typography
+**Branch**: `main`
+
+### Summary
+
+Increased overview operational-data typography, adjusted ECharts label spacing, rebuilt embedded assets, verified build/lint/audit/tests and live HTTP responses, and archived the completed traffic-audit and typography tasks.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `68a95c9` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
