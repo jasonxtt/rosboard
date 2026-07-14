@@ -732,3 +732,36 @@ Increased overview operational-data typography, adjusted ECharts label spacing, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Terminal scope summaries
+
+**Date**: 2026-07-14
+**Task**: Terminal scope summaries
+**Branch**: `main`
+
+### Summary
+
+Added backend all/IPv4/IPv6 online-LAN terminal summaries, responsive terminal topbar presentation, aggregation tests, embedded frontend assets, and monitoring/component contracts.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7d64ccb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
