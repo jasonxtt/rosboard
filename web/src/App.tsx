@@ -31,6 +31,7 @@ import type {
   TerminalConnection,
   TerminalDetail,
   TerminalFamily,
+  TerminalScopeSummary,
   TerminalSortKey,
   TerminalTab,
 } from './lib/types'
@@ -38,6 +39,36 @@ import type {
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear'
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
+
+const emptyTerminalScopeSummary: TerminalScopeSummary = {
+  deviceCount: 0,
+  connectionCount: 0,
+  currentUploadBps: 0,
+  currentDownloadBps: 0,
+  activeUploadBytes: 0,
+  activeDownloadBytes: 0,
+}
+
+function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
+  const items = [
+    ['设备', summary.deviceCount],
+    ['连接', summary.connectionCount],
+    ['↑', formatBits(summary.currentUploadBps)],
+    ['↓', formatBits(summary.currentDownloadBps)],
+    ['活动累计↑', formatBytes(summary.activeUploadBytes)],
+    ['活动累计↓', formatBytes(summary.activeDownloadBytes)],
+  ]
+  return (
+    <div className="terminal-scope-summary" aria-label="终端概览">
+      {items.map(([label, value]) => (
+        <span key={label}>
+          <small>{label}</small>
+          <strong>{value}</strong>
+        </span>
+      ))}
+    </div>
+  )
+}
 
 function Icon(props: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -377,7 +408,7 @@ function App() {
       </aside>
 
       <section className="content">
-        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : 'topbar'}>
+        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : activeView === 'terminals' ? 'topbar terminal-topbar' : 'topbar'}>
           <div className="topbar-title">
             <button
               type="button"
@@ -397,6 +428,9 @@ function App() {
               </p>
             </div>
           </div>
+          {activeView === 'terminals' && !detailMode ? (
+            <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
+          ) : null}
           <div className="topbar-controls">
             <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>

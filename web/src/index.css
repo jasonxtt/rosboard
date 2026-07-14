@@ -125,6 +125,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .sidebar-device-card dt { color: #718ba6; font-size: 11px; }
 .sidebar-device-card dd { max-width: 92px; margin: 0; overflow: hidden; font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-controls { display: flex; align-items: center; gap: 12px; color: #52637a; font-size: 11px; }
+.terminal-scope-summary { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 14px; min-width: 0; color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.terminal-scope-summary span { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.terminal-scope-summary small { font-size: inherit; }
+.terminal-scope-summary strong { color: #475569; font-size: 12px; font-weight: 600; }
+.terminal-topbar .topbar-title, .terminal-topbar .topbar-controls { flex: 0 0 auto; }
 .overview-topbar .topbar-controls { font-size: 12px; }
 .system-ok { display: inline-flex; align-items: center; gap: 7px; color: #334155; white-space: nowrap; }
 .system-ok i { width: 7px; height: 7px; background: var(--color-success); border-radius: 50%; box-shadow: 0 0 0 3px rgba(22, 163, 74, .1); }
@@ -393,6 +398,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .topbar-controls .last-updated, .topbar-controls .system-ok { display: none; }
   .topbar-controls { gap: 6px; }
   .topbar-controls select { width: 116px; padding-right: 6px; }
+  .terminal-topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
+  .terminal-topbar .topbar-title { grid-column: 1; min-width: 0; }
+  .terminal-topbar .topbar-controls { grid-column: 2; }
+  .terminal-scope-summary { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; gap: 6px 10px; justify-content: stretch; }
+  .terminal-scope-summary span { min-width: 0; }
+  .terminal-scope-summary strong { overflow: hidden; text-overflow: ellipsis; }
   .summary-grid { grid-template-columns: 1fr; gap: 10px; }
   .reference-metric-grid { grid-template-columns: 1fr; gap: 9px; }
   .metric-card-main { grid-template-columns: 36px minmax(0, 1fr) minmax(72px, 112px); }

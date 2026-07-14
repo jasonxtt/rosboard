@@ -68,6 +68,15 @@ export type TerminalFamilyStats = {
   activeDownloadBytes: number
 }
 
+export type TerminalScopeSummary = {
+  deviceCount: number
+  connectionCount: number
+  currentUploadBps: number
+  currentDownloadBps: number
+  activeUploadBytes: number
+  activeDownloadBytes: number
+}
+
 export type Terminal = {
   id: string
   displayName: string
@@ -102,6 +111,7 @@ export type DashboardResponse = {
   overview: Overview
   interfaces: InterfaceStatus[]
   terminals: Terminal[]
+  terminalScopeSummaries: Record<TerminalFamily, TerminalScopeSummary>
   capabilities: CapabilityNote[]
   protocols: ProtocolStat[]
   policies: PolicyStat[]
