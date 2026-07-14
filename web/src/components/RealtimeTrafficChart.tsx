@@ -51,21 +51,21 @@ function baseOption(reducedMotion: boolean): EChartsCoreOption {
       borderWidth: 1,
       borderColor: 'rgba(148, 163, 184, .32)',
       backgroundColor: 'rgba(15, 23, 42, .94)',
-      textStyle: { color: '#f8fafc', fontSize: 12 },
+      textStyle: { color: '#f8fafc', fontSize: 13 },
       formatter: tooltipHTML,
       axisPointer: {
         type: 'line',
         lineStyle: { type: 'dashed', color: 'rgba(100, 116, 139, .62)', width: 1 },
       },
     },
-    grid: { top: 18, left: 70, right: 18, bottom: 34 },
+    grid: { top: 18, left: 78, right: 18, bottom: 38 },
     xAxis: {
       type: 'category',
       boundaryGap: false,
       data: [],
       axisTick: { show: false },
       axisLine: { lineStyle: { color: 'rgba(148, 163, 184, .32)' } },
-      axisLabel: { color: '#7b8798', fontSize: 10 },
+      axisLabel: { color: '#7b8798', fontSize: 12 },
       splitLine: { show: false },
     },
     yAxis: {
@@ -73,7 +73,7 @@ function baseOption(reducedMotion: boolean): EChartsCoreOption {
       min: 0,
       axisTick: { show: false },
       axisLine: { show: false },
-      axisLabel: { color: '#7b8798', fontSize: 10, formatter: (value: number) => formatBitRate(value) },
+      axisLabel: { color: '#7b8798', fontSize: 12, formatter: (value: number) => formatBitRate(value) },
       splitLine: { lineStyle: { color: 'rgba(148, 163, 184, .18)', type: 'dashed' } },
     },
     series: [

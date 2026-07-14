@@ -199,6 +199,26 @@ When the user approves a high-fidelity reference image, treat its information ar
 
 Do not replace an approved four-card dashboard with eight generic tiles merely because more fields are available. Extra facts belong in the status panel or detail pages.
 
+## Overview data typography
+
+The overview keeps compact headings but must not render operational data at the
+old 9-10px reference-image scale. At 100% browser zoom, use the established
+data hierarchy below:
+
+- Primary metric values remain 23px.
+- Metric details and footers are 12px; live upload/download values are 13px.
+- ECharts axis labels are 12px and tooltips are 13px. When increasing axis
+  text, also increase the chart grid's left and bottom margins so labels are
+  not clipped by the Canvas boundary.
+- System-status labels and values are 12px; compact status text is 11px.
+- Overview interface headers are 11px and values are 12px.
+- Alert rows are 12px and their compact summary is 11px.
+
+Scope these sizes to overview-specific selectors where a shared selector would
+change denser detail pages. Preserve tabular numerals for changing values, and
+validate the final embedded build at 100% zoom without page-level horizontal
+overflow.
+
 ## Scenario: Real-time traffic chart
 
 ### 1. Scope / Trigger
