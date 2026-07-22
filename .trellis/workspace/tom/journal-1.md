@@ -765,3 +765,34 @@ Added backend all/IPv4/IPv6 online-LAN terminal summaries, responsive terminal t
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Deploy rosboard on net
+
+**Date**: 2026-07-22
+**Task**: Deploy rosboard on net
+**Branch**: `main`
+
+### Summary
+
+Moved rosboard runtime from local Mac to net (10.0.0.6), installed it under /opt/rosboard as an enabled systemd service, verified page and dashboard API return 200, and stopped the local Mac listener on 8080.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
