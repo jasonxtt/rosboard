@@ -23,6 +23,23 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	}
 }
 
+func TestLoadMissingConfigStartsSetupDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.yaml")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Path != path {
+		t.Fatalf("expected config path to be retained, got %q", cfg.Path)
+	}
+	if cfg.RouterOSConfigured() {
+		t.Fatalf("missing config should not be treated as routeros configured")
+	}
+	if cfg.RouterOS.BaseURL != "http://10.0.0.1" {
+		t.Fatalf("unexpected default routeros url: %q", cfg.RouterOS.BaseURL)
+	}
+}
+
 func TestValidateRejectsNonPositiveTieredPollingIntervals(t *testing.T) {
 	cfg := Config{
 		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 0, TerminalPollIntervalSeconds: 3,

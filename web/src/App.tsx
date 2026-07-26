@@ -27,6 +27,7 @@ import type {
   ProtocolHistorySample,
   ProtocolStat,
   RouteStat,
+  SettingsResponse,
   Terminal,
   TerminalConnection,
   TerminalDetail,
@@ -36,9 +37,68 @@ import type {
   TerminalTab,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
+type SettingsSection = 'connection' | 'collection' | 'ui' | 'maintenance'
+type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily }
+type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
+type CollectionDraft = {
+  pollIntervalSeconds: number
+  realtimePollIntervalSeconds: number
+  terminalPollIntervalSeconds: number
+  sampleRetentionHours: number
+  trafficInterfaces: string
+  terminalCidrs: string
+}
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
+
+const panelPreferenceKey = 'rosboard:panel-preferences'
+const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'overview', terminalFamily: 'all' }
+const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'routes', 'settings']
+
+function loadPanelPreferences(): PanelPreferences {
+  try {
+    const raw = window.localStorage.getItem(panelPreferenceKey)
+    if (!raw) return defaultPanelPreferences
+    const parsed = JSON.parse(raw) as Partial<PanelPreferences>
+    return {
+      refreshMs: [0, 1000, 3000, 5000, 10000].includes(Number(parsed.refreshMs)) ? Number(parsed.refreshMs) : defaultPanelPreferences.refreshMs,
+      landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
+      terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
+    }
+  } catch {
+    return defaultPanelPreferences
+  }
+}
+
+function savePanelPreferences(preferences: PanelPreferences) {
+  window.localStorage.setItem(panelPreferenceKey, JSON.stringify(preferences))
+}
+
+function connectionDraftFromSettings(settings: SettingsResponse | null): ConnectionDraft {
+  return {
+    scheme: settings?.connection.routerosScheme === 'https' ? 'https' : 'http',
+    host: settings?.connection.routerosHost || '10.0.0.1',
+    port: settings?.connection.routerosPort || (settings?.connection.routerosScheme === 'https' ? 443 : 80),
+    username: settings?.connection.routerosUsername || '',
+    password: settings?.connection.routerosPassword || '',
+  }
+}
+
+function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraft {
+  return {
+    pollIntervalSeconds: settings.collection.pollIntervalSeconds,
+    realtimePollIntervalSeconds: settings.collection.realtimePollIntervalSeconds,
+    terminalPollIntervalSeconds: settings.collection.terminalPollIntervalSeconds,
+    sampleRetentionHours: settings.collection.sampleRetentionHours,
+    trafficInterfaces: settings.collection.trafficInterfaces.join('\n'),
+    terminalCidrs: settings.collection.terminalCidrs.join('\n'),
+  }
+}
+
+function parseSettingList(value: string) {
+  return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean)
+}
 
 const emptyTerminalScopeSummary: TerminalScopeSummary = {
   deviceCount: 0,
@@ -80,6 +140,7 @@ function Icon(props: { name: IconName }) {
     policy: <><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></>,
     runtime: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m6 14 3-3 3 2 4-5 2 3"/></>,
     route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
+    settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
     cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
     memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
@@ -92,6 +153,8 @@ function Icon(props: { name: IconName }) {
     check: <><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></>,
     clear: <><path d="m15 3-7.5 11.5"/><path d="M6 13l5 3-3 5H3l-1-2 4-6Z"/><path d="M4 17h5"/></>,
+    eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></>,
+    eyeOff: <><path d="m3 3 18 18"/><path d="M10.6 6.2A10.8 10.8 0 0 1 12 6c6.5 0 10 6 10 6a18 18 0 0 1-2.1 2.8M6.5 6.5C3.5 8.3 2 12 2 12s3.5 6 10 6c1.8 0 3.3-.5 4.6-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
 }
@@ -106,10 +169,20 @@ function relativeUpdateTime(value: string) {
 }
 
 function App() {
+  const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [activeView, setActiveView] = useState<ActiveView>('overview')
+  const [activeView, setActiveView] = useState<ActiveView>(() => panelPreferences.landingView)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [settings, setSettings] = useState<SettingsResponse | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
+  const [connectionSaving, setConnectionSaving] = useState(false)
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
+  const [collectionSaving, setCollectionSaving] = useState(false)
+  const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
+  const [restartSaving, setRestartSaving] = useState(false)
+  const [restartMessage, setRestartMessage] = useState<string | null>(null)
   const [selectedTerminalID, setSelectedTerminalID] = useState<string | null>(null)
   const [terminalDetail, setTerminalDetail] = useState<TerminalDetail | null>(null)
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('basic')
@@ -119,14 +192,86 @@ function App() {
   const [customNameDraft, setCustomNameDraft] = useState('')
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
-  const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>('all')
-  const [dashboardRefreshMs, setDashboardRefreshMs] = useState(1000)
+  const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>(() => panelPreferences.terminalFamily)
+  const [dashboardRefreshMs, setDashboardRefreshMs] = useState(() => panelPreferences.refreshMs)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [statusExpanded, setStatusExpanded] = useState(true)
+  const [settingsExpanded, setSettingsExpanded] = useState(true)
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
+
+  const updatePanelPreferences = (next: PanelPreferences) => {
+    setPanelPreferences(next)
+    savePanelPreferences(next)
+  }
+  const hasDashboard = dashboard !== null
+
+  const saveConnectionSettings = async (draft: ConnectionDraft) => {
+    setConnectionSaving(true)
+    setConnectionMessage(null)
+    try {
+      const response = await fetch('/api/settings/connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      setConnectionMessage('已保存，面板正在重启并连接 RouterOS...')
+      window.setTimeout(() => window.location.reload(), 3500)
+    } catch (saveError) {
+      setConnectionMessage(saveError instanceof Error ? saveError.message : '连接设置保存失败')
+    } finally {
+      setConnectionSaving(false)
+    }
+  }
+
+  const saveCollectionSettings = async (draft: CollectionDraft) => {
+    setCollectionSaving(true)
+    setCollectionMessage(null)
+    try {
+      const response = await fetch('/api/settings/collection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...draft,
+          trafficInterfaces: parseSettingList(draft.trafficInterfaces),
+          terminalCidrs: parseSettingList(draft.terminalCidrs),
+        }),
+      })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      setCollectionMessage('已保存，面板正在重启并应用新的采集参数...')
+      window.setTimeout(() => window.location.reload(), 3500)
+    } catch (saveError) {
+      setCollectionMessage(saveError instanceof Error ? saveError.message : '采集设置保存失败')
+    } finally {
+      setCollectionSaving(false)
+    }
+  }
+
+  const restartPanel = async () => {
+    setRestartSaving(true)
+    setRestartMessage(null)
+    try {
+      const response = await fetch('/api/settings/restart', { method: 'POST' })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      setRestartMessage('面板正在重启...')
+      window.setTimeout(() => window.location.reload(), 3500)
+    } catch (restartError) {
+      setRestartMessage(restartError instanceof Error ? restartError.message : '面板重启失败')
+      setRestartSaving(false)
+    }
+  }
 
   useEffect(() => {
     const heartbeat = () => {
@@ -145,7 +290,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (activeView === 'overview') return
+    if (activeView === 'overview' || activeView === 'settings') return
     setStatusExpanded(true)
     if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
     if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
@@ -266,6 +411,24 @@ function App() {
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [activeView, loadWindow])
 
+  useEffect(() => {
+    if (activeView !== 'settings' && hasDashboard) return
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch('/api/settings')
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = (await response.json()) as SettingsResponse
+      if (!cancelled) {
+        setSettings(payload)
+        setSettingsError(null)
+      }
+    }
+    load().catch((settingsLoadError) => {
+      if (!cancelled) setSettingsError(settingsLoadError instanceof Error ? settingsLoadError.message : '设置读取失败')
+    })
+    return () => { cancelled = true }
+  }, [activeView, hasDashboard, refreshNonce])
+
   const filteredTerminals = useMemo(() => {
     if (!dashboard) {
       return []
@@ -299,6 +462,17 @@ function App() {
   }, [dashboard, editingTerminalID])
 
   if (!dashboard) {
+    if (settings && (!settings.connection.configured || error)) {
+      return (
+        <SetupPage
+          settings={settings}
+          error={error}
+          saving={connectionSaving}
+          message={connectionMessage}
+          onSave={saveConnectionSettings}
+        />
+      )
+    }
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
@@ -312,6 +486,13 @@ function App() {
   }
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
+  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
+  const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
+    { key: 'connection', label: '连接设置', icon: 'router' },
+    { key: 'collection', label: '采集设置', icon: 'refresh' },
+    { key: 'ui', label: '界面设置', icon: 'overview' },
+    { key: 'maintenance', label: '维护设置', icon: 'storage' },
+  ]
 
   return (
     <main className={sidebarOpen ? 'shell sidebar-open' : 'shell'}>
@@ -347,7 +528,7 @@ function App() {
             <button
               type="button"
               className={
-                activeView !== 'overview'
+                statusActive
                   ? 'menu-item active'
                   : 'menu-item'
               }
@@ -397,6 +578,42 @@ function App() {
               </> : null}
             </div> : null}
           </div>
+
+          <div className="menu-group">
+            <button
+              type="button"
+              className={activeView === 'settings' ? 'menu-item active' : 'menu-item'}
+              aria-expanded={settingsExpanded}
+              aria-controls="panel-settings-menu"
+              onClick={() => {
+                const alreadyInSettings = activeView === 'settings'
+                setSettingsExpanded((value) => alreadyInSettings ? !value : true)
+                setActiveView('settings')
+                if (!alreadyInSettings) setSettingsSection('connection')
+                setSelectedTerminalID(null)
+                setSidebarOpen(false)
+              }}
+            >
+              <NavLabel icon="settings" label="面板设置" />
+            </button>
+            {settingsExpanded ? <div className="submenu" id="panel-settings-menu">
+              {settingsSections.map((section) => (
+                <button
+                  key={section.key}
+                  type="button"
+                  className={activeView === 'settings' && settingsSection === section.key ? 'submenu-item active' : 'submenu-item'}
+                  onClick={() => {
+                    setActiveView('settings')
+                    setSettingsSection(section.key)
+                    setSelectedTerminalID(null)
+                    setSidebarOpen(false)
+                  }}
+                >
+                  <NavLabel icon={section.icon} label={section.label} />
+                </button>
+              ))}
+            </div> : null}
+          </div>
         </nav>
         <div className="sidebar-device-card">
           <dl>
@@ -428,10 +645,10 @@ function App() {
               </p>
             </div>
           </div>
-          {activeView === 'terminals' && !detailMode ? (
-            <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
-          ) : null}
           <div className="topbar-controls">
+            {activeView === 'terminals' && !detailMode ? (
+              <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
+            ) : null}
             <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
@@ -456,6 +673,35 @@ function App() {
         {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} /> : null}
         {activeView === 'policies' ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
         {activeView === 'routes' ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
+        {activeView === 'settings' ? (
+          <SettingsPage
+            settings={settings}
+            error={settingsError}
+            activeSection={settingsSection}
+            preferences={panelPreferences}
+            dashboard={dashboard}
+            connectionSaving={connectionSaving}
+            connectionMessage={connectionMessage}
+            collectionSaving={collectionSaving}
+            collectionMessage={collectionMessage}
+            restartSaving={restartSaving}
+            restartMessage={restartMessage}
+            onSaveConnection={saveConnectionSettings}
+            onSaveCollection={saveCollectionSettings}
+            onSavePreferences={(preferences) => {
+              updatePanelPreferences(preferences)
+              setDashboardRefreshMs(preferences.refreshMs)
+              setTerminalFamily(preferences.terminalFamily)
+            }}
+            onResetPreferences={() => {
+              window.localStorage.removeItem(panelPreferenceKey)
+              setPanelPreferences(defaultPanelPreferences)
+              setDashboardRefreshMs(defaultPanelPreferences.refreshMs)
+              setTerminalFamily(defaultPanelPreferences.terminalFamily)
+            }}
+            onRestart={restartPanel}
+          />
+        ) : null}
 
         {activeView === 'terminals' && !detailMode ? (
           <TerminalsPage
@@ -544,6 +790,237 @@ function App() {
       ) : null}
     </main>
   )
+}
+
+function SetupPage(props: {
+  settings: SettingsResponse
+  error: string | null
+  saving: boolean
+  message: string | null
+  onSave: (draft: ConnectionDraft) => Promise<void>
+}) {
+  return (
+    <main className="setup-shell">
+      <section className="panel setup-panel">
+        <div className="setup-brand">
+          <img className="brand-mark" src={rosboardMark} alt="" />
+          <div><h1>Rosboard 初始化</h1><p>填写 RouterOS REST 连接信息后，面板会保存配置并重启采集服务。</p></div>
+        </div>
+        {props.error ? <div className="global-warning">当前还没有可用的 RouterOS 数据：{props.error}</div> : null}
+        <ConnectionSettingsForm settings={props.settings} saving={props.saving} message={props.message} onSave={props.onSave} />
+      </section>
+    </main>
+  )
+}
+
+function SettingsPage(props: {
+  settings: SettingsResponse | null
+  error: string | null
+  activeSection: SettingsSection
+  preferences: PanelPreferences
+  dashboard: DashboardResponse
+  connectionSaving: boolean
+  connectionMessage: string | null
+  collectionSaving: boolean
+  collectionMessage: string | null
+  restartSaving: boolean
+  restartMessage: string | null
+  onSaveConnection: (draft: ConnectionDraft) => Promise<void>
+  onSaveCollection: (draft: CollectionDraft) => Promise<void>
+  onSavePreferences: (preferences: PanelPreferences) => void
+  onResetPreferences: () => void
+  onRestart: () => Promise<void>
+}) {
+  const [preferenceDraft, setPreferenceDraft] = useState(props.preferences)
+  const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
+  const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null)
+
+  useEffect(() => setPreferenceDraft(props.preferences), [props.preferences])
+
+  const exportSettings = () => {
+    if (!props.settings) return
+    const payload = JSON.stringify({
+      ...props.settings,
+      connection: {
+        ...props.settings.connection,
+        routerosPassword: props.settings.connection.routerosPasswordSet ? '********' : '',
+      },
+    }, null, 2)
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'rosboard-settings.json'
+    link.click()
+    URL.revokeObjectURL(url)
+    setMaintenanceMessage('已导出脱敏设置')
+  }
+
+  return (
+    <div className="settings-page">
+      {props.error ? <div className="global-error">设置读取失败: {props.error}</div> : null}
+      {!props.settings && !props.error ? <section className="panel settings-panel">正在读取设置...</section> : null}
+
+      {props.settings && props.activeSection === 'connection' ? (
+        <section className="panel settings-panel">
+          <div className="panel-head"><h3>连接设置</h3><span>保存后面板会重启并使用新的 RouterOS REST 连接</span></div>
+          <ConnectionSettingsForm settings={props.settings} saving={props.connectionSaving} message={props.connectionMessage} onSave={props.onSaveConnection} />
+          <div className="settings-grid connection-runtime-grid">
+            <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
+            <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
+            <SettingItem label="API 允许来源" value={formatSettingList(props.settings.connection.allowedCidrs)} />
+          </div>
+        </section>
+      ) : null}
+
+      {props.settings && props.activeSection === 'collection' ? (
+        <section className="panel settings-panel">
+          <div className="panel-head"><h3>采集设置</h3><span>保存后重启采集服务生效</span></div>
+          <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
+        </section>
+      ) : null}
+
+      {props.activeSection === 'ui' ? (
+        <section className="panel settings-panel">
+          <div className="panel-head"><h3>界面设置</h3><span>仅保存在当前浏览器</span></div>
+          <form className="settings-form interface-settings-form" onSubmit={(event) => {
+            event.preventDefault()
+            props.onSavePreferences(preferenceDraft)
+            setPreferenceMessage('界面设置已保存')
+          }}>
+            <label>
+              <span>默认自动刷新</span>
+              <select
+                value={preferenceDraft.refreshMs}
+                onChange={(event) => setPreferenceDraft((current) => ({ ...current, refreshMs: Number(event.target.value) }))}
+              >
+                <option value={0}>停止刷新</option><option value={1000}>1 秒刷新</option><option value={3000}>3 秒刷新</option><option value={5000}>5 秒刷新</option><option value={10000}>10 秒刷新</option>
+              </select>
+            </label>
+            <label>
+              <span>默认打开页面</span>
+              <select
+                value={preferenceDraft.landingView}
+                onChange={(event) => setPreferenceDraft((current) => ({ ...current, landingView: event.target.value as ActiveView }))}
+              >
+                {landingViews.map((view) => <option key={view} value={view}>{viewTitle(view)}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>默认终端范围</span>
+              <select
+                value={preferenceDraft.terminalFamily}
+                onChange={(event) => setPreferenceDraft((current) => ({ ...current, terminalFamily: event.target.value as TerminalFamily }))}
+              >
+                <option value="all">全部终端</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option>
+              </select>
+            </label>
+            <div className="settings-actions wide">
+              <button type="submit" className="primary-button">保存界面设置</button>
+            </div>
+            {preferenceMessage ? <div className="settings-message wide">{preferenceMessage}</div> : null}
+          </form>
+        </section>
+      ) : null}
+
+      {props.settings && props.activeSection === 'maintenance' ? (
+        <section className="panel settings-panel">
+          <div className="panel-head"><h3>维护设置</h3><span>诊断与本地偏好</span></div>
+          <div className="settings-grid diagnostics-grid">
+            <SettingItem label="设备名称" value={props.settings.diagnostics.routerName || props.dashboard.overview.routerName || '-'} />
+            <SettingItem label="RouterOS 版本" value={props.settings.diagnostics.version || props.dashboard.overview.version || '-'} />
+            <SettingItem label="最后采集时间" value={formatDateTime(props.settings.diagnostics.updatedAt || props.dashboard.overview.updatedAt)} />
+            <SettingItem label="健康采集" value={props.dashboard.overview.healthEnabled ? '启用' : '部分不可用'} />
+          </div>
+          <div className="settings-actions">
+            <button type="button" className="toolbar-button" onClick={exportSettings}><Icon name="storage" />导出脱敏设置</button>
+            <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
+            <button type="button" className="toolbar-button" disabled={props.restartSaving} onClick={() => void props.onRestart()}><Icon name="refresh" />{props.restartSaving ? '正在重启...' : '重启面板服务'}</button>
+          </div>
+          {props.restartMessage || maintenanceMessage ? <div className="settings-message">{props.restartMessage || maintenanceMessage}</div> : null}
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+function SettingItem(props: { label: string; value: string; wide?: boolean }) {
+  return <div className={props.wide ? 'setting-item wide' : 'setting-item'}><span>{props.label}</span><strong>{props.value}</strong></div>
+}
+
+function ConnectionSettingsForm(props: { settings: SettingsResponse | null; saving: boolean; message: string | null; onSave: (draft: ConnectionDraft) => Promise<void> }) {
+  const [draft, setDraft] = useState<ConnectionDraft>(() => connectionDraftFromSettings(props.settings))
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  useEffect(() => setDraft(connectionDraftFromSettings(props.settings)), [props.settings])
+  const defaultPort = draft.scheme === 'https' ? 443 : 80
+  return <form className="settings-form connection-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
+    <label>
+      <span>协议</span>
+      <select value={draft.scheme} onChange={(event) => {
+        const scheme = event.target.value === 'https' ? 'https' : 'http'
+        setDraft((current) => ({ ...current, scheme, port: current.port === 80 || current.port === 443 ? (scheme === 'https' ? 443 : 80) : current.port }))
+      }}>
+        <option value="http">HTTP（默认 REST 端口 80）</option>
+        <option value="https">HTTPS（默认 REST 端口 443）</option>
+      </select>
+    </label>
+    <label>
+      <span>RouterOS IP / 主机名</span>
+      <input value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} placeholder="10.0.0.1" autoComplete="off" />
+    </label>
+    <label>
+      <span>REST API 端口</span>
+      <input type="number" min={1} max={65535} value={draft.port || defaultPort} onChange={(event) => setDraft((current) => ({ ...current, port: Number(event.target.value) }))} />
+    </label>
+    <label>
+      <span>RouterOS 用户名</span>
+      <input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} autoComplete="username" />
+    </label>
+    <div className="settings-field span-2">
+      <label htmlFor="routeros-password">RouterOS 密码</label>
+      <span className="password-input">
+        <input id="routeros-password" type={passwordVisible ? 'text' : 'password'} value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" />
+        <button type="button" title={passwordVisible ? '隐藏密码' : '显示密码'} aria-label={passwordVisible ? '隐藏 RouterOS 密码' : '显示 RouterOS 密码'} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button>
+      </span>
+    </div>
+    <div className="settings-actions wide">
+      <button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启连接'}</button>
+      <span className="settings-inline-note">当前面板使用 RouterOS REST：HTTP 默认 80，HTTPS 默认 443，不使用传统 API 8728/8729。</span>
+    </div>
+    {props.message ? <div className="settings-message wide">{props.message}</div> : null}
+  </form>
+}
+
+function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
+  const [draft, setDraft] = useState<CollectionDraft>(() => collectionDraftFromSettings(props.settings))
+  useEffect(() => setDraft(collectionDraftFromSettings(props.settings)), [props.settings])
+  const numberField = (key: keyof Pick<CollectionDraft, 'pollIntervalSeconds' | 'realtimePollIntervalSeconds' | 'terminalPollIntervalSeconds' | 'sampleRetentionHours'>, label: string, unit: string) => (
+    <label>
+      <span>{label}</span>
+      <span className="number-input"><input type="number" min={1} required value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /><small>{unit}</small></span>
+    </label>
+  )
+  return <form className="settings-form collection-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
+    {numberField('pollIntervalSeconds', '完整采集间隔', '秒')}
+    {numberField('realtimePollIntervalSeconds', '实时采集间隔', '秒')}
+    {numberField('terminalPollIntervalSeconds', '终端采集间隔', '秒')}
+    {numberField('sampleRetentionHours', '采样保留时间', '小时')}
+    <label className="span-2">
+      <span>流量接口</span>
+      <textarea rows={4} value={draft.trafficInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficInterfaces: event.target.value }))} placeholder="pppoe-out1" />
+    </label>
+    <label className="span-2">
+      <span>终端 CIDR</span>
+      <textarea rows={4} value={draft.terminalCidrs} onChange={(event) => setDraft((current) => ({ ...current, terminalCidrs: event.target.value }))} placeholder="10.0.0.0/24" />
+    </label>
+    <div className="settings-actions wide">
+      <button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启采集'}</button>
+    </div>
+    {props.message ? <div className="settings-message wide">{props.message}</div> : null}
+  </form>
+}
+
+function formatSettingList(values: string[]) {
+  return values.length ? values.join(' / ') : '-'
 }
 
 function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[] }) {
