@@ -120,6 +120,35 @@ export type DashboardResponse = {
   warnings: string[]
 }
 
+export type SettingsResponse = {
+  connection: {
+    apiBasePath: string
+    configured: boolean
+    listenAddress: string
+    allowedCidrs: string[]
+    routerosBaseUrl: string
+    routerosScheme: 'http' | 'https'
+    routerosHost: string
+    routerosPort: number
+    routerosUsername: string
+    routerosPassword: string
+    routerosPasswordSet: boolean
+  }
+  collection: {
+    pollIntervalSeconds: number
+    realtimePollIntervalSeconds: number
+    terminalPollIntervalSeconds: number
+    sampleRetentionHours: number
+    trafficInterfaces: string[]
+    terminalCidrs: string[]
+  }
+  diagnostics: {
+    routerName: string
+    version: string
+    updatedAt: string
+  }
+}
+
 export type AlertEvent = { id: string; level: 'warning' | 'error'; source: string; message: string; timestamp: string }
 
 export type TerminalConnection = {
@@ -168,7 +197,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes'
+export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes' | 'settings'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

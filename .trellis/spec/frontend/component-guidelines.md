@@ -106,11 +106,74 @@ const showingInactive = stateFilter !== 'online'
 
 ## Terminal scope summary layout
 
-- Render the selected `terminalScopeSummaries` entry only in the terminal-list topbar, between the title and global refresh controls. Do not place it in the terminal filter toolbar.
-- Desktop uses the terminal-detail header's muted 11-12px inline typography and tabular numerals. Mobile uses a full-width second topbar row with a two-row, three-column grid.
+- Render the selected `terminalScopeSummaries` entry only in the terminal-list topbar, inside the right-side global control cluster next to system status, last-updated, refresh, and auto-refresh controls. Do not place it between the title and controls, and do not place it in the terminal filter toolbar.
+- Desktop uses the topbar controls' muted 11px inline typography and tabular numerals so device/connection/rate/cumulative values do not look louder than `系统正常` or `最后更新`. Mobile uses a full-width controls row with a two-row, three-column grid.
 - The six labels are device count, connection count, upload, download, active cumulative upload, and active cumulative download. Use `formatBits` for current bit/s values and `formatBytes` for active bytes.
 - Unexpectedly missing summary data renders zero values; never fall back to persisted combined terminal totals.
 - Verify 375px layout has no document-level overflow and the existing two-row, 44px terminal toolbar remains unchanged.
+
+## Scenario: Panel settings forms
+
+### 1. Scope / Trigger
+
+- Trigger: changes to the panel-settings sidebar group, connection/collection/UI forms, maintenance actions, password visibility, or settings responsiveness.
+
+### 2. Signatures
+
+- Sections: `connection | collection | ui | maintenance` under the first-level `面板设置` item.
+- Connection password control: password input plus `显示 RouterOS 密码` / `隐藏 RouterOS 密码` icon button.
+- Browser preference key: `rosboard:panel-preferences`.
+
+### 3. Contracts
+
+- Settings section navigation stays in the left sidebar and follows the existing status-monitor submenu pattern.
+- Desktop connection and UI forms use three equal columns. Collection numeric controls use four equal columns, followed by two half-width list fields. Do not render sparse two-column setting-card rows.
+- At widths below 768px, every settings grid becomes one column and controls are at least 44px high without document-level horizontal overflow.
+- Passwords use `type=password` by default. The eye icon has a tooltip, `aria-label`, and `aria-pressed`; it may reveal the current value only after an explicit click.
+- UI preferences edit a draft and persist only when `保存界面设置` is submitted.
+- Maintenance export clones the settings response and masks `routerosPassword`; it never downloads the raw response object.
+
+### 4. Validation & Error Matrix
+
+- Missing settings response -> render loading or explicit load error, not an empty form.
+- Configured settings arriving before the first dashboard response -> keep the loading view; do not flash the initialization form. Show setup only when `configured=false` or dashboard loading has failed.
+- Save request failure -> keep the current draft and render the returned error near the form.
+- Invalid localStorage JSON -> fall back to product defaults.
+- Mobile width -> no multi-column spans remain and no page overflow appears.
+
+### 5. Good/Base/Bad Cases
+
+- Good: 1280px collection layout renders four interval fields on row one and two equal list fields on row two.
+- Good: password appears as bullets, becomes text after the eye click, and returns to bullets after the next click.
+- Base: an empty interface/CIDR list renders an empty textarea and saves as `[]`.
+- Bad: render each field as a card inside the settings panel or leave half of each desktop row empty.
+- Bad: export a JSON payload containing the real RouterOS password.
+
+### 6. Tests Required
+
+- Frontend: oxlint and production TypeScript/Vite build pass.
+- Browser desktop: measure three connection columns and four collection interval columns; verify password type toggling.
+- Browser 375px: all settings labels have the form width and `scrollWidth <= clientWidth`.
+- Dependency: `npm audit --audit-level=high` reports zero vulnerabilities.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const payload = JSON.stringify(settings)
+<input value={password} />
+```
+
+#### Correct
+
+```tsx
+const payload = JSON.stringify({
+  ...settings,
+  connection: { ...settings.connection, routerosPassword: '********' },
+})
+<input type={passwordVisible ? 'text' : 'password'} value={password} />
+```
 
 ## Toolbar sizing
 
