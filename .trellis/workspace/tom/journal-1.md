@@ -829,3 +829,36 @@ Added dense sidebar-based panel settings, editable RouterOS REST and collection 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Archive rosboard on GitHub
+
+**Date**: 2026-07-27
+**Task**: Archive rosboard on GitHub
+**Branch**: `main`
+
+### Summary
+
+Reworked the root README into a Chinese-first project landing page, validated backend and frontend builds, audited tracked history for secrets, replaced the remote placeholder history with the complete local main history, and verified the published README.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e299b2f` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
