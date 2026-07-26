@@ -796,3 +796,36 @@ Moved rosboard runtime from local Mac to net (10.0.0.6), installed it under /opt
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Panel settings and RouterOS setup
+
+**Date**: 2026-07-27
+**Task**: Panel settings and RouterOS setup
+**Branch**: `main`
+
+### Summary
+
+Added dense sidebar-based panel settings, editable RouterOS REST and collection configuration, explicit browser preferences, safe maintenance actions, masked password controls, first-install setup, tests, specs, and deployment verification on 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8c5957e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

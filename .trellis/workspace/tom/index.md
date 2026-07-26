@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
-- **Last Active**: 2026-07-22
+- **Total Sessions**: 25
+- **Last Active**: 2026-07-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~798 | Active |
+| `journal-1.md` | ~831 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-07-27 | Panel settings and RouterOS setup | `8c5957e` | `main` |
 | 24 | 2026-07-22 | Deploy rosboard on net | - | `main` |
 | 23 | 2026-07-14 | Terminal scope summaries | `7d64ccb` | `main` |
 | 22 | 2026-07-14 | Improve overview data typography | `68a95c9` | `main` |
