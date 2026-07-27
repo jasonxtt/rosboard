@@ -41,14 +41,14 @@ const showingInactive = stateFilter !== 'online'
 - Clicking the second-level `终端监控` sidebar item opens the terminal list itself, sets the family scope to `all`, and visually exposes the nested `全部终端` / `IPv4` / `IPv6` choices. The nested choices still switch scope directly.
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
-- Family, application, protocol, line, local endpoint, destination endpoint, flags, and status filters open from their column headers. Active filters use both blue styling and accessible state/labels.
+- Family, application, protocol, local endpoint, destination endpoint, route-table, and next-hop-gateway filters open from their column headers. RouterOS self connection tracking also exposes the status filter; ordinary terminal details do not render a status column. Active filters use both blue styling and accessible state/labels.
 - Every connection column label is a dedicated sort button. First click selects ascending, the next click toggles descending; a separate filter-arrow button never triggers sorting.
 - Keep the filter arrow immediately adjacent to the sort label. Do not reserve an empty sort-indicator width for unsorted columns; render the direction indicator only for the active sort.
 - Filter panels compute their horizontal position from the clicked arrow's bounding rect. Desktop panels align to the trigger when space permits; mobile panels use 240px width and clamp inside the visible table shell.
-- Family, application, protocol, outbound-line, and flags filters render their available values as direct option buttons in the first panel layer. Selecting an option applies it and closes the panel; do not put these enum choices behind a native select that requires a second click.
-- Global fuzzy search is an icon button at table-header height on desktop and in the connection-detail tab row on mobile. Its floating input searches application, protocol, line, local/destination/public address, ports, and connection mark without adding a permanent toolbar row.
+- Family, application, protocol, route-table, and next-hop-gateway filters render their available values as direct option buttons in the first panel layer. A gateway option represents one member of `routeGateways`, including an ECMP member; missing route-table or gateway values use the filterable label `无法判断`. Selecting an option applies it and closes the panel; do not put these enum choices behind a native select that requires a second click.
+- Global fuzzy search is an icon button at table-header height on desktop and in the connection-detail tab row on mobile. Its floating input searches application, protocol, local/destination/public address, ports, connection mark, route table, and next-hop gateway without adding a permanent toolbar row.
 - A textless SVG clear button sits immediately left of global search. It clears all connection filters, search, family selection, panel, and sorting; it is disabled when no table state is active. Mobile clear/search actions render only while the connection tab is active.
-- Reserve enough width and right padding in the final connection-status header for the floating clear/search actions. The action buttons must not overlap the status label even when the inner table is horizontally scrolled to the end.
+- Reserve enough width and right padding in the final visible connection header for the floating clear/search actions. This is `下一跳网关` for ordinary terminals and `连接状态` for RouterOS self tracking. The action buttons must not overlap the label or filter control even when the inner table is horizontally scrolled to the end.
 - The legacy `.connection-toolbar` and family tab strip do not render.
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
 - Mobile detail tabs use a fixed three- or four-column grid, with an additional auto-sized action column only on connection details. The row must not scroll horizontally. Clear/search use 36px visible boxes with pseudo-element hit areas extending to 44px, and they must not cover the history tab.
@@ -58,7 +58,7 @@ const showingInactive = stateFilter !== 'online'
 
 - `all` scope + IPv4 filter -> zero IPv6 badges, active family header indicator.
 - `ipv4` or `ipv6` scope -> no family filter button; every rendered row matches the scope.
-- Filter combination has no matches -> one empty row spans all 14 table columns.
+- Filter combination has no matches -> one empty row spans 13 columns for ordinary terminals and 14 columns for RouterOS self tracking.
 - Search/filter panel opens -> it overlays the table and does not increase document width or add a toolbar row.
 - Direct enum filter opens -> all current choices are visible immediately; selection closes the panel and activates the header indicator.
 - Column label click -> changes only sort state; filter-arrow click -> changes only the active filter panel.
@@ -83,7 +83,7 @@ const showingInactive = stateFilter !== 'online'
 - Browser runtime: header filters and global search work with no console errors.
 - Browser interaction: application ascending begins with `常用协议`, descending begins with `未知应用`; filtering preserves sort until clear.
 - Browser geometry: desktop filter panel left equals its trigger left when space permits; mobile arrow is 44x44 and the clamped panel stays within the viewport.
-- Browser geometry: unsorted filterable headers have a zero-width visual gap between the sort button and filter button; at maximum horizontal table scroll, the final status controls end before the clear button begins.
+- Browser geometry: unsorted filterable headers have a zero-width visual gap between the sort button and filter button; at maximum horizontal table scroll, the final visible header controls end before the clear button begins.
 - Browser mobile: terminal toolbar has two rows; every interactive control is 44px high; all available detail tabs fit without horizontal scrolling; 36px connection-action visuals do not overlap history; switching to another detail tab removes the actions.
 
 ### 7. Wrong vs Correct
@@ -101,7 +101,7 @@ const showingInactive = stateFilter !== 'online'
 #### Correct
 
 ```tsx
-<ConnectionColumnHeader label="协议" sortKey="protocol" filterKey="protocol" onSort={changeSort} onOpenFilter={openFilter} />
+<ConnectionColumnHeader label="下一跳网关" sortKey="gateway" filterKey="gateway" onSort={changeSort} onOpenFilter={openFilter} />
 <button className="table-clear-button" aria-label="清除全部筛选和排序"><Icon name="clear" /></button>
 ```
 
