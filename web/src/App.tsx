@@ -984,6 +984,10 @@ function SettingsPage(props: {
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null)
 
   useEffect(() => setPreferenceDraft(props.preferences), [props.preferences])
+  useEffect(() => {
+    document.documentElement.dataset.theme = preferenceDraft.theme
+    document.documentElement.style.colorScheme = preferenceDraft.theme
+  }, [preferenceDraft.theme])
 
   const exportSettings = () => {
     if (!props.settings) return
@@ -993,6 +997,10 @@ function SettingsPage(props: {
         ...props.settings.connection,
         routerosPassword: props.settings.connection.routerosPasswordSet ? '********' : '',
       },
+      devices: props.settings.devices.map((device) => ({
+        ...device,
+        password: device.passwordSet ? '********' : '',
+      })),
     }, null, 2)
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -1010,7 +1018,7 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>设备管理</h3><span>每台 RouterOS 设备独立保存连接、采集接口和终端网段</span></div>
+          <div className="panel-head"><h3>设备管理</h3></div>
           <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
@@ -1022,7 +1030,7 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'collection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>采集设置</h3><span>全局采集间隔和保留时间；设备接口和终端网段在设备管理中分别配置</span></div>
+          <div className="panel-head"><h3>采集设置</h3></div>
           <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
         </section>
       ) : null}
@@ -1085,15 +1093,9 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'maintenance' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>维护设置</h3><span>诊断与本地偏好</span></div>
-          <div className="settings-grid diagnostics-grid">
-            <SettingItem label="设备名称" value={props.settings.diagnostics.routerName || props.dashboard.overview.routerName || '-'} />
-            <SettingItem label="RouterOS 版本" value={props.settings.diagnostics.version || props.dashboard.overview.version || '-'} />
-            <SettingItem label="最后采集时间" value={formatDateTime(props.settings.diagnostics.updatedAt || props.dashboard.overview.updatedAt)} />
-            <SettingItem label="健康采集" value={props.dashboard.overview.healthEnabled ? '启用' : '部分不可用'} />
-          </div>
+          <div className="panel-head"><h3>维护设置</h3></div>
           <div className="settings-actions">
-            <button type="button" className="toolbar-button" onClick={exportSettings}><Icon name="storage" />导出脱敏设置</button>
+            <button type="button" className="toolbar-button" onClick={exportSettings}><Icon name="storage" />导出全部设备脱敏设置</button>
             <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
             <button type="button" className="toolbar-button" disabled={props.restartSaving} onClick={() => void props.onRestart()}><Icon name="refresh" />{props.restartSaving ? '正在重启...' : '重启面板服务'}</button>
           </div>
@@ -1198,7 +1200,6 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs) }) }}>
-      <div className="settings-message wide">当前编辑：{draft.name || '新设备'}。连接、采集接口和终端网段只保存到这台设备，不会影响其他 RouterOS。</div>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
       <label><span>协议</span><select value={draft.scheme} onChange={(event) => setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port }))}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
       <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} /></label>
@@ -1316,7 +1317,6 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
     {numberField('realtimePollIntervalSeconds', '实时采集间隔', '秒')}
     {numberField('terminalPollIntervalSeconds', '终端采集间隔', '秒')}
     {numberField('sampleRetentionHours', '采样保留时间', '小时')}
-    <div className="settings-message wide">采集接口和终端 CIDR 已按设备拆分，请在设备管理中编辑对应 RouterOS。</div>
     <div className="settings-actions wide">
       <button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启采集'}</button>
     </div>

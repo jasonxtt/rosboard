@@ -373,6 +373,7 @@ overflow.
 - Save traffic interfaces as `string[]`; do not require comma-separated or newline-separated input.
 - `PanelPreferences.theme` is `light` or `dark`, defaults to `light`, and is stored with the other browser-local interface preferences.
 - Apply the theme through the root `data-theme` attribute and `color-scheme`. Canvas charts must observe theme changes and update axis, grid, tooltip, and text colors without requiring a reload.
+- The UI settings theme radio previews immediately by applying the draft theme to the root document. It is still only persisted through `保存界面设置`; refreshing before save restores the saved theme.
 
 ### 3. Responsive And State Validation
 
