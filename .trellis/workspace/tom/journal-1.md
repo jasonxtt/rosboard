@@ -929,3 +929,36 @@ Moved collection interface and terminal CIDR settings into per-device management
 ### Next Steps
 
 - None - task complete
+
+
+## Session 29: Terminal CIDR overview layout
+
+**Date**: 2026-07-27
+**Task**: Terminal CIDR overview layout
+**Branch**: `main`
+
+### Summary
+
+Scoped terminal discovery to configured terminal CIDRs, tightened overview metric layout, moved overview range controls into the topbar, deployed updated panel to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c65d7fb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
