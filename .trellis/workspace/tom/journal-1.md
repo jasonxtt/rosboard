@@ -862,3 +862,36 @@ Reworked the root README into a Chinese-first project landing page, validated ba
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Expand panel monitoring capabilities
+
+**Date**: 2026-07-27
+**Task**: Expand panel monitoring capabilities
+**Branch**: `main`
+
+### Summary
+
+Added multi-device RouterOS monitoring, shared dashboard time ranges with persisted connection history, route attribution, configurable collection and themes, restart recovery, responsive UI verification, and deployment to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3dfb645` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
