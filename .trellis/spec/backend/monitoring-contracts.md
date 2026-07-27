@@ -162,6 +162,7 @@ go runBackgroundSchedule(ctx)
 
 - Every enabled address assigned to RouterOS is an exact self identity, including WAN, tunnel, link-local, and loopback addresses.
 - WAN/tunnel address prefixes are not terminal CIDRs. Only the exact assigned router address can identify self traffic.
+- Terminal CIDRs scope terminal discovery as well as conntrack attribution: DHCP leases, ARP entries, and IPv6 neighbors outside the local CIDR set must not create non-router terminal rows. RouterOS self addresses remain exact identities even when their prefixes are outside terminal CIDRs.
 - Original-source LAN terminal ownership wins when both connection endpoints are local; otherwise an exact RouterOS source/reply-source may own the connection.
 - All assigned RouterOS addresses merge into `routeros:self`; preferred list addresses come from the `lan` interface when available.
 - `familyStats.<family>` contains current connection count/rates plus bytes accumulated by currently active conntrack rows. It is not the persisted all-time total.
@@ -210,6 +211,7 @@ go runBackgroundSchedule(ctx)
 
 - Unit: exact router WAN address is oriented as RouterOS self with reply-side upload/download direction.
 - Unit: another address in the WAN prefix is rejected.
+- Unit: DHCP/ARP/IPv6-neighbor discovery outside terminal CIDRs is rejected for non-router terminals while exact RouterOS self remains visible.
 - Unit: LAN original-source ownership is not stolen by a router reply-source address.
 - Unit: all textual forms of assigned router addresses resolve to `routeros:self`; disabled addresses do not.
 - Unit: connected LAN device count excludes RouterOS self, offline, WAN, and selected traffic-interface terminals while retaining online unknown-interface terminals.
