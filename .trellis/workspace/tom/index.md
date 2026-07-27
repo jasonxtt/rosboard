@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 30
+- **Total Sessions**: 31
 - **Last Active**: 2026-07-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~997 | Active |
+| `journal-1.md` | ~1030 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 31 | 2026-07-27 | Remove overview metric details | `5aeaba5` | `main` |
 | 30 | 2026-07-27 | Overview metric detail layout | `ccb17cd` | `main` |
 | 29 | 2026-07-27 | Terminal CIDR overview layout | `c65d7fb` | `main` |
 | 28 | 2026-07-27 | Device management collection settings | `0083989`, `ac044b2` | `main` |

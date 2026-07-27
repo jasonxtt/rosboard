@@ -995,3 +995,36 @@ Changed overview metric details to two-line compact labels, widened metric spark
 ### Next Steps
 
 - None - task complete
+
+
+## Session 31: Remove overview metric details
+
+**Date**: 2026-07-27
+**Task**: Remove overview metric details
+**Branch**: `main`
+
+### Summary
+
+Removed small detail text from memory, online terminal, and active connection overview cards while keeping CPU detail, rebuilt, and deployed the panel to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5aeaba5` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
