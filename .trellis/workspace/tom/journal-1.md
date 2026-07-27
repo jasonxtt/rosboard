@@ -1160,3 +1160,36 @@ Removed redundant outbound-line and flag fields, split route attribution into so
 ### Next Steps
 
 - None - task complete
+
+
+## Session 36: Clean panel settings copy
+
+**Date**: 2026-07-27
+**Task**: Clean panel settings copy
+**Branch**: `main`
+
+### Summary
+
+Removed redundant panel settings helper text, simplified maintenance settings for multi-device use, masked device passwords in settings export, added immediate unsaved theme preview, rebuilt and deployed to 10.0.0.6 before commit.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `99f6ce5` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
