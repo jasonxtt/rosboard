@@ -120,14 +120,17 @@ const showingInactive = stateFilter !== 'online'
 
 ### 2. Signatures
 
-- Sections: `connection | collection | ui | maintenance` under the first-level `面板设置` item.
+- Sections: `connection | collection | ui | maintenance` under the first-level `面板设置` item; user-facing `connection` label is `设备管理`.
 - Connection password control: password input plus `显示 RouterOS 密码` / `隐藏 RouterOS 密码` icon button.
 - Browser preference key: `rosboard:panel-preferences`.
 
 ### 3. Contracts
 
 - Settings section navigation stays in the left sidebar and follows the existing status-monitor submenu pattern.
-- Desktop connection and UI forms use three equal columns. Collection numeric controls use four equal columns, followed by two half-width list fields. Do not render sparse two-column setting-card rows.
+- Desktop device-management and UI forms use three equal columns. Collection numeric controls use four equal columns and does not include per-device interface/CIDR fields. Do not render sparse two-column setting-card rows.
+- Device management is the only UI section that edits per-device RouterOS connection, `采集接口`, and terminal CIDRs. It must make the selected device scope obvious.
+- `采集接口` uses picker-style checkbox cards, retaining configured interfaces that are missing from the latest live interface list.
+- Terminal CIDR suggestions may be derived from the selected device's RouterOS interface addresses, but must be presented as operator-reviewed candidates instead of automatic LAN truth. Keep manual CIDR entry available.
 - At widths below 768px, every settings grid becomes one column and controls are at least 44px high without document-level horizontal overflow.
 - Passwords use `type=password` by default. The eye icon has a tooltip, `aria-label`, and `aria-pressed`; it may reveal the current value only after an explicit click.
 - UI preferences edit a draft and persist only when `保存界面设置` is submitted.
@@ -143,9 +146,9 @@ const showingInactive = stateFilter !== 'online'
 
 ### 5. Good/Base/Bad Cases
 
-- Good: 1280px collection layout renders four interval fields on row one and two equal list fields on row two.
+- Good: 1280px collection layout renders four interval fields only; device-specific `采集接口` and terminal CIDR controls appear under `设备管理`.
 - Good: password appears as bullets, becomes text after the eye click, and returns to bullets after the next click.
-- Base: an empty interface/CIDR list renders an empty textarea and saves as `[]`.
+- Base: an empty per-device interface/CIDR list renders empty picker/manual controls and saves as `[]` through device APIs.
 - Bad: render each field as a card inside the settings panel or leave half of each desktop row empty.
 - Bad: export a JSON payload containing the real RouterOS password.
 

@@ -91,11 +91,12 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 
 - API: `GET /api/settings`.
 - API: `POST /api/settings/connection` with `{ "scheme": "http" | "https", "host": string, "port": number, "username": string, "password": string }`.
-- API: `POST /api/settings/collection` with positive numeric `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`, plus string-array `trafficInterfaces` and `terminalCidrs`.
+- API: `POST /api/settings/collection` with positive numeric `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`.
+- API: `/api/devices` and `/api/devices/{id}` own per-device RouterOS REST fields, `trafficInterfaces`, and `terminalCidrs`.
 - API: `POST /api/settings/restart` with no request body.
 - Response root fields: `connection`, `collection`, and `diagnostics`.
 - Connection fields: `apiBasePath`, `configured`, `listenAddress`, `allowedCidrs`, `routerosBaseUrl`, `routerosScheme`, `routerosHost`, `routerosPort`, `routerosUsername`, `routerosPassword`, `routerosPasswordSet`.
-- Collection fields: `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, `sampleRetentionHours`, `trafficInterfaces`, `terminalCidrs`.
+- Collection fields: `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`.
 - Diagnostics fields: `routerName`, `version`, `updatedAt`.
 - Browser preference storage key: `rosboard:panel-preferences`.
 
@@ -109,7 +110,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - The password input masks `routerosPassword` by default. The eye control only changes the input type in the browser; exported settings replace the value with `********` when a password is set.
 - Slice fields such as `allowedCidrs`, `trafficInterfaces`, and `terminalCidrs` serialize as arrays. Empty values serialize as `[]`, not `null`.
 - `POST /api/settings/connection` writes `routeros.base_url`, `routeros.username`, and `routeros.password` to `Config.Path`, then schedules process exit. Under `Restart=always`, systemd starts a new process with the saved config.
-- `POST /api/settings/collection` trims list entries, drops blanks and duplicates, writes all collection fields to `Config.Path`, and schedules the same restart. Serialize writes under `cfgMu` so simultaneous connection and collection saves cannot overwrite one another.
+- `POST /api/settings/collection` writes only process-global collection intervals and retention to `Config.Path`, then schedules the same restart. It must not mutate any `devices[].routeros.traffic_interfaces` or `devices[].routeros.terminal_cidrs` values; those fields are saved only through device APIs. Serialize writes under `cfgMu` so simultaneous settings saves cannot overwrite one another.
 - `POST /api/settings/restart` schedules the injected restart callback without changing YAML. It is available only when the runtime provides that callback.
 - Start the HTTP server without waiting for the first RouterOS full refresh. The monitor manager initializes in the background so restart downtime is limited to the process supervisor delay.
 - Dashboard snapshots serialize empty collections and terminal scope summaries as `[]` and `{}`, never `null`, including the interval before the first successful refresh.
@@ -127,7 +128,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - Any collection interval or retention value at or below zero -> HTTP 400.
 - Restart callback unavailable -> HTTP 503.
 - Missing or placeholder RouterOS values -> `configured=false`; setup page renders.
-- Empty configured CIDR/interface lists -> response array is empty.
+- Empty configured per-device CIDR/interface lists -> device response arrays are empty.
 - Request from a disallowed CIDR -> existing API allowlist returns HTTP 403 before the settings handler.
 - Invalid browser-local preference JSON -> frontend falls back to product defaults.
 
@@ -135,7 +136,8 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 
 - Good: first install starts with a missing config file, displays RouterOS IP/port/user/password setup, saves YAML, exits, and systemd restarts into active monitoring.
 - Good: editing an existing connection saves `https://10.0.0.6:443`, username, and password, then restarts once.
-- Good: collection input `[' ether1 ', 'ether1', '']` persists as `['ether1']` and restarts the collectors.
+- Good: collection interval edits preserve every device's existing `traffic_interfaces` and `terminal_cidrs`.
+- Good: device input `[' ether1 ', 'ether1', '']` persists as `['ether1']` on that device and restarts the collectors.
 - Base: `terminal_cidrs: []` in YAML or omitted terminal CIDRs render as an empty array in JSON and `-` in the UI.
 - Bad: tell users to use port `8728` for this panel; that is classic RouterOS API, not REST.
 - Bad: save settings but keep the old RouterOS client running indefinitely.
@@ -145,7 +147,8 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 
 - API: `GET /api/settings` returns effective config values and HTTP 200 for an allowed loopback request.
 - API: `POST /api/settings/connection` validates scheme/host/port/user/password and writes the expected YAML fields.
-- API: `POST /api/settings/collection` persists positive values, trims/de-duplicates lists, and rejects zero values.
+- API: `POST /api/settings/collection` persists positive global values, preserves device interface/CIDR values, and rejects zero values.
+- API: device create/update persists trimmed/de-duplicated `trafficInterfaces` and `terminalCidrs` per device.
 - API: `POST /api/settings/restart` invokes the injected callback after returning HTTP 200.
 - Concurrency: `go test -race ./internal/api` passes for the settings server.
 - Config: missing config path loads setup defaults and keeps `Config.Path` for the first save.
