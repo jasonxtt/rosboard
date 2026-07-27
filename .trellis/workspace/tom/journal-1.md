@@ -895,3 +895,37 @@ Added multi-device RouterOS monitoring, shared dashboard time ranges with persis
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: Device management collection settings
+
+**Date**: 2026-07-27
+**Task**: Device management collection settings
+**Branch**: `main`
+
+### Summary
+
+Moved collection interface and terminal CIDR settings into per-device management, clarified device-scoped contracts, and unified restart waiting for settings/device saves.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0083989` | (see git log) |
+| `ac044b2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
