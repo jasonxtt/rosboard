@@ -283,7 +283,7 @@ data hierarchy below:
 - Primary metric values remain 23px.
 - Metric details and footers are 12px; live upload/download values are 13px.
 - When metric details share a row with sparklines, prefer short two-line detail copy over a single long slash-delimited line so labels do not squeeze the chart or ellipsize.
-- Mini sparklines inside metric cards should use a content-sized value column plus a flexible chart column. Set SVG `preserveAspectRatio="none"` with non-scaling strokes so the line fills the available width instead of being centered with large side gutters.
+- Mini sparklines inside metric cards should use a content-sized value column plus a flexible chart column. Set SVG `preserveAspectRatio="none"` with non-scaling strokes so the line fills the available width instead of being centered with large side gutters; keep a modest, balanced chart inset when full-width lines feel too close to the card edges.
 - ECharts axis labels are 12px and tooltips are 13px. When increasing axis
   text, also increase the chart grid's left and bottom margins so labels are
   not clipped by the Canvas boundary.
