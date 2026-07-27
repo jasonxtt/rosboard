@@ -146,8 +146,6 @@ export type SettingsResponse = {
     realtimePollIntervalSeconds: number
     terminalPollIntervalSeconds: number
     sampleRetentionHours: number
-    trafficInterfaces: string[]
-    terminalCidrs: string[]
   }
   diagnostics: {
     routerName: string

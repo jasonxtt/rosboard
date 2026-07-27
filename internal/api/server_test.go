@@ -84,12 +84,10 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 			RouterOSPasswordSet bool     `json:"routerosPasswordSet"`
 		} `json:"connection"`
 		Collection struct {
-			PollIntervalSeconds         int      `json:"pollIntervalSeconds"`
-			RealtimePollIntervalSeconds int      `json:"realtimePollIntervalSeconds"`
-			TerminalPollIntervalSeconds int      `json:"terminalPollIntervalSeconds"`
-			SampleRetentionHours        int      `json:"sampleRetentionHours"`
-			TrafficInterfaces           []string `json:"trafficInterfaces"`
-			TerminalCIDRs               []string `json:"terminalCidrs"`
+			PollIntervalSeconds         int `json:"pollIntervalSeconds"`
+			RealtimePollIntervalSeconds int `json:"realtimePollIntervalSeconds"`
+			TerminalPollIntervalSeconds int `json:"terminalPollIntervalSeconds"`
+			SampleRetentionHours        int `json:"sampleRetentionHours"`
 		} `json:"collection"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
@@ -115,12 +113,6 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		payload.Collection.TerminalPollIntervalSeconds != cfg.TerminalPollIntervalSeconds ||
 		payload.Collection.SampleRetentionHours != cfg.SampleRetentionHours {
 		t.Fatalf("unexpected collection settings: %+v", payload.Collection)
-	}
-	if len(payload.Collection.TrafficInterfaces) != 1 || payload.Collection.TrafficInterfaces[0] != "pppoe-out1" {
-		t.Fatalf("unexpected traffic interfaces: %+v", payload.Collection.TrafficInterfaces)
-	}
-	if payload.Collection.TerminalCIDRs == nil || len(payload.Collection.TerminalCIDRs) != 0 {
-		t.Fatalf("unexpected terminal cidrs: %+v", payload.Collection.TerminalCIDRs)
 	}
 }
 
@@ -167,6 +159,18 @@ func TestCollectionSettingsPostSavesConfig(t *testing.T) {
 		RealtimePollIntervalSeconds: 1,
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
+		Devices: []config.DeviceConfig{{
+			ID:      "edge",
+			Name:    "Edge",
+			Enabled: true,
+			RouterOS: config.RouterOSConfig{
+				BaseURL:           "http://10.0.0.1:80",
+				Username:          "admin",
+				Password:          "secret",
+				TrafficInterfaces: []string{"pppoe-out1"},
+				TerminalCIDRs:     []string{"10.0.0.0/24"},
+			},
+		}},
 	}
 	server := NewServer(cfg, nil, nil)
 
@@ -196,15 +200,25 @@ func TestCollectionSettingsPostSavesConfig(t *testing.T) {
 		"terminal_poll_interval_seconds: 5",
 		"sample_retention_hours: 72",
 		"- pppoe-out1",
-		"- ether1",
 		"- 10.0.0.0/24",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("saved config missing %q:\n%s", expected, text)
 		}
 	}
-	if strings.Count(text, "- ether1") != 1 {
-		t.Fatalf("saved config did not de-duplicate interfaces:\n%s", text)
+	if strings.Count(text, "- ether1") != 0 {
+		t.Fatalf("collection save should not persist submitted per-device interface values:\n%s", text)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, ok := loaded.Device("edge")
+	if !ok {
+		t.Fatal("device was not preserved")
+	}
+	if strings.Join(device.RouterOS.TrafficInterfaces, ",") != "pppoe-out1" || strings.Join(device.RouterOS.TerminalCIDRs, ",") != "10.0.0.0/24" {
+		t.Fatalf("collection save mutated device scopes: %#v", device.RouterOS)
 	}
 }
 
