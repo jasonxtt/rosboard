@@ -1061,3 +1061,36 @@ Changed metric-card sparkline layout to preserve value width while letting spark
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: Inset overview sparklines
+
+**Date**: 2026-07-27
+**Task**: Inset overview sparklines
+**Branch**: `main`
+
+### Summary
+
+Added balanced horizontal inset to overview mini sparklines while preserving content-sized metric values, rebuilt, and deployed the panel to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cbb7ff9` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
