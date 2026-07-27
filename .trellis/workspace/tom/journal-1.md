@@ -1094,3 +1094,36 @@ Added balanced horizontal inset to overview mini sparklines while preserving con
 ### Next Steps
 
 - None - task complete
+
+
+## Session 34: Overview chart composition and hover details
+
+**Date**: 2026-07-27
+**Task**: Overview chart composition and hover details
+**Branch**: `main`
+
+### Summary
+
+Added three-part terminal and connection composition bars with compact title legends, hover details for all overview sparklines, reliable backend composition counts, responsive and live deployment verification, deployed to 10.0.0.6 with rollback backup, and established the remote manual-acceptance gate before future program commits.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `24f9bee` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
