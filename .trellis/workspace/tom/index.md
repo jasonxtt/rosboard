@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 34
+- **Total Sessions**: 35
 - **Last Active**: 2026-07-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1129 | Active |
+| `journal-1.md` | ~1162 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 35 | 2026-07-27 | Simplify connection routing columns | `3524a93` | `main` |
 | 34 | 2026-07-27 | Overview chart composition and hover details | `24f9bee` | `main` |
 | 33 | 2026-07-27 | Inset overview sparklines | `cbb7ff9` | `main` |
 | 32 | 2026-07-27 | Flexible overview sparklines | `71cb5f6` | `main` |

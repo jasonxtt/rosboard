@@ -1127,3 +1127,36 @@ Added three-part terminal and connection composition bars with compact title leg
 ### Next Steps
 
 - None - task complete
+
+
+## Session 35: Simplify connection routing columns
+
+**Date**: 2026-07-27
+**Task**: Simplify connection routing columns
+**Branch**: `main`
+
+### Summary
+
+Removed redundant outbound-line and flag fields, split route attribution into sortable/filterable route-table and next-hop-gateway columns, preserved RouterOS self status, verified desktop/mobile behavior, and deployed to 10.0.0.6 before commit.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3524a93` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
