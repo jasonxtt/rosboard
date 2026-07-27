@@ -38,6 +38,7 @@ const showingInactive = stateFilter !== 'online'
 ### 3. Contracts
 
 - Terminal mobile controls form a five-column, two-row grid. Search spans the first four columns and the result count occupies the fifth; state, interface, non-online, refresh-period, and manual-refresh controls occupy the second row. Every interactive control is exactly 44px high, and mobile-only short text keeps narrow controls readable.
+- Clicking the second-level `终端监控` sidebar item opens the terminal list itself, sets the family scope to `all`, and visually exposes the nested `全部终端` / `IPv4` / `IPv6` choices. The nested choices still switch scope directly.
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
 - Family, application, protocol, line, local endpoint, destination endpoint, flags, and status filters open from their column headers. Active filters use both blue styling and accessible state/labels.
@@ -281,6 +282,7 @@ data hierarchy below:
 
 - Primary metric values remain 23px.
 - Metric details and footers are 12px; live upload/download values are 13px.
+- When metric details share a row with sparklines, prefer short two-line detail copy over a single long slash-delimited line so labels do not squeeze the chart or ellipsize.
 - ECharts axis labels are 12px and tooltips are 13px. When increasing axis
   text, also increase the chart grid's left and bottom margins so labels are
   not clipped by the Canvas boundary.
