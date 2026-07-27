@@ -380,3 +380,62 @@ overflow.
 - Theme choices use visible light/dark swatches, radio semantics, and a clear selected state.
 - Reloading preserves the saved theme. Older preference payloads without `theme` migrate to `light`.
 - Switching themes must keep form controls, topbar controls, tables, status text, and charts legible.
+
+## Scenario: Overview metric-card composition and hover details
+
+### 1. Scope / Trigger
+
+- Trigger: changes to overview `MetricCard`, `MiniSparkline`, current composition bars, title legends, or Overview composition payload fields.
+
+### 2. Signatures
+
+- Historical point: `MetricSample { timestamp: string; value: number }`.
+- Current composition item: `{ label: string; value: number }`.
+- Payloads: `overview.terminalStateCounts.{online,inactive,offline}` and `overview.connectionProtocolCounts.{tcp,udp,other}`.
+
+### 3. Contracts
+
+- CPU, memory, online-terminal, and active-connection sparklines receive timestamps from the same `LoadSample` rows as their values. Hover selects the nearest horizontal sample and shows `HH:mm:ss` plus the metric-formatted value.
+- Online-terminal and active-connection cards render a three-item color-dot legend in the existing title row, a three-segment current-composition bar, and unchanged historical average/peak footers.
+- Legends explain category names only. Segment hover/focus supplies current count and one-decimal percentage; zero-value categories stay in the legend but do not create zero-width interaction targets.
+- Keep the visible bar 4px high but provide a 12px pointer/focus hit area without increasing the card's total vertical allocation.
+- CPU/memory retain the existing single-color percentage bars. Composition colors always have adjacent text or accessible labels; color is not the only cue.
+
+### 4. Validation & Error Matrix
+
+- No historical samples -> create one point from the live Overview value and `updatedAt`.
+- Legacy negative connection sample -> omit it before building the connection sparkline.
+- Missing composition object -> terminal fallback preserves the live online count; connection fallback treats the current total as unknown/other rather than inventing TCP/UDP.
+- Composition total zero -> show an empty neutral track with `暂无构成数据` semantics.
+- Pointer at a chart edge -> clamp the selected sample and flip/clamp the tooltip so it remains inside the card region.
+
+### 5. Good/Base/Bad Cases
+
+- Good: title legend, four-pixel bar, and average/peak footer remain distinct visual layers; 375px and 1440px layouts have no overflow.
+- Base: a one-point fallback sparkline still exposes its current time and value on hover.
+- Bad: add a second legend row below the bar, replace average/peak with composition counts, or instantiate four ECharts canvases for the tiny sparklines.
+
+### 6. Tests Required
+
+- Frontend: oxlint, TypeScript/Vite production build, and dependency audit pass.
+- Browser: all four sparklines show time/value details; composition segments show count/percentage by pointer and keyboard focus; console has no warnings/errors during refresh.
+- Responsive: at 375, 768, 1024, and 1440px the title legend does not wrap/overflow, all cards have equal height, and document horizontal overflow is zero.
+- Theme: legend dots, bars, focus rings, and tooltips remain legible in light and dark themes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+<MetricCard footerLeft="TCP 165" footerRight="UDP 123" />
+```
+
+#### Correct
+
+```tsx
+<MetricCard
+  composition={[{ label: 'TCP', value: counts.tcp }, { label: 'UDP', value: counts.udp }, { label: '其他', value: counts.other }]}
+  footerLeft={`平均 ${average(values)}`}
+  footerRight={`峰值 ${maximum(values)}`}
+/>
+```

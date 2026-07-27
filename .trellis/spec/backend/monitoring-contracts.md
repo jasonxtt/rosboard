@@ -330,6 +330,59 @@ const summary = aggregate(filteredTerminals)
 const summary = dashboard.terminalScopeSummaries[terminalFamily]
 ```
 
+## Scenario: Overview composition counts
+
+### 1. Scope / Trigger
+
+- Trigger: changes to overview terminal-state composition, connection-protocol composition, terminal/full refresh projections, or the metric-card composition bars.
+
+### 2. Signatures
+
+- `Overview.TerminalStateCounts` serializes as `terminalStateCounts: { online, inactive, offline }`.
+- `Overview.ConnectionProtocolCounts` serializes as `connectionProtocolCounts: { tcp, udp, other }`.
+- Service projections: `terminalStateCounts(terminals, trafficInterfaces)` and `connectionProtocolCounts(connectionsV4, connectionsV6)`.
+
+### 3. Contracts
+
+- Terminal-state counts use the same LAN scope as `connectedDeviceCount`: exclude `routeros:self`, selected traffic interfaces, loopback, and WAN-like interfaces; retain unknown-interface terminals. Unlike `connectedDeviceCount`, the composition includes all three presence states. `terminalStateCounts.online == connectedDeviceCount` for the same snapshot.
+- Protocol counts traverse the raw IPv4 and IPv6 conntrack arrays. Case-insensitive `tcp` and `udp` map to their named buckets; every other or empty protocol maps to `other`.
+- `tcp + udp + other == connectionCount`. Never derive protocol composition from `ProtocolStat`, terminal attribution, or application categories because those projections intentionally have different grouping/scope.
+- Full and terminal-only refreshes update the two totals and both compositions under the same snapshot lock.
+
+### 4. Validation & Error Matrix
+
+- Empty terminal/connection inputs -> all six count fields are zero.
+- Inactive/offline LAN terminal -> included only in its state bucket, never in `connectedDeviceCount`.
+- Unknown connection protocol -> counted under `other`, never dropped.
+- Missing composition fields from an older server during rolling delivery -> frontend uses explicit zero/unknown fallbacks; backend does not infer historical composition.
+
+### 5. Good/Base/Bad Cases
+
+- Good: 20 online, 1 inactive, and 13 offline eligible LAN terminals produce `20/1/13`, while `connectedDeviceCount` remains 20.
+- Base: 165 TCP, 123 UDP, and 2 ICMP rows produce `165/123/2` and `connectionCount=290`.
+- Bad: sum application-level `ProtocolStat.Kind` values; one application bucket can contain connections whose original protocols differ.
+
+### 6. Tests Required
+
+- Unit: terminal composition excludes self/WAN/selected interfaces, retains unknown interfaces, covers three states, and asserts `online == connectedLANDeviceCount(...)`.
+- Unit: mixed-case TCP/UDP plus ICMP/empty values assert exact buckets and total equality with both raw conntrack slices.
+- Browser/API: the two composition sums match their displayed overview totals at one terminal refresh snapshot.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+counts := connectionProtocolCountsFromProtocolStats(snapshot.Protocols)
+```
+
+#### Correct
+
+```go
+counts := connectionProtocolCounts(connectionsV4, connectionsV6)
+states := terminalStateCounts(terminals, trafficInterfaces)
+```
+
 ## Scenario: Editable terminal metadata
 
 ### 1. Scope / Trigger

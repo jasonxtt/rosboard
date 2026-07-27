@@ -19,3 +19,15 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+## Deployment acceptance gate
+
+For every change that modifies the runnable program:
+
+1. Finish automated checks and local visual/runtime verification.
+2. Deploy the verified build to `10.0.0.6`, preserving a timestamped backup of the existing binary, configuration, and SQLite data before replacement.
+3. Verify the remote systemd service, health endpoint, affected API contracts, and embedded frontend assets.
+4. Wait for the user to manually inspect the deployed instance and explicitly approve it.
+5. Only after that approval, create the work commit and continue with Trellis task archival/session recording.
+
+Do not commit program changes before the remote manual-acceptance gate. Documentation-only or planning-only changes do not require deployment.

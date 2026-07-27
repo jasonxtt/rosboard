@@ -326,6 +326,8 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 	m.snapshot.Protocols = protocols
 	m.snapshot.Overview.ConnectedDeviceCount = connectedLANDeviceCount(terminals, trafficInterfaces)
 	m.snapshot.Overview.ConnectionCount = len(connectionsV4) + len(connectionsV6)
+	m.snapshot.Overview.TerminalStateCounts = terminalStateCounts(terminals, trafficInterfaces)
+	m.snapshot.Overview.ConnectionProtocolCounts = connectionProtocolCounts(connectionsV4, connectionsV6)
 	m.terminalDetails = details
 	m.mu.Unlock()
 	return nil
@@ -734,6 +736,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
 	connectedDevices := connectedLANDeviceCount(terminals, trafficInterfaces)
 	connectionCount := len(connectionsV4) + len(connectionsV6)
+	terminalStates := terminalStateCounts(terminals, trafficInterfaces)
+	connectionProtocols := connectionProtocolCounts(connectionsV4, connectionsV6)
 	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, ConnectionCount: connectionCount, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
 		return err
 	}
@@ -760,26 +764,28 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	snapshot := model.DashboardSnapshot{
 		Overview: model.Overview{
-			RouterName:           resource.BoardName,
-			Platform:             resource.Platform,
-			Version:              resource.Version,
-			BoardName:            resource.BoardName,
-			Uptime:               formatRouterOSUptime(resource.Uptime),
-			CPULoadPercent:       parseInt(resource.CPULoad),
-			MemoryUsedPercent:    memoryPercent,
-			MemoryUsedBytes:      parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
-			MemoryTotalBytes:     parseInt(resource.TotalMemory),
-			StorageUsedPercent:   storagePercent,
-			StorageUsedBytes:     parseInt(resource.TotalHDD) - parseInt(resource.FreeHDD),
-			StorageTotalBytes:    parseInt(resource.TotalHDD),
-			ConnectedDeviceCount: connectedDevices,
-			ConnectionCount:      connectionCount,
-			UploadBps:            uploadBps,
-			DownloadBps:          downloadBps,
-			TrafficInterfaces:    trafficInterfaces,
-			HealthEnabled:        strings.EqualFold(health.State, "enabled"),
-			UpdatedAt:            now,
-			ChartSamples:         chartSamples,
+			RouterName:               resource.BoardName,
+			Platform:                 resource.Platform,
+			Version:                  resource.Version,
+			BoardName:                resource.BoardName,
+			Uptime:                   formatRouterOSUptime(resource.Uptime),
+			CPULoadPercent:           parseInt(resource.CPULoad),
+			MemoryUsedPercent:        memoryPercent,
+			MemoryUsedBytes:          parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
+			MemoryTotalBytes:         parseInt(resource.TotalMemory),
+			StorageUsedPercent:       storagePercent,
+			StorageUsedBytes:         parseInt(resource.TotalHDD) - parseInt(resource.FreeHDD),
+			StorageTotalBytes:        parseInt(resource.TotalHDD),
+			ConnectedDeviceCount:     connectedDevices,
+			ConnectionCount:          connectionCount,
+			TerminalStateCounts:      terminalStates,
+			ConnectionProtocolCounts: connectionProtocols,
+			UploadBps:                uploadBps,
+			DownloadBps:              downloadBps,
+			TrafficInterfaces:        trafficInterfaces,
+			HealthEnabled:            strings.EqualFold(health.State, "enabled"),
+			UpdatedAt:                now,
+			ChartSamples:             chartSamples,
 		},
 		Interfaces:             interfaceStatuses,
 		Terminals:              terminals,
@@ -1698,10 +1704,51 @@ func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []str
 }
 
 func connectedLANTerminal(terminal model.Terminal, trafficSet map[string]struct{}) bool {
-	if terminal.ID == routerTerminalID || terminal.State != "online" {
-		return false
+	return terminal.State == "online" && scopedLANTerminal(terminal, trafficSet)
+}
+
+func scopedLANTerminal(terminal model.Terminal, trafficSet map[string]struct{}) bool {
+	return terminal.ID != routerTerminalID && (terminal.PrimaryInterface == "" || !excludedTerminalInterface(terminal.PrimaryInterface, trafficSet))
+}
+
+func terminalStateCounts(terminals []model.Terminal, trafficInterfaces []string) model.TerminalStateCounts {
+	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
+	for _, name := range trafficInterfaces {
+		trafficSet[strings.TrimSpace(name)] = struct{}{}
 	}
-	return terminal.PrimaryInterface == "" || !excludedTerminalInterface(terminal.PrimaryInterface, trafficSet)
+
+	counts := model.TerminalStateCounts{}
+	for _, terminal := range terminals {
+		if !scopedLANTerminal(terminal, trafficSet) {
+			continue
+		}
+		switch terminal.State {
+		case "online":
+			counts.Online++
+		case "inactive":
+			counts.Inactive++
+		case "offline":
+			counts.Offline++
+		}
+	}
+	return counts
+}
+
+func connectionProtocolCounts(groups ...[]routeros.FirewallConnection) model.ConnectionProtocolCounts {
+	counts := model.ConnectionProtocolCounts{}
+	for _, connections := range groups {
+		for _, connection := range connections {
+			switch strings.ToLower(strings.TrimSpace(connection.Protocol)) {
+			case "tcp":
+				counts.TCP++
+			case "udp":
+				counts.UDP++
+			default:
+				counts.Other++
+			}
+		}
+	}
+	return counts
 }
 
 func terminalScopeSummaries(terminals []model.Terminal, trafficInterfaces []string) map[string]model.TerminalScopeSummary {

@@ -26,6 +26,8 @@ export type Overview = {
   storageTotalBytes: number
   connectedDeviceCount: number
   connectionCount: number
+  terminalStateCounts: { online: number; inactive: number; offline: number }
+  connectionProtocolCounts: { tcp: number; udp: number; other: number }
   uploadBps: number
   downloadBps: number
   trafficInterfaces: string[]

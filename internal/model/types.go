@@ -3,26 +3,40 @@ package model
 import "time"
 
 type Overview struct {
-	RouterName           string       `json:"routerName"`
-	Platform             string       `json:"platform"`
-	Version              string       `json:"version"`
-	BoardName            string       `json:"boardName"`
-	Uptime               string       `json:"uptime"`
-	CPULoadPercent       int64        `json:"cpuLoadPercent"`
-	MemoryUsedPercent    float64      `json:"memoryUsedPercent"`
-	MemoryUsedBytes      int64        `json:"memoryUsedBytes"`
-	MemoryTotalBytes     int64        `json:"memoryTotalBytes"`
-	StorageUsedPercent   float64      `json:"storageUsedPercent"`
-	StorageUsedBytes     int64        `json:"storageUsedBytes"`
-	StorageTotalBytes    int64        `json:"storageTotalBytes"`
-	ConnectedDeviceCount int          `json:"connectedDeviceCount"`
-	ConnectionCount      int          `json:"connectionCount"`
-	UploadBps            float64      `json:"uploadBps"`
-	DownloadBps          float64      `json:"downloadBps"`
-	TrafficInterfaces    []string     `json:"trafficInterfaces"`
-	HealthEnabled        bool         `json:"healthEnabled"`
-	UpdatedAt            time.Time    `json:"updatedAt"`
-	ChartSamples         []RateSample `json:"chartSamples"`
+	RouterName               string                   `json:"routerName"`
+	Platform                 string                   `json:"platform"`
+	Version                  string                   `json:"version"`
+	BoardName                string                   `json:"boardName"`
+	Uptime                   string                   `json:"uptime"`
+	CPULoadPercent           int64                    `json:"cpuLoadPercent"`
+	MemoryUsedPercent        float64                  `json:"memoryUsedPercent"`
+	MemoryUsedBytes          int64                    `json:"memoryUsedBytes"`
+	MemoryTotalBytes         int64                    `json:"memoryTotalBytes"`
+	StorageUsedPercent       float64                  `json:"storageUsedPercent"`
+	StorageUsedBytes         int64                    `json:"storageUsedBytes"`
+	StorageTotalBytes        int64                    `json:"storageTotalBytes"`
+	ConnectedDeviceCount     int                      `json:"connectedDeviceCount"`
+	ConnectionCount          int                      `json:"connectionCount"`
+	TerminalStateCounts      TerminalStateCounts      `json:"terminalStateCounts"`
+	ConnectionProtocolCounts ConnectionProtocolCounts `json:"connectionProtocolCounts"`
+	UploadBps                float64                  `json:"uploadBps"`
+	DownloadBps              float64                  `json:"downloadBps"`
+	TrafficInterfaces        []string                 `json:"trafficInterfaces"`
+	HealthEnabled            bool                     `json:"healthEnabled"`
+	UpdatedAt                time.Time                `json:"updatedAt"`
+	ChartSamples             []RateSample             `json:"chartSamples"`
+}
+
+type TerminalStateCounts struct {
+	Online   int `json:"online"`
+	Inactive int `json:"inactive"`
+	Offline  int `json:"offline"`
+}
+
+type ConnectionProtocolCounts struct {
+	TCP   int `json:"tcp"`
+	UDP   int `json:"udp"`
+	Other int `json:"other"`
 }
 
 type RateSample struct {

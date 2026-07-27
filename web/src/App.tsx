@@ -1337,11 +1337,17 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   const interfaces = props.dashboard.interfaces ?? []
   const alerts = props.dashboard.alerts ?? []
   const samples = props.loadSamples ?? []
-  const cpuValues = samples.length ? samples.map((item) => item.cpuLoadPercent) : [overview.cpuLoadPercent]
-  const memoryValues = samples.length ? samples.map((item) => item.memoryUsedPercent) : [overview.memoryUsedPercent]
-  const terminalValues = samples.length ? samples.map((item) => item.onlineTerminalCount) : [overview.connectedDeviceCount]
-  const sampledConnections = samples.map((item) => item.connectionCount).filter((value) => value >= 0)
-  const connectionValues = sampledConnections.length ? sampledConnections : [overview.connectionCount]
+  const cpuSamples = samples.length ? samples.map((item) => ({ timestamp: item.timestamp, value: item.cpuLoadPercent })) : [{ timestamp: overview.updatedAt, value: overview.cpuLoadPercent }]
+  const memorySamples = samples.length ? samples.map((item) => ({ timestamp: item.timestamp, value: item.memoryUsedPercent })) : [{ timestamp: overview.updatedAt, value: overview.memoryUsedPercent }]
+  const terminalSamples = samples.length ? samples.map((item) => ({ timestamp: item.timestamp, value: item.onlineTerminalCount })) : [{ timestamp: overview.updatedAt, value: overview.connectedDeviceCount }]
+  const connectionHistory = samples.filter((item) => item.connectionCount >= 0)
+  const connectionSamples = connectionHistory.length ? connectionHistory.map((item) => ({ timestamp: item.timestamp, value: item.connectionCount })) : [{ timestamp: overview.updatedAt, value: overview.connectionCount }]
+  const cpuValues = cpuSamples.map((item) => item.value)
+  const memoryValues = memorySamples.map((item) => item.value)
+  const terminalValues = terminalSamples.map((item) => item.value)
+  const connectionValues = connectionSamples.map((item) => item.value)
+  const terminalStates = overview.terminalStateCounts ?? { online: overview.connectedDeviceCount, inactive: 0, offline: 0 }
+  const connectionProtocols = overview.connectionProtocolCounts ?? { tcp: 0, udp: 0, other: overview.connectionCount }
   const interfaceRows = [...interfaces]
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
@@ -1349,10 +1355,10 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   return (
     <div className="overview-dashboard">
       <section className="reference-metric-grid">
-        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
-        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" values={memoryValues} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
-        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} icon="connections" tone="orange" values={connectionValues} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
+        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" samples={cpuSamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
+        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" samples={memorySamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
+        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} icon="terminal" tone="purple" samples={terminalSamples} formatSample={(value) => `${Math.round(value)} 台`} composition={[{ label: '在线', value: terminalStates.online }, { label: '未活跃', value: terminalStates.inactive }, { label: '离线', value: terminalStates.offline }]} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
+        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} icon="connections" tone="orange" samples={connectionSamples} formatSample={(value) => Math.round(value).toLocaleString()} composition={[{ label: 'TCP', value: connectionProtocols.tcp }, { label: 'UDP', value: connectionProtocols.udp }, { label: '其他', value: connectionProtocols.other }]} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
       </section>
 
       <section className="overview-main-grid">
@@ -1390,15 +1396,56 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   )
 }
 
-function MetricCard(props: { title: string; value: string; detail?: string | string[]; icon: IconName; tone: string; values?: number[]; footerLeft: string; footerRight: string; progress?: number }) {
+type MetricSample = { timestamp: string; value: number }
+type MetricCompositionItem = { label: string; value: number }
+
+function MetricCard(props: { title: string; value: string; detail?: string | string[]; icon: IconName; tone: string; samples: MetricSample[]; formatSample: (value: number) => string; composition?: MetricCompositionItem[]; footerLeft: string; footerRight: string; progress?: number }) {
   const detailLines = props.detail ? (Array.isArray(props.detail) ? props.detail : [props.detail]) : []
-  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong>{detailLines.length ? <small>{detailLines.map((line) => <span key={line}>{line}</span>)}</small> : null}</div></div><div className="metric-card-chart">{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div></div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
+  return <article className={`metric-card metric-${props.tone}`}>
+    <div className="metric-card-heading"><p>{props.title}</p>{props.composition ? <MetricLegend items={props.composition} /> : null}</div>
+    <div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong>{detailLines.length ? <small>{detailLines.map((line) => <span key={line}>{line}</span>)}</small> : null}</div></div><div className="metric-card-chart"><MiniSparkline title={props.title} samples={props.samples} format={props.formatSample} /></div></div>
+    {typeof props.progress === 'number' ? <div className="metric-progress" aria-label={`${props.title} ${Math.min(100, Math.max(0, props.progress)).toFixed(1)}%`}><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : props.composition ? <MetricComposition items={props.composition} /> : null}
+    <footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer>
+  </article>
 }
 
-function MiniSparkline(props: { values: number[] }) {
-  const width = 116; const height = 34; const max = Math.max(1, ...props.values); const min = Math.min(...props.values); const range = Math.max(1, max - min)
-  const points = props.values.map((value, index) => `${index * width / Math.max(1, props.values.length - 1)},${height - 3 - (value - min) / range * (height - 6)}`).join(' ')
-  return <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><polyline points={points} /></svg>
+function MetricLegend(props: { items: MetricCompositionItem[] }) {
+  return <span className="metric-legend" aria-label={props.items.map((item) => item.label).join('、')}>{props.items.map((item, index) => <span key={item.label} className={`metric-part-${index}`}><i />{item.label}</span>)}</span>
+}
+
+function MetricComposition(props: { items: MetricCompositionItem[] }) {
+  const total = props.items.reduce((sum, item) => sum + Math.max(0, item.value), 0)
+  const label = total ? props.items.map((item) => `${item.label} ${item.value}`).join('，') : '暂无构成数据'
+  return <div className={`metric-composition${total ? '' : ' empty'}`} role="img" aria-label={label}>
+    {total ? props.items.map((item, index) => {
+      const value = Math.max(0, item.value)
+      if (!value) return null
+      const percent = value / total * 100
+      return <span key={item.label} className={`metric-composition-part metric-part-${index}`} style={{ width: `${percent}%` }} tabIndex={0} aria-label={`${item.label} ${value.toLocaleString()}，占比 ${percent.toFixed(1)}%`} data-tooltip={`${item.label}：${value.toLocaleString()}（${percent.toFixed(1)}%）`} />
+    }) : null}
+  </div>
+}
+
+function metricSampleTime(timestamp: string) {
+  const date = new Date(timestamp)
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function MiniSparkline(props: { title: string; samples: MetricSample[]; format: (value: number) => string }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const width = 116; const height = 34; const values = props.samples.map((sample) => sample.value); const max = Math.max(1, ...values); const min = Math.min(...values); const range = Math.max(1, max - min)
+  const coordinates = values.map((value, index) => ({ x: index * width / Math.max(1, values.length - 1), y: height - 3 - (value - min) / range * (height - 6) }))
+  const points = coordinates.map((point) => `${point.x},${point.y}`).join(' ')
+  const active = activeIndex === null ? null : coordinates[activeIndex]
+  const sample = activeIndex === null ? null : props.samples[activeIndex]
+  return <div className="mini-sparkline-wrap" role="img" aria-label={`${props.title}历史趋势`} onPointerMove={(event) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const ratio = bounds.width ? (event.clientX - bounds.left) / bounds.width : 0
+    setActiveIndex(Math.max(0, Math.min(props.samples.length - 1, Math.round(ratio * Math.max(0, props.samples.length - 1)))))
+  }} onPointerLeave={() => setActiveIndex(null)}>
+    <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><polyline points={points} />{active ? <line className="mini-sparkline-pointer" x1={active.x} x2={active.x} y1={1} y2={height - 1} /> : null}</svg>
+    {active && sample ? <><i className="mini-sparkline-point" style={{ left: `${active.x / width * 100}%`, top: `${active.y / height * 100}%` }} /><span className={`metric-tooltip${active.x > width / 2 ? ' align-right' : ''}`} style={{ left: `${active.x / width * 100}%` }}><small>时间：{metricSampleTime(sample.timestamp)}</small><strong>{props.title}：{props.format(sample.value)}</strong></span></> : null}
+  </div>
 }
 
 function SystemStatusList(props: { dashboard: DashboardResponse }) {
