@@ -1028,3 +1028,36 @@ Removed small detail text from memory, online terminal, and active connection ov
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Flexible overview sparklines
+
+**Date**: 2026-07-27
+**Task**: Flexible overview sparklines
+**Branch**: `main`
+
+### Summary
+
+Changed metric-card sparkline layout to preserve value width while letting sparklines fill remaining card width, removed SVG aspect-ratio gutters, rebuilt, and deployed to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `71cb5f6` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
