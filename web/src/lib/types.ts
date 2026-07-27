@@ -6,6 +6,7 @@ export type LoadSample = {
   memoryUsedPercent: number
   storageUsedPercent: number
   onlineTerminalCount: number
+  connectionCount: number
   uploadBps: number
   downloadBps: number
 }
@@ -105,7 +106,13 @@ export type CapabilityNote = { area: string; item: string; status: string; detai
 export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean }
 export type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
 export type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
-export type RouteStat = { kind: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean }
+export type RouteStat = { id: string; kind: string; family: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean; currentMatches: number }
+
+export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
+export type SettingsDevice = {
+  id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
+  username: string; password: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]
+}
 
 export type DashboardResponse = {
   overview: Overview
@@ -147,6 +154,7 @@ export type SettingsResponse = {
     version: string
     updatedAt: string
   }
+  devices: SettingsDevice[]
 }
 
 export type AlertEvent = { id: string; level: 'warning' | 'error'; source: string; message: string; timestamp: string }
@@ -170,6 +178,16 @@ export type TerminalConnection = {
   assured: boolean
   publicAddress: string
   connectionMark: string
+  routingMark: string
+  routeTable: string
+  matchedRule: string
+  matchedRuleId: string
+  routeDestination: string
+  routeId: string
+  routeIds: string[]
+  routeGateways: string[]
+  routeMatchBasis: string
+  routeAttribution: string
   estimated: boolean
 }
 

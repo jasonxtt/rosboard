@@ -142,6 +142,12 @@ func (c *Client) IPRoutes(ctx context.Context) ([]IPRoute, error) {
 	return payload, err
 }
 
+func (c *Client) RoutingRoutes(ctx context.Context) ([]RoutingRoute, error) {
+	var payload []RoutingRoute
+	err := c.getJSON(ctx, "/rest/routing/route", &payload)
+	return payload, err
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {

@@ -151,19 +151,36 @@ type FirewallRule struct {
 }
 
 type RoutingRule struct {
-	Action     string `json:"action"`
-	SrcAddress string `json:"src-address"`
-	DstAddress string `json:"dst-address"`
-	Interface  string `json:"interface"`
-	Table      string `json:"table"`
-	Disabled   string `json:"disabled"`
+	ID          string `json:".id"`
+	Comment     string `json:"comment"`
+	Action      string `json:"action"`
+	SrcAddress  string `json:"src-address"`
+	DstAddress  string `json:"dst-address"`
+	Interface   string `json:"interface"`
+	RoutingMark string `json:"routing-mark"`
+	MinPrefix   string `json:"min-prefix"`
+	Table       string `json:"table"`
+	Disabled    string `json:"disabled"`
 }
 
 type IPRoute struct {
+	ID           string `json:".id"`
 	DstAddress   string `json:"dst-address"`
 	Gateway      string `json:"gateway"`
 	RoutingTable string `json:"routing-table"`
 	Distance     string `json:"distance"`
 	Active       string `json:"active"`
 	Disabled     string `json:"disabled"`
+}
+
+type RoutingRoute struct {
+	ID               string `json:".id"`
+	AFI              string `json:"afi"`
+	DstAddress       string `json:"dst-address"`
+	Gateway          string `json:"gateway"`
+	ImmediateGateway string `json:"immediate-gw"`
+	RoutingTable     string `json:"routing-table"`
+	Distance         string `json:"distance"`
+	Active           string `json:"active"`
+	Disabled         string `json:"disabled"`
 }

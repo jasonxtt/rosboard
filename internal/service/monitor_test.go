@@ -26,6 +26,23 @@ func TestSelectTrafficInterfacesPrefersPPPoE(t *testing.T) {
 	}
 }
 
+func TestEmptySnapshotUsesJSONArrays(t *testing.T) {
+	snapshot := (&Monitor{}).Snapshot()
+
+	value := reflect.ValueOf(snapshot)
+	for _, field := range []string{"Interfaces", "Terminals", "Capabilities", "Protocols", "Policies", "Routes", "Alerts", "Warnings"} {
+		if value.FieldByName(field).IsNil() {
+			t.Fatalf("%s must be an empty slice, not nil", field)
+		}
+	}
+	if snapshot.Overview.TrafficInterfaces == nil || snapshot.Overview.ChartSamples == nil {
+		t.Fatal("overview traffic collections must be empty slices, not nil")
+	}
+	if snapshot.TerminalScopeSummaries == nil {
+		t.Fatal("terminal scope summaries must be an empty map, not nil")
+	}
+}
+
 func TestSelectedTrafficRatesMapTXToUploadAndRXToDownload(t *testing.T) {
 	rates := map[string]routeros.MonitorTrafficEntry{
 		"pppoe-out1": {RXBitsPerSecond: "125000", TXBitsPerSecond: "750000"},
@@ -126,6 +143,7 @@ func TestBuildTerminalsDistinguishesStrongAndWeakPresenceEvidence(t *testing.T) 
 		[]routeros.IPv6Neighbor{{Address: "fc00::4", MACAddress: "00:11:22:33:44:04", Interface: "lan", Status: "reachable"}},
 		nil,
 		nil,
+		routeMatcher{},
 	)
 	if err != nil {
 		t.Fatalf("build terminals: %v", err)
@@ -158,12 +176,12 @@ func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testin
 	strongARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "reachable"}}
 	staleARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "stale"}}
 
-	terminals, _, err := monitor.buildTerminals(ctx, firstSeen, nil, nil, nil, strongARP, nil, nil, nil)
+	terminals, _, err := monitor.buildTerminals(ctx, firstSeen, nil, nil, nil, strongARP, nil, nil, nil, routeMatcher{})
 	if err != nil || len(terminals) != 1 || terminals[0].State != "online" {
 		t.Fatalf("expected initial strong evidence online, terminals=%#v err=%v", terminals, err)
 	}
 
-	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(time.Minute), nil, nil, nil, staleARP, nil, nil, nil)
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(time.Minute), nil, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
 	if err != nil || terminals[0].State != "inactive" {
 		t.Fatalf("expected stale evidence inside grace period inactive, terminals=%#v err=%v", terminals, err)
 	}
@@ -171,7 +189,7 @@ func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testin
 		t.Fatalf("stale evidence advanced lastSeen: got %v want %v", terminals[0].LastSeen, firstSeen)
 	}
 
-	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(6*time.Minute), nil, nil, nil, staleARP, nil, nil, nil)
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(6*time.Minute), nil, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
 	if err != nil || terminals[0].State != "offline" {
 		t.Fatalf("expected stale evidence after grace period offline, terminals=%#v err=%v", terminals, err)
 	}
@@ -494,6 +512,61 @@ func TestFillRateSampleGapsCarriesLastMeasuredRate(t *testing.T) {
 	}
 	if got[3].UploadBps != 40 || got[3].DownloadBps != 50 {
 		t.Fatalf("actual sample must remain unchanged: %#v", got[3])
+	}
+}
+
+func TestDownsampleRateSamplesAveragesBuckets(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC().Truncate(time.Minute)
+	samples := []model.RateSample{
+		{Timestamp: start, UploadBps: 10, DownloadBps: 20},
+		{Timestamp: start.Add(20 * time.Second), UploadBps: 30, DownloadBps: 40},
+		{Timestamp: start.Add(time.Minute), UploadBps: 50, DownloadBps: 60},
+	}
+	got := downsampleRateSamples(samples, time.Minute)
+	if len(got) != 2 {
+		t.Fatalf("expected two buckets, got %#v", got)
+	}
+	if got[0].UploadBps != 20 || got[0].DownloadBps != 30 || got[1].UploadBps != 50 {
+		t.Fatalf("unexpected bucket averages: %#v", got)
+	}
+}
+
+func TestDownsampleRateSamplesCapsNewestBuckets(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC().Truncate(time.Minute)
+	samples := make([]model.RateSample, 361)
+	for index := range samples {
+		samples[index] = model.RateSample{
+			Timestamp: start.Add(time.Duration(index) * time.Minute),
+			UploadBps: float64(index),
+		}
+	}
+
+	got := downsampleRateSamples(samples, time.Minute)
+	if len(got) != 360 {
+		t.Fatalf("expected 360 newest buckets, got %d", len(got))
+	}
+	if !got[0].Timestamp.Equal(start.Add(time.Minute)) || got[len(got)-1].UploadBps != 360 {
+		t.Fatalf("unexpected retained bucket range: first=%s last=%#v", got[0].Timestamp, got[len(got)-1])
+	}
+}
+
+func TestDownsampleLoadSamplesAveragesAndIgnoresUnknownConnections(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC().Truncate(4 * time.Minute)
+	samples := []model.LoadSample{
+		{Timestamp: start, CPULoadPercent: 10, OnlineTerminalCount: 2, ConnectionCount: -1},
+		{Timestamp: start.Add(time.Minute), CPULoadPercent: 30, OnlineTerminalCount: 4, ConnectionCount: 100},
+		{Timestamp: start.Add(4 * time.Minute), CPULoadPercent: 50, OnlineTerminalCount: 6, ConnectionCount: 300},
+	}
+
+	got := downsampleLoadSamples(samples, 4*time.Minute)
+	if len(got) != 2 {
+		t.Fatalf("expected two buckets, got %#v", got)
+	}
+	if got[0].CPULoadPercent != 20 || got[0].OnlineTerminalCount != 3 || got[0].ConnectionCount != 100 {
+		t.Fatalf("unexpected first bucket: %#v", got[0])
+	}
+	if got[1].ConnectionCount != 300 {
+		t.Fatalf("unexpected second bucket: %#v", got[1])
 	}
 }
 

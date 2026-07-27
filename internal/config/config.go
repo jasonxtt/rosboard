@@ -19,7 +19,18 @@ type Config struct {
 	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
 	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
 	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
-	RouterOS                    RouterOSConfig `yaml:"routeros"`
+	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
+}
+
+const DefaultDeviceID = "default"
+
+type DeviceConfig struct {
+	ID       string         `yaml:"id"`
+	Name     string         `yaml:"name"`
+	Enabled  bool           `yaml:"enabled"`
+	Archived bool           `yaml:"archived,omitempty"`
+	RouterOS RouterOSConfig `yaml:"routeros"`
 }
 
 type RouterOSConfig struct {
@@ -55,6 +66,7 @@ func Load(path string) (Config, error) {
 	}
 
 	overrideFromEnv(&cfg)
+	cfg.normalizeDevices()
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -76,6 +88,9 @@ func finalize(cfg Config) (Config, error) {
 
 func Save(path string, cfg Config) error {
 	cfg.Path = ""
+	if len(cfg.Devices) > 0 {
+		cfg.RouterOS = RouterOSConfig{}
+	}
 	payload, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
@@ -87,6 +102,10 @@ func Save(path string, cfg Config) error {
 }
 
 func overrideFromEnv(cfg *Config) {
+	target := &cfg.RouterOS
+	if len(cfg.Devices) > 0 {
+		target = &cfg.Devices[0].RouterOS
+	}
 	if value := strings.TrimSpace(os.Getenv("ROSBOARD_LISTEN_ADDRESS")); value != "" {
 		cfg.ListenAddress = value
 	}
@@ -94,12 +113,15 @@ func overrideFromEnv(cfg *Config) {
 		cfg.DataDir = value
 	}
 	if value := strings.TrimSpace(os.Getenv("ROSBOARD_ROUTEROS_BASE_URL")); value != "" {
+		target.BaseURL = value
 		cfg.RouterOS.BaseURL = value
 	}
 	if value := strings.TrimSpace(os.Getenv("ROSBOARD_ROUTEROS_USERNAME")); value != "" {
+		target.Username = value
 		cfg.RouterOS.Username = value
 	}
 	if value := os.Getenv("ROSBOARD_ROUTEROS_PASSWORD"); value != "" {
+		target.Password = value
 		cfg.RouterOS.Password = value
 	}
 }
@@ -117,11 +139,71 @@ func (c Config) validate() error {
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
 	}
+	seen := make(map[string]struct{}, len(c.Devices))
+	for index, device := range c.Devices {
+		if strings.TrimSpace(device.ID) == "" {
+			return fmt.Errorf("devices[%d].id is required", index)
+		}
+		if _, exists := seen[device.ID]; exists {
+			return fmt.Errorf("devices[%d].id %q is duplicated", index, device.ID)
+		}
+		seen[device.ID] = struct{}{}
+		if strings.TrimSpace(device.Name) == "" {
+			return fmt.Errorf("devices[%d].name is required", index)
+		}
+	}
 	return nil
 }
 
 func (c Config) RouterOSConfigured() bool {
-	return c.RouterOS.Configured()
+	if len(c.Devices) == 0 {
+		return c.RouterOS.Configured()
+	}
+	return len(c.ActiveDevices()) > 0
+}
+
+func (c Config) ActiveDevices() []DeviceConfig {
+	devices := make([]DeviceConfig, 0, len(c.Devices))
+	for _, device := range c.Devices {
+		if device.Enabled && !device.Archived && device.RouterOS.Configured() {
+			devices = append(devices, device)
+		}
+	}
+	return devices
+}
+
+func (c Config) Device(id string) (DeviceConfig, bool) {
+	for _, device := range c.Devices {
+		if device.ID == id {
+			return device, true
+		}
+	}
+	return DeviceConfig{}, false
+}
+
+func (c *Config) normalizeDevices() {
+	if len(c.Devices) == 0 {
+		if c.RouterOS.Configured() {
+			c.Devices = []DeviceConfig{{
+				ID:       DefaultDeviceID,
+				Name:     "RouterOS",
+				Enabled:  true,
+				RouterOS: c.RouterOS,
+			}}
+		}
+		return
+	}
+	for index := range c.Devices {
+		c.Devices[index].ID = strings.TrimSpace(c.Devices[index].ID)
+		c.Devices[index].Name = strings.TrimSpace(c.Devices[index].Name)
+	}
+	for _, device := range c.Devices {
+		if device.Enabled && !device.Archived {
+			c.RouterOS = device.RouterOS
+			return
+		}
+	}
+	c.RouterOS = c.Devices[0].RouterOS
 }
 
 func (c RouterOSConfig) Configured() bool {
