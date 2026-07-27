@@ -163,7 +163,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .metric-green { --metric-color: #16a34a; --metric-soft: #ecfdf3; }
 .metric-purple { --metric-color: #7c3aed; --metric-soft: #f5f3ff; }
 .metric-orange { --metric-color: #ea7a0b; --metric-soft: #fff7ed; }
-.metric-card-chart { align-self: start; min-width: 0; padding-top: 1px; }
+.metric-card-chart { align-self: start; min-width: 0; padding: 1px 18px 0; }
 .mini-sparkline { display: block; width: 100%; height: 38px; overflow: visible; }
 .mini-sparkline polyline { fill: none; stroke: var(--metric-color); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .protocol-bars { display: flex; align-items: flex-end; justify-content: flex-end; gap: 4px; height: 30px; }
