@@ -163,6 +163,52 @@ func TestBuildTerminalsDistinguishesStrongAndWeakPresenceEvidence(t *testing.T) 
 	}
 }
 
+func TestBuildTerminalsFiltersDiscoveryOutsideTerminalCIDRs(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage}
+	now := time.Unix(1500, 0).UTC()
+	terminals, _, err := monitor.buildTerminals(
+		context.Background(),
+		now,
+		parseCIDRs([]string{"10.0.0.1/24"}),
+		map[string]routerAssignedAddress{"10.0.2.2": {Family: "ipv4", Interface: "wan-xray"}},
+		[]routeros.DHCPLease{
+			{Address: "10.0.0.8", MACAddress: "00:11:22:33:44:08", Status: "bound"},
+			{Address: "10.0.2.1", MACAddress: "00:11:22:33:44:21", Status: "bound"},
+		},
+		[]routeros.ARPEntry{
+			{Address: "10.0.0.8", MACAddress: "00:11:22:33:44:08", Interface: "lan", Complete: "true", Status: "reachable"},
+			{Address: "10.0.2.1", MACAddress: "00:11:22:33:44:21", Interface: "wan-xray", Complete: "true", Status: "reachable"},
+		},
+		nil,
+		nil,
+		nil,
+		routeMatcher{},
+	)
+	if err != nil {
+		t.Fatalf("build terminals: %v", err)
+	}
+
+	byAddress := map[string]model.Terminal{}
+	for _, terminal := range terminals {
+		byAddress[terminal.PrimaryIPv4] = terminal
+	}
+	if _, exists := byAddress["10.0.0.8"]; !exists {
+		t.Fatalf("expected in-scope terminal, got %#v", terminals)
+	}
+	if _, exists := byAddress["10.0.2.1"]; exists {
+		t.Fatalf("out-of-scope terminal should be hidden: %#v", terminals)
+	}
+	if terminal := byAddress["10.0.2.2"]; terminal.ID != routerTerminalID {
+		t.Fatalf("router self address must remain visible, got %#v", terminals)
+	}
+}
+
 func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {

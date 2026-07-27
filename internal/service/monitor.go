@@ -1066,7 +1066,7 @@ func (m *Monitor) buildTerminals(
 			continue
 		}
 		address := strings.TrimSpace(lease.Address)
-		if address == "" {
+		if address == "" || !terminalDiscoveryInScope(localCIDRs, address) {
 			continue
 		}
 		ensureBuilder(address, "ipv4", macByAddress[address])
@@ -1074,7 +1074,7 @@ func (m *Monitor) buildTerminals(
 
 	for _, entry := range arpEntries {
 		address := strings.TrimSpace(entry.Address)
-		if address == "" || normalizeMAC(entry.MACAddress) == "" {
+		if address == "" || normalizeMAC(entry.MACAddress) == "" || !terminalDiscoveryInScope(localCIDRs, address) {
 			continue
 		}
 		builder := ensureBuilder(address, "ipv4", macByAddress[address])
@@ -1085,7 +1085,7 @@ func (m *Monitor) buildTerminals(
 
 	for _, neighbor := range ipv6Neighbors {
 		address := strings.TrimSpace(neighbor.Address)
-		if address == "" || normalizeMAC(neighbor.MACAddress) == "" {
+		if address == "" || normalizeMAC(neighbor.MACAddress) == "" || !terminalDiscoveryInScope(localCIDRs, address) {
 			continue
 		}
 		builder := ensureBuilder(address, "ipv6", macByAddress[address])
@@ -1763,6 +1763,10 @@ func containsIP(networks []*net.IPNet, address string) bool {
 		}
 	}
 	return false
+}
+
+func terminalDiscoveryInScope(networks []*net.IPNet, address string) bool {
+	return len(networks) == 0 || containsIP(networks, address)
 }
 
 func preferredName(values ...string) string {

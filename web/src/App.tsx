@@ -768,6 +768,9 @@ function App() {
             {activeView === 'terminals' && !detailMode ? (
               <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
             ) : null}
+            {activeView === 'overview' && !detailMode ? (
+              <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
+            ) : null}
             <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
@@ -781,7 +784,7 @@ function App() {
         {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
-          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} trafficWindow={trafficWindow} onTrafficWindowChange={setTrafficWindow} />
+          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
         ) : null}
 
         {activeView === 'interfaces' ? (
@@ -1312,7 +1315,11 @@ function formatSettingList(values: string[]) {
   return values.length ? values.join(' / ') : '-'
 }
 
-function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[]; trafficWindow: string; onTrafficWindowChange: (value: string) => void }) {
+function OverviewRangePills(props: { value: string; onChange: (value: string) => void }) {
+  return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'active' : ''} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
+}
+
+function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
   const { overview } = props.dashboard
   const terminals = props.dashboard.terminals ?? []
   const interfaces = props.dashboard.interfaces ?? []
@@ -1337,10 +1344,6 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
 
   return (
     <div className="overview-dashboard">
-      <div className="overview-range-row">
-        <strong>时间范围</strong>
-        <span className="range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.trafficWindow === value ? 'active' : ''} onClick={() => props.onTrafficWindowChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
-      </div>
       <section className="reference-metric-grid">
         <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
         <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={`${formatBytes(overview.memoryUsedBytes)} / ${formatBytes(overview.memoryTotalBytes)}`} icon="memory" tone="green" values={memoryValues} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
@@ -1384,7 +1387,7 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
 }
 
 function MetricCard(props: { title: string; value: string; detail: string; icon: IconName; tone: string; values?: number[]; footerLeft: string; footerRight: string; progress?: number }) {
-  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong><small>{props.detail}</small></div>{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
+  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong><small>{props.detail}</small></div></div><div className="metric-card-chart">{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div></div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
 }
 
 function MiniSparkline(props: { values: number[] }) {
@@ -1639,7 +1642,7 @@ function TerminalsPage(props: {
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
                 <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : terminalStateText(terminal.state)}</td>
                 <td>{terminal.remark || '-'}</td>
-                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>编辑终端</button></div></td>
+                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>编辑</button></div></td>
               </tr>
             })}
           </tbody>
