@@ -233,12 +233,10 @@ type settingsConnection struct {
 }
 
 type settingsCollection struct {
-	PollIntervalSeconds         int      `json:"pollIntervalSeconds"`
-	RealtimePollIntervalSeconds int      `json:"realtimePollIntervalSeconds"`
-	TerminalPollIntervalSeconds int      `json:"terminalPollIntervalSeconds"`
-	SampleRetentionHours        int      `json:"sampleRetentionHours"`
-	TrafficInterfaces           []string `json:"trafficInterfaces"`
-	TerminalCIDRs               []string `json:"terminalCidrs"`
+	PollIntervalSeconds         int `json:"pollIntervalSeconds"`
+	RealtimePollIntervalSeconds int `json:"realtimePollIntervalSeconds"`
+	TerminalPollIntervalSeconds int `json:"terminalPollIntervalSeconds"`
+	SampleRetentionHours        int `json:"sampleRetentionHours"`
 }
 
 type settingsDiagnostics struct {
@@ -293,8 +291,6 @@ func (s *Server) settingsResponse() settingsResponse {
 			RealtimePollIntervalSeconds: cfg.RealtimePollIntervalSeconds,
 			TerminalPollIntervalSeconds: cfg.TerminalPollIntervalSeconds,
 			SampleRetentionHours:        cfg.SampleRetentionHours,
-			TrafficInterfaces:           cloneStrings(cfg.RouterOS.TrafficInterfaces),
-			TerminalCIDRs:               cloneStrings(cfg.RouterOS.TerminalCIDRs),
 		},
 		Diagnostics: settingsDiagnostics{
 			RouterName: overview.RouterName,
@@ -393,12 +389,10 @@ func (s *Server) serveConnectionSettings(writer http.ResponseWriter, request *ht
 }
 
 type collectionSettingsRequest struct {
-	PollIntervalSeconds         int      `json:"pollIntervalSeconds"`
-	RealtimePollIntervalSeconds int      `json:"realtimePollIntervalSeconds"`
-	TerminalPollIntervalSeconds int      `json:"terminalPollIntervalSeconds"`
-	SampleRetentionHours        int      `json:"sampleRetentionHours"`
-	TrafficInterfaces           []string `json:"trafficInterfaces"`
-	TerminalCIDRs               []string `json:"terminalCidrs"`
+	PollIntervalSeconds         int `json:"pollIntervalSeconds"`
+	RealtimePollIntervalSeconds int `json:"realtimePollIntervalSeconds"`
+	TerminalPollIntervalSeconds int `json:"terminalPollIntervalSeconds"`
+	SampleRetentionHours        int `json:"sampleRetentionHours"`
 }
 
 type deviceSettingsRequest struct {
@@ -621,12 +615,6 @@ func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *ht
 		next.RealtimePollIntervalSeconds = payload.RealtimePollIntervalSeconds
 		next.TerminalPollIntervalSeconds = payload.TerminalPollIntervalSeconds
 		next.SampleRetentionHours = payload.SampleRetentionHours
-		next.RouterOS.TrafficInterfaces = cleanStrings(payload.TrafficInterfaces)
-		next.RouterOS.TerminalCIDRs = cleanStrings(payload.TerminalCIDRs)
-		if len(next.Devices) > 0 {
-			next.Devices[0].RouterOS.TrafficInterfaces = next.RouterOS.TrafficInterfaces
-			next.Devices[0].RouterOS.TerminalCIDRs = next.RouterOS.TerminalCIDRs
-		}
 	}); err != nil {
 		writeError(writer, http.StatusInternalServerError, "failed to save settings")
 		return

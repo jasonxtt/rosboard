@@ -50,8 +50,6 @@ type CollectionDraft = {
   realtimePollIntervalSeconds: number
   terminalPollIntervalSeconds: number
   sampleRetentionHours: number
-  trafficInterfaces: string[]
-  terminalCidrs: string
 }
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
@@ -76,6 +74,7 @@ async function panelAssetsReady() {
 }
 
 async function waitForPanelRestart(onOffline: () => void) {
+  const started = Date.now()
   const deadline = Date.now() + restartTimeoutMs
   let observedOffline = false
 
@@ -83,7 +82,7 @@ async function waitForPanelRestart(onOffline: () => void) {
   while (Date.now() < deadline) {
     try {
       const response = await fetch('/api/health', { cache: 'no-store' })
-      if (observedOffline && response.ok && await panelAssetsReady()) {
+      if ((observedOffline || Date.now() - started > 4000) && response.ok && await panelAssetsReady()) {
         await delay(restartPollIntervalMs)
         window.location.reload()
         return
@@ -99,6 +98,17 @@ async function waitForPanelRestart(onOffline: () => void) {
     await delay(restartPollIntervalMs)
   }
   throw new Error('面板重启超时，请稍后手动刷新页面')
+}
+
+async function postJSON(path: string, body?: unknown) {
+  return requestJSON(path, 'POST', body)
+}
+
+async function requestJSON(path: string, method: string, body?: unknown) {
+  const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+  const failure = response.ok ? null : await response.json().catch(() => null) as { error?: string } | null
+  if (!response.ok) throw new Error(failure?.error || `HTTP ${response.status}`)
+  return response
 }
 const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'routes', 'settings']
 
@@ -144,8 +154,6 @@ function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraf
     realtimePollIntervalSeconds: settings.collection.realtimePollIntervalSeconds,
     terminalPollIntervalSeconds: settings.collection.terminalPollIntervalSeconds,
     sampleRetentionHours: settings.collection.sampleRetentionHours,
-    trafficInterfaces: [...settings.collection.trafficInterfaces],
-    terminalCidrs: settings.collection.terminalCidrs.join('\n'),
   }
 }
 
@@ -161,6 +169,7 @@ const emptyTerminalScopeSummary: TerminalScopeSummary = {
   activeUploadBytes: 0,
   activeDownloadBytes: 0,
 }
+const emptyInterfaceList: InterfaceStatus[] = []
 
 function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
   const items = [
@@ -236,6 +245,7 @@ function App() {
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
   const [restartSaving, setRestartSaving] = useState(false)
   const [restartMessage, setRestartMessage] = useState<string | null>(null)
+  const [restartPending, setRestartPending] = useState(false)
   const [selectedTerminalID, setSelectedTerminalID] = useState<string | null>(null)
   const [terminalDetail, setTerminalDetail] = useState<TerminalDetail | null>(null)
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('basic')
@@ -273,19 +283,23 @@ function App() {
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      const response = await fetch('/api/devices')
-      if (!response.ok) return
-      const payload = (await response.json()) as { devices: DeviceStatus[] }
-      if (cancelled) return
-      const available = (payload.devices ?? []).filter((device) => device.enabled && !device.archived)
-      setDevices(payload.devices ?? [])
-      const selectedAvailable = available.some((device) => device.id === selectedDeviceID)
-      if (!selectedAvailable && available[0]) setSelectedDeviceID(available[0].id)
+      try {
+        const response = await fetch('/api/devices')
+        if (!response.ok) return
+        const payload = (await response.json()) as { devices: DeviceStatus[] }
+        if (cancelled) return
+        const available = (payload.devices ?? []).filter((device) => device.enabled && !device.archived)
+        setDevices(payload.devices ?? [])
+        const selectedAvailable = available.some((device) => device.id === selectedDeviceID)
+        if (!selectedAvailable && available[0]) setSelectedDeviceID(available[0].id)
+      } catch {
+        return
+      }
     }
     void load()
     const timer = window.setInterval(() => void load(), 10000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [selectedDeviceID])
+  }, [restartPending, selectedDeviceID])
 
   useEffect(() => {
     if (!selectedDeviceID) return
@@ -300,20 +314,15 @@ function App() {
   const saveConnectionSettings = async (draft: ConnectionDraft) => {
     setConnectionSaving(true)
     setConnectionMessage(null)
+    setRestartPending(false)
     try {
-      const response = await fetch('/api/settings/connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft),
-      })
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(failure?.error || `HTTP ${response.status}`)
-      }
+      await postJSON('/api/settings/connection', draft)
       setConnectionMessage('已保存，面板正在重启并连接 RouterOS，请保持此页面打开...')
+      setRestartPending(true)
       await waitForPanelRestart(() => setConnectionMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (saveError) {
-      setConnectionMessage(saveError instanceof Error ? saveError.message : '连接设置保存失败')
+      setRestartPending(false)
+      setConnectionMessage(saveError instanceof Error ? saveError.message : '设备管理保存失败')
     } finally {
       setConnectionSaving(false)
     }
@@ -322,22 +331,14 @@ function App() {
   const saveCollectionSettings = async (draft: CollectionDraft) => {
     setCollectionSaving(true)
     setCollectionMessage(null)
+    setRestartPending(false)
     try {
-      const response = await fetch('/api/settings/collection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...draft,
-          terminalCidrs: parseSettingList(draft.terminalCidrs),
-        }),
-      })
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(failure?.error || `HTTP ${response.status}`)
-      }
+      await postJSON('/api/settings/collection', draft)
       setCollectionMessage('已保存，面板正在重启并应用新的采集参数，请保持此页面打开...')
+      setRestartPending(true)
       await waitForPanelRestart(() => setCollectionMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (saveError) {
+      setRestartPending(false)
       setCollectionMessage(saveError instanceof Error ? saveError.message : '采集设置保存失败')
     } finally {
       setCollectionSaving(false)
@@ -347,15 +348,14 @@ function App() {
   const restartPanel = async () => {
     setRestartSaving(true)
     setRestartMessage(null)
+    setRestartPending(false)
     try {
-      const response = await fetch('/api/settings/restart', { method: 'POST' })
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(failure?.error || `HTTP ${response.status}`)
-      }
+      await postJSON('/api/settings/restart')
       setRestartMessage('面板正在重启，请保持此页面打开...')
+      setRestartPending(true)
       await waitForPanelRestart(() => setRestartMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (restartError) {
+      setRestartPending(false)
       setRestartMessage(restartError instanceof Error ? restartError.message : '面板重启失败')
       setRestartSaving(false)
     }
@@ -417,7 +417,7 @@ function App() {
           setError(null)
         }
       } catch (refreshError) {
-        if (!cancelled) {
+        if (!cancelled && !restartPending) {
           setError(refreshError instanceof Error ? refreshError.message : '读取失败')
         }
       } finally {
@@ -431,7 +431,7 @@ function App() {
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
-  }, [dashboardRefreshMs, refreshNonce, selectedDeviceID])
+  }, [dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'overview' || dashboardRefreshMs <= 0) return
@@ -450,7 +450,7 @@ function App() {
           setError(null)
         }
       } catch (refreshError) {
-        if (!cancelled) setError(refreshError instanceof Error ? refreshError.message : '读取失败')
+        if (!cancelled && !restartPending) setError(refreshError instanceof Error ? refreshError.message : '读取失败')
       } finally {
         refreshing = false
       }
@@ -462,7 +462,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeView, dashboardRefreshMs, refreshNonce, selectedDeviceID])
+  }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
     if (!selectedTerminalID) {
@@ -483,7 +483,7 @@ function App() {
     }
 
     const handleError = (detailError: unknown) => {
-      if (!cancelled) {
+      if (!cancelled && !restartPending) {
         setError(detailError instanceof Error ? detailError.message : '终端详情读取失败')
       }
     }
@@ -494,7 +494,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [selectedTerminalID, selectedDeviceID])
+  }, [restartPending, selectedTerminalID, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'load' && activeView !== 'overview') return
@@ -505,10 +505,10 @@ function App() {
       const payload = (await response.json()) as { samples: LoadSample[] }
       if (!cancelled) setLoadSamples(payload.samples ?? [])
     }
-    load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '负载历史读取失败'))
+    load().catch((loadError) => { if (!restartPending) setError(loadError instanceof Error ? loadError.message : '负载历史读取失败') })
     const timer = window.setInterval(() => load().catch(() => undefined), activeView === 'overview' && trafficWindow === '5m' ? 3000 : 30000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, loadWindow, trafficWindow, selectedDeviceID, refreshNonce])
+  }, [activeView, loadWindow, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
 
   useEffect(() => {
     if (activeView !== 'overview') return
@@ -520,10 +520,10 @@ function App() {
       if (!cancelled) setTrafficSamples(payload.samples ?? [])
     }
     window.sessionStorage.setItem(trafficWindowKey, trafficWindow)
-    void load().catch((historyError) => setError(historyError instanceof Error ? historyError.message : '流量历史读取失败'))
+    void load().catch((historyError) => { if (!restartPending) setError(historyError instanceof Error ? historyError.message : '流量历史读取失败') })
     const timer = window.setInterval(() => void load().catch(() => undefined), trafficWindow === '5m' ? 3000 : 30000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, trafficWindow, selectedDeviceID, refreshNonce])
+  }, [activeView, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
 
   useEffect(() => {
     if (activeView !== 'settings' && hasDashboard) return
@@ -538,10 +538,10 @@ function App() {
       }
     }
     load().catch((settingsLoadError) => {
-      if (!cancelled) setSettingsError(settingsLoadError instanceof Error ? settingsLoadError.message : '设置读取失败')
+      if (!cancelled && !restartPending) setSettingsError(settingsLoadError instanceof Error ? settingsLoadError.message : '设置读取失败')
     })
     return () => { cancelled = true }
-  }, [activeView, hasDashboard, refreshNonce])
+  }, [activeView, hasDashboard, refreshNonce, restartPending])
 
   const filteredTerminals = useMemo(() => {
     if (!dashboard) {
@@ -603,7 +603,7 @@ function App() {
   const currentDevice = devices.find((device) => device.id === selectedDeviceID)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
-    { key: 'connection', label: '连接设置', icon: 'router' },
+    { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
     { key: 'ui', label: '界面设置', icon: 'overview' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
@@ -799,6 +799,7 @@ function App() {
             activeSection={settingsSection}
             preferences={panelPreferences}
             dashboard={dashboard}
+            selectedDeviceID={selectedDeviceID}
             connectionSaving={connectionSaving}
             connectionMessage={connectionMessage}
             collectionSaving={collectionSaving}
@@ -819,6 +820,16 @@ function App() {
               setTerminalFamily(defaultPanelPreferences.terminalFamily)
             }}
             onRestart={restartPanel}
+            onRestartingAction={async (action, onOffline) => {
+              try {
+                setRestartPending(true)
+                await action()
+                await waitForPanelRestart(onOffline)
+              } catch (error) {
+                setRestartPending(false)
+                throw error
+              }
+            }}
           />
         ) : null}
 
@@ -938,6 +949,7 @@ function SettingsPage(props: {
   activeSection: SettingsSection
   preferences: PanelPreferences
   dashboard: DashboardResponse
+  selectedDeviceID: string
   connectionSaving: boolean
   connectionMessage: string | null
   collectionSaving: boolean
@@ -949,6 +961,7 @@ function SettingsPage(props: {
   onSavePreferences: (preferences: PanelPreferences) => void
   onResetPreferences: () => void
   onRestart: () => Promise<void>
+  onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void>
 }) {
   const [preferenceDraft, setPreferenceDraft] = useState(props.preferences)
   const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
@@ -981,8 +994,8 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>连接设置</h3><span>管理 RouterOS 设备，保存后重启采集</span></div>
-          <DeviceSettingsPanel settings={props.settings} />
+          <div className="panel-head"><h3>设备管理</h3><span>每台 RouterOS 设备独立保存连接、采集接口和终端网段</span></div>
+          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
             <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
@@ -993,8 +1006,8 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'collection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>采集设置</h3><span>保存后重启采集服务生效</span></div>
-          <CollectionSettingsForm settings={props.settings} interfaces={props.dashboard.interfaces ?? []} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
+          <div className="panel-head"><h3>采集设置</h3><span>全局采集间隔和保留时间；设备接口和终端网段在设备管理中分别配置</span></div>
+          <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
         </section>
       ) : null}
 
@@ -1068,7 +1081,7 @@ function SettingsPage(props: {
             <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
             <button type="button" className="toolbar-button" disabled={props.restartSaving} onClick={() => void props.onRestart()}><Icon name="refresh" />{props.restartSaving ? '正在重启...' : '重启面板服务'}</button>
           </div>
-          <ArchivedDevices settings={props.settings} />
+          <ArchivedDevices settings={props.settings} onRestartingAction={props.onRestartingAction} />
           {props.restartMessage || maintenanceMessage ? <div className="settings-message">{props.restartMessage || maintenanceMessage}</div> : null}
         </section>
       ) : null}
@@ -1091,21 +1104,75 @@ function deviceDraft(device?: SettingsDevice): DeviceDraft {
   }
 }
 
-function DeviceSettingsPanel({ settings }: { settings: SettingsResponse }) {
+function interfaceLooksExternal(name: string) {
+  return /(^|[-_.\s])(wan|pppoe|lte|wwan|vpn|wg|wireguard|tunnel|sstp|l2tp|openvpn|ovpn)([-_.\s]|$)/i.test(name)
+}
+
+function interfacePickerOptions(selected: string[], interfaces: InterfaceStatus[]) {
+  const byName = new Map(interfaces.map((item) => [item.name, item]))
+  selected.forEach((name) => {
+    if (!byName.has(name)) byName.set(name, { name } as InterfaceStatus)
+  })
+  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function cidrSuggestions(selected: string[], trafficInterfaces: string[], interfaces: InterfaceStatus[]) {
+  const trafficSet = new Set(trafficInterfaces)
+  const selectedSet = new Set(selected)
+  const suggestions = new Map<string, { cidr: string; source: string; external: boolean }>()
+  interfaces.forEach((item) => {
+    const external = trafficSet.has(item.name) || interfaceLooksExternal(item.name)
+    item.addresses?.forEach((address) => {
+      const cidr = address.trim()
+      if (!cidr || !cidr.includes('/')) return
+      if (!suggestions.has(cidr)) suggestions.set(cidr, { cidr, source: item.name, external })
+    })
+  })
+  selected.forEach((cidr) => {
+    if (!suggestions.has(cidr)) suggestions.set(cidr, { cidr, source: '手动保留', external: false })
+  })
+  return Array.from(suggestions.values()).sort((left, right) => {
+    if (left.external !== right.external) return left.external ? 1 : -1
+    if (selectedSet.has(left.cidr) !== selectedSet.has(right.cidr)) return selectedSet.has(left.cidr) ? -1 : 1
+    return left.cidr.localeCompare(right.cidr)
+  })
+}
+
+function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+  const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(available[0]))
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [manualCIDR, setManualCIDR] = useState('')
+  const editingSelectedDevice = Boolean(draft.id) && draft.id === props.selectedDeviceID
+  const trafficInterfaces = parseSettingList(draft.trafficInterfaces)
+  const terminalCidrs = parseSettingList(draft.terminalCidrs)
+  const liveInterfaces = editingSelectedDevice ? props.interfaces : emptyInterfaceList
+  const interfaceOptions = useMemo(() => interfacePickerOptions(trafficInterfaces, liveInterfaces), [trafficInterfaces, liveInterfaces])
+  const cidrOptions = useMemo(() => cidrSuggestions(terminalCidrs, trafficInterfaces, liveInterfaces), [terminalCidrs, trafficInterfaces, liveInterfaces])
   const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null) }
+  const setTrafficInterfaces = (values: string[]) => setDraft((current) => ({ ...current, trafficInterfaces: values.join('\n') }))
+  const setTerminalCidrs = (values: string[]) => setDraft((current) => ({ ...current, terminalCidrs: values.join('\n') }))
+  const toggleInterface = (name: string) => {
+    const next = trafficInterfaces.includes(name) ? trafficInterfaces.filter((item) => item !== name) : [...trafficInterfaces, name]
+    setTrafficInterfaces(next)
+  }
+  const toggleCIDR = (cidr: string) => {
+    const next = terminalCidrs.includes(cidr) ? terminalCidrs.filter((item) => item !== cidr) : [...terminalCidrs, cidr]
+    setTerminalCidrs(next)
+  }
+  const addManualCIDRs = () => {
+    const next = [...terminalCidrs, ...parseSettingList(manualCIDR)]
+    setTerminalCidrs(Array.from(new Set(next)))
+    setManualCIDR('')
+  }
   const request = async (path: string, method: string, body?: unknown) => {
     setSaving(true); setMessage(null)
     try {
-      const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
-      const result = await response.json().catch(() => null) as { error?: string } | null
-      if (!response.ok) throw new Error(result?.error || `HTTP ${response.status}`)
-      setMessage('已保存，面板正在重启...')
-      window.setTimeout(() => window.location.reload(), 3500)
+      setMessage('已保存，面板正在重启，请保持此页面打开...')
+      await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSaving(false) }
   }
   return <div className="device-settings-workspace">
@@ -1115,14 +1182,46 @@ function DeviceSettingsPanel({ settings }: { settings: SettingsResponse }) {
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs) }) }}>
+      <div className="settings-message wide">当前编辑：{draft.name || '新设备'}。连接、采集接口和终端网段只保存到这台设备，不会影响其他 RouterOS。</div>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
       <label><span>协议</span><select value={draft.scheme} onChange={(event) => setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port }))}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
       <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} /></label>
       <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft((current) => ({ ...current, port: Number(event.target.value) }))} /></label>
       <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} /></label>
       <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
-      <label className="span-2"><span>流量接口</span><textarea rows={3} value={draft.trafficInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficInterfaces: event.target.value }))} placeholder="pppoe-out1" /></label>
-      <label className="span-2"><span>终端 CIDR</span><textarea rows={3} value={draft.terminalCidrs} onChange={(event) => setDraft((current) => ({ ...current, terminalCidrs: event.target.value }))} placeholder="10.0.0.0/24" /></label>
+      <fieldset className="interface-picker wide">
+        <legend>采集接口</legend>
+        <div className="interface-picker-head"><span>{editingSelectedDevice ? '选择纳入这台设备流量采样的接口' : '切换到该设备后可显示实时接口候选；已保存接口仍可编辑'}</span><strong>{trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
+        <div className="interface-options" role="group" aria-label="采集接口选项">
+          {interfaceOptions.map((item) => {
+            const selected = trafficInterfaces.includes(item.name)
+            const status = item.disabled ? '已禁用' : item.running ? '运行中' : item.type ? '未连接' : '配置保留'
+            return <label key={item.name} className={selected ? 'interface-option selected' : 'interface-option'}>
+              <input type="checkbox" checked={selected} onChange={() => toggleInterface(item.name)} />
+              <span><strong>{item.name}</strong><small>{item.type || '未知类型'} · {status}</small></span>
+            </label>
+          })}
+          {!interfaceOptions.length ? <span className="settings-empty">暂无接口候选；可先保存连接并切换到该设备，或在下方手动保留配置</span> : null}
+        </div>
+      </fieldset>
+      <fieldset className="interface-picker wide">
+        <legend>终端 CIDR</legend>
+        <div className="interface-picker-head"><span>本地终端所在网段。候选来自 RouterOS 地址，仅供审核选择，不自动判定 LAN。</span><strong>{terminalCidrs.length} / {cidrOptions.length}</strong></div>
+        <div className="interface-options cidr-options" role="group" aria-label="终端 CIDR 选项">
+          {cidrOptions.map((item) => {
+            const selected = terminalCidrs.includes(item.cidr)
+            return <label key={item.cidr} className={selected ? 'interface-option selected' : 'interface-option'}>
+              <input type="checkbox" checked={selected} onChange={() => toggleCIDR(item.cidr)} />
+              <span><strong>{item.cidr}</strong><small>{item.source}{item.external ? ' · 可能是出口/隧道，请谨慎选择' : ' · 候选网段'}</small></span>
+            </label>
+          })}
+          {!cidrOptions.length ? <span className="settings-empty">暂无 CIDR 候选；可以手动添加 LAN/VLAN 网段</span> : null}
+        </div>
+        <div className="manual-cidr-row">
+          <textarea rows={2} value={manualCIDR} onChange={(event) => setManualCIDR(event.target.value)} placeholder="手动添加，例如 10.0.0.0/24，每行一条" />
+          <button type="button" className="toolbar-button" onClick={addManualCIDRs} disabled={!manualCIDR.trim()}>添加</button>
+        </div>
+      </fieldset>
       <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
       <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving}>{saving ? '保存中...' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
@@ -1130,14 +1229,16 @@ function DeviceSettingsPanel({ settings }: { settings: SettingsResponse }) {
   </div>
 }
 
-function ArchivedDevices({ settings }: { settings: SettingsResponse }) {
+function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsResponse; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const archived = settings.devices.filter((device) => device.archived)
   if (!archived.length) return null
   const act = async (device: SettingsDevice, purge: boolean) => {
     const confirmation = purge ? window.prompt(`输入设备名称“${device.name}”以永久清除全部历史数据`) : null
     if (purge && confirmation !== device.name) return
-    const response = await fetch(`/api/devices/${encodeURIComponent(device.id)}/${purge ? 'data' : 'restore'}`, { method: purge ? 'DELETE' : 'POST', headers: purge ? { 'Content-Type': 'application/json' } : undefined, body: purge ? JSON.stringify({ confirmation }) : undefined })
-    if (response.ok) window.setTimeout(() => window.location.reload(), 3500)
+    await onRestartingAction(
+      () => requestJSON(`/api/devices/${encodeURIComponent(device.id)}/${purge ? 'data' : 'restore'}`, purge ? 'DELETE' : 'POST', purge ? { confirmation } : undefined).then(() => undefined),
+      () => undefined,
+    )
   }
   return <div className="archived-devices"><strong>已归档设备</strong>{archived.map((device) => <div key={device.id}><span>{device.name}</span><button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button><button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button></div>)}</div>
 }
@@ -1185,22 +1286,9 @@ function ConnectionSettingsForm(props: { settings: SettingsResponse | null; savi
   </form>
 }
 
-function CollectionSettingsForm(props: { settings: SettingsResponse; interfaces: InterfaceStatus[]; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
+function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
   const [draft, setDraft] = useState<CollectionDraft>(() => collectionDraftFromSettings(props.settings))
   useEffect(() => setDraft(collectionDraftFromSettings(props.settings)), [props.settings])
-  const interfaceOptions = useMemo(() => {
-    const byName = new Map(props.interfaces.map((item) => [item.name, item]))
-    draft.trafficInterfaces.forEach((name) => {
-      if (!byName.has(name)) byName.set(name, { name } as InterfaceStatus)
-    })
-    return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name))
-  }, [draft.trafficInterfaces, props.interfaces])
-  const toggleInterface = (name: string) => setDraft((current) => ({
-    ...current,
-    trafficInterfaces: current.trafficInterfaces.includes(name)
-      ? current.trafficInterfaces.filter((item) => item !== name)
-      : [...current.trafficInterfaces, name],
-  }))
   const numberField = (key: keyof Pick<CollectionDraft, 'pollIntervalSeconds' | 'realtimePollIntervalSeconds' | 'terminalPollIntervalSeconds' | 'sampleRetentionHours'>, label: string, unit: string) => (
     <label>
       <span>{label}</span>
@@ -1212,25 +1300,7 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; interfaces:
     {numberField('realtimePollIntervalSeconds', '实时采集间隔', '秒')}
     {numberField('terminalPollIntervalSeconds', '终端采集间隔', '秒')}
     {numberField('sampleRetentionHours', '采样保留时间', '小时')}
-    <fieldset className="interface-picker span-2">
-      <legend>流量接口</legend>
-      <div className="interface-picker-head"><span>选择纳入面板流量统计的接口</span><strong>{draft.trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
-      <div className="interface-options" role="group" aria-label="流量接口选项">
-        {interfaceOptions.map((item) => {
-          const selected = draft.trafficInterfaces.includes(item.name)
-          const status = item.disabled ? '已禁用' : item.running ? '运行中' : item.type ? '未连接' : '配置保留'
-          return <label key={item.name} className={selected ? 'interface-option selected' : 'interface-option'}>
-            <input type="checkbox" checked={selected} onChange={() => toggleInterface(item.name)} />
-            <span><strong>{item.name}</strong><small>{item.type || '未知类型'} · {status}</small></span>
-          </label>
-        })}
-        {!interfaceOptions.length ? <span className="settings-empty">当前设备还没有可选择的接口</span> : null}
-      </div>
-    </fieldset>
-    <label className="span-2">
-      <span>终端 CIDR</span>
-      <textarea rows={4} value={draft.terminalCidrs} onChange={(event) => setDraft((current) => ({ ...current, terminalCidrs: event.target.value }))} placeholder="10.0.0.0/24" />
-    </label>
+    <div className="settings-message wide">采集接口和终端 CIDR 已按设备拆分，请在设备管理中编辑对应 RouterOS。</div>
     <div className="settings-actions wide">
       <button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启采集'}</button>
     </div>
