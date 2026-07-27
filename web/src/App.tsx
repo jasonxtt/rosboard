@@ -1714,8 +1714,18 @@ function SortHeader(props: { label: string; sortKey: TerminalSortKey; activeKey:
   return <th><button type="button" className="sort-button" onClick={() => props.onSort(props.sortKey)}>{props.label}<span>{props.activeKey === props.sortKey ? (props.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>
 }
 
-type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'line' | 'local' | 'destination' | 'flags' | 'status' | 'search'
-type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'line' | 'local' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'flags' | 'status'
+type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'local' | 'destination' | 'routeTable' | 'gateway' | 'status' | 'search'
+type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'local' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'routeTable' | 'gateway' | 'status'
+
+const unavailableRouteValue = '无法判断'
+
+function connectionRouteTable(connection: TerminalConnection) {
+  return connection.routeTable || unavailableRouteValue
+}
+
+function connectionGateway(connection: TerminalConnection) {
+  return connection.routeGateways?.length ? connection.routeGateways.join(' / ') : unavailableRouteValue
+}
 
 function ConnectionColumnHeader(props: {
   label: string
@@ -1751,7 +1761,6 @@ function compareConnection(left: TerminalConnection, right: TerminalConnection, 
     case 'family': return text(left.family, right.family)
     case 'application': return text(left.application, right.application)
     case 'protocol': return text(left.protocol, right.protocol)
-    case 'line': return text(left.line, right.line)
     case 'local': return text(formatEndpoint(left.sourceAddress, left.sourcePort), formatEndpoint(right.sourceAddress, right.sourcePort))
     case 'destination': return text(left.destinationAddress, right.destinationAddress)
     case 'destinationPort': return text(left.destinationPort, right.destinationPort)
@@ -1760,7 +1769,8 @@ function compareConnection(left: TerminalConnection, right: TerminalConnection, 
     case 'download': return left.downloadBps - right.downloadBps
     case 'uploadBytes': return left.uploadBytes - right.uploadBytes
     case 'downloadBytes': return left.downloadBytes - right.downloadBytes
-    case 'flags': return Number(left.seenReply) * 2 + Number(left.assured) - Number(right.seenReply) * 2 - Number(right.assured)
+    case 'routeTable': return text(connectionRouteTable(left), connectionRouteTable(right))
+    case 'gateway': return text(connectionGateway(left), connectionGateway(right))
     case 'status': return text(left.status, right.status)
   }
 }
@@ -1785,10 +1795,10 @@ function TerminalDetailPage(props: {
   const [connectionQuery, setConnectionQuery] = useState('')
   const [applicationQuery, setApplicationQuery] = useState('')
   const [protocolFilter, setProtocolFilter] = useState('all')
-  const [lineFilter, setLineFilter] = useState('all')
   const [localQuery, setLocalQuery] = useState('')
   const [destinationQuery, setDestinationQuery] = useState('')
-  const [flagsFilter, setFlagsFilter] = useState('all')
+  const [routeTableFilter, setRouteTableFilter] = useState('all')
+  const [gatewayFilter, setGatewayFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [activeConnectionFilter, setActiveConnectionFilter] = useState<ConnectionFilterKey | null>(null)
   const [connectionSortKey, setConnectionSortKey] = useState<ConnectionSortKey | null>(null)
@@ -1799,18 +1809,19 @@ function TerminalDetailPage(props: {
   const familyConnections = selectedFamily === 'all' ? scopedConnectionRows : scopedConnectionRows.filter((item) => item.family === selectedFamily)
   const applications = Array.from(new Set(familyConnections.map((item) => item.application).filter(Boolean))).sort()
   const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
-  const lines = Array.from(new Set(familyConnections.map((item) => item.line).filter(Boolean))).sort()
+  const routeTables = Array.from(new Set(familyConnections.map(connectionRouteTable))).sort()
+  const gateways = Array.from(new Set(familyConnections.flatMap((item) => item.routeGateways?.length ? item.routeGateways : [unavailableRouteValue]))).sort()
   const statuses = Array.from(new Set(familyConnections.map((item) => item.status).filter(Boolean))).sort()
   const normalizedGlobalQuery = connectionQuery.trim().toLowerCase()
   const filteredConnections = familyConnections.filter((connection) =>
     (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
-    (lineFilter === 'all' || connection.line === lineFilter) &&
-    (statusFilter === 'all' || connection.status === statusFilter) &&
-    (flagsFilter === 'all' || (flagsFilter === 'replied' && connection.seenReply) || (flagsFilter === 'assured' && connection.assured) || (flagsFilter === 'unreplied' && !connection.seenReply)) &&
+    (routeTableFilter === 'all' || connectionRouteTable(connection) === routeTableFilter) &&
+    (gatewayFilter === 'all' || (gatewayFilter === unavailableRouteValue ? !connection.routeGateways?.length : connection.routeGateways?.includes(gatewayFilter))) &&
+    (!isRouterConntrack || statusFilter === 'all' || connection.status === statusFilter) &&
     (!applicationQuery || connection.application === applicationQuery) &&
     formatEndpoint(connection.sourceAddress, connection.sourcePort).toLowerCase().includes(localQuery.trim().toLowerCase()) &&
     [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase()) &&
-    [connection.application, connection.protocol, connection.line, connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
+    [connection.application, connection.protocol, connectionRouteTable(connection), connectionGateway(connection), connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
       .join(' ').toLowerCase().includes(normalizedGlobalQuery),
   )
   const visibleConnections = connectionSortKey ? [...filteredConnections].sort((left, right) => {
@@ -1822,11 +1833,11 @@ function TerminalDetailPage(props: {
     family: props.scope === 'all' && props.connectionFamily !== 'all',
     application: Boolean(applicationQuery),
     protocol: protocolFilter !== 'all',
-    line: lineFilter !== 'all',
     local: Boolean(localQuery),
     destination: Boolean(destinationQuery),
-    flags: flagsFilter !== 'all',
-    status: statusFilter !== 'all',
+    routeTable: routeTableFilter !== 'all',
+    gateway: gatewayFilter !== 'all',
+    status: isRouterConntrack && statusFilter !== 'all',
     search: Boolean(connectionQuery),
   }
 
@@ -1854,10 +1865,10 @@ function TerminalDetailPage(props: {
     props.onConnectionFamilyChange(props.scope === 'all' ? 'all' : props.scope)
     setApplicationQuery('')
     setProtocolFilter('all')
-    setLineFilter('all')
     setLocalQuery('')
     setDestinationQuery('')
-    setFlagsFilter('all')
+    setRouteTableFilter('all')
+    setGatewayFilter('all')
     setStatusFilter('all')
     setConnectionQuery('')
     setConnectionSortKey(null)
@@ -1876,10 +1887,10 @@ function TerminalDetailPage(props: {
     {activeConnectionFilter === 'family' ? <ConnectionFilterOptions value={selectedFamily} options={[{ value: 'all', label: `全部 (${scopedConnectionRows.length})` }, { value: 'ipv4', label: `IPv4 (${ipv4Connections.length})` }, { value: 'ipv6', label: `IPv6 (${ipv6Connections.length})` }]} onChange={(value) => chooseConnectionFilter(() => props.onConnectionFamilyChange(value as ConnectionFamily))} /> : null}
     {activeConnectionFilter === 'application' ? <ConnectionFilterOptions value={applicationQuery} options={[{ value: '', label: '全部应用' }, ...applications.map((application) => ({ value: application, label: application }))]} onChange={(value) => chooseConnectionFilter(() => setApplicationQuery(value))} /> : null}
     {activeConnectionFilter === 'protocol' ? <ConnectionFilterOptions value={protocolFilter} options={[{ value: 'all', label: '全部协议' }, ...protocols.map((protocol) => ({ value: protocol, label: protocol }))]} onChange={(value) => chooseConnectionFilter(() => setProtocolFilter(value))} /> : null}
-    {activeConnectionFilter === 'line' ? <ConnectionFilterOptions value={lineFilter} options={[{ value: 'all', label: '全部线路' }, ...lines.map((line) => ({ value: line, label: line }))]} onChange={(value) => chooseConnectionFilter(() => setLineFilter(value))} /> : null}
     {activeConnectionFilter === 'local' ? <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="本地 IP 或端口" aria-label="本地地址筛选" /> : null}
     {activeConnectionFilter === 'destination' ? <input value={destinationQuery} onChange={(event) => setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /> : null}
-    {activeConnectionFilter === 'flags' ? <ConnectionFilterOptions value={flagsFilter} options={[{ value: 'all', label: '全部标志' }, { value: 'replied', label: '已见回包 S' }, { value: 'assured', label: 'Assured A' }, { value: 'unreplied', label: '未见回包' }]} onChange={(value) => chooseConnectionFilter(() => setFlagsFilter(value))} /> : null}
+    {activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => chooseConnectionFilter(() => setRouteTableFilter(value))} /> : null}
+    {activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => chooseConnectionFilter(() => setGatewayFilter(value))} /> : null}
     {activeConnectionFilter === 'status' ? <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
     {activeConnectionFilter === 'search' ? <input value={connectionQuery} onChange={(event) => setConnectionQuery(event.target.value)} placeholder="地址 / 端口 / 应用 / 标记" aria-label="搜索全部连接字段" /> : null}
   </div> : null
@@ -1953,7 +1964,6 @@ function TerminalDetailPage(props: {
                     <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey={props.scope === 'all' ? 'family' : undefined} filterActive={filterActive.family} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="应用" sortKey="application" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="application" filterActive={filterActive.application} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="protocol" filterActive={filterActive.protocol} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="出口线路" sortKey="line" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="line" filterActive={filterActive.line} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="本地地址 / 端口" sortKey="local" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="local" filterActive={filterActive.local} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="destination" filterActive={filterActive.destination} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="目的端口" sortKey="destinationPort" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
@@ -1962,15 +1972,15 @@ function TerminalDetailPage(props: {
                     <ConnectionColumnHeader label="当前下行" sortKey="download" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="标志" sortKey="flags" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="flags" filterActive={filterActive.flags} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <th>命中路由</th>
-                    <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="status" filterActive={filterActive.status} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="路由表" sortKey="routeTable" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="routeTable" filterActive={filterActive.routeTable} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <ConnectionColumnHeader label="下一跳网关" sortKey="gateway" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="gateway" filterActive={filterActive.gateway} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    {isRouterConntrack ? <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="status" filterActive={filterActive.status} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} /> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {visibleConnections.length === 0 ? (
                     <tr>
-                      <td colSpan={15} className="empty-row">
+                      <td colSpan={isRouterConntrack ? 14 : 13} className="empty-row">
                         当前筛选范围没有 {selectedFamily === 'all' ? '活动' : selectedFamily.toUpperCase()} {isRouterConntrack ? '跟踪条目' : '连接详情'}
                       </td>
                     </tr>
@@ -1980,7 +1990,6 @@ function TerminalDetailPage(props: {
                         <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
                         <td>{connection.application}</td>
                         <td>{connection.protocol}</td>
-                        <td>{connection.line}</td>
                         <td>{formatEndpoint(connection.sourceAddress, connection.sourcePort)}</td>
                         <td>{connection.destinationAddress}</td>
                         <td>{connection.destinationPort || '-'}</td>
@@ -1989,9 +1998,9 @@ function TerminalDetailPage(props: {
                         <td>{formatBits(connection.downloadBps)}</td>
                         <td>{formatBytes(connection.uploadBytes)}</td>
                         <td>{formatBytes(connection.downloadBytes)}</td>
-                        <td><span className="connection-flags" title="S=已见回包，A=Assured">{connection.seenReply ? 'S' : '-'} {connection.assured ? 'A' : '-'}</span></td>
-                        <td><div className="route-attribution"><strong>{connection.routeTable || '-'}</strong><span>{connection.routeDestination || connection.matchedRule || '-'}</span><small>{connection.routeGateways?.join(' / ') || (connection.routeAttribution === 'unavailable' ? '无法判断' : connection.routeAttribution === 'ambiguous' ? 'ECMP 推断' : '推断')}</small></div></td>
-                        <td>{connection.status}</td>
+                        <td>{connectionRouteTable(connection)}</td>
+                        <td>{connectionGateway(connection)}</td>
+                        {isRouterConntrack ? <td>{connection.status}</td> : null}
                       </tr>
                     ))
                   )}

@@ -442,8 +442,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .archived-devices { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--color-border-soft); }
 .archived-devices > div { display: flex; align-items: center; gap: 8px; }
 .archived-devices > div span { margin-right: auto; }
-.route-attribution { display: grid; min-width: 130px; gap: 2px; }
-.route-attribution span, .route-attribution small { color: var(--color-text-muted); font-size: 11px; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 2px; }
 .settings-actions .toolbar-button { display: inline-flex; align-items: center; gap: 7px; }
 .settings-actions .toolbar-button .ui-icon { width: 14px; height: 14px; }
@@ -461,7 +459,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .detail-item:last-child { padding-bottom: 0; border-bottom: 0; }
 .detail-item span { color: var(--color-text-muted); font-size: 11px; }
 .detail-item strong { overflow-wrap: anywhere; font-size: 13px; font-weight: 600; }
-.connection-flags { display: inline-block; min-width: 42px; color: var(--color-primary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 2px; white-space: nowrap; }
 .capability-hint { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; background: var(--color-primary-soft); border: 1px solid #bfdbfe; border-radius: var(--radius-sm); }
 
 .dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(7, 18, 35, .55); backdrop-filter: blur(2px); }
