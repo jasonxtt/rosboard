@@ -962,3 +962,36 @@ Scoped terminal discovery to configured terminal CIDRs, tightened overview metri
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: Overview metric detail layout
+
+**Date**: 2026-07-27
+**Task**: Overview metric detail layout
+**Branch**: `main`
+
+### Summary
+
+Changed overview metric details to two-line compact labels, widened metric sparklines, made the terminal monitor sidebar parent open all terminals by default, and deployed the embedded build to 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ccb17cd` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
