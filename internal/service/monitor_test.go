@@ -73,6 +73,41 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 	}
 }
 
+func TestTerminalStateCountsUseOverviewLANScope(t *testing.T) {
+	terminals := []model.Terminal{
+		{ID: routerTerminalID, State: "online", PrimaryInterface: "lan"},
+		{ID: "lan-online", State: "online", PrimaryInterface: "lan"},
+		{ID: "lan-inactive", State: "inactive", PrimaryInterface: "lan"},
+		{ID: "lan-offline", State: "offline", PrimaryInterface: "lan"},
+		{ID: "unknown-interface", State: "online"},
+		{ID: "wan-offline", State: "offline", PrimaryInterface: "wan"},
+		{ID: "selected-interface", State: "inactive", PrimaryInterface: "pppoe-out1"},
+	}
+
+	got := terminalStateCounts(terminals, []string{"pppoe-out1"})
+	want := model.TerminalStateCounts{Online: 2, Inactive: 1, Offline: 1}
+	if got != want {
+		t.Fatalf("unexpected terminal state counts: got %#v want %#v", got, want)
+	}
+	if got.Online != connectedLANDeviceCount(terminals, []string{"pppoe-out1"}) {
+		t.Fatal("online state count must match connected LAN device count")
+	}
+}
+
+func TestConnectionProtocolCountsCoverRawConnections(t *testing.T) {
+	ipv4 := []routeros.FirewallConnection{{Protocol: "tcp"}, {Protocol: " UDP "}, {Protocol: "icmp"}}
+	ipv6 := []routeros.FirewallConnection{{Protocol: "TCP"}, {Protocol: "icmpv6"}, {Protocol: ""}}
+
+	got := connectionProtocolCounts(ipv4, ipv6)
+	want := model.ConnectionProtocolCounts{TCP: 2, UDP: 1, Other: 3}
+	if got != want {
+		t.Fatalf("unexpected connection protocol counts: got %#v want %#v", got, want)
+	}
+	if got.TCP+got.UDP+got.Other != len(ipv4)+len(ipv6) {
+		t.Fatal("protocol counts must cover every raw connection")
+	}
+}
+
 func TestTerminalScopeSummariesAggregateEligibleOnlineLANDevices(t *testing.T) {
 	terminals := []model.Terminal{
 		{
