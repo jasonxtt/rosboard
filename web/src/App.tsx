@@ -1334,9 +1334,7 @@ function OverviewRangePills(props: { value: string; onChange: (value: string) =>
 
 function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
   const { overview } = props.dashboard
-  const terminals = props.dashboard.terminals ?? []
   const interfaces = props.dashboard.interfaces ?? []
-  const protocols = props.dashboard.protocols ?? []
   const alerts = props.dashboard.alerts ?? []
   const samples = props.loadSamples ?? []
   const cpuValues = samples.length ? samples.map((item) => item.cpuLoadPercent) : [overview.cpuLoadPercent]
@@ -1344,14 +1342,6 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   const terminalValues = samples.length ? samples.map((item) => item.onlineTerminalCount) : [overview.connectedDeviceCount]
   const sampledConnections = samples.map((item) => item.connectionCount).filter((value) => value >= 0)
   const connectionValues = sampledConnections.length ? sampledConnections : [overview.connectionCount]
-  const inactive = terminals.filter((item) => item.state === 'inactive').length
-  const offline = terminals.filter((item) => item.state === 'offline').length
-  const memoryUnusedBytes = Math.max(0, overview.memoryTotalBytes - overview.memoryUsedBytes)
-  const protocolCounts = protocols.reduce<Record<string, number>>((result, item) => {
-    const key = item.kind.toUpperCase()
-    result[key] = (result[key] ?? 0) + item.connections
-    return result
-  }, {})
   const interfaceRows = [...interfaces]
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
@@ -1360,9 +1350,9 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
     <div className="overview-dashboard">
       <section className="reference-metric-grid">
         <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
-        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={[`已使用 ${formatBytes(overview.memoryUsedBytes)}`, `未使用 ${formatBytes(memoryUnusedBytes)}`]} icon="memory" tone="green" values={memoryValues} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={[`未在线 ${offline} 台`, `未活跃 ${inactive} 台`]} icon="terminal" tone="purple" values={terminalValues} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
-        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} detail={[`TCP ${protocolCounts.TCP ?? 0}`, `UDP ${protocolCounts.UDP ?? 0}`]} icon="connections" tone="orange" values={connectionValues} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
+        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" values={memoryValues} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
+        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
+        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} icon="connections" tone="orange" values={connectionValues} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
       </section>
 
       <section className="overview-main-grid">
@@ -1400,9 +1390,9 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   )
 }
 
-function MetricCard(props: { title: string; value: string; detail: string | string[]; icon: IconName; tone: string; values?: number[]; footerLeft: string; footerRight: string; progress?: number }) {
-  const detailLines = Array.isArray(props.detail) ? props.detail : [props.detail]
-  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong><small>{detailLines.map((line) => <span key={line}>{line}</span>)}</small></div></div><div className="metric-card-chart">{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div></div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
+function MetricCard(props: { title: string; value: string; detail?: string | string[]; icon: IconName; tone: string; values?: number[]; footerLeft: string; footerRight: string; progress?: number }) {
+  const detailLines = props.detail ? (Array.isArray(props.detail) ? props.detail : [props.detail]) : []
+  return <article className={`metric-card metric-${props.tone}`}><p>{props.title}</p><div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong>{detailLines.length ? <small>{detailLines.map((line) => <span key={line}>{line}</span>)}</small> : null}</div></div><div className="metric-card-chart">{props.values?.length ? <MiniSparkline values={props.values} /> : <div className="protocol-bars"><i /><i /><i /></div>}</div></div>{typeof props.progress === 'number' ? <div className="metric-progress"><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : null}<footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer></article>
 }
 
 function MiniSparkline(props: { values: number[] }) {
