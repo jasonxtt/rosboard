@@ -1,0 +1,30 @@
+{
+  "id": "panel-monitoring-expansion",
+  "name": "panel-monitoring-expansion",
+  "title": "Panel monitoring capability expansion",
+  "description": "Add multi-device management, dashboard time ranges, and route attribution while preserving existing persistence and MAC-based terminal capabilities",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-07-27",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-27-dashboard-time-ranges",
+    "07-27-terminal-route-attribution",
+    "07-27-multi-device-management"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

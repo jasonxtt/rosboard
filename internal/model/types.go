@@ -37,6 +37,7 @@ type LoadSample struct {
 	MemoryUsedPercent   float64   `json:"memoryUsedPercent"`
 	StorageUsedPercent  float64   `json:"storageUsedPercent"`
 	OnlineTerminalCount int       `json:"onlineTerminalCount"`
+	ConnectionCount     int       `json:"connectionCount"`
 	UploadBps           float64   `json:"uploadBps"`
 	DownloadBps         float64   `json:"downloadBps"`
 }
@@ -113,25 +114,35 @@ type TerminalScopeSummary struct {
 }
 
 type TerminalConnection struct {
-	Key                string  `json:"key"`
-	Family             string  `json:"family"`
-	Application        string  `json:"application"`
-	Protocol           string  `json:"protocol"`
-	Line               string  `json:"line"`
-	SourceAddress      string  `json:"sourceAddress"`
-	SourcePort         string  `json:"sourcePort"`
-	DestinationAddress string  `json:"destinationAddress"`
-	DestinationPort    string  `json:"destinationPort"`
-	UploadBytes        int64   `json:"uploadBytes"`
-	DownloadBytes      int64   `json:"downloadBytes"`
-	UploadBps          float64 `json:"uploadBps"`
-	DownloadBps        float64 `json:"downloadBps"`
-	Status             string  `json:"status"`
-	SeenReply          bool    `json:"seenReply"`
-	Assured            bool    `json:"assured"`
-	PublicAddress      string  `json:"publicAddress"`
-	ConnectionMark     string  `json:"connectionMark"`
-	Estimated          bool    `json:"estimated"`
+	Key                string   `json:"key"`
+	Family             string   `json:"family"`
+	Application        string   `json:"application"`
+	Protocol           string   `json:"protocol"`
+	Line               string   `json:"line"`
+	SourceAddress      string   `json:"sourceAddress"`
+	SourcePort         string   `json:"sourcePort"`
+	DestinationAddress string   `json:"destinationAddress"`
+	DestinationPort    string   `json:"destinationPort"`
+	UploadBytes        int64    `json:"uploadBytes"`
+	DownloadBytes      int64    `json:"downloadBytes"`
+	UploadBps          float64  `json:"uploadBps"`
+	DownloadBps        float64  `json:"downloadBps"`
+	Status             string   `json:"status"`
+	SeenReply          bool     `json:"seenReply"`
+	Assured            bool     `json:"assured"`
+	PublicAddress      string   `json:"publicAddress"`
+	ConnectionMark     string   `json:"connectionMark"`
+	RoutingMark        string   `json:"routingMark"`
+	RouteTable         string   `json:"routeTable"`
+	MatchedRule        string   `json:"matchedRule"`
+	MatchedRuleID      string   `json:"matchedRuleId"`
+	RouteDestination   string   `json:"routeDestination"`
+	RouteID            string   `json:"routeId"`
+	RouteIDs           []string `json:"routeIds"`
+	RouteGateways      []string `json:"routeGateways"`
+	RouteMatchBasis    string   `json:"routeMatchBasis"`
+	RouteAttribution   string   `json:"routeAttribution"`
+	Estimated          bool     `json:"estimated"`
 }
 
 type TerminalFlowCategory struct {
@@ -207,15 +218,18 @@ type PolicyStat struct {
 }
 
 type RouteStat struct {
-	Kind        string `json:"kind"`
-	Destination string `json:"destination"`
-	Gateway     string `json:"gateway"`
-	Table       string `json:"table"`
-	Action      string `json:"action"`
-	Source      string `json:"source"`
-	Distance    int64  `json:"distance"`
-	Active      bool   `json:"active"`
-	Disabled    bool   `json:"disabled"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Family         string `json:"family"`
+	Destination    string `json:"destination"`
+	Gateway        string `json:"gateway"`
+	Table          string `json:"table"`
+	Action         string `json:"action"`
+	Source         string `json:"source"`
+	Distance       int64  `json:"distance"`
+	Active         bool   `json:"active"`
+	Disabled       bool   `json:"disabled"`
+	CurrentMatches int    `json:"currentMatches"`
 }
 
 type DashboardSnapshot struct {

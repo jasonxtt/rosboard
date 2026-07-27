@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"rosboard/internal/config"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
@@ -23,6 +25,8 @@ type Server struct {
 	cfgMu        sync.RWMutex
 	cfg          config.Config
 	monitor      *service.Monitor
+	manager      *service.MonitorManager
+	store        *store.Store
 	assets       fs.FS
 	allowedCIDRs []*net.IPNet
 	fileServer   http.Handler
@@ -37,6 +41,18 @@ func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs
 	return &Server{
 		cfg:          cfg,
 		monitor:      monitor,
+		assets:       assets,
+		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
+		fileServer:   http.FileServer(http.FS(assets)),
+		restart:      restart,
+	}
+}
+
+func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func()) *Server {
+	return &Server{
+		cfg:          cfg,
+		manager:      manager,
+		store:        storage,
 		assets:       assets,
 		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
 		fileServer:   http.FileServer(http.FS(assets)),
@@ -70,53 +86,89 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		s.serveRestart(writer, request)
 		return
 	}
-	if s.monitor == nil && request.URL.Path != "/api/health" && request.URL.Path != "/api/settings" {
+	if request.URL.Path == "/api/devices" && request.Method == http.MethodGet {
+		writeJSON(writer, http.StatusOK, map[string]any{"devices": s.deviceStatuses(false), "archivedDevices": s.deviceStatuses(true)})
+		return
+	}
+	if request.URL.Path == "/api/devices" || strings.HasPrefix(request.URL.Path, "/api/devices/") {
+		s.serveDeviceAPI(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/health" {
+		writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	monitor, monitorErr := s.monitorFor(request)
+	if monitorErr != nil && request.URL.Path != "/api/settings" {
+		if errors.Is(monitorErr, service.ErrDeviceNotFound) {
+			writeError(writer, http.StatusNotFound, monitorErr.Error())
+			return
+		}
+		if errors.Is(monitorErr, service.ErrDeviceUnavailable) {
+			writeError(writer, http.StatusServiceUnavailable, monitorErr.Error())
+			return
+		}
 		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"setupRequired": true, "error": "routeros is not configured"})
 		return
 	}
 	switch request.URL.Path {
-	case "/api/health":
-		writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
 	case "/api/overview":
-		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
+		writeJSON(writer, http.StatusOK, monitor.Snapshot().Overview)
 	case "/api/realtime":
-		writeJSON(writer, http.StatusOK, s.monitor.Snapshot().Overview)
+		writeJSON(writer, http.StatusOK, monitor.Snapshot().Overview)
 	case "/api/viewer-heartbeat":
 		if request.Method != http.MethodPost {
 			writer.Header().Set("Allow", http.MethodPost)
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		writeJSON(writer, http.StatusOK, map[string]any{"activeUntil": s.monitor.ViewerHeartbeat()})
+		activeUntil := monitor.ViewerHeartbeat()
+		if s.manager != nil {
+			activeUntil = s.manager.ViewerHeartbeat()
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"activeUntil": activeUntil})
 	case "/api/interfaces":
-		writeJSON(writer, http.StatusOK, map[string]any{"interfaces": s.monitor.Snapshot().Interfaces})
+		writeJSON(writer, http.StatusOK, map[string]any{"interfaces": monitor.Snapshot().Interfaces})
 	case "/api/terminals":
-		writeJSON(writer, http.StatusOK, map[string]any{"terminals": s.monitor.Snapshot().Terminals})
+		writeJSON(writer, http.StatusOK, map[string]any{"terminals": monitor.Snapshot().Terminals})
 	case "/api/capabilities":
-		writeJSON(writer, http.StatusOK, map[string]any{"capabilities": s.monitor.Snapshot().Capabilities})
+		writeJSON(writer, http.StatusOK, map[string]any{"capabilities": monitor.Snapshot().Capabilities})
 	case "/api/dashboard":
-		writeJSON(writer, http.StatusOK, s.monitor.Snapshot())
+		writeJSON(writer, http.StatusOK, monitor.Snapshot())
 	case "/api/settings":
 		writeJSON(writer, http.StatusOK, s.settingsResponse())
 	case "/api/load":
-		window := parseWindow(request.URL.Query().Get("window"))
-		samples, err := s.monitor.LoadHistory(request.Context(), time.Now().UTC().Add(-window))
+		windowName := request.URL.Query().Get("window")
+		window := parseWindow(windowName)
+		samples, err := monitor.LoadHistory(request.Context(), time.Now().UTC().Add(-window), loadWindowBucket(windowName))
 		if err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to load history")
 			return
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"samples": samples})
+	case "/api/traffic-history":
+		windowName, window, bucket, ok := parseTrafficWindow(request.URL.Query().Get("window"))
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "window must be one of 5m, 1h, 6h, or 24h")
+			return
+		}
+		samples, err := monitor.TrafficHistory(request.Context(), time.Now().UTC().Add(-window), bucket)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to load traffic history")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"window": windowName, "samples": samples, "trafficInterfaces": monitor.Snapshot().Overview.TrafficInterfaces})
 	case "/api/protocols":
-		history, err := s.monitor.ProtocolHistory(request.Context(), time.Now().UTC().Add(-30*time.Minute))
+		history, err := monitor.ProtocolHistory(request.Context(), time.Now().UTC().Add(-30*time.Minute))
 		if err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to load protocol history")
 			return
 		}
-		writeJSON(writer, http.StatusOK, map[string]any{"protocols": s.monitor.Snapshot().Protocols, "history": history})
+		writeJSON(writer, http.StatusOK, map[string]any{"protocols": monitor.Snapshot().Protocols, "history": history})
 	case "/api/policies":
-		writeJSON(writer, http.StatusOK, map[string]any{"policies": s.monitor.Snapshot().Policies})
+		writeJSON(writer, http.StatusOK, map[string]any{"policies": monitor.Snapshot().Policies})
 	case "/api/routes":
-		writeJSON(writer, http.StatusOK, map[string]any{"routes": s.monitor.Snapshot().Routes})
+		writeJSON(writer, http.StatusOK, map[string]any{"routes": monitor.Snapshot().Routes})
 	default:
 		if strings.HasPrefix(request.URL.Path, "/api/interfaces/") && request.Method == http.MethodGet {
 			name, err := url.PathUnescape(strings.TrimPrefix(request.URL.Path, "/api/interfaces/"))
@@ -124,7 +176,7 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 				writeError(writer, http.StatusBadRequest, "invalid interface name")
 				return
 			}
-			detail, ok, err := s.monitor.InterfaceDetail(request.Context(), name, time.Now().UTC().Add(-time.Hour))
+			detail, ok, err := monitor.InterfaceDetail(request.Context(), name, time.Now().UTC().Add(-time.Hour))
 			if err != nil {
 				writeError(writer, http.StatusInternalServerError, "failed to load interface detail")
 				return
@@ -137,7 +189,7 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/api/terminals/") {
-			s.serveTerminalAPI(writer, request)
+			s.serveTerminalAPI(writer, request, monitor)
 			return
 		}
 		writeError(writer, http.StatusNotFound, "not found")
@@ -148,6 +200,22 @@ type settingsResponse struct {
 	Connection  settingsConnection  `json:"connection"`
 	Collection  settingsCollection  `json:"collection"`
 	Diagnostics settingsDiagnostics `json:"diagnostics"`
+	Devices     []settingsDevice    `json:"devices"`
+}
+
+type settingsDevice struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Enabled           bool     `json:"enabled"`
+	Archived          bool     `json:"archived"`
+	Scheme            string   `json:"scheme"`
+	Host              string   `json:"host"`
+	Port              int      `json:"port"`
+	Username          string   `json:"username"`
+	Password          string   `json:"password"`
+	PasswordSet       bool     `json:"passwordSet"`
+	TrafficInterfaces []string `json:"trafficInterfaces"`
+	TerminalCIDRs     []string `json:"terminalCidrs"`
 }
 
 type settingsConnection struct {
@@ -183,8 +251,12 @@ func (s *Server) settingsResponse() settingsResponse {
 	cfg := s.configSnapshot()
 
 	var overview serviceOverview
-	if s.monitor != nil {
-		snapshot := s.monitor.Snapshot()
+	monitor := s.monitor
+	if s.manager != nil {
+		monitor, _ = s.manager.Monitor("")
+	}
+	if monitor != nil {
+		snapshot := monitor.Snapshot()
 		overview = serviceOverview{
 			RouterName: snapshot.Overview.RouterName,
 			Version:    snapshot.Overview.Version,
@@ -192,6 +264,16 @@ func (s *Server) settingsResponse() settingsResponse {
 		}
 	}
 	scheme, host, port := routerOSConnectionParts(cfg.RouterOS.BaseURL)
+	devices := make([]settingsDevice, 0, len(cfg.Devices))
+	for _, device := range cfg.Devices {
+		deviceScheme, deviceHost, devicePort := routerOSConnectionParts(device.RouterOS.BaseURL)
+		devices = append(devices, settingsDevice{
+			ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived,
+			Scheme: deviceScheme, Host: deviceHost, Port: devicePort, Username: device.RouterOS.Username,
+			Password: device.RouterOS.Password, PasswordSet: strings.TrimSpace(device.RouterOS.Password) != "",
+			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs),
+		})
+	}
 	return settingsResponse{
 		Connection: settingsConnection{
 			APIBasePath:         "/api",
@@ -219,6 +301,7 @@ func (s *Server) settingsResponse() settingsResponse {
 			Version:    overview.Version,
 			UpdatedAt:  overview.UpdatedAt,
 		},
+		Devices: devices,
 	}
 }
 
@@ -226,6 +309,39 @@ type serviceOverview struct {
 	RouterName string
 	Version    string
 	UpdatedAt  time.Time
+}
+
+func (s *Server) monitorFor(request *http.Request) (*service.Monitor, error) {
+	if s.manager != nil {
+		return s.manager.Monitor(strings.TrimSpace(request.URL.Query().Get("device")))
+	}
+	if s.monitor != nil {
+		return s.monitor, nil
+	}
+	return nil, service.ErrDeviceUnavailable
+}
+
+func (s *Server) deviceStatuses(includeArchived bool) []service.DeviceStatus {
+	cfg := s.configSnapshot()
+	if s.manager != nil {
+		return s.manager.Statuses(includeArchived, cfg.Devices)
+	}
+	statuses := make([]service.DeviceStatus, 0, len(cfg.Devices))
+	for _, device := range cfg.Devices {
+		if device.Archived && !includeArchived {
+			continue
+		}
+		status := service.DeviceStatus{ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived}
+		if s.monitor != nil && device.ID == config.DefaultDeviceID {
+			overview := s.monitor.Snapshot().Overview
+			status.Healthy = true
+			status.RouterName = overview.RouterName
+			status.Version = overview.Version
+			status.UpdatedAt = overview.UpdatedAt
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses
 }
 
 type connectionSettingsRequest struct {
@@ -262,6 +378,11 @@ func (s *Server) serveConnectionSettings(writer http.ResponseWriter, request *ht
 		next.RouterOS.BaseURL = baseURL
 		next.RouterOS.Username = strings.TrimSpace(payload.Username)
 		next.RouterOS.Password = strings.TrimSpace(payload.Password)
+		if len(next.Devices) == 0 {
+			next.Devices = []config.DeviceConfig{{ID: config.DefaultDeviceID, Name: "RouterOS", Enabled: true, RouterOS: next.RouterOS}}
+		} else {
+			next.Devices[0].RouterOS = next.RouterOS
+		}
 	}); err != nil {
 		writeError(writer, http.StatusInternalServerError, "failed to save settings")
 		return
@@ -278,6 +399,200 @@ type collectionSettingsRequest struct {
 	SampleRetentionHours        int      `json:"sampleRetentionHours"`
 	TrafficInterfaces           []string `json:"trafficInterfaces"`
 	TerminalCIDRs               []string `json:"terminalCidrs"`
+}
+
+type deviceSettingsRequest struct {
+	Name              string   `json:"name"`
+	Enabled           bool     `json:"enabled"`
+	Scheme            string   `json:"scheme"`
+	Host              string   `json:"host"`
+	Port              int      `json:"port"`
+	Username          string   `json:"username"`
+	Password          string   `json:"password"`
+	TrafficInterfaces []string `json:"trafficInterfaces"`
+	TerminalCIDRs     []string `json:"terminalCidrs"`
+	Confirmation      string   `json:"confirmation"`
+}
+
+func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Request) {
+	if strings.TrimSpace(s.configSnapshot().Path) == "" {
+		writeError(writer, http.StatusBadRequest, "config path is required to save settings")
+		return
+	}
+	if request.URL.Path == "/api/devices" {
+		if request.Method != http.MethodPost {
+			writer.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var payload deviceSettingsRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		device, err := deviceConfigFromRequest(uuid.NewString(), payload)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := s.saveSettings(func(next *config.Config) { next.Devices = append(next.Devices, device) }); err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to save device")
+			return
+		}
+		s.scheduleRestart()
+		writeJSON(writer, http.StatusCreated, map[string]any{"id": device.ID, "restarting": s.restart != nil})
+		return
+	}
+
+	relative := strings.TrimPrefix(request.URL.Path, "/api/devices/")
+	parts := strings.Split(relative, "/")
+	deviceID, err := url.PathUnescape(parts[0])
+	if err != nil || strings.TrimSpace(deviceID) == "" {
+		writeError(writer, http.StatusBadRequest, "invalid device id")
+		return
+	}
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	switch {
+	case request.Method == http.MethodPut && action == "":
+		var payload deviceSettingsRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		device, err := deviceConfigFromRequest(deviceID, payload)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		found := false
+		err = s.saveSettings(func(next *config.Config) {
+			for index := range next.Devices {
+				if next.Devices[index].ID == deviceID {
+					device.Archived = next.Devices[index].Archived
+					next.Devices[index] = device
+					found = true
+					break
+				}
+			}
+		})
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to save device")
+			return
+		}
+		if !found {
+			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+	case request.Method == http.MethodDelete && action == "":
+		found := false
+		err := s.saveSettings(func(next *config.Config) {
+			for index := range next.Devices {
+				if next.Devices[index].ID == deviceID {
+					next.Devices[index].Archived = true
+					next.Devices[index].Enabled = false
+					found = true
+					break
+				}
+			}
+		})
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to archive device")
+			return
+		}
+		if !found {
+			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+	case request.Method == http.MethodPost && action == "restore":
+		found := false
+		err := s.saveSettings(func(next *config.Config) {
+			for index := range next.Devices {
+				if next.Devices[index].ID == deviceID {
+					next.Devices[index].Archived = false
+					found = true
+					break
+				}
+			}
+		})
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to restore device")
+			return
+		}
+		if !found {
+			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+	case request.Method == http.MethodDelete && action == "data":
+		var payload deviceSettingsRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		cfg := s.configSnapshot()
+		device, found := cfg.Device(deviceID)
+		if !found {
+			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+		if !device.Archived || payload.Confirmation != device.Name {
+			writeError(writer, http.StatusBadRequest, "archived device name confirmation is required")
+			return
+		}
+		if s.store == nil {
+			writeError(writer, http.StatusServiceUnavailable, "device data store is unavailable")
+			return
+		}
+		if err := s.store.PurgeDevice(request.Context(), deviceID); err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to purge device data")
+			return
+		}
+		if err := s.saveSettings(func(next *config.Config) {
+			filtered := next.Devices[:0]
+			for _, candidate := range next.Devices {
+				if candidate.ID != deviceID {
+					filtered = append(filtered, candidate)
+				}
+			}
+			next.Devices = filtered
+			if len(next.Devices) == 0 {
+				next.RouterOS = config.RouterOSConfig{}
+			}
+		}); err != nil {
+			writeError(writer, http.StatusInternalServerError, "device data was purged but settings cleanup failed")
+			return
+		}
+	default:
+		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	s.scheduleRestart()
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
+}
+
+func deviceConfigFromRequest(id string, payload deviceSettingsRequest) (config.DeviceConfig, error) {
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		return config.DeviceConfig{}, errors.New("device name is required")
+	}
+	baseURL, err := routerOSBaseURL(connectionSettingsRequest{
+		Scheme: payload.Scheme, Host: payload.Host, Port: payload.Port,
+		Username: payload.Username, Password: payload.Password,
+	})
+	if err != nil {
+		return config.DeviceConfig{}, err
+	}
+	return config.DeviceConfig{
+		ID: id, Name: name, Enabled: payload.Enabled,
+		RouterOS: config.RouterOSConfig{
+			BaseURL: baseURL, Username: strings.TrimSpace(payload.Username), Password: strings.TrimSpace(payload.Password),
+			TrafficInterfaces: cleanStrings(payload.TrafficInterfaces), TerminalCIDRs: cleanStrings(payload.TerminalCIDRs),
+		},
+	}, nil
 }
 
 func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *http.Request) {
@@ -308,6 +623,10 @@ func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *ht
 		next.SampleRetentionHours = payload.SampleRetentionHours
 		next.RouterOS.TrafficInterfaces = cleanStrings(payload.TrafficInterfaces)
 		next.RouterOS.TerminalCIDRs = cleanStrings(payload.TerminalCIDRs)
+		if len(next.Devices) > 0 {
+			next.Devices[0].RouterOS.TrafficInterfaces = next.RouterOS.TrafficInterfaces
+			next.Devices[0].RouterOS.TerminalCIDRs = next.RouterOS.TerminalCIDRs
+		}
 	}); err != nil {
 		writeError(writer, http.StatusInternalServerError, "failed to save settings")
 		return
@@ -341,6 +660,14 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	next := s.cfg
+	next.AllowedCIDRs = cloneStrings(s.cfg.AllowedCIDRs)
+	next.RouterOS.TrafficInterfaces = cloneStrings(s.cfg.RouterOS.TrafficInterfaces)
+	next.RouterOS.TerminalCIDRs = cloneStrings(s.cfg.RouterOS.TerminalCIDRs)
+	next.Devices = append([]config.DeviceConfig(nil), s.cfg.Devices...)
+	for index := range next.Devices {
+		next.Devices[index].RouterOS.TrafficInterfaces = cloneStrings(s.cfg.Devices[index].RouterOS.TrafficInterfaces)
+		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)
+	}
 	update(&next)
 	if err := config.Save(next.Path, next); err != nil {
 		return err
@@ -374,6 +701,21 @@ func cleanStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func parseTrafficWindow(value string) (string, time.Duration, time.Duration, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "5m", "5min":
+		return "5m", 5 * time.Minute, time.Second, true
+	case "1h":
+		return "1h", time.Hour, 10 * time.Second, true
+	case "6h":
+		return "6h", 6 * time.Hour, time.Minute, true
+	case "24h":
+		return "24h", 24 * time.Hour, 4 * time.Minute, true
+	default:
+		return "", 0, 0, false
+	}
 }
 
 func routerOSBaseURL(payload connectionSettingsRequest) (string, error) {
@@ -446,6 +788,12 @@ func cloneStrings(values []string) []string {
 
 func parseWindow(value string) time.Duration {
 	switch value {
+	case "5m", "5min":
+		return 5 * time.Minute
+	case "6h":
+		return 6 * time.Hour
+	case "24h":
+		return 24 * time.Hour
 	case "1d":
 		return 24 * time.Hour
 	case "1w":
@@ -457,7 +805,20 @@ func parseWindow(value string) time.Duration {
 	}
 }
 
-func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Request) {
+func loadWindowBucket(value string) time.Duration {
+	switch value {
+	case "24h", "1d":
+		return 4 * time.Minute
+	case "1w":
+		return 30 * time.Minute
+	case "1m":
+		return 3 * time.Hour
+	default:
+		return time.Minute
+	}
+}
+
+func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Request, monitor *service.Monitor) {
 	trimmed := strings.TrimPrefix(request.URL.Path, "/api/terminals/")
 	parts := strings.Split(strings.Trim(trimmed, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
@@ -472,7 +833,7 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 	}
 
 	if len(parts) == 1 && request.Method == http.MethodGet {
-		detail, ok := s.monitor.TerminalDetail(terminalID)
+		detail, ok := monitor.TerminalDetail(terminalID)
 		if !ok {
 			writeError(writer, http.StatusNotFound, "terminal not found")
 			return
@@ -489,7 +850,7 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 			writeError(writer, http.StatusBadRequest, "invalid json body")
 			return
 		}
-		if err := s.monitor.UpdateTerminalRemark(request.Context(), terminalID, strings.TrimSpace(payload.Remark)); err != nil {
+		if err := monitor.UpdateTerminalRemark(request.Context(), terminalID, strings.TrimSpace(payload.Remark)); err != nil {
 			if errors.Is(err, store.ErrTerminalNotFound) {
 				writeError(writer, http.StatusNotFound, "terminal not found")
 				return
@@ -497,7 +858,7 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 			writeError(writer, http.StatusInternalServerError, "failed to update remark")
 			return
 		}
-		detail, ok := s.monitor.TerminalDetail(terminalID)
+		detail, ok := monitor.TerminalDetail(terminalID)
 		if !ok {
 			writeError(writer, http.StatusNotFound, "terminal not found")
 			return
@@ -525,7 +886,7 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 			writeError(writer, http.StatusBadRequest, "remark is too long")
 			return
 		}
-		detail, err := s.monitor.UpdateTerminalMetadata(request.Context(), terminalID, payload.CustomName, payload.Remark)
+		detail, err := monitor.UpdateTerminalMetadata(request.Context(), terminalID, payload.CustomName, payload.Remark)
 		if errors.Is(err, store.ErrTerminalNotFound) {
 			writeError(writer, http.StatusNotFound, "terminal not found")
 			return

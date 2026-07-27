@@ -6,10 +6,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#071d38" />
     <title>Rosboard · RouterOS 监控</title>
-    <script type="module" crossorigin src="./assets/index-0vCOypfN.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CpA5-ZMN.css">
+    <script type="module" crossorigin src="./assets/index-CFGWKIhv.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DPHWlnV_.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const retryKey = 'rosboard:boot-retries'
+        window.setTimeout(() => {
+          const root = document.getElementById('root')
+          if (root && root.childElementCount === 0) {
+            const retries = Number(window.sessionStorage.getItem(retryKey) || '0')
+            if (retries < 3) {
+              window.sessionStorage.setItem(retryKey, String(retries + 1))
+              window.location.reload()
+            }
+            return
+          }
+          window.sessionStorage.removeItem(retryKey)
+        }, 2000)
+      })()
+    </script>
   </body>
 </html>

@@ -119,6 +119,17 @@ function baseOption(reducedMotion: boolean): EChartsCoreOption {
   }
 }
 
+function chartThemeOption(dark: boolean): EChartsCoreOption {
+  const label = dark ? '#94a3b8' : '#7b8798'
+  const axis = dark ? 'rgba(148, 163, 184, .24)' : 'rgba(148, 163, 184, .32)'
+  const grid = dark ? 'rgba(148, 163, 184, .14)' : 'rgba(148, 163, 184, .18)'
+  return {
+    textStyle: { color: label },
+    xAxis: { axisLine: { lineStyle: { color: axis } }, axisLabel: { color: label } },
+    yAxis: { axisLabel: { color: label }, splitLine: { lineStyle: { color: grid, type: 'dashed' } } },
+  }
+}
+
 export function RealtimeTrafficChart(props: { samples: RateSample[]; ariaLabel?: string }) {
   const chartElement = useRef<HTMLDivElement | null>(null)
   const chart = useRef<ECharts | null>(null)
@@ -129,6 +140,10 @@ export function RealtimeTrafficChart(props: { samples: RateSample[]; ariaLabel?:
     const instance = echarts.init(chartElement.current, undefined, { renderer: 'canvas' })
     chart.current = instance
     instance.setOption(baseOption(reducedMotion))
+    const applyTheme = () => instance.setOption(chartThemeOption(document.documentElement.dataset.theme === 'dark'))
+    applyTheme()
+    const themeObserver = new MutationObserver(applyTheme)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
     const resizeObserver = new ResizeObserver(() => instance.resize())
     resizeObserver.observe(chartElement.current)
@@ -136,6 +151,7 @@ export function RealtimeTrafficChart(props: { samples: RateSample[]; ariaLabel?:
     window.addEventListener('resize', resize)
     return () => {
       window.removeEventListener('resize', resize)
+      themeObserver.disconnect()
       resizeObserver.disconnect()
       instance.dispose()
       chart.current = null

@@ -1,5 +1,23 @@
 # Database Guidelines
 
+## Scenario: Device-scoped monitoring persistence
+
+### Contracts
+
+- Every monitoring table includes `device_id` in its primary or unique ownership key.
+- `Store.ForDevice(id)` shares the SQLite connection but every read, write, prune, merge, and metadata update remains inside that device ID.
+- The versioned migration rebuilds legacy tables in one transaction and assigns every old row to `default`.
+- The unique terminal MAC key is `(device_id, mac)`; identical MAC addresses on different routers are valid and never merge.
+- Archive performs no database deletion. Permanent purge deletes all tables for one device in one transaction.
+- Migration failure rolls back, and an old binary must be restored together with the pre-migration database.
+- `load_samples.connection_count` stores the RouterOS IPv4+IPv6 conntrack total in the same minute bucket as CPU, memory, terminal count, and traffic. Legacy rows migrate with `-1` to mean unavailable; never present an invented zero as historical evidence.
+
+### Tests Required
+
+- Open a legacy database containing terminal totals and metadata; verify all values survive under `default` only.
+- Insert the same MAC in two device scopes and verify metadata, totals, pruning, and purge cannot cross scopes.
+- Save and load a connection count in one device scope, verify another device cannot read it, and verify legacy load rows retain the `-1` unavailable marker.
+
 ## Scenario: Merge a temporary terminal identity into a stable identity
 
 ### 1. Scope / Trigger

@@ -306,6 +306,8 @@ overflow.
 ### 3. Contracts
 
 - Overview current values, y-axis labels, and tooltip values must use the same bit-rate formatter.
+- The overview has one shared `5min`, `1h`, `6h`, and `24h` control above the metric cards. It drives CPU, memory, online-terminal, active-connection, and traffic histories together; do not place a traffic-only range selector inside the chart panel.
+- Metric-card primary values remain live. Sparklines, averages, and peaks consume load samples from the selected range. Ignore negative connection counts because they mark legacy rows where that metric was not collected.
 - Download is blue and listed first; upload is green and listed second. Visible text labels accompany colors.
 - The chart component is React-lazy-loaded so ECharts remains outside the initial application chunk.
 - Initialize one Canvas instance, update it with `setOption`, resize through `ResizeObserver`, and dispose it on unmount.
@@ -351,3 +353,24 @@ overflow.
   <RealtimeTrafficChart samples={overview.chartSamples} />
 </Suspense>
 ```
+
+## Scenario: Monitoring display preferences
+
+### 1. Scope / Trigger
+
+- Trigger: route table filters, collection interface controls, panel preferences, or application theme changes.
+
+### 2. Contracts
+
+- Route and routing-rule views hide disabled rows by default. A checked `隐藏已禁用` checkbox controls the filter and the toolbar reports visible, total, and disabled counts.
+- Traffic interface selection is a checkbox list built from the selected device's current interfaces. Merge configured-but-unavailable names into the list and keep them selected until the user explicitly clears them.
+- Save traffic interfaces as `string[]`; do not require comma-separated or newline-separated input.
+- `PanelPreferences.theme` is `light` or `dark`, defaults to `light`, and is stored with the other browser-local interface preferences.
+- Apply the theme through the root `data-theme` attribute and `color-scheme`. Canvas charts must observe theme changes and update axis, grid, tooltip, and text colors without requiring a reload.
+
+### 3. Responsive And State Validation
+
+- Interface choices use three columns on desktop and one column on mobile without document-level horizontal overflow.
+- Theme choices use visible light/dark swatches, radio semantics, and a clear selected state.
+- Reloading preserves the saved theme. Older preference payloads without `theme` migrate to `light`.
+- Switching themes must keep form controls, topbar controls, tables, status text, and charts legible.

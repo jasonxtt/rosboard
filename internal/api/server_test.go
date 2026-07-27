@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"rosboard/internal/config"
 	"rosboard/internal/service"
+	"rosboard/internal/store"
 )
 
 func TestViewerHeartbeatRequiresPostAndReturnsDeadline(t *testing.T) {
@@ -221,6 +223,29 @@ func TestCollectionSettingsRejectsNonPositiveValues(t *testing.T) {
 	}
 }
 
+func TestParseWindowSupportsOverviewRanges(t *testing.T) {
+	tests := map[string]time.Duration{
+		"5m":  5 * time.Minute,
+		"1h":  time.Hour,
+		"6h":  6 * time.Hour,
+		"24h": 24 * time.Hour,
+	}
+	for value, expected := range tests {
+		if got := parseWindow(value); got != expected {
+			t.Errorf("parseWindow(%q)=%s, want %s", value, got, expected)
+		}
+	}
+}
+
+func TestLoadWindowBucketBoundsLongRanges(t *testing.T) {
+	if got := loadWindowBucket("5m"); got != time.Minute {
+		t.Fatalf("5m bucket=%s", got)
+	}
+	if got := loadWindowBucket("24h"); got != 4*time.Minute {
+		t.Fatalf("24h bucket=%s", got)
+	}
+}
+
 func TestRestartSettingsSchedulesRestart(t *testing.T) {
 	restarted := make(chan struct{}, 1)
 	server := NewServerWithRestart(config.Config{}, nil, nil, func() { restarted <- struct{}{} })
@@ -234,5 +259,54 @@ func TestRestartSettingsSchedulesRestart(t *testing.T) {
 	case <-restarted:
 	case <-time.After(time.Second):
 		t.Fatal("restart callback was not called")
+	}
+}
+
+func TestDeviceLifecycleArchivesBeforePurging(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	storage, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	cfg := config.Config{
+		Path: filepath.Join(dir, "config.yaml"), ListenAddress: ":8080", DataDir: dir,
+		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://10.0.0.1", Username: "admin", Password: "secret"}}},
+	}
+	if err := storage.ForDevice("edge").UpsertTerminal(ctx, "mac:test", "AA:BB:CC:DD:EE:FF", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServerWithManager(cfg, nil, storage, nil, nil)
+
+	archiveRecorder := httptest.NewRecorder()
+	archive := httptest.NewRequest(http.MethodDelete, "/api/devices/edge", nil)
+	archive.RemoteAddr = "127.0.0.1:1234"
+	server.ServeHTTP(archiveRecorder, archive)
+	if archiveRecorder.Code != http.StatusOK {
+		t.Fatalf("archive status %d: %s", archiveRecorder.Code, archiveRecorder.Body.String())
+	}
+	if totals, err := storage.ForDevice("edge").TerminalTotals(ctx, []string{"mac:test"}); err != nil || len(totals) != 1 {
+		t.Fatalf("archive removed history: totals=%#v err=%v", totals, err)
+	}
+
+	purgeRecorder := httptest.NewRecorder()
+	purge := httptest.NewRequest(http.MethodDelete, "/api/devices/edge/data", strings.NewReader(`{"confirmation":"Edge"}`))
+	purge.Header.Set("Content-Type", "application/json")
+	purge.RemoteAddr = "127.0.0.1:1234"
+	server.ServeHTTP(purgeRecorder, purge)
+	if purgeRecorder.Code != http.StatusOK {
+		t.Fatalf("purge status %d: %s", purgeRecorder.Code, purgeRecorder.Body.String())
+	}
+	if totals, err := storage.ForDevice("edge").TerminalTotals(ctx, []string{"mac:test"}); err != nil || len(totals) != 0 {
+		t.Fatalf("purge retained history: totals=%#v err=%v", totals, err)
+	}
+	loaded, err := config.Load(cfg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Devices) != 0 || loaded.RouterOSConfigured() {
+		t.Fatalf("purged device remained configured: %#v", loaded.Devices)
 	}
 }

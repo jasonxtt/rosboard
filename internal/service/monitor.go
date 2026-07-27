@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"sort"
 	"strconv"
@@ -32,6 +33,8 @@ type Monitor struct {
 	activeUntil     time.Time
 	realtimeWake    chan struct{}
 	backgroundWake  chan struct{}
+	routeMu         sync.RWMutex
+	routeLookup     routeMatcher
 }
 
 const (
@@ -212,7 +215,8 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{
 		Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent,
 		StorageUsedPercent: previous.Overview.StorageUsedPercent, OnlineTerminalCount: previous.Overview.ConnectedDeviceCount,
-		UploadBps: uploadBps, DownloadBps: downloadBps,
+		ConnectionCount: previous.Overview.ConnectionCount,
+		UploadBps:       uploadBps, DownloadBps: downloadBps,
 	}); err != nil {
 		return err
 	}
@@ -307,7 +311,7 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 	trafficInterfaces := previous.Overview.TrafficInterfaces
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
 	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
-	terminals, details, err := m.buildTerminals(pollCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6)
+	terminals, details, err := m.buildTerminals(pollCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6, m.currentRouteMatcher())
 	if err != nil {
 		return err
 	}
@@ -347,15 +351,19 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	defer m.mu.RUnlock()
 
 	snapshot := m.snapshot
-	snapshot.Interfaces = append([]model.InterfaceStatus(nil), snapshot.Interfaces...)
-	snapshot.Terminals = append([]model.Terminal(nil), snapshot.Terminals...)
-	snapshot.Capabilities = append([]model.CapabilityNote(nil), snapshot.Capabilities...)
-	snapshot.Protocols = append([]model.ProtocolStat(nil), snapshot.Protocols...)
-	snapshot.Policies = append([]model.PolicyStat(nil), snapshot.Policies...)
-	snapshot.Routes = append([]model.RouteStat(nil), snapshot.Routes...)
-	snapshot.Alerts = append([]model.AlertEvent(nil), snapshot.Alerts...)
-	snapshot.Warnings = append([]string(nil), snapshot.Warnings...)
-	snapshot.Overview.ChartSamples = append([]model.RateSample(nil), snapshot.Overview.ChartSamples...)
+	snapshot.Interfaces = append([]model.InterfaceStatus{}, snapshot.Interfaces...)
+	snapshot.Terminals = append([]model.Terminal{}, snapshot.Terminals...)
+	snapshot.Capabilities = append([]model.CapabilityNote{}, snapshot.Capabilities...)
+	snapshot.Protocols = append([]model.ProtocolStat{}, snapshot.Protocols...)
+	snapshot.Policies = append([]model.PolicyStat{}, snapshot.Policies...)
+	snapshot.Routes = append([]model.RouteStat{}, snapshot.Routes...)
+	snapshot.Alerts = append([]model.AlertEvent{}, snapshot.Alerts...)
+	snapshot.Warnings = append([]string{}, snapshot.Warnings...)
+	snapshot.Overview.TrafficInterfaces = append([]string{}, snapshot.Overview.TrafficInterfaces...)
+	snapshot.Overview.ChartSamples = append([]model.RateSample{}, snapshot.Overview.ChartSamples...)
+	if snapshot.TerminalScopeSummaries == nil {
+		snapshot.TerminalScopeSummaries = make(map[string]model.TerminalScopeSummary)
+	}
 	return snapshot
 }
 
@@ -439,8 +447,114 @@ func recognizedAutoName(value, mac string, addressGroups ...[]string) string {
 	return value
 }
 
-func (m *Monitor) LoadHistory(ctx context.Context, since time.Time) ([]model.LoadSample, error) {
-	return m.store.LoadSamples(ctx, since)
+func (m *Monitor) LoadHistory(ctx context.Context, since time.Time, bucket time.Duration) ([]model.LoadSample, error) {
+	samples, err := m.store.LoadSamples(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+	return downsampleLoadSamples(samples, bucket), nil
+}
+
+func downsampleLoadSamples(samples []model.LoadSample, bucket time.Duration) []model.LoadSample {
+	if len(samples) == 0 {
+		return []model.LoadSample{}
+	}
+	if bucket < time.Minute {
+		bucket = time.Minute
+	}
+	type aggregate struct {
+		sample            model.LoadSample
+		count             int
+		connectionTotal   int
+		connectionSamples int
+	}
+	buckets := make([]aggregate, 0, len(samples))
+	for _, sample := range samples {
+		at := sample.Timestamp.Truncate(bucket)
+		if len(buckets) == 0 || !buckets[len(buckets)-1].sample.Timestamp.Equal(at) {
+			buckets = append(buckets, aggregate{sample: model.LoadSample{Timestamp: at}})
+		}
+		current := &buckets[len(buckets)-1]
+		current.sample.CPULoadPercent += sample.CPULoadPercent
+		current.sample.MemoryUsedPercent += sample.MemoryUsedPercent
+		current.sample.StorageUsedPercent += sample.StorageUsedPercent
+		current.sample.OnlineTerminalCount += sample.OnlineTerminalCount
+		current.sample.UploadBps += sample.UploadBps
+		current.sample.DownloadBps += sample.DownloadBps
+		current.count++
+		if sample.ConnectionCount >= 0 {
+			current.connectionTotal += sample.ConnectionCount
+			current.connectionSamples++
+		}
+	}
+	result := make([]model.LoadSample, 0, len(buckets))
+	for _, bucket := range buckets {
+		count := float64(bucket.count)
+		bucket.sample.CPULoadPercent /= count
+		bucket.sample.MemoryUsedPercent /= count
+		bucket.sample.StorageUsedPercent /= count
+		bucket.sample.OnlineTerminalCount = int(math.Round(float64(bucket.sample.OnlineTerminalCount) / count))
+		bucket.sample.UploadBps /= count
+		bucket.sample.DownloadBps /= count
+		bucket.sample.ConnectionCount = -1
+		if bucket.connectionSamples > 0 {
+			bucket.sample.ConnectionCount = int(math.Round(float64(bucket.connectionTotal) / float64(bucket.connectionSamples)))
+		}
+		result = append(result, bucket.sample)
+	}
+	if len(result) > 360 {
+		result = result[len(result)-360:]
+	}
+	return result
+}
+
+func (m *Monitor) TrafficHistory(ctx context.Context, since time.Time, bucket time.Duration) ([]model.RateSample, error) {
+	interfaces := append([]string(nil), m.cfg.RouterOS.TrafficInterfaces...)
+	if len(interfaces) == 0 {
+		interfaces = append(interfaces, m.Snapshot().Overview.TrafficInterfaces...)
+	}
+	samples, err := m.store.LoadInterfaceSamples(ctx, interfaces, since)
+	if err != nil {
+		return nil, err
+	}
+	return downsampleRateSamples(samples, bucket), nil
+}
+
+func downsampleRateSamples(samples []model.RateSample, bucket time.Duration) []model.RateSample {
+	if len(samples) == 0 || bucket <= time.Second {
+		return latestRateSamples(samples, 360)
+	}
+	type aggregate struct {
+		at       time.Time
+		upload   float64
+		download float64
+		count    int
+	}
+	ordered := make([]aggregate, 0, len(samples))
+	for _, sample := range samples {
+		at := sample.Timestamp.Truncate(bucket)
+		if len(ordered) == 0 || !ordered[len(ordered)-1].at.Equal(at) {
+			ordered = append(ordered, aggregate{at: at})
+		}
+		current := &ordered[len(ordered)-1]
+		current.upload += sample.UploadBps
+		current.download += sample.DownloadBps
+		current.count++
+	}
+	result := make([]model.RateSample, 0, len(ordered))
+	for _, item := range ordered {
+		result = append(result, model.RateSample{
+			Timestamp: item.at, UploadBps: item.upload / float64(item.count), DownloadBps: item.download / float64(item.count),
+		})
+	}
+	return latestRateSamples(result, 360)
+}
+
+func latestRateSamples(samples []model.RateSample, limit int) []model.RateSample {
+	if limit <= 0 || len(samples) <= limit {
+		return samples
+	}
+	return samples[len(samples)-limit:]
 }
 
 func (m *Monitor) ProtocolHistory(ctx context.Context, since time.Time) ([]model.ProtocolHistorySample, error) {
@@ -548,12 +662,24 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		addWarning("routing-rules", "路由采集", "Routing Rule 数据暂时不可用，保留上次有效路由数据。")
 		routesComplete = false
 	}
-	ipRoutes, err := m.client.IPRoutes(pollCtx)
+	routingRoutes, err := m.client.RoutingRoutes(pollCtx)
 	if err != nil {
-		m.logger.Printf("load routes failed: %v", err)
-		addWarning("ip-routes", "路由采集", "路由表暂时不可用，保留上次有效路由数据。")
-		routesComplete = false
+		m.logger.Printf("load routing routes failed, trying ipv4 compatibility endpoint: %v", err)
+		ipRoutes, fallbackErr := m.client.IPRoutes(pollCtx)
+		if fallbackErr != nil {
+			addWarning("ip-routes", "路由采集", "路由表暂时不可用，保留上次有效路由数据。")
+			routesComplete = false
+		} else {
+			routingRoutes = make([]routeros.RoutingRoute, 0, len(ipRoutes))
+			for _, route := range ipRoutes {
+				routingRoutes = append(routingRoutes, routeros.RoutingRoute{ID: route.ID, AFI: "ip4", DstAddress: route.DstAddress, Gateway: route.Gateway, RoutingTable: route.RoutingTable, Distance: route.Distance, Active: route.Active, Disabled: route.Disabled})
+			}
+		}
 	}
+	routeLookup := newRouteMatcher(routingRules, routingRoutes)
+	m.routeMu.Lock()
+	m.routeLookup = routeLookup
+	m.routeMu.Unlock()
 
 	trafficInterfaces := selectTrafficInterfaces(m.cfg.RouterOS.TrafficInterfaces, interfaces)
 	monitorInterfaces := selectMonitorableInterfaces(interfaces)
@@ -590,6 +716,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		ipv6Neighbors,
 		connectionsV4,
 		connectionsV6,
+		routeLookup,
 	)
 	if err != nil {
 		return err
@@ -607,7 +734,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
 	connectedDevices := connectedLANDeviceCount(terminals, trafficInterfaces)
 	connectionCount := len(connectionsV4) + len(connectionsV6)
-	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
+	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, ConnectionCount: connectionCount, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
 		return err
 	}
 
@@ -619,7 +746,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if !policyComplete && len(previous.Policies) > 0 {
 		policies = previous.Policies
 	}
-	routes := buildRoutes(routingRules, ipRoutes)
+	routes := buildRoutes(routingRules, routingRoutes, details)
 	if !routesComplete && len(previous.Routes) > 0 {
 		routes = previous.Routes
 	}
@@ -688,6 +815,12 @@ func copyRealtimeOverview(destination *model.Overview, source model.Overview) {
 	destination.UpdatedAt = source.UpdatedAt
 }
 
+func (m *Monitor) currentRouteMatcher() routeMatcher {
+	m.routeMu.RLock()
+	defer m.routeMu.RUnlock()
+	return m.routeLookup
+}
+
 func fillRateSampleGaps(samples []model.RateSample) []model.RateSample {
 	if len(samples) < 2 {
 		return samples
@@ -751,15 +884,37 @@ func buildPolicies(simple []routeros.SimpleQueue, trees []routeros.QueueTree, ma
 	return result
 }
 
-func buildRoutes(rules []routeros.RoutingRule, routes []routeros.IPRoute) []model.RouteStat {
-	result := make([]model.RouteStat, 0, len(rules)+len(routes))
-	for _, item := range rules {
-		result = append(result, model.RouteStat{Kind: "rule", Destination: item.DstAddress, Table: item.Table, Action: item.Action, Source: preferredName(item.SrcAddress, item.Interface), Disabled: parseBool(item.Disabled)})
+func buildRoutes(rules []routeros.RoutingRule, routes []routeros.RoutingRoute, details map[string]model.TerminalDetail) []model.RouteStat {
+	matches := make(map[string]int)
+	for _, detail := range details {
+		for _, connection := range detail.Connections {
+			if connection.MatchedRuleID != "" {
+				matches[connection.MatchedRuleID]++
+			}
+			for _, routeID := range connection.RouteIDs {
+				matches[routeID]++
+			}
+		}
 	}
-	for _, item := range routes {
-		result = append(result, model.RouteStat{Kind: "route", Destination: item.DstAddress, Gateway: item.Gateway, Table: item.RoutingTable, Distance: parseInt(item.Distance), Active: parseBool(item.Active), Disabled: parseBool(item.Disabled)})
+	result := make([]model.RouteStat, 0, len(rules)+len(routes))
+	for index, item := range rules {
+		id := stableRuleID(item, index)
+		result = append(result, model.RouteStat{ID: id, Kind: "rule", Family: routeFamily(item.DstAddress, item.SrcAddress), Destination: item.DstAddress, Table: item.Table, Action: item.Action, Source: preferredName(item.SrcAddress, item.Interface), Disabled: parseBool(item.Disabled), CurrentMatches: matches[id]})
+	}
+	for index, item := range routes {
+		id := stableRouteID(item, index)
+		result = append(result, model.RouteStat{ID: id, Kind: "route", Family: routeFamily(item.AFI, item.DstAddress), Destination: item.DstAddress, Gateway: preferredName(item.ImmediateGateway, item.Gateway), Table: item.RoutingTable, Distance: parseInt(item.Distance), Active: parseBool(item.Active), Disabled: parseBool(item.Disabled), CurrentMatches: matches[id]})
 	}
 	return result
+}
+
+func routeFamily(values ...string) string {
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), "ip6") || strings.Contains(value, ":") {
+			return "ipv6"
+		}
+	}
+	return "ipv4"
 }
 
 func parseCounterPair(value string) int64 {
@@ -803,6 +958,7 @@ func (m *Monitor) buildTerminals(
 	ipv6Neighbors []routeros.IPv6Neighbor,
 	connectionsV4 []routeros.FirewallConnection,
 	connectionsV6 []routeros.FirewallConnection,
+	routeLookup routeMatcher,
 ) ([]model.Terminal, map[string]model.TerminalDetail, error) {
 	macByAddress := map[string]string{}
 	nameByAddress := map[string]string{}
@@ -967,6 +1123,8 @@ func (m *Monitor) buildTerminals(
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
 			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
+			destinationAddress := remoteAddress(connection, view.LocalAddress)
+			attribution := routeLookup.match(family, view.LocalAddress, destinationAddress, builder.PrimaryInterface, connection.RoutingMark)
 			connectionMap[builder.ID] = append(connectionMap[builder.ID], model.TerminalConnection{
 				Key:                view.ConnectionKey,
 				Family:             family,
@@ -975,7 +1133,7 @@ func (m *Monitor) buildTerminals(
 				Line:               "未知",
 				SourceAddress:      view.LocalAddress,
 				SourcePort:         localPort(connection, view.LocalAddress),
-				DestinationAddress: remoteAddress(connection, view.LocalAddress),
+				DestinationAddress: destinationAddress,
 				DestinationPort:    remotePort(connection, view.LocalAddress),
 				UploadBytes:        view.CurrentUploadBytes,
 				DownloadBytes:      view.CurrentDownloadBytes,
@@ -986,6 +1144,16 @@ func (m *Monitor) buildTerminals(
 				Assured:            parseBool(connection.Assured),
 				PublicAddress:      view.PublicAddress,
 				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
+				RoutingMark:        connection.RoutingMark,
+				RouteTable:         attribution.Table,
+				MatchedRule:        attribution.Rule,
+				MatchedRuleID:      attribution.RuleID,
+				RouteDestination:   attribution.Destination,
+				RouteID:            attribution.RouteID,
+				RouteIDs:           attribution.RouteIDs,
+				RouteGateways:      attribution.Gateways,
+				RouteMatchBasis:    attribution.Basis,
+				RouteAttribution:   attribution.State,
 				Estimated:          true,
 			})
 

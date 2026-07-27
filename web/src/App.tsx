@@ -19,6 +19,7 @@ import type {
   ActiveView,
   ConnectionFamily,
   DashboardResponse,
+  DeviceStatus,
   InterfaceDetail,
   InterfaceStatus,
   LoadSample,
@@ -27,7 +28,9 @@ import type {
   ProtocolHistorySample,
   ProtocolStat,
   RouteStat,
+  RateSample,
   SettingsResponse,
+  SettingsDevice,
   Terminal,
   TerminalConnection,
   TerminalDetail,
@@ -39,21 +42,64 @@ import type {
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
 type SettingsSection = 'connection' | 'collection' | 'ui' | 'maintenance'
-type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily }
+type PanelTheme = 'light' | 'dark'
+type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
   pollIntervalSeconds: number
   realtimePollIntervalSeconds: number
   terminalPollIntervalSeconds: number
   sampleRetentionHours: number
-  trafficInterfaces: string
+  trafficInterfaces: string[]
   terminalCidrs: string
 }
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
 const panelPreferenceKey = 'rosboard:panel-preferences'
-const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'overview', terminalFamily: 'all' }
+const selectedDeviceKey = 'rosboard:selected-device'
+const trafficWindowKey = 'rosboard:traffic-window'
+const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'overview', terminalFamily: 'all', theme: 'light' }
+const restartPollIntervalMs = 750
+const restartTimeoutMs = 90_000
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+async function panelAssetsReady() {
+  const assetURLs = Array.from(document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>('script[src], link[rel="stylesheet"][href]'))
+    .map((element) => element instanceof HTMLScriptElement ? element.src : element.href)
+    .filter(Boolean)
+  const responses = await Promise.all(assetURLs.map((url) => fetch(url, { cache: 'no-store' })))
+  return responses.every((response) => response.ok)
+}
+
+async function waitForPanelRestart(onOffline: () => void) {
+  const deadline = Date.now() + restartTimeoutMs
+  let observedOffline = false
+
+  await delay(restartPollIntervalMs)
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch('/api/health', { cache: 'no-store' })
+      if (observedOffline && response.ok && await panelAssetsReady()) {
+        await delay(restartPollIntervalMs)
+        window.location.reload()
+        return
+      }
+      if (!response.ok) {
+        if (!observedOffline) onOffline()
+        observedOffline = true
+      }
+    } catch {
+      if (!observedOffline) onOffline()
+      observedOffline = true
+    }
+    await delay(restartPollIntervalMs)
+  }
+  throw new Error('面板重启超时，请稍后手动刷新页面')
+}
 const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'routes', 'settings']
 
 function loadPanelPreferences(): PanelPreferences {
@@ -65,6 +111,7 @@ function loadPanelPreferences(): PanelPreferences {
       refreshMs: [0, 1000, 3000, 5000, 10000].includes(Number(parsed.refreshMs)) ? Number(parsed.refreshMs) : defaultPanelPreferences.refreshMs,
       landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
       terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
+      theme: parsed.theme === 'dark' ? 'dark' : 'light',
     }
   } catch {
     return defaultPanelPreferences
@@ -73,6 +120,12 @@ function loadPanelPreferences(): PanelPreferences {
 
 function savePanelPreferences(preferences: PanelPreferences) {
   window.localStorage.setItem(panelPreferenceKey, JSON.stringify(preferences))
+}
+
+function scopedURL(path: string, deviceID: string) {
+  if (!deviceID) return path
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}device=${encodeURIComponent(deviceID)}`
 }
 
 function connectionDraftFromSettings(settings: SettingsResponse | null): ConnectionDraft {
@@ -91,7 +144,7 @@ function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraf
     realtimePollIntervalSeconds: settings.collection.realtimePollIntervalSeconds,
     terminalPollIntervalSeconds: settings.collection.terminalPollIntervalSeconds,
     sampleRetentionHours: settings.collection.sampleRetentionHours,
-    trafficInterfaces: settings.collection.trafficInterfaces.join('\n'),
+    trafficInterfaces: [...settings.collection.trafficInterfaces],
     terminalCidrs: settings.collection.terminalCidrs.join('\n'),
   }
 }
@@ -197,6 +250,10 @@ function App() {
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
+  const [devices, setDevices] = useState<DeviceStatus[]>([])
+  const [selectedDeviceID, setSelectedDeviceID] = useState(() => window.localStorage.getItem(selectedDeviceKey) ?? '')
+  const [trafficWindow, setTrafficWindow] = useState(() => window.sessionStorage.getItem(trafficWindowKey) ?? '5m')
+  const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [statusExpanded, setStatusExpanded] = useState(true)
   const [settingsExpanded, setSettingsExpanded] = useState(true)
@@ -207,6 +264,38 @@ function App() {
     savePanelPreferences(next)
   }
   const hasDashboard = dashboard !== null
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = panelPreferences.theme
+    document.documentElement.style.colorScheme = panelPreferences.theme
+  }, [panelPreferences.theme])
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch('/api/devices')
+      if (!response.ok) return
+      const payload = (await response.json()) as { devices: DeviceStatus[] }
+      if (cancelled) return
+      const available = (payload.devices ?? []).filter((device) => device.enabled && !device.archived)
+      setDevices(payload.devices ?? [])
+      const selectedAvailable = available.some((device) => device.id === selectedDeviceID)
+      if (!selectedAvailable && available[0]) setSelectedDeviceID(available[0].id)
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 10000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [selectedDeviceID])
+
+  useEffect(() => {
+    if (!selectedDeviceID) return
+    window.localStorage.setItem(selectedDeviceKey, selectedDeviceID)
+    setDashboard(null)
+    setError(null)
+    setSelectedTerminalID(null)
+    setTerminalDetail(null)
+    setRefreshNonce((value) => value + 1)
+  }, [selectedDeviceID])
 
   const saveConnectionSettings = async (draft: ConnectionDraft) => {
     setConnectionSaving(true)
@@ -221,8 +310,8 @@ function App() {
         const failure = await response.json().catch(() => null) as { error?: string } | null
         throw new Error(failure?.error || `HTTP ${response.status}`)
       }
-      setConnectionMessage('已保存，面板正在重启并连接 RouterOS...')
-      window.setTimeout(() => window.location.reload(), 3500)
+      setConnectionMessage('已保存，面板正在重启并连接 RouterOS，请保持此页面打开...')
+      await waitForPanelRestart(() => setConnectionMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (saveError) {
       setConnectionMessage(saveError instanceof Error ? saveError.message : '连接设置保存失败')
     } finally {
@@ -239,7 +328,6 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...draft,
-          trafficInterfaces: parseSettingList(draft.trafficInterfaces),
           terminalCidrs: parseSettingList(draft.terminalCidrs),
         }),
       })
@@ -247,8 +335,8 @@ function App() {
         const failure = await response.json().catch(() => null) as { error?: string } | null
         throw new Error(failure?.error || `HTTP ${response.status}`)
       }
-      setCollectionMessage('已保存，面板正在重启并应用新的采集参数...')
-      window.setTimeout(() => window.location.reload(), 3500)
+      setCollectionMessage('已保存，面板正在重启并应用新的采集参数，请保持此页面打开...')
+      await waitForPanelRestart(() => setCollectionMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (saveError) {
       setCollectionMessage(saveError instanceof Error ? saveError.message : '采集设置保存失败')
     } finally {
@@ -265,8 +353,8 @@ function App() {
         const failure = await response.json().catch(() => null) as { error?: string } | null
         throw new Error(failure?.error || `HTTP ${response.status}`)
       }
-      setRestartMessage('面板正在重启...')
-      window.setTimeout(() => window.location.reload(), 3500)
+      setRestartMessage('面板正在重启，请保持此页面打开...')
+      await waitForPanelRestart(() => setRestartMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (restartError) {
       setRestartMessage(restartError instanceof Error ? restartError.message : '面板重启失败')
       setRestartSaving(false)
@@ -305,11 +393,22 @@ function App() {
       if (refreshing) return
       refreshing = true
       try {
-        const response = await fetch('/api/dashboard')
+        const response = await fetch(scopedURL('/api/dashboard', selectedDeviceID))
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
         const payload = (await response.json()) as DashboardResponse
+        payload.interfaces ??= []
+        payload.terminals ??= []
+        payload.capabilities ??= []
+        payload.protocols ??= []
+        payload.policies ??= []
+        payload.routes ??= []
+        payload.alerts ??= []
+        payload.warnings ??= []
+        payload.terminalScopeSummaries ??= {} as DashboardResponse['terminalScopeSummaries']
+        payload.overview.trafficInterfaces ??= []
+        payload.overview.chartSamples ??= []
         if (!cancelled) {
           setDashboard((current) => {
             if (!current || new Date(payload.overview.updatedAt).getTime() >= new Date(current.overview.updatedAt).getTime()) return payload
@@ -332,7 +431,7 @@ function App() {
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
-  }, [dashboardRefreshMs, refreshNonce])
+  }, [dashboardRefreshMs, refreshNonce, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'overview' || dashboardRefreshMs <= 0) return
@@ -343,7 +442,7 @@ function App() {
       if (refreshing) return
       refreshing = true
       try {
-        const response = await fetch('/api/realtime')
+        const response = await fetch(scopedURL('/api/realtime', selectedDeviceID))
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const overview = (await response.json()) as Overview
         if (!cancelled) {
@@ -363,7 +462,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeView, dashboardRefreshMs, refreshNonce])
+  }, [activeView, dashboardRefreshMs, refreshNonce, selectedDeviceID])
 
   useEffect(() => {
     if (!selectedTerminalID) {
@@ -373,7 +472,7 @@ function App() {
 
     let cancelled = false
     const load = async () => {
-      const response = await fetch(`/api/terminals/${encodeURIComponent(selectedTerminalID)}`)
+      const response = await fetch(scopedURL(`/api/terminals/${encodeURIComponent(selectedTerminalID)}`, selectedDeviceID))
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
@@ -395,21 +494,36 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [selectedTerminalID])
+  }, [selectedTerminalID, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'load' && activeView !== 'overview') return
     let cancelled = false
     const load = async () => {
-      const response = await fetch(`/api/load?window=${activeView === 'overview' ? '1h' : loadWindow}`)
+      const response = await fetch(scopedURL(`/api/load?window=${activeView === 'overview' ? trafficWindow : loadWindow}`, selectedDeviceID))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const payload = (await response.json()) as { samples: LoadSample[] }
       if (!cancelled) setLoadSamples(payload.samples ?? [])
     }
     load().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '负载历史读取失败'))
-    const timer = window.setInterval(() => load().catch(() => undefined), 30000)
+    const timer = window.setInterval(() => load().catch(() => undefined), activeView === 'overview' && trafficWindow === '5m' ? 3000 : 30000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, loadWindow])
+  }, [activeView, loadWindow, trafficWindow, selectedDeviceID, refreshNonce])
+
+  useEffect(() => {
+    if (activeView !== 'overview') return
+    let cancelled = false
+    const load = async () => {
+      const response = await fetch(scopedURL(`/api/traffic-history?window=${trafficWindow}`, selectedDeviceID))
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = (await response.json()) as { samples: RateSample[] }
+      if (!cancelled) setTrafficSamples(payload.samples ?? [])
+    }
+    window.sessionStorage.setItem(trafficWindowKey, trafficWindow)
+    void load().catch((historyError) => setError(historyError instanceof Error ? historyError.message : '流量历史读取失败'))
+    const timer = window.setInterval(() => void load().catch(() => undefined), trafficWindow === '5m' ? 3000 : 30000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [activeView, trafficWindow, selectedDeviceID, refreshNonce])
 
   useEffect(() => {
     if (activeView !== 'settings' && hasDashboard) return
@@ -486,6 +600,7 @@ function App() {
   }
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
+  const currentDevice = devices.find((device) => device.id === selectedDeviceID)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '连接设置', icon: 'router' },
@@ -616,8 +731,12 @@ function App() {
           </div>
         </nav>
         <div className="sidebar-device-card">
+          <label htmlFor="global-device-selector">当前设备</label>
+          <select id="global-device-selector" value={selectedDeviceID} onChange={(event) => setSelectedDeviceID(event.target.value)}>
+            {devices.filter((device) => device.enabled && !device.archived).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+          </select>
           <dl>
-            <div><dt>设备名称</dt><dd>{dashboard.overview.routerName || '-'}</dd></div>
+            <div><dt>连接状态</dt><dd>{currentDevice?.healthy ? '采集正常' : currentDevice?.error ? '连接异常' : '等待采集'}</dd></div>
             <div><dt>RouterOS 版本</dt><dd>{dashboard.overview.version || '-'}</dd></div>
             <div><dt>运行时间</dt><dd>{dashboard.overview.uptime || '-'}</dd></div>
           </dl>
@@ -662,15 +781,15 @@ function App() {
         {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
-          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} />
+          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} trafficWindow={trafficWindow} onTrafficWindowChange={setTrafficWindow} />
         ) : null}
 
         {activeView === 'interfaces' ? (
-          <InterfacesPage interfaces={dashboard.interfaces} />
+          <InterfacesPage interfaces={dashboard.interfaces} deviceID={selectedDeviceID} />
         ) : null}
 
         {activeView === 'load' ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
-        {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} /> : null}
+        {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
         {activeView === 'routes' ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
         {activeView === 'settings' ? (
@@ -755,7 +874,7 @@ function App() {
             setSavingRemark(true)
             try {
               const response = await fetch(
-                `/api/terminals/${encodeURIComponent(editingTerminal.id)}/metadata`,
+                scopedURL(`/api/terminals/${encodeURIComponent(editingTerminal.id)}/metadata`, selectedDeviceID),
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -862,8 +981,8 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>连接设置</h3><span>保存后面板会重启并使用新的 RouterOS REST 连接</span></div>
-          <ConnectionSettingsForm settings={props.settings} saving={props.connectionSaving} message={props.connectionMessage} onSave={props.onSaveConnection} />
+          <div className="panel-head"><h3>连接设置</h3><span>管理 RouterOS 设备，保存后重启采集</span></div>
+          <DeviceSettingsPanel settings={props.settings} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
             <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
@@ -875,7 +994,7 @@ function SettingsPage(props: {
       {props.settings && props.activeSection === 'collection' ? (
         <section className="panel settings-panel">
           <div className="panel-head"><h3>采集设置</h3><span>保存后重启采集服务生效</span></div>
-          <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
+          <CollectionSettingsForm settings={props.settings} interfaces={props.dashboard.interfaces ?? []} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
         </section>
       ) : null}
 
@@ -914,6 +1033,19 @@ function SettingsPage(props: {
                 <option value="all">全部终端</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option>
               </select>
             </label>
+            <fieldset className="theme-picker wide">
+              <legend>主题</legend>
+              <label className={preferenceDraft.theme === 'light' ? 'theme-option active' : 'theme-option'}>
+                <input type="radio" name="panel-theme" value="light" checked={preferenceDraft.theme === 'light'} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: 'light' }))} />
+                <span className="theme-preview theme-preview-light" aria-hidden="true"><i /><i /><i /></span>
+                <span><strong>明亮</strong><small>适合白天和高亮环境</small></span>
+              </label>
+              <label className={preferenceDraft.theme === 'dark' ? 'theme-option active' : 'theme-option'}>
+                <input type="radio" name="panel-theme" value="dark" checked={preferenceDraft.theme === 'dark'} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: 'dark' }))} />
+                <span className="theme-preview theme-preview-dark" aria-hidden="true"><i /><i /><i /></span>
+                <span><strong>黑暗</strong><small>适合夜间和低亮环境</small></span>
+              </label>
+            </fieldset>
             <div className="settings-actions wide">
               <button type="submit" className="primary-button">保存界面设置</button>
             </div>
@@ -936,6 +1068,7 @@ function SettingsPage(props: {
             <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
             <button type="button" className="toolbar-button" disabled={props.restartSaving} onClick={() => void props.onRestart()}><Icon name="refresh" />{props.restartSaving ? '正在重启...' : '重启面板服务'}</button>
           </div>
+          <ArchivedDevices settings={props.settings} />
           {props.restartMessage || maintenanceMessage ? <div className="settings-message">{props.restartMessage || maintenanceMessage}</div> : null}
         </section>
       ) : null}
@@ -945,6 +1078,68 @@ function SettingsPage(props: {
 
 function SettingItem(props: { label: string; value: string; wide?: boolean }) {
   return <div className={props.wide ? 'setting-item wide' : 'setting-item'}><span>{props.label}</span><strong>{props.value}</strong></div>
+}
+
+type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; terminalCidrs: string }
+
+function deviceDraft(device?: SettingsDevice): DeviceDraft {
+  return {
+    id: device?.id ?? '', name: device?.name ?? '', enabled: device?.enabled ?? true,
+    scheme: device?.scheme === 'https' ? 'https' : 'http', host: device?.host || '10.0.0.1',
+    port: device?.port || 80, username: device?.username ?? '', password: device?.password ?? '',
+    trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
+  }
+}
+
+function DeviceSettingsPanel({ settings }: { settings: SettingsResponse }) {
+  const available = settings.devices.filter((device) => !device.archived)
+  const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(available[0]))
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null) }
+  const request = async (path: string, method: string, body?: unknown) => {
+    setSaving(true); setMessage(null)
+    try {
+      const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+      const result = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(result?.error || `HTTP ${response.status}`)
+      setMessage('已保存，面板正在重启...')
+      window.setTimeout(() => window.location.reload(), 3500)
+    } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSaving(false) }
+  }
+  return <div className="device-settings-workspace">
+    <div className="device-settings-list">
+      <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
+      {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
+      {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
+    </div>
+    <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs) }) }}>
+      <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+      <label><span>协议</span><select value={draft.scheme} onChange={(event) => setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port }))}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} /></label>
+      <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft((current) => ({ ...current, port: Number(event.target.value) }))} /></label>
+      <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} /></label>
+      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+      <label className="span-2"><span>流量接口</span><textarea rows={3} value={draft.trafficInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficInterfaces: event.target.value }))} placeholder="pppoe-out1" /></label>
+      <label className="span-2"><span>终端 CIDR</span><textarea rows={3} value={draft.terminalCidrs} onChange={(event) => setDraft((current) => ({ ...current, terminalCidrs: event.target.value }))} placeholder="10.0.0.0/24" /></label>
+      <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
+      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving}>{saving ? '保存中...' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
+      {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
+    </form>
+  </div>
+}
+
+function ArchivedDevices({ settings }: { settings: SettingsResponse }) {
+  const archived = settings.devices.filter((device) => device.archived)
+  if (!archived.length) return null
+  const act = async (device: SettingsDevice, purge: boolean) => {
+    const confirmation = purge ? window.prompt(`输入设备名称“${device.name}”以永久清除全部历史数据`) : null
+    if (purge && confirmation !== device.name) return
+    const response = await fetch(`/api/devices/${encodeURIComponent(device.id)}/${purge ? 'data' : 'restore'}`, { method: purge ? 'DELETE' : 'POST', headers: purge ? { 'Content-Type': 'application/json' } : undefined, body: purge ? JSON.stringify({ confirmation }) : undefined })
+    if (response.ok) window.setTimeout(() => window.location.reload(), 3500)
+  }
+  return <div className="archived-devices"><strong>已归档设备</strong>{archived.map((device) => <div key={device.id}><span>{device.name}</span><button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button><button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button></div>)}</div>
 }
 
 function ConnectionSettingsForm(props: { settings: SettingsResponse | null; saving: boolean; message: string | null; onSave: (draft: ConnectionDraft) => Promise<void> }) {
@@ -990,9 +1185,22 @@ function ConnectionSettingsForm(props: { settings: SettingsResponse | null; savi
   </form>
 }
 
-function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
+function CollectionSettingsForm(props: { settings: SettingsResponse; interfaces: InterfaceStatus[]; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
   const [draft, setDraft] = useState<CollectionDraft>(() => collectionDraftFromSettings(props.settings))
   useEffect(() => setDraft(collectionDraftFromSettings(props.settings)), [props.settings])
+  const interfaceOptions = useMemo(() => {
+    const byName = new Map(props.interfaces.map((item) => [item.name, item]))
+    draft.trafficInterfaces.forEach((name) => {
+      if (!byName.has(name)) byName.set(name, { name } as InterfaceStatus)
+    })
+    return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name))
+  }, [draft.trafficInterfaces, props.interfaces])
+  const toggleInterface = (name: string) => setDraft((current) => ({
+    ...current,
+    trafficInterfaces: current.trafficInterfaces.includes(name)
+      ? current.trafficInterfaces.filter((item) => item !== name)
+      : [...current.trafficInterfaces, name],
+  }))
   const numberField = (key: keyof Pick<CollectionDraft, 'pollIntervalSeconds' | 'realtimePollIntervalSeconds' | 'terminalPollIntervalSeconds' | 'sampleRetentionHours'>, label: string, unit: string) => (
     <label>
       <span>{label}</span>
@@ -1004,10 +1212,21 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
     {numberField('realtimePollIntervalSeconds', '实时采集间隔', '秒')}
     {numberField('terminalPollIntervalSeconds', '终端采集间隔', '秒')}
     {numberField('sampleRetentionHours', '采样保留时间', '小时')}
-    <label className="span-2">
-      <span>流量接口</span>
-      <textarea rows={4} value={draft.trafficInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficInterfaces: event.target.value }))} placeholder="pppoe-out1" />
-    </label>
+    <fieldset className="interface-picker span-2">
+      <legend>流量接口</legend>
+      <div className="interface-picker-head"><span>选择纳入面板流量统计的接口</span><strong>{draft.trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
+      <div className="interface-options" role="group" aria-label="流量接口选项">
+        {interfaceOptions.map((item) => {
+          const selected = draft.trafficInterfaces.includes(item.name)
+          const status = item.disabled ? '已禁用' : item.running ? '运行中' : item.type ? '未连接' : '配置保留'
+          return <label key={item.name} className={selected ? 'interface-option selected' : 'interface-option'}>
+            <input type="checkbox" checked={selected} onChange={() => toggleInterface(item.name)} />
+            <span><strong>{item.name}</strong><small>{item.type || '未知类型'} · {status}</small></span>
+          </label>
+        })}
+        {!interfaceOptions.length ? <span className="settings-empty">当前设备还没有可选择的接口</span> : null}
+      </div>
+    </fieldset>
     <label className="span-2">
       <span>终端 CIDR</span>
       <textarea rows={4} value={draft.terminalCidrs} onChange={(event) => setDraft((current) => ({ ...current, terminalCidrs: event.target.value }))} placeholder="10.0.0.0/24" />
@@ -1023,16 +1242,18 @@ function formatSettingList(values: string[]) {
   return values.length ? values.join(' / ') : '-'
 }
 
-function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[] }) {
+function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[]; trafficWindow: string; onTrafficWindowChange: (value: string) => void }) {
   const { overview } = props.dashboard
   const terminals = props.dashboard.terminals ?? []
   const interfaces = props.dashboard.interfaces ?? []
   const protocols = props.dashboard.protocols ?? []
   const alerts = props.dashboard.alerts ?? []
   const samples = props.loadSamples ?? []
-  const cpuValues = samples.map((item) => item.cpuLoadPercent)
-  const memoryValues = samples.map((item) => item.memoryUsedPercent)
-  const terminalValues = samples.map((item) => item.onlineTerminalCount)
+  const cpuValues = samples.length ? samples.map((item) => item.cpuLoadPercent) : [overview.cpuLoadPercent]
+  const memoryValues = samples.length ? samples.map((item) => item.memoryUsedPercent) : [overview.memoryUsedPercent]
+  const terminalValues = samples.length ? samples.map((item) => item.onlineTerminalCount) : [overview.connectedDeviceCount]
+  const sampledConnections = samples.map((item) => item.connectionCount).filter((value) => value >= 0)
+  const connectionValues = sampledConnections.length ? sampledConnections : [overview.connectionCount]
   const inactive = terminals.filter((item) => item.state === 'inactive').length
   const offline = terminals.filter((item) => item.state === 'offline').length
   const protocolCounts = protocols.reduce<Record<string, number>>((result, item) => {
@@ -1046,20 +1267,23 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
 
   return (
     <div className="overview-dashboard">
+      <div className="overview-range-row">
+        <strong>时间范围</strong>
+        <span className="range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.trafficWindow === value ? 'active' : ''} onClick={() => props.onTrafficWindowChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
+      </div>
       <section className="reference-metric-grid">
         <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" values={cpuValues} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
-        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={`${formatBytes(overview.memoryUsedBytes)} / ${formatBytes(overview.memoryTotalBytes)}`} icon="memory" tone="green" values={memoryValues} footerLeft={`已用 ${formatBytes(overview.memoryUsedBytes)}`} footerRight={`可用 ${formatBytes(Math.max(0, overview.memoryTotalBytes - overview.memoryUsedBytes))}`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={`/ ${terminals.length}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`未活跃 ${inactive}`} footerRight={`离线 ${offline}`} />
-        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} detail="IPv4 + IPv6 conntrack" icon="connections" tone="orange" footerLeft={`TCP ${protocolCounts.TCP ?? 0}`} footerRight={`UDP ${protocolCounts.UDP ?? 0}`} />
+        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} detail={`${formatBytes(overview.memoryUsedBytes)} / ${formatBytes(overview.memoryTotalBytes)}`} icon="memory" tone="green" values={memoryValues} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
+        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} detail={`/ ${terminals.length} · 未活跃 ${inactive} · 离线 ${offline}`} icon="terminal" tone="purple" values={terminalValues} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
+        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} detail={`TCP ${protocolCounts.TCP ?? 0} · UDP ${protocolCounts.UDP ?? 0}`} icon="connections" tone="orange" values={connectionValues} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
       </section>
 
       <section className="overview-main-grid">
         <section className="panel reference-panel traffic-panel">
           <div className="panel-head reference-panel-head">
             <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span></div></div>
-            <span className="range-pills"><b>5 分钟</b></span>
           </div>
-          {overview.chartSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={overview.chartSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
+          {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
         </section>
 
         <section className="panel reference-panel status-panel">
@@ -1122,14 +1346,14 @@ function StatusText(props: { ok: boolean; trueText: string; falseText: string })
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0 }
 function maximum(values: number[]) { return values.length ? Math.max(...values) : 0 }
 
-function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
+function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<InterfaceDetail | null>(null)
   useEffect(() => {
     if (!selected) { setDetail(null); return }
     let cancelled = false
     const load = async () => {
-      const response = await fetch(`/api/interfaces/${encodeURIComponent(selected)}`)
+      const response = await fetch(scopedURL(`/api/interfaces/${encodeURIComponent(selected)}`, props.deviceID))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const payload = (await response.json()) as InterfaceDetail
       if (!cancelled) setDetail(payload)
@@ -1137,7 +1361,7 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[] }) {
     load().catch(() => undefined)
     const timer = window.setInterval(() => load().catch(() => undefined), 5000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [selected])
+  }, [selected, props.deviceID])
   return (
     <div className="page-grid">
     {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={detail.interface.running && !detail.interface.disabled ? '在线' : '离线'} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
@@ -1214,12 +1438,12 @@ function MetricHistory(props: { title: string; samples: LoadSample[]; value: (sa
   return <section className="panel metric-history"><div className="panel-head"><h3>{props.title}</h3><span>当前 {values.length ? props.format(values[values.length - 1]) : '-'} · 最大 {props.format(Math.max(0, ...values))}</span></div>{values.length ? <><svg viewBox={`0 0 ${width} ${height}`}><line x1="18" x2={width - 18} y1={height - 24} y2={height - 24} className="grid-line" /><polyline points={points} className="metric-line" /></svg><div className="chart-time"><span>{formatShortTime(props.samples[0].timestamp)}</span><span>{formatShortTime(props.samples[props.samples.length - 1].timestamp)}</span></div></> : <div className="empty-chart">等待历史采样</div>}</section>
 }
 
-function ProtocolPage(props: { protocols: ProtocolStat[] }) {
+function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
   const [history, setHistory] = useState<ProtocolHistorySample[]>([])
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      const response = await fetch('/api/protocols?window=30m')
+      const response = await fetch(scopedURL('/api/protocols?window=30m', props.deviceID))
       if (!response.ok) return
       const payload = (await response.json()) as { history: ProtocolHistorySample[] }
       if (!cancelled) setHistory(payload.history)
@@ -1227,7 +1451,7 @@ function ProtocolPage(props: { protocols: ProtocolStat[] }) {
     load().catch(() => undefined)
     const timer = window.setInterval(() => load().catch(() => undefined), 30000)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [])
+  }, [props.deviceID])
   const totalBytes = props.protocols.reduce((sum, item) => sum + item.uploadBytes + item.downloadBytes, 0)
   const historyBytes = new Map<string, number>()
   history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
@@ -1240,7 +1464,10 @@ function PolicyPage(props: { policies: PolicyStat[] }) {
 }
 
 function RoutesPage(props: { routes: RouteStat[] }) {
-  return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有路由与分流状态</strong><span className="result-count">来自当前路由表和 routing rule</span><span className="toolbar-spacer" /><span>共 {props.routes.length} 条</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>类型</th><th>源地址 / 接口</th><th>目标网段</th><th>网关</th><th>路由表</th><th>动作</th><th>距离</th><th>状态</th></tr></thead><tbody>{props.routes.length ? props.routes.map((item, index) => <tr key={`${item.kind}-${item.destination}-${item.table}-${index}`}><td>{item.kind}</td><td>{item.source || '-'}</td><td>{item.destination || '-'}</td><td>{item.gateway || '-'}</td><td>{item.table || 'main'}</td><td>{item.action || '-'}</td><td>{item.distance || '-'}</td><td>{item.disabled ? '已禁用' : item.kind === 'route' ? (item.active ? '活动' : '非活动') : '生效中'}</td></tr>) : <tr><td colSpan={8} className="empty-row">当前没有可读取的路由或分流状态</td></tr>}</tbody></table></div></section>
+  const [hideDisabled, setHideDisabled] = useState(true)
+  const disabledCount = props.routes.filter((item) => item.disabled).length
+  const visibleRoutes = hideDisabled ? props.routes.filter((item) => !item.disabled) : props.routes
+  return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有路由与分流状态</strong><span className="result-count">匹配数为当前 conntrack 快照推算</span><span className="toolbar-spacer" /><label className="toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label><span>显示 {visibleRoutes.length} / {props.routes.length} 条{disabledCount ? `，已禁用 ${disabledCount}` : ''}</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>类型</th><th>IP</th><th>源地址 / 接口</th><th>目标网段</th><th>网关</th><th>路由表</th><th>动作</th><th>距离</th><th>当前匹配连接</th><th>状态</th></tr></thead><tbody>{visibleRoutes.length ? visibleRoutes.map((item, index) => <tr key={item.id || `${item.kind}-${item.destination}-${item.table}-${index}`}><td>{item.kind}</td><td>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</td><td>{item.source || '-'}</td><td>{item.destination || '-'}</td><td>{item.gateway || '-'}</td><td>{item.table || 'main'}</td><td>{item.action || '-'}</td><td>{item.distance || '-'}</td><td>{item.currentMatches}</td><td>{item.disabled ? '已禁用' : item.kind === 'route' ? (item.active ? '活动' : '非活动') : '生效中'}</td></tr>) : <tr><td colSpan={10} className="empty-row">{props.routes.length ? '已隐藏全部禁用路由与分流规则' : '当前没有可读取的路由或分流状态'}</td></tr>}</tbody></table></div></section>
 }
 
 function TerminalsPage(props: {
@@ -1611,13 +1838,14 @@ function TerminalDetailPage(props: {
                     <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                     <ConnectionColumnHeader label="标志" sortKey="flags" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="flags" filterActive={filterActive.flags} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
+                    <th>命中路由</th>
                     <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="status" filterActive={filterActive.status} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
                   </tr>
                 </thead>
                 <tbody>
                   {visibleConnections.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="empty-row">
+                      <td colSpan={15} className="empty-row">
                         当前筛选范围没有 {selectedFamily === 'all' ? '活动' : selectedFamily.toUpperCase()} {isRouterConntrack ? '跟踪条目' : '连接详情'}
                       </td>
                     </tr>
@@ -1637,6 +1865,7 @@ function TerminalDetailPage(props: {
                         <td>{formatBytes(connection.uploadBytes)}</td>
                         <td>{formatBytes(connection.downloadBytes)}</td>
                         <td><span className="connection-flags" title="S=已见回包，A=Assured">{connection.seenReply ? 'S' : '-'} {connection.assured ? 'A' : '-'}</span></td>
+                        <td><div className="route-attribution"><strong>{connection.routeTable || '-'}</strong><span>{connection.routeDestination || connection.matchedRule || '-'}</span><small>{connection.routeGateways?.join(' / ') || (connection.routeAttribution === 'unavailable' ? '无法判断' : connection.routeAttribution === 'ambiguous' ? 'ECMP 推断' : '推断')}</small></div></td>
                         <td>{connection.status}</td>
                       </tr>
                     ))

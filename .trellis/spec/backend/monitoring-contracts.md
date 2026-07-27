@@ -1,5 +1,24 @@
 # Monitoring Contracts
 
+## Scenario: Multi-device monitoring and route attribution
+
+### Contracts
+
+- `MonitorManager` owns one independent Monitor, RouterOS client, scheduler locks, snapshot, and retry state for each enabled non-archived device.
+- One viewer heartbeat activates every enabled Monitor; existing no-viewer idle cadence remains.
+- Device-scoped APIs accept `?device=<id>` and fall back to the first enabled device only when omitted. Unknown IDs return 404; disabled/archived IDs return 503.
+- `/api/traffic-history` accepts only `5m`, `1h`, `6h`, and `24h`, averages deterministic buckets, and returns at most 360 chronological points.
+- Route attribution covers IPv4 and IPv6. RouterOS routing marks are source facts; rule and route selection are inferred from ordered rules, lookup fallback, active routes, longest prefix, distance, and ECMP.
+- A rule requiring unavailable input yields unavailable attribution instead of a guessed match. ECMP exposes all equal-best gateways.
+- Route `currentMatches` counts current conntrack rows and is never described as a lifetime counter. Native mangle packet/byte counters remain exact RouterOS counters.
+- Monitoring and attribution remain read-only and never create or edit RouterOS rules.
+
+### Tests Required
+
+- Route matcher: ordered rule, routing mark, longest prefix, lookup fallback, disabled/inactive routes, `min-prefix`, IPv6, ECMP, and unavailable input.
+- Store/API: traffic ranges are bounded and scoped by device.
+- Race: one failed device retry does not block healthy device snapshots or heartbeat fan-out.
+
 ## Scenario: Viewer-aware idle polling
 
 ### 1. Scope / Trigger

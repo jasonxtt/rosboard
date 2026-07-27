@@ -21,6 +21,9 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if cfg.RealtimePollIntervalSeconds != 1 || cfg.TerminalPollIntervalSeconds != 3 || cfg.PollIntervalSeconds != 10 {
 		t.Fatalf("unexpected polling defaults: realtime=%d terminal=%d full=%d", cfg.RealtimePollIntervalSeconds, cfg.TerminalPollIntervalSeconds, cfg.PollIntervalSeconds)
 	}
+	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
+		t.Fatalf("legacy routeros config was not normalized: %#v", cfg.Devices)
+	}
 }
 
 func TestLoadMissingConfigStartsSetupDefaults(t *testing.T) {
@@ -37,6 +40,41 @@ func TestLoadMissingConfigStartsSetupDefaults(t *testing.T) {
 	}
 	if cfg.RouterOS.BaseURL != "http://10.0.0.1" {
 		t.Fatalf("unexpected default routeros url: %q", cfg.RouterOS.BaseURL)
+	}
+}
+
+func TestLoadDeviceListAndSaveWithoutLegacyRouterOS(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	payload := []byte("devices:\n  - id: edge\n    name: Edge router\n    enabled: true\n    routeros:\n      base_url: http://edge.test\n      username: test\n      password: secret\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RouterOSConfigured() || cfg.RouterOS.BaseURL != "http://edge.test" {
+		t.Fatalf("unexpected effective device config: %#v", cfg)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "\nrouteros:") {
+		t.Fatalf("saved device config retained legacy routeros block:\n%s", saved)
+	}
+}
+
+func TestValidateRejectsDuplicateDeviceIDs(t *testing.T) {
+	cfg := Config{
+		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		Devices: []DeviceConfig{{ID: "same", Name: "One"}, {ID: "same", Name: "Two"}},
+	}
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("expected duplicate device validation error, got %v", err)
 	}
 }
 

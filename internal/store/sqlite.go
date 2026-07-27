@@ -17,8 +17,12 @@ import (
 var ErrTerminalNotFound = errors.New("terminal not found")
 
 type Store struct {
-	db *sql.DB
+	db       *sql.DB
+	deviceID string
+	owner    bool
 }
+
+const defaultDeviceID = "default"
 
 type TerminalTotal struct {
 	UploadBytes   int64
@@ -48,7 +52,7 @@ func Open(dataDir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	store := &Store{db: db}
+	store := &Store{db: db, deviceID: defaultDeviceID, owner: true}
 	if err := store.initSchema(); err != nil {
 		db.Close()
 		return nil, err
@@ -57,7 +61,22 @@ func Open(dataDir string) (*Store, error) {
 }
 
 func (s *Store) Close() error {
+	if !s.owner {
+		return nil
+	}
 	return s.db.Close()
+}
+
+func (s *Store) ForDevice(deviceID string) *Store {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		deviceID = defaultDeviceID
+	}
+	return &Store{db: s.db, deviceID: deviceID}
+}
+
+func (s *Store) DeviceID() string {
+	return s.deviceID
 }
 
 func (s *Store) initSchema() error {
@@ -77,7 +96,6 @@ func (s *Store) initSchema() error {
 			tracking_since INTEGER NOT NULL,
 			last_seen INTEGER NOT NULL
 		);`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_terminals_mac ON terminals(mac) WHERE mac IS NOT NULL AND mac <> '';`,
 		`CREATE TABLE IF NOT EXISTS terminal_addresses (
 			terminal_id TEXT NOT NULL,
 			family TEXT NOT NULL,
@@ -146,14 +164,90 @@ func (s *Store) initSchema() error {
 	if _, err := s.db.Exec(`ALTER TABLE load_samples ADD COLUMN storage_percent REAL NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add load_samples.storage_percent: %w", err)
 	}
+	if _, err := s.db.Exec(`ALTER TABLE load_samples ADD COLUMN connection_count INTEGER NOT NULL DEFAULT -1`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add load_samples.connection_count: %w", err)
+	}
+	return s.migrateDeviceScope()
+}
+
+func (s *Store) migrateDeviceScope() error {
+	rows, err := s.db.Query(`PRAGMA table_info(terminals)`)
+	if err != nil {
+		return fmt.Errorf("inspect terminal schema: %w", err)
+	}
+	hasDeviceID := false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan terminal schema: %w", err)
+		}
+		if name == "device_id" {
+			hasDeviceID = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close terminal schema rows: %w", err)
+	}
+	if hasDeviceID {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin device scope migration: %w", err)
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`DROP INDEX IF EXISTS idx_terminals_mac`,
+		`ALTER TABLE interface_samples RENAME TO interface_samples_legacy`,
+		`ALTER TABLE terminals RENAME TO terminals_legacy`,
+		`ALTER TABLE terminal_addresses RENAME TO terminal_addresses_legacy`,
+		`ALTER TABLE terminal_totals RENAME TO terminal_totals_legacy`,
+		`ALTER TABLE connection_state RENAME TO connection_state_legacy`,
+		`ALTER TABLE terminal_history RENAME TO terminal_history_legacy`,
+		`ALTER TABLE load_samples RENAME TO load_samples_legacy`,
+		`ALTER TABLE protocol_samples RENAME TO protocol_samples_legacy`,
+		`CREATE TABLE interface_samples (device_id TEXT NOT NULL, ts INTEGER NOT NULL, interface_name TEXT NOT NULL, rx_bps REAL NOT NULL, tx_bps REAL NOT NULL, PRIMARY KEY (device_id, ts, interface_name))`,
+		`CREATE TABLE terminals (device_id TEXT NOT NULL, id TEXT NOT NULL, mac TEXT, display_name TEXT NOT NULL, remark TEXT NOT NULL DEFAULT '', tracking_since INTEGER NOT NULL, last_seen INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'offline', online_since INTEGER NOT NULL DEFAULT 0, custom_name TEXT NOT NULL DEFAULT '', PRIMARY KEY (device_id, id))`,
+		`CREATE UNIQUE INDEX idx_terminals_device_mac ON terminals(device_id, mac) WHERE mac IS NOT NULL AND mac <> ''`,
+		`CREATE TABLE terminal_addresses (device_id TEXT NOT NULL, terminal_id TEXT NOT NULL, family TEXT NOT NULL, address TEXT NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY (device_id, terminal_id, family, address))`,
+		`CREATE TABLE terminal_totals (device_id TEXT NOT NULL, terminal_id TEXT NOT NULL, upload_bytes INTEGER NOT NULL, download_bytes INTEGER NOT NULL, tracking_since INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (device_id, terminal_id))`,
+		`CREATE TABLE connection_state (device_id TEXT NOT NULL, conn_key TEXT NOT NULL, terminal_id TEXT NOT NULL, upload_bytes INTEGER NOT NULL, download_bytes INTEGER NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY (device_id, conn_key))`,
+		`CREATE TABLE terminal_history (device_id TEXT NOT NULL, terminal_id TEXT NOT NULL, ts INTEGER NOT NULL, online_seconds INTEGER NOT NULL, upload_bytes INTEGER NOT NULL, download_bytes INTEGER NOT NULL, PRIMARY KEY (device_id, terminal_id, ts))`,
+		`CREATE TABLE load_samples (device_id TEXT NOT NULL, ts INTEGER NOT NULL, cpu_percent REAL NOT NULL, memory_percent REAL NOT NULL, online_terminals INTEGER NOT NULL, connection_count INTEGER NOT NULL DEFAULT -1, upload_bps REAL NOT NULL, download_bps REAL NOT NULL, storage_percent REAL NOT NULL DEFAULT 0, PRIMARY KEY (device_id, ts))`,
+		`CREATE TABLE protocol_samples (device_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, connections INTEGER NOT NULL, upload_bps REAL NOT NULL, download_bps REAL NOT NULL, PRIMARY KEY (device_id, ts, name, kind))`,
+		`INSERT INTO interface_samples SELECT 'default', ts, interface_name, rx_bps, tx_bps FROM interface_samples_legacy`,
+		`INSERT INTO terminals SELECT 'default', id, mac, display_name, remark, tracking_since, last_seen, state, online_since, custom_name FROM terminals_legacy`,
+		`INSERT INTO terminal_addresses SELECT 'default', terminal_id, family, address, last_seen FROM terminal_addresses_legacy`,
+		`INSERT INTO terminal_totals SELECT 'default', terminal_id, upload_bytes, download_bytes, tracking_since, updated_at FROM terminal_totals_legacy`,
+		`INSERT INTO connection_state SELECT 'default', conn_key, terminal_id, upload_bytes, download_bytes, last_seen FROM connection_state_legacy`,
+		`INSERT INTO terminal_history SELECT 'default', terminal_id, ts, online_seconds, upload_bytes, download_bytes FROM terminal_history_legacy`,
+		`INSERT INTO load_samples SELECT 'default', ts, cpu_percent, memory_percent, online_terminals, connection_count, upload_bps, download_bps, storage_percent FROM load_samples_legacy`,
+		`INSERT INTO protocol_samples SELECT 'default', ts, name, kind, connections, upload_bps, download_bps FROM protocol_samples_legacy`,
+		`DROP TABLE interface_samples_legacy`, `DROP TABLE terminals_legacy`, `DROP TABLE terminal_addresses_legacy`, `DROP TABLE terminal_totals_legacy`,
+		`DROP TABLE connection_state_legacy`, `DROP TABLE terminal_history_legacy`, `DROP TABLE load_samples_legacy`, `DROP TABLE protocol_samples_legacy`,
+		`PRAGMA user_version = 2`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate device scope: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit device scope migration: %w", err)
+	}
 	return nil
 }
 
 func (s *Store) SaveLoadSample(ctx context.Context, sample model.LoadSample) error {
 	bucket := sample.Timestamp.Unix() - sample.Timestamp.Unix()%60
 	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO load_samples
-		(ts, cpu_percent, memory_percent, online_terminals, upload_bps, download_bps, storage_percent)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, bucket, sample.CPULoadPercent, sample.MemoryUsedPercent, sample.OnlineTerminalCount, sample.UploadBps, sample.DownloadBps, sample.StorageUsedPercent)
+		(device_id, ts, cpu_percent, memory_percent, online_terminals, connection_count, upload_bps, download_bps, storage_percent)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.deviceID, bucket, sample.CPULoadPercent, sample.MemoryUsedPercent, sample.OnlineTerminalCount, sample.ConnectionCount, sample.UploadBps, sample.DownloadBps, sample.StorageUsedPercent)
 	if err != nil {
 		return fmt.Errorf("save load sample: %w", err)
 	}
@@ -161,8 +255,8 @@ func (s *Store) SaveLoadSample(ctx context.Context, sample model.LoadSample) err
 }
 
 func (s *Store) LoadSamples(ctx context.Context, since time.Time) ([]model.LoadSample, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT ts, cpu_percent, memory_percent, online_terminals, upload_bps, download_bps, storage_percent
-		FROM load_samples WHERE ts >= ? ORDER BY ts ASC`, since.Unix())
+	rows, err := s.db.QueryContext(ctx, `SELECT ts, cpu_percent, memory_percent, online_terminals, connection_count, upload_bps, download_bps, storage_percent
+		FROM load_samples WHERE device_id = ? AND ts >= ? ORDER BY ts ASC`, s.deviceID, since.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("query load samples: %w", err)
 	}
@@ -171,7 +265,7 @@ func (s *Store) LoadSamples(ctx context.Context, since time.Time) ([]model.LoadS
 	for rows.Next() {
 		var sample model.LoadSample
 		var ts int64
-		if err := rows.Scan(&ts, &sample.CPULoadPercent, &sample.MemoryUsedPercent, &sample.OnlineTerminalCount, &sample.UploadBps, &sample.DownloadBps, &sample.StorageUsedPercent); err != nil {
+		if err := rows.Scan(&ts, &sample.CPULoadPercent, &sample.MemoryUsedPercent, &sample.OnlineTerminalCount, &sample.ConnectionCount, &sample.UploadBps, &sample.DownloadBps, &sample.StorageUsedPercent); err != nil {
 			return nil, fmt.Errorf("scan load sample: %w", err)
 		}
 		sample.Timestamp = time.Unix(ts, 0).UTC()
@@ -188,7 +282,7 @@ func (s *Store) SaveProtocolSamples(ctx context.Context, at time.Time, stats []m
 	}
 	defer tx.Rollback()
 	for _, stat := range stats {
-		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO protocol_samples (ts, name, kind, connections, upload_bps, download_bps) VALUES (?, ?, ?, ?, ?, ?)`, bucket, stat.Name, stat.Kind, stat.Connections, stat.UploadBps, stat.DownloadBps); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO protocol_samples (device_id, ts, name, kind, connections, upload_bps, download_bps) VALUES (?, ?, ?, ?, ?, ?, ?)`, s.deviceID, bucket, stat.Name, stat.Kind, stat.Connections, stat.UploadBps, stat.DownloadBps); err != nil {
 			return fmt.Errorf("save protocol sample: %w", err)
 		}
 	}
@@ -199,7 +293,7 @@ func (s *Store) SaveProtocolSamples(ctx context.Context, at time.Time, stats []m
 }
 
 func (s *Store) ProtocolSamples(ctx context.Context, since time.Time) ([]model.ProtocolHistorySample, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT ts, name, kind, connections, upload_bps, download_bps FROM protocol_samples WHERE ts >= ? ORDER BY ts ASC, name ASC`, since.Unix())
+	rows, err := s.db.QueryContext(ctx, `SELECT ts, name, kind, connections, upload_bps, download_bps FROM protocol_samples WHERE device_id = ? AND ts >= ? ORDER BY ts ASC, name ASC`, s.deviceID, since.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("query protocol samples: %w", err)
 	}
@@ -220,7 +314,8 @@ func (s *Store) ProtocolSamples(ctx context.Context, since time.Time) ([]model.P
 func (s *Store) SaveInterfaceSample(ctx context.Context, at time.Time, interfaceName string, rxBps, txBps float64) error {
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT OR REPLACE INTO interface_samples (ts, interface_name, rx_bps, tx_bps) VALUES (?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO interface_samples (device_id, ts, interface_name, rx_bps, tx_bps) VALUES (?, ?, ?, ?, ?)`,
+		s.deviceID,
 		at.Unix(),
 		interfaceName,
 		rxBps,
@@ -238,10 +333,11 @@ func (s *Store) LoadInterfaceSamples(ctx context.Context, interfaceNames []strin
 	}
 
 	query := fmt.Sprintf(
-		`SELECT ts, rx_bps, tx_bps FROM interface_samples WHERE interface_name IN (%s) AND ts >= ? ORDER BY ts ASC`,
+		`SELECT ts, rx_bps, tx_bps FROM interface_samples WHERE device_id = ? AND interface_name IN (%s) AND ts >= ? ORDER BY ts ASC`,
 		placeholders(len(interfaceNames)),
 	)
-	args := make([]any, 0, len(interfaceNames)+1)
+	args := make([]any, 0, len(interfaceNames)+2)
+	args = append(args, s.deviceID)
 	for _, name := range interfaceNames {
 		args = append(args, name)
 	}
@@ -283,7 +379,7 @@ func (s *Store) LoadInterfaceSamples(ctx context.Context, interfaceNames []strin
 }
 
 func (s *Store) PruneInterfaceSamples(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM interface_samples WHERE ts < ?`, before.Unix())
+	_, err := s.db.ExecContext(ctx, `DELETE FROM interface_samples WHERE device_id = ? AND ts < ?`, s.deviceID, before.Unix())
 	if err != nil {
 		return fmt.Errorf("prune interface samples: %w", err)
 	}
@@ -307,12 +403,13 @@ func (s *Store) UpsertTerminal(ctx context.Context, id, mac, displayName string,
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO terminals (id, mac, display_name, tracking_since, last_seen)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET
+		`INSERT INTO terminals (device_id, id, mac, display_name, tracking_since, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(device_id, id) DO UPDATE SET
 		   mac = CASE WHEN excluded.mac <> '' THEN excluded.mac ELSE terminals.mac END,
 		   display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE terminals.display_name END,
 		   last_seen = CASE WHEN excluded.last_seen > 0 THEN excluded.last_seen ELSE terminals.last_seen END`,
+		s.deviceID,
 		id,
 		nullIfEmpty(mac),
 		displayName,
@@ -325,9 +422,10 @@ func (s *Store) UpsertTerminal(ctx context.Context, id, mac, displayName string,
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO terminal_totals (terminal_id, upload_bytes, download_bytes, tracking_since, updated_at)
-		 VALUES (?, 0, 0, ?, ?)
-		 ON CONFLICT(terminal_id) DO NOTHING`,
+		`INSERT INTO terminal_totals (device_id, terminal_id, upload_bytes, download_bytes, tracking_since, updated_at)
+		 VALUES (?, ?, 0, 0, ?, ?)
+		 ON CONFLICT(device_id, terminal_id) DO NOTHING`,
+		s.deviceID,
 		id,
 		trackingAt.Unix(),
 		trackingAt.Unix(),
@@ -354,13 +452,13 @@ func (s *Store) UpdateTerminalPresence(ctx context.Context, id, state string, se
 			WHEN state <> 'online' OR online_since = 0 THEN ?
 			ELSE online_since END,
 		last_seen = CASE WHEN ? = 'online' THEN ? ELSE last_seen END
-		WHERE id = ?`, state, state, now, state, now, id)
+		WHERE device_id = ? AND id = ?`, state, state, now, state, now, s.deviceID, id)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("update terminal presence: %w", err)
 	}
 	var onlineSince int64
 	var lastSeen int64
-	if err := s.db.QueryRowContext(ctx, `SELECT online_since, last_seen FROM terminals WHERE id = ?`, id).Scan(&onlineSince, &lastSeen); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT online_since, last_seen FROM terminals WHERE device_id = ? AND id = ?`, s.deviceID, id).Scan(&onlineSince, &lastSeen); err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("load terminal presence: %w", err)
 	}
 	var onlineAt time.Time
@@ -381,19 +479,20 @@ func (s *Store) MergeTerminal(ctx context.Context, fromID, toID string) error {
 	}
 	defer tx.Rollback()
 
-	row := tx.QueryRowContext(ctx, `SELECT upload_bytes, download_bytes FROM terminal_totals WHERE terminal_id = ?`, fromID)
+	row := tx.QueryRowContext(ctx, `SELECT upload_bytes, download_bytes FROM terminal_totals WHERE device_id = ? AND terminal_id = ?`, s.deviceID, fromID)
 	var up int64
 	var down int64
 	switch err := row.Scan(&up, &down); err {
 	case nil:
 		_, err = tx.ExecContext(
 			ctx,
-			`INSERT INTO terminal_totals (terminal_id, upload_bytes, download_bytes, tracking_since, updated_at)
-			 VALUES (?, ?, ?, strftime('%s','now'), strftime('%s','now'))
-			 ON CONFLICT(terminal_id) DO UPDATE SET
+			`INSERT INTO terminal_totals (device_id, terminal_id, upload_bytes, download_bytes, tracking_since, updated_at)
+			 VALUES (?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
+			 ON CONFLICT(device_id, terminal_id) DO UPDATE SET
 			   upload_bytes = terminal_totals.upload_bytes + excluded.upload_bytes,
 			   download_bytes = terminal_totals.download_bytes + excluded.download_bytes,
 			   updated_at = excluded.updated_at`,
+			s.deviceID,
 			toID,
 			up,
 			down,
@@ -401,27 +500,27 @@ func (s *Store) MergeTerminal(ctx context.Context, fromID, toID string) error {
 		if err != nil {
 			return fmt.Errorf("merge terminal totals: %w", err)
 		}
-		_, _ = tx.ExecContext(ctx, `DELETE FROM terminal_totals WHERE terminal_id = ?`, fromID)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM terminal_totals WHERE device_id = ? AND terminal_id = ?`, s.deviceID, fromID)
 	case sql.ErrNoRows:
 	default:
 		return fmt.Errorf("load terminal totals to merge: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO terminal_addresses (terminal_id, family, address, last_seen)
-		SELECT ?, family, address, last_seen FROM terminal_addresses WHERE terminal_id = ?
-		ON CONFLICT(terminal_id, family, address) DO UPDATE SET
-			last_seen = max(terminal_addresses.last_seen, excluded.last_seen)`, toID, fromID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO terminal_addresses (device_id, terminal_id, family, address, last_seen)
+		SELECT ?, ?, family, address, last_seen FROM terminal_addresses WHERE device_id = ? AND terminal_id = ?
+		ON CONFLICT(device_id, terminal_id, family, address) DO UPDATE SET
+			last_seen = max(terminal_addresses.last_seen, excluded.last_seen)`, s.deviceID, toID, s.deviceID, fromID)
 	if err != nil {
 		return fmt.Errorf("move terminal addresses: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM terminal_addresses WHERE terminal_id = ?`, fromID); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM terminal_addresses WHERE device_id = ? AND terminal_id = ?`, s.deviceID, fromID); err != nil {
 		return fmt.Errorf("delete merged terminal addresses: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE connection_state SET terminal_id = ? WHERE terminal_id = ?`, toID, fromID)
+	_, err = tx.ExecContext(ctx, `UPDATE connection_state SET terminal_id = ? WHERE device_id = ? AND terminal_id = ?`, toID, s.deviceID, fromID)
 	if err != nil {
 		return fmt.Errorf("move connection state: %w", err)
 	}
-	_, _ = tx.ExecContext(ctx, `DELETE FROM terminals WHERE id = ?`, fromID)
+	_, _ = tx.ExecContext(ctx, `DELETE FROM terminals WHERE device_id = ? AND id = ?`, s.deviceID, fromID)
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit merge terminal: %w", err)
@@ -439,9 +538,10 @@ func (s *Store) ReplaceTerminalAddresses(ctx context.Context, terminalID string,
 	for _, address := range uniqueStrings(ipv4) {
 		if _, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO terminal_addresses (terminal_id, family, address, last_seen)
-			 VALUES (?, 'ipv4', ?, ?)
-			 ON CONFLICT(terminal_id, family, address) DO UPDATE SET last_seen = excluded.last_seen`,
+			`INSERT INTO terminal_addresses (device_id, terminal_id, family, address, last_seen)
+			 VALUES (?, ?, 'ipv4', ?, ?)
+			 ON CONFLICT(device_id, terminal_id, family, address) DO UPDATE SET last_seen = excluded.last_seen`,
+			s.deviceID,
 			terminalID,
 			address,
 			seenAt.Unix(),
@@ -452,9 +552,10 @@ func (s *Store) ReplaceTerminalAddresses(ctx context.Context, terminalID string,
 	for _, address := range uniqueStrings(ipv6) {
 		if _, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO terminal_addresses (terminal_id, family, address, last_seen)
-			 VALUES (?, 'ipv6', ?, ?)
-			 ON CONFLICT(terminal_id, family, address) DO UPDATE SET last_seen = excluded.last_seen`,
+			`INSERT INTO terminal_addresses (device_id, terminal_id, family, address, last_seen)
+			 VALUES (?, ?, 'ipv6', ?, ?)
+			 ON CONFLICT(device_id, terminal_id, family, address) DO UPDATE SET last_seen = excluded.last_seen`,
+			s.deviceID,
 			terminalID,
 			address,
 			seenAt.Unix(),
@@ -484,7 +585,7 @@ func (s *Store) ApplyConnectionSnapshots(ctx context.Context, snapshots []Connec
 	defer tx.Rollback()
 	for _, snapshot := range snapshots {
 		var previousUpload, previousDownload int64
-		err = tx.QueryRowContext(ctx, `SELECT upload_bytes, download_bytes FROM connection_state WHERE conn_key = ?`, snapshot.Key).Scan(&previousUpload, &previousDownload)
+		err = tx.QueryRowContext(ctx, `SELECT upload_bytes, download_bytes FROM connection_state WHERE device_id = ? AND conn_key = ?`, s.deviceID, snapshot.Key).Scan(&previousUpload, &previousDownload)
 		switch err {
 		case nil:
 		case sql.ErrNoRows:
@@ -492,16 +593,16 @@ func (s *Store) ApplyConnectionSnapshots(ctx context.Context, snapshots []Connec
 		default:
 			return fmt.Errorf("load connection state: %w", err)
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE terminal_totals SET upload_bytes = upload_bytes + ?, download_bytes = download_bytes + ?, updated_at = ? WHERE terminal_id = ?`, nonNegativeDelta(previousUpload, snapshot.UploadBytes), nonNegativeDelta(previousDownload, snapshot.DownloadBytes), snapshot.SeenAt.Unix(), snapshot.TerminalID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE terminal_totals SET upload_bytes = upload_bytes + ?, download_bytes = download_bytes + ?, updated_at = ? WHERE device_id = ? AND terminal_id = ?`, nonNegativeDelta(previousUpload, snapshot.UploadBytes), nonNegativeDelta(previousDownload, snapshot.DownloadBytes), snapshot.SeenAt.Unix(), s.deviceID, snapshot.TerminalID); err != nil {
 			return fmt.Errorf("update terminal totals from connection: %w", err)
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO connection_state (conn_key, terminal_id, upload_bytes, download_bytes, last_seen)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(conn_key) DO UPDATE SET
+		if _, err = tx.ExecContext(ctx, `INSERT INTO connection_state (device_id, conn_key, terminal_id, upload_bytes, download_bytes, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(device_id, conn_key) DO UPDATE SET
 		   terminal_id = excluded.terminal_id,
 		   upload_bytes = excluded.upload_bytes,
 		   download_bytes = excluded.download_bytes,
-		   last_seen = excluded.last_seen`, snapshot.Key, snapshot.TerminalID, snapshot.UploadBytes, snapshot.DownloadBytes, snapshot.SeenAt.Unix()); err != nil {
+		   last_seen = excluded.last_seen`, s.deviceID, snapshot.Key, snapshot.TerminalID, snapshot.UploadBytes, snapshot.DownloadBytes, snapshot.SeenAt.Unix()); err != nil {
 			return fmt.Errorf("upsert connection state: %w", err)
 		}
 	}
@@ -523,11 +624,12 @@ func (s *Store) TerminalTotals(ctx context.Context, ids []string) (map[string]Te
 		        COALESCE(t.remark, ''), COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
 		        COALESCE(t.state, 'offline'), COALESCE(t.online_since, 0), COALESCE(t.last_seen, 0)
 		 FROM terminal_totals tt
-		 LEFT JOIN terminals t ON t.id = tt.terminal_id
-		 WHERE tt.terminal_id IN (%s)`,
+		 LEFT JOIN terminals t ON t.device_id = tt.device_id AND t.id = tt.terminal_id
+		 WHERE tt.device_id = ? AND tt.terminal_id IN (%s)`,
 		placeholders(len(ids)),
 	)
-	args := make([]any, 0, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, s.deviceID)
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -565,8 +667,9 @@ func (s *Store) SaveTerminalHistory(ctx context.Context, terminalID string, at t
 	bucket := at.Unix() - at.Unix()%60
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT OR REPLACE INTO terminal_history (terminal_id, ts, online_seconds, upload_bytes, download_bytes)
-		 VALUES (?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO terminal_history (device_id, terminal_id, ts, online_seconds, upload_bytes, download_bytes)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		s.deviceID,
 		terminalID,
 		bucket,
 		onlineSeconds,
@@ -580,16 +683,16 @@ func (s *Store) SaveTerminalHistory(ctx context.Context, terminalID string, at t
 }
 
 func (s *Store) PruneRuntimeState(ctx context.Context, connectionBefore, historyBefore time.Time) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM connection_state WHERE last_seen < ?`, connectionBefore.Unix()); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM connection_state WHERE device_id = ? AND last_seen < ?`, s.deviceID, connectionBefore.Unix()); err != nil {
 		return fmt.Errorf("prune connection state: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM terminal_history WHERE ts < ?`, historyBefore.Unix()); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM terminal_history WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
 		return fmt.Errorf("prune terminal history: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM load_samples WHERE ts < ?`, historyBefore.Unix()); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM load_samples WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
 		return fmt.Errorf("prune load samples: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM protocol_samples WHERE ts < ?`, historyBefore.Unix()); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM protocol_samples WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
 		return fmt.Errorf("prune protocol samples: %w", err)
 	}
 	return nil
@@ -600,9 +703,10 @@ func (s *Store) TerminalHistory(ctx context.Context, terminalID string, limit in
 		ctx,
 		`SELECT ts, online_seconds, upload_bytes, download_bytes
 		 FROM terminal_history
-		 WHERE terminal_id = ?
+		 WHERE device_id = ? AND terminal_id = ?
 		 ORDER BY ts DESC
 		 LIMIT ?`,
+		s.deviceID,
 		terminalID,
 		limit,
 	)
@@ -629,7 +733,7 @@ func (s *Store) TerminalHistory(ctx context.Context, terminalID string, limit in
 
 func (s *Store) UpdateTerminalRemark(ctx context.Context, terminalID, remark string) error {
 	var customName string
-	if err := s.db.QueryRowContext(ctx, `SELECT custom_name FROM terminals WHERE id = ?`, terminalID).Scan(&customName); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT custom_name FROM terminals WHERE device_id = ? AND id = ?`, s.deviceID, terminalID).Scan(&customName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrTerminalNotFound
 		}
@@ -639,7 +743,7 @@ func (s *Store) UpdateTerminalRemark(ctx context.Context, terminalID, remark str
 }
 
 func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customName, remark string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ?, remark = ? WHERE id = ?`, customName, remark, terminalID)
+	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ?, remark = ? WHERE device_id = ? AND id = ?`, customName, remark, s.deviceID, terminalID)
 	if err != nil {
 		return fmt.Errorf("update terminal metadata: %w", err)
 	}
@@ -649,6 +753,30 @@ func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customNa
 	}
 	if rows == 0 {
 		return ErrTerminalNotFound
+	}
+	return nil
+}
+
+func (s *Store) PurgeDevice(ctx context.Context, deviceID string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return errors.New("device id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin purge device: %w", err)
+	}
+	defer tx.Rollback()
+	for _, table := range []string{
+		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
+		"terminal_history", "load_samples", "protocol_samples", "terminals",
+	} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {
+			return fmt.Errorf("purge device from %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit purge device: %w", err)
 	}
 	return nil
 }

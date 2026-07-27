@@ -10,10 +10,14 @@ allowed_cidrs:
   - "10.0.0.0/8"
   - "192.168.0.0/16"
 
-routeros:
-  base_url: "http://10.0.0.1"
-  username: "replace-me"
-  password: "replace-me"
-  traffic_interfaces:
-    - "pppoe-out1"
-  terminal_cidrs: []
+devices:
+  - id: "default"
+    name: "主路由"
+    enabled: true
+    routeros:
+      base_url: "http://10.0.0.1:80"
+      username: "replace-me"
+      password: "replace-me"
+      traffic_interfaces:
+        - "pppoe-out1"
+      terminal_cidrs: []

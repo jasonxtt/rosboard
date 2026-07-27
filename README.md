@@ -86,8 +86,12 @@ Browser → rosboard HTTP/API → RouterOS REST API
 | `terminal_poll_interval_seconds` | 终端与连接数据采集间隔 |
 | `sample_retention_hours` | 历史采样保留时长 |
 | `allowed_cidrs` | 允许访问 `/api/*` 的客户端网段 |
-| `routeros.traffic_interfaces` | 纳入流量概览的 RouterOS 接口 |
-| `routeros.terminal_cidrs` | 可选的终端网段；为空时由接口和邻居信息推导 |
+| `devices[].id` | 设备稳定标识；创建后不应修改 |
+| `devices[].name` | 面板中显示的设备名称 |
+| `devices[].enabled` | 是否在后台持续采集该设备 |
+| `devices[].routeros.*` | 每台设备的 REST 地址、账号、密码、流量接口和终端网段 |
+
+旧版单个 `routeros` 配置仍可直接加载，并会自动映射为 `default` 设备；首次从面板保存后写为新的 `devices` 结构。
 
 RouterOS 连接参数也可通过环境变量覆盖：
 

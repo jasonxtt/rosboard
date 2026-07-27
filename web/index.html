@@ -9,6 +9,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const retryKey = 'rosboard:boot-retries'
+        window.setTimeout(() => {
+          const root = document.getElementById('root')
+          if (root && root.childElementCount === 0) {
+            const retries = Number(window.sessionStorage.getItem(retryKey) || '0')
+            if (retries < 3) {
+              window.sessionStorage.setItem(retryKey, String(retries + 1))
+              window.location.reload()
+            }
+            return
+          }
+          window.sessionStorage.removeItem(retryKey)
+        }, 2000)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

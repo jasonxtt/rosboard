@@ -1,5 +1,22 @@
 # Runtime Configuration
 
+## Scenario: Multi-device RouterOS configuration
+
+### Contracts
+
+- `devices[]` owns immutable `id`, operator `name`, `enabled`, `archived`, and per-device RouterOS REST credentials, traffic interfaces, and terminal CIDRs.
+- Poll intervals, retention, listener, API allowlist, and data directory remain process-global.
+- Legacy singular `routeros` YAML loads as one enabled device with ID `default`; the next settings save emits `devices` and omits the legacy block.
+- `ROSBOARD_ROUTEROS_*` overrides target the first configured device for backward compatibility.
+- Normal deletion sets `archived=true` and `enabled=false`; only `DELETE /api/devices/{id}/data` with exact device-name confirmation removes history and the YAML record.
+- Passwords are returned only by the explicit LAN settings projection, masked by default in the browser, and replaced by `********` in exports.
+
+### Tests Required
+
+- Config: legacy YAML normalizes to `default`; device YAML round-trips without a legacy block; duplicate IDs fail validation.
+- API: create/update/archive/restore validate connection fields; archive retains data; confirmed purge removes only the owning device.
+- Race: concurrent settings saves do not share mutable device slices or overwrite another save.
+
 ## Scenario: Local non-interactive YAML startup
 
 ### 1. Scope / Trigger
@@ -94,8 +111,11 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - `POST /api/settings/connection` writes `routeros.base_url`, `routeros.username`, and `routeros.password` to `Config.Path`, then schedules process exit. Under `Restart=always`, systemd starts a new process with the saved config.
 - `POST /api/settings/collection` trims list entries, drops blanks and duplicates, writes all collection fields to `Config.Path`, and schedules the same restart. Serialize writes under `cfgMu` so simultaneous connection and collection saves cannot overwrite one another.
 - `POST /api/settings/restart` schedules the injected restart callback without changing YAML. It is available only when the runtime provides that callback.
+- Start the HTTP server without waiting for the first RouterOS full refresh. The monitor manager initializes in the background so restart downtime is limited to the process supervisor delay.
+- Dashboard snapshots serialize empty collections and terminal scope summaries as `[]` and `{}`, never `null`, including the interval before the first successful refresh.
 - If RouterOS is unconfigured or the initial monitor start fails, the HTTP server still serves the setup UI and `/api/settings`; dashboard endpoints return setup-required service-unavailable JSON.
 - Browser-local preferences may affect default refresh interval, default landing view, and default terminal family. They do not rewrite YAML and do not change monitor scheduling on the server.
+- After a settings save, the browser must observe the service become unavailable and then verify health plus current JS/CSS assets before reloading. Do not reload after a fixed delay. Normalize legacy `null` dashboard collections at the frontend response boundary so a startup snapshot renders an empty state instead of crashing.
 
 ### 4. Validation & Error Matrix
 
@@ -132,6 +152,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - JSON shape: empty string slices serialize as arrays, not `null`.
 - Frontend: production TypeScript build and oxlint pass.
 - Live: local service serves `/`, `/api/dashboard` when configured, and `/api/settings`; saving a connection restarts the process under systemd.
+- Restart regression: save multiple traffic interfaces, observe the waiting state through restart, and confirm the dashboard automatically returns to healthy without a blank page or a `null.filter` runtime error.
 
 ### 7. Wrong vs Correct
 
