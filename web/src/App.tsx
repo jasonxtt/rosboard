@@ -1398,7 +1398,7 @@ function MetricCard(props: { title: string; value: string; detail?: string | str
 function MiniSparkline(props: { values: number[] }) {
   const width = 116; const height = 34; const max = Math.max(1, ...props.values); const min = Math.min(...props.values); const range = Math.max(1, max - min)
   const points = props.values.map((value, index) => `${index * width / Math.max(1, props.values.length - 1)},${height - 3 - (value - min) / range * (height - 6)}`).join(' ')
-  return <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden="true"><polyline points={points} /></svg>
+  return <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><polyline points={points} /></svg>
 }
 
 function SystemStatusList(props: { dashboard: DashboardResponse }) {

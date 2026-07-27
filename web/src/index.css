@@ -152,7 +152,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .reference-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-card { display: grid; grid-template-rows: auto 1fr auto auto; min-width: 0; min-height: 152px; padding: 14px 12px 12px; background: #fff; border: 1px solid var(--color-border); border-radius: 7px; box-shadow: 0 1px 3px rgba(15, 23, 42, .035); }
 .metric-card > p { margin: 0 0 10px; color: #27364b; font-size: 12px; font-weight: 700; }
-.metric-card-main { display: grid; grid-template-columns: minmax(96px, 30%) minmax(0, 1fr); align-items: center; gap: 8px; min-height: 50px; }
+.metric-card-main { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px; min-height: 50px; }
 .metric-value-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 9px; min-width: 0; }
 .metric-icon { display: grid; place-items: center; width: 36px; height: 36px; color: var(--metric-color); background: var(--metric-soft); border-radius: 7px; }
 .metric-icon .ui-icon { font-size: 20px; }
@@ -164,8 +164,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .metric-purple { --metric-color: #7c3aed; --metric-soft: #f5f3ff; }
 .metric-orange { --metric-color: #ea7a0b; --metric-soft: #fff7ed; }
 .metric-card-chart { align-self: start; min-width: 0; padding-top: 1px; }
-.mini-sparkline { width: 100%; height: 38px; overflow: visible; }
-.mini-sparkline polyline { fill: none; stroke: var(--metric-color); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mini-sparkline { display: block; width: 100%; height: 38px; overflow: visible; }
+.mini-sparkline polyline { fill: none; stroke: var(--metric-color); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .protocol-bars { display: flex; align-items: flex-end; justify-content: flex-end; gap: 4px; height: 30px; }
 .protocol-bars i { width: 5px; height: 13px; background: var(--metric-color); border-radius: 3px; opacity: .4; }
 .protocol-bars i:nth-child(2) { height: 25px; opacity: .75; }
