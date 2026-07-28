@@ -1325,3 +1325,37 @@ Split automatic scope results and advanced overrides into independent collapsed 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 41: Terminal list and connection detail refinement
+
+**Date**: 2026-07-28
+**Task**: Terminal list and connection detail refinement
+**Branch**: `codex/terminal-connection-details`
+
+### Summary
+
+Refined terminal identity and IP layout, split raw source address and source port in terminal connection details while preserving terminal upload/download semantics, removed the unintended standalone flow table, deployed and received user approval, and removed local AI tool directories from version control with ignore rules.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c77c864` | (see git log) |
+| `b4c1d98` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
