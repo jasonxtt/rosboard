@@ -526,7 +526,10 @@ overflow.
 ### 3. Contracts
 
 - Ordinary settings show automatic results read-only. CIDR candidates and dynamic IPv6 prefixes are not editable ordinary controls.
-- LAN interfaces, IPv4 prefixes, and IPv6 prefixes render in independent grouped cards; each item puts value and evidence on separate lines.
+- `自动识别范围` and `高级覆盖设置` are separate, sibling disclosure cards inside the device form. Both are collapsed by default, and the automatic card summary always exposes WAN-line, LAN-interface, and prefix counts.
+- Expanded automatic results have two top-level groups: `上网流量` and `本地终端`. The terminal group separates LAN interfaces from one compact prefix list; prefix rows use visible IPv4/IPv6 badges instead of reserving independent family cards that become sparse when one family has little data.
+- Each automatic result puts its value/status and lower-priority evidence on separate lines. Evidence remains readable but must not compete visually with interface names, status, or CIDRs.
+- Advanced overrides stay in the parent device form and reuse `保存设备`; do not introduce a modal, drawer, independent save, or nested disclosure. Group fields under `流量采集覆盖` and `终端范围覆盖`, with include/exclude pairs in two desktop columns and one mobile column.
 - Scope fields from a partial/older response are normalized to empty arrays before rendering. Settings-device drafts must also tolerate an absent `terminalScope` object.
 
 ### 4. Validation & Error Matrix
@@ -537,15 +540,16 @@ overflow.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: desktop groups LAN, IPv4, and IPv6 in three cards; 375px stacks them vertically with no text overlap.
+- Good: the collapsed automatic card shows `1 条上网线路 · 3 个 LAN 接口 · 4 个网段`; its expanded prefix list labels every row IPv4 or IPv6 without leaving an empty family card.
 - Base: an empty array presents `尚未识别`.
-- Bad: reuse the selectable three-column interface-option grid for unbounded evidence text.
+- Bad: nest advanced overrides inside the automatic-results disclosure or render all six textareas as full-width desktop rows.
 
 ### 6. Tests Required
 
 - Frontend lint/build pass.
-- Browser verifies Device Management opens with complete, empty, and missing scope arrays; no console error or overlap at 375px and desktop.
-- Browser verifies advanced overrides stay collapsed by default and dynamic output does not enter editable fields.
+- Browser verifies Device Management opens with complete, empty, and missing scope arrays; both disclosure cards are collapsed by default and no console error or overlap occurs at 375px and desktop.
+- Browser verifies the automatic summary counts, the IPv4/IPv6 row badges, the two-column desktop override grid, the one-column mobile override grid, and zero document-level horizontal overflow.
+- Browser verifies dynamic output does not enter editable fields and advanced values still submit through the existing device-save request.
 
 ### 7. Wrong vs Correct
 
@@ -559,5 +563,14 @@ overflow.
 
 ```tsx
 const prefixes = scope?.prefixes ?? []
-<section className="terminal-scope-groups">{/* family-specific cards */}</section>
+<details className="settings-disclosure auto-scope-settings">
+  <summary>自动识别范围{/* line, interface, and prefix counts */}</summary>
+  <section aria-label="本地终端">
+    {prefixes.map((prefix) => <span key={`${prefix.family}-${prefix.cidr}`}>{prefix.family} {prefix.cidr}</span>)}
+  </section>
+</details>
+<details className="settings-disclosure advanced-scope-settings">
+  <summary>高级覆盖设置</summary>
+  {/* existing device-form override fields */}
+</details>
 ```

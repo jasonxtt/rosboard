@@ -440,15 +440,43 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .toolbar-toggle { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 9px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
 .toolbar-toggle input { width: 15px; height: 15px; margin: 0; accent-color: var(--color-primary); }
 .interface-picker, .theme-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
-.terminal-scope-settings { display: grid; gap: 10px; padding: 12px; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-.terminal-scope-settings > strong { color: var(--color-text); font-size: 13px; }
-.terminal-scope-settings > p { margin: 0; color: var(--color-text-muted); font-size: 12px; }
-.terminal-scope-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.settings-disclosure { min-width: 0; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.settings-disclosure > summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 58px; padding: 10px 14px 10px 42px; cursor: pointer; list-style: none; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary::before { position: absolute; width: 16px; margin-left: -28px; color: var(--color-text-muted); content: "▶"; font-size: 10px; transition: transform .18s ease; }
+.settings-disclosure[open] > summary::before { transform: rotate(90deg); }
+.settings-disclosure > summary:hover { background: var(--color-surface-muted); }
+.settings-disclosure > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.settings-disclosure > summary > span { display: grid; gap: 3px; min-width: 0; }
+.settings-disclosure > summary strong { color: var(--color-text); font-size: 13px; }
+.settings-disclosure > summary small { color: var(--color-text-muted); font-size: 11px; line-height: 1.4; }
+.settings-disclosure-summary { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.settings-disclosure-body { display: grid; gap: 12px; padding: 14px; border-top: 1px solid var(--color-border-soft); }
+.scope-overview-grid { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 2fr); align-items: start; gap: 12px; }
+.scope-result-section { display: grid; gap: 10px; min-width: 0; padding: 12px; background: var(--color-surface-muted); border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); }
+.scope-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.scope-result-head h4, .scope-override-section h4 { margin: 0; color: var(--color-text); font-size: 13px; }
+.scope-result-head small { color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.scope-result-list { display: grid; gap: 8px; }
+.scope-result-row { display: grid; gap: 3px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-soft); }
+.scope-result-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.scope-result-row > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.scope-result-row strong { overflow-wrap: anywhere; color: var(--color-text); font-size: 13px; }
+.scope-result-row small, .scope-result-reason, .scope-empty, .scope-legacy-note { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.45; }
+.scope-result-reason { opacity: .82; }
+.terminal-scope-groups { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(240px, 1.2fr); align-items: start; gap: 10px; }
 .terminal-scope-group { display: grid; align-content: start; gap: 6px; min-width: 0; padding: 10px; background: var(--color-surface); border: 1px solid var(--color-border-soft); border-radius: 5px; }
 .terminal-scope-group > span { color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
 .terminal-scope-group p { display: grid; gap: 2px; min-width: 0; margin: 0; }
-.terminal-scope-group strong { overflow-wrap: anywhere; color: var(--color-text); font-size: 13px; }
+.terminal-scope-group strong { display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; color: var(--color-text); font-size: 13px; }
 .terminal-scope-group small { overflow-wrap: anywhere; color: var(--color-text-muted); font-size: 11px; line-height: 1.4; }
+.scope-family { min-width: auto; min-height: 0; flex: 0 0 auto; padding: 1px 4px; border-radius: 3px; font-size: 9px; font-style: normal; line-height: 1.4; }
+.scope-override-body { gap: 16px; }
+.scope-override-help { margin: 0; color: var(--color-text-muted); font-size: 12px; }
+.scope-override-section { display: grid; gap: 10px; }
+.scope-override-section + .scope-override-section { padding-top: 16px; border-top: 1px solid var(--color-border-soft); }
+.scope-override-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.scope-override-grid textarea { min-height: 72px; }
 .interface-picker > legend, .theme-picker > legend { margin-bottom: 7px; padding: 0; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
 .interface-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--color-text-muted); font-size: 11px; }
 .interface-picker-head strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
@@ -690,6 +718,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .setting-item:last-child { border-bottom: 0; }
   .settings-form .span-2 { grid-column: auto; }
   .interface-options { grid-template-columns: 1fr; max-height: 320px; }
+	.settings-disclosure > summary { grid-template-columns: 1fr; gap: 4px; min-height: 66px; padding-left: 40px; }
+	.settings-disclosure-summary { white-space: normal; }
+	.scope-overview-grid, .scope-override-grid { grid-template-columns: 1fr; }
 	.terminal-scope-groups { grid-template-columns: 1fr; }
   .theme-picker { grid-template-columns: 1fr; }
   .theme-option { min-height: 76px; }

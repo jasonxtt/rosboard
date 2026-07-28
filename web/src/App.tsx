@@ -1334,39 +1334,61 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
       <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
 	  {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
-	  <details className="interface-picker wide auto-scope-settings" open={false}>
-        <summary>自动识别与高级设置 <small>{scopeLoading ? '正在读取此设备的范围…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small></summary>
-        {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
-        {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
-        <section className="terminal-scope-settings" aria-label="流量采集自动识别">
-          <strong>流量采集接口</strong>
-          {trafficScope?.legacy ? <p>当前设备使用旧版手动采集接口配置。</p> : null}
-          {trafficScopeInterfaces.map((item) => <p key={item.name}><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'} · {(item.reasons ?? []).join('、')}</small></p>)}
-          {!trafficScopeInterfaces.length ? <p>尚未识别上网线路；可在高级设置中强制纳入。</p> : null}
-          {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
-          {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
-        </section>
-	  <section className="interface-picker wide terminal-scope-settings" aria-label="终端范围自动识别">
-        <strong>终端范围：自动识别</strong>
-        {terminalScope?.legacy ? <p>当前设备使用旧版手动终端网段配置。保存高级设置后可迁移为自动识别加覆盖模式。</p> : null}
-        <div className="terminal-scope-groups">
-          <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
-          <div className="terminal-scope-group"><span>IPv4 网段</span>{scopePrefixes.filter((item) => item.family === 'ipv4').map((item) => <p key={item.cidr}><strong>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.some((item) => item.family === 'ipv4') ? <small>尚未识别</small> : null}</div>
-          <div className="terminal-scope-group"><span>IPv6 网段</span>{scopePrefixes.filter((item) => item.family === 'ipv6').map((item) => <p key={item.cidr}><strong>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.some((item) => item.family === 'ipv6') ? <small>尚未识别</small> : null}</div>
-        </div>
-        {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
-      </section>
-	  <details className="interface-picker wide">
-        <summary>高级覆盖设置</summary>
-        <p>默认自动识别。仅在特殊拓扑中强制纳入或排除接口/网段；每行一项。</p>
-        <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
-        <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
-        <p>终端范围覆盖</p>
-        <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
-        <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
-        <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
-        <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
-      </details>
+	  <details className="settings-disclosure wide auto-scope-settings">
+	    <summary>
+	      <span><strong>自动识别范围</strong><small>系统根据 RouterOS 拓扑自动判断</small></span>
+	      <small className="settings-disclosure-summary">{scopeLoading ? '正在读取…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small>
+	    </summary>
+	    <div className="settings-disclosure-body">
+	      {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
+	      {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
+	      <div className="scope-overview-grid">
+	        <section className="scope-result-section" aria-labelledby="traffic-scope-title">
+	          <div className="scope-result-head"><h4 id="traffic-scope-title">上网流量</h4><small>{trafficScopeInterfaces.length} 条线路</small></div>
+	          {trafficScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动采集接口配置。</p> : null}
+	          <div className="scope-result-list">
+	            {trafficScopeInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}
+	            {!trafficScopeInterfaces.length ? <p className="scope-empty">尚未识别上网线路；可在高级覆盖设置中强制纳入。</p> : null}
+	          </div>
+	          {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+	          {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
+	        </section>
+	        <section className="scope-result-section" aria-labelledby="terminal-scope-title">
+	          <div className="scope-result-head"><h4 id="terminal-scope-title">本地终端</h4><small>{scopeInterfaces.filter((item) => item.role === 'lan').length} 个接口 · {scopePrefixes.length} 个网段</small></div>
+	          {terminalScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动终端网段配置。保存高级覆盖设置后可迁移为自动识别加覆盖模式。</p> : null}
+	          <div className="terminal-scope-groups">
+	            <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
+	            <div className="terminal-scope-group"><span>网段</span>{scopePrefixes.map((item) => <p key={`${item.family}-${item.cidr}`}><strong><i className={`ip-family-badge scope-family ${item.family}`}>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</i>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.length ? <small>尚未识别</small> : null}</div>
+	          </div>
+	          {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+	        </section>
+	      </div>
+	    </div>
+	  </details>
+	  <details className="settings-disclosure wide advanced-scope-settings">
+	    <summary>
+	      <span><strong>高级覆盖设置</strong><small>仅用于特殊网络拓扑</small></span>
+	      <small className="settings-disclosure-summary">留空即使用自动识别</small>
+	    </summary>
+	    <div className="settings-disclosure-body scope-override-body">
+	      <p className="scope-override-help">仅在自动识别结果不符合实际拓扑时填写；每行一项。</p>
+	      <section className="scope-override-section" aria-labelledby="traffic-override-title">
+	        <h4 id="traffic-override-title">流量采集覆盖</h4>
+	        <div className="scope-override-grid">
+	          <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
+	          <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
+	        </div>
+	      </section>
+	      <section className="scope-override-section" aria-labelledby="terminal-override-title">
+	        <h4 id="terminal-override-title">终端范围覆盖</h4>
+	        <div className="scope-override-grid">
+	          <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
+	          <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
+	          <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
+	          <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
+	        </div>
+	      </section>
+	    </div>
 	  </details>
 	  <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
       <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
