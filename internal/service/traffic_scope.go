@@ -193,6 +193,10 @@ func deriveTrafficScope(
 		scope.OverridesApplied = true
 	}
 	for _, name := range includes {
+		if _, found := known[name]; !found {
+			scope.Warnings = append(scope.Warnings, fmt.Sprintf("手动纳入的采集接口 %s 当前不存在，已忽略。", name))
+			continue
+		}
 		add(name, "手动纳入", 5, false, "手动强制纳入")
 		if terminal.interfaceIsLAN(name) {
 			scope.Warnings = append(scope.Warnings, fmt.Sprintf("接口 %s 当前被识别为 LAN，纳入后可能统计局域网内部流量。", name))

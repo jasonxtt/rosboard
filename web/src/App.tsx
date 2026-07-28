@@ -355,6 +355,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [statusExpanded, setStatusExpanded] = useState(true)
   const [settingsExpanded, setSettingsExpanded] = useState(true)
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
+  const [warningsExpanded, setWarningsExpanded] = useState(false)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
     setPanelPreferences(next)
@@ -669,6 +670,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
   const currentDevice = devices.find((device) => device.id === selectedDeviceID)
+  const globalWarnings = Array.from(new Set((dashboard.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
+  const alertCount = Math.max(dashboard.alerts?.length ?? 0, globalWarnings.length)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
@@ -853,7 +856,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             {activeView === 'overview' && !detailMode ? (
               <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
             ) : null}
-            <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
+            {globalWarnings.length ? (
+              <button type="button" className="system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i />{alertCount} 项告警</button>
+            ) : (
+              <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
+            )}
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
@@ -861,6 +868,15 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             </select>
           </div>
         </header>
+
+        {globalWarnings.length && warningsExpanded ? (
+          <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
+            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" onClick={() => setWarningsExpanded(false)}>收起</button></div>
+            <ul>
+              {globalWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          </section>
+        ) : null}
 
         {error ? <div className="global-error">最近一次刷新失败: {error}</div> : null}
 

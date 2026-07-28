@@ -84,6 +84,9 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 			}
 		}
 	}
+	if err := validateTrafficScopeInterfaces(trafficScope, allowed); err != nil {
+		return config.DeviceConfig{}, false, err
+	}
 	interfaces := []string{}
 	legacyTraffic := len(cleanStrings(payload.TrafficInterfaces)) > 0 && !strings.EqualFold(trafficScope.Mode, "auto")
 	if legacyTraffic {

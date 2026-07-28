@@ -153,7 +153,22 @@ func (s *Server) serveDeviceConnectionTest(writer http.ResponseWriter, request *
 		}
 		return
 	}
-	previewConfig := config.RouterOSConfig{TrafficScope: payload.TrafficScope, TerminalScope: payload.TerminalScope}
+	trafficConfig, err := canonicalTrafficScope(payload.TrafficScope)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+		return
+	}
+	terminalConfig, err := canonicalTerminalScope(payload.TerminalScope)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+		return
+	}
+	allowed := verificationInterfaceSet(result.Interfaces)
+	if err := validateTrafficScopeInterfaces(trafficConfig, allowed); err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+		return
+	}
+	previewConfig := config.RouterOSConfig{TrafficScope: trafficConfig, TerminalScope: terminalConfig}
 	terminalScope, trafficScope := service.PreviewScopes(previewConfig, result.Topology)
 	fingerprint := connectionFingerprint(baseURL, payload.Username, password)
 	token, expiresAt, err := s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
@@ -202,4 +217,28 @@ func validateSelectedInterfaces(names []string, allowed map[string]struct{}) ([]
 	}
 	sort.Strings(cleaned)
 	return cleaned, nil
+}
+
+func validateTrafficScopeInterfaces(scope config.TrafficScopeConfig, allowed map[string]struct{}) error {
+	for _, name := range scope.IncludeInterfaces {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("traffic scope include interface %q is unavailable", name)
+		}
+	}
+	for _, name := range scope.ExcludeInterfaces {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("traffic scope exclude interface %q is unavailable", name)
+		}
+	}
+	return nil
+}
+
+func verificationInterfaceSet(interfaces []routeros.VerificationInterface) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(interfaces))
+	for _, item := range interfaces {
+		if name := strings.TrimSpace(item.Name); name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return allowed
 }

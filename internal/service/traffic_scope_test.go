@@ -78,6 +78,35 @@ func TestDeriveTrafficScopeDHCPBackupOverridesAndEmpty(t *testing.T) {
 	}
 }
 
+func TestDeriveTrafficScopeIgnoresMissingManualInclude(t *testing.T) {
+	scope := deriveTrafficScope(config.RouterOSConfig{TrafficScope: config.TrafficScopeConfig{IncludeInterfaces: []string{"pppoe-不存在"}}}, trafficTestTerminalScope(), []routeros.Interface{{Name: "lan", Type: "bridge", Running: "true"}}, nil, nil, nil, nil, nil)
+	if len(scope.Interfaces) != 0 {
+		t.Fatalf("missing manual include was selected: %#v", scope.Interfaces)
+	}
+	warnings := strings.Join(scope.Warnings, " ")
+	if !strings.Contains(warnings, "手动纳入的采集接口 pppoe-不存在 当前不存在，已忽略") {
+		t.Fatalf("missing manual include warning omitted: %v", scope.Warnings)
+	}
+}
+
+func TestDeriveTrafficScopeManualIncludesKnownWANTypes(t *testing.T) {
+	interfaces := []routeros.Interface{
+		{Name: "pppoe-out1", Type: "pppoe-out", Running: "true"},
+		{Name: "ether-dhcp", Type: "ether", Running: "true"},
+		{Name: "lte1", Type: "lte", Running: "true"},
+		{Name: "ether-static", Type: "ether", Running: "true"},
+	}
+	scope := deriveTrafficScope(config.RouterOSConfig{TrafficScope: config.TrafficScopeConfig{IncludeInterfaces: []string{"pppoe-out1", "ether-dhcp", "lte1", "ether-static"}}}, trafficTestTerminalScope(), interfaces, nil, nil, nil, nil, nil)
+	if got, want := selectedTrafficNames(scope), []string{"pppoe-out1", "lte1", "ether-dhcp", "ether-static"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("selected=%v want=%v warnings=%v", got, want, scope.Warnings)
+	}
+	for _, item := range scope.Interfaces {
+		if item.Automatic || !containsString(item.Reasons, "手动强制纳入") {
+			t.Fatalf("manual include metadata changed: %#v", item)
+		}
+	}
+}
+
 func TestDeriveTrafficScopeLegacyPreservesExactNames(t *testing.T) {
 	scope := deriveTrafficScope(config.RouterOSConfig{TrafficInterfaces: []string{"missing", "pppoe-out1"}}, trafficTestTerminalScope(), []routeros.Interface{{Name: "pppoe-out1", Type: "pppoe-out", Disabled: "true"}}, nil, nil, nil, nil, nil)
 	if !scope.Legacy || scope.Mode != "legacy" || !reflect.DeepEqual(selectedTrafficNames(scope), []string{"missing", "pppoe-out1"}) {
