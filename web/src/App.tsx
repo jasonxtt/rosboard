@@ -38,6 +38,7 @@ import type {
   TerminalFamily,
   TerminalScopeSummary,
   TerminalScope,
+  TrafficScope,
   TerminalSortKey,
   TerminalTab,
   VerificationResponse,
@@ -163,7 +164,6 @@ const emptyTerminalScopeSummary: TerminalScopeSummary = {
   activeUploadBytes: 0,
   activeDownloadBytes: 0,
 }
-const emptyInterfaceList: InterfaceStatus[] = []
 
 function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
   const items = [
@@ -483,6 +483,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 		payload.terminalScope.interfaces ??= []
 		payload.terminalScope.prefixes ??= []
 		payload.terminalScope.warnings ??= []
+		payload.trafficScope ??= { mode: 'auto', legacy: false, interfaces: [], warnings: [], overridesApplied: false }
+		payload.trafficScope.interfaces ??= []
+		payload.trafficScope.warnings ??= []
         payload.overview.trafficInterfaces ??= []
         payload.overview.chartSamples ??= []
         if (!cancelled) {
@@ -861,7 +864,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         </header>
 
         {error ? <div className="global-error">最近一次刷新失败: {error}</div> : null}
-        {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
           <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
@@ -1108,7 +1110,7 @@ function SettingsPage(props: {
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
           <div className="panel-head"><h3>设备管理</h3></div>
-          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} onRestartingAction={props.onRestartingAction} />
+          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
             <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
@@ -1227,27 +1229,19 @@ function SettingItem(props: { label: string; value: string; wide?: boolean }) {
   return <div className={props.wide ? 'setting-item wide' : 'setting-item'}><span>{props.label}</span><strong>{props.value}</strong></div>
 }
 
-type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
+type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; trafficMode: '' | 'auto'; trafficIncludeInterfaces: string; trafficExcludeInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
 
 function deviceDraft(device?: SettingsDevice): DeviceDraft {
   return {
     id: device?.id ?? '', name: device?.name ?? '', enabled: device?.enabled ?? true,
     scheme: device?.scheme === 'https' ? 'https' : 'http', host: device?.host || '10.0.0.1',
     port: device?.port || 80, username: device?.username ?? '', password: '',
-    trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
+    trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', trafficMode: device?.trafficScope?.mode === 'auto' || !device ? 'auto' : '', trafficIncludeInterfaces: device?.trafficScope?.include_interfaces?.join('\n') ?? '', trafficExcludeInterfaces: device?.trafficScope?.exclude_interfaces?.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
     includeInterfaces: device?.terminalScope?.include_interfaces?.join('\n') ?? '', excludeInterfaces: device?.terminalScope?.exclude_interfaces?.join('\n') ?? '', includeCidrs: device?.terminalScope?.include_cidrs?.join('\n') ?? '', excludeCidrs: device?.terminalScope?.exclude_cidrs?.join('\n') ?? '',
   }
 }
 
-function interfacePickerOptions(selected: string[], interfaces: InterfaceStatus[]) {
-  const byName = new Map(interfaces.map((item) => [item.name, item]))
-  selected.forEach((name) => {
-    if (!byName.has(name)) byName.set(name, { name } as InterfaceStatus)
-  })
-  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name))
-}
-
-function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
@@ -1255,29 +1249,54 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
   const [savingAction, setSavingAction] = useState<'save' | 'complete' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 	const [verification, setVerification] = useState<VerificationResponse | null>(null)
+	const [scopedDashboard, setScopedDashboard] = useState<Pick<DashboardResponse, 'trafficScope' | 'terminalScope'> | null>(null)
+	const [scopeLoading, setScopeLoading] = useState(false)
+	const [scopeError, setScopeError] = useState<string | null>(null)
 	const [testing, setTesting] = useState(false)
 	const saving = savingAction !== null
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
 	const verificationRequired = connectionChanged && !verification
-  const editingSelectedDevice = Boolean(draft.id) && draft.id === props.selectedDeviceID
   const trafficInterfaces = parseSettingList(draft.trafficInterfaces)
-	const scopeInterfaces = props.terminalScope?.interfaces ?? []
-	const scopePrefixes = props.terminalScope?.prefixes ?? []
-	const scopeWarnings = props.terminalScope?.warnings ?? []
-  const verifiedInterfaces = verification?.interfaces.map((item) => ({ ...item, macAddress: '', status: '', lastLinkUpTime: '', linkDowns: 0, actualMtu: 0, rxBytes: 0, txBytes: 0, currentRxBps: 0, currentTxBps: 0, rxPackets: 0, txPackets: 0, rxDrops: 0, txDrops: 0, rxErrors: 0, txErrors: 0, linkRate: '', fullDuplex: false })) ?? []
-  const liveInterfaces = verification ? verifiedInterfaces : editingSelectedDevice ? props.interfaces : emptyInterfaceList
-  const interfaceOptions = useMemo(() => interfacePickerOptions(trafficInterfaces, liveInterfaces), [trafficInterfaces, liveInterfaces])
-  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null) }
-  const setTrafficInterfaces = (values: string[]) => setDraft((current) => ({ ...current, trafficInterfaces: values.join('\n') }))
-  const toggleInterface = (name: string) => {
-    const next = trafficInterfaces.includes(name) ? trafficInterfaces.filter((item) => item !== name) : [...trafficInterfaces, name]
-    setTrafficInterfaces(next)
-  }
+	const trafficScope = verification?.trafficScope ?? scopedDashboard?.trafficScope
+	const terminalScope = verification?.terminalScope ?? scopedDashboard?.terminalScope
+	const trafficScopeInterfaces = trafficScope?.interfaces ?? []
+	const trafficScopeWarnings = trafficScope?.warnings ?? []
+	const scopeInterfaces = terminalScope?.interfaces ?? []
+	const scopePrefixes = terminalScope?.prefixes ?? []
+	const scopeWarnings = terminalScope?.warnings ?? []
+	useEffect(() => {
+		if (!draft.id) {
+			setScopedDashboard(null)
+			setScopeLoading(false)
+			setScopeError(null)
+			return
+		}
+		let cancelled = false
+		setScopedDashboard(null)
+		setScopeLoading(true)
+		setScopeError(null)
+		fetch(`/api/dashboard?device=${encodeURIComponent(draft.id)}`, { cache: 'no-store' })
+			.then(async (response) => {
+				if (!response.ok) throw new Error(`HTTP ${response.status}`)
+				return await response.json() as Pick<DashboardResponse, 'trafficScope' | 'terminalScope'>
+			})
+			.then((dashboard) => {
+				if (!cancelled) setScopedDashboard(dashboard)
+			})
+			.catch((error) => {
+				if (!cancelled) setScopeError(error instanceof Error ? error.message : '读取设备自动识别范围失败')
+			})
+			.finally(() => {
+				if (!cancelled) setScopeLoading(false)
+			})
+		return () => { cancelled = true }
+	}, [draft.id])
+  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null); setScopedDashboard(null); setScopeError(null) }
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
 		try {
-			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password })
+			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } })
 			const result = await response.json() as VerificationResponse
 			setVerification(result)
 			setMessage(result.warnings?.length ? `连接成功，但有 ${result.warnings.length} 项可选能力不可用。` : `连接成功：${result.identity.routerName || result.identity.boardName} ${result.identity.version}`)
@@ -1299,7 +1318,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
   }
-	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
+	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
   return <div className="device-settings-workspace">
 	<div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
@@ -1313,26 +1332,23 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
       <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
       <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
-      <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后才会提供接口和 CIDR 候选。</span></div>
+      <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
 	  {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
-	  <fieldset className="interface-picker wide" hidden={verificationRequired} disabled={verificationRequired}>
-        <legend>采集接口</legend>
-        <div className="interface-picker-head"><span>{editingSelectedDevice ? '选择纳入这台设备流量采样的接口' : '切换到该设备后可显示实时接口候选；已保存接口仍可编辑'}</span><strong>{trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
-        <div className="interface-options" role="group" aria-label="采集接口选项">
-          {interfaceOptions.map((item) => {
-            const selected = trafficInterfaces.includes(item.name)
-            const status = item.disabled ? '已禁用' : item.running ? '运行中' : item.type ? '未连接' : '配置保留'
-            return <label key={item.name} className={selected ? 'interface-option selected' : 'interface-option'}>
-              <input type="checkbox" checked={selected} onChange={() => toggleInterface(item.name)} />
-              <span><strong>{item.name}</strong><small>{item.type || '未知类型'} · {status}</small></span>
-            </label>
-          })}
-          {!interfaceOptions.length ? <span className="settings-empty">暂无接口候选；可先保存连接并切换到该设备，或在下方手动保留配置</span> : null}
-        </div>
-      </fieldset>
+	  <details className="interface-picker wide auto-scope-settings" open={false}>
+        <summary>自动识别与高级设置 <small>{scopeLoading ? '正在读取此设备的范围…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small></summary>
+        {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
+        {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
+        <section className="terminal-scope-settings" aria-label="流量采集自动识别">
+          <strong>流量采集接口</strong>
+          {trafficScope?.legacy ? <p>当前设备使用旧版手动采集接口配置。</p> : null}
+          {trafficScopeInterfaces.map((item) => <p key={item.name}><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'} · {(item.reasons ?? []).join('、')}</small></p>)}
+          {!trafficScopeInterfaces.length ? <p>尚未识别上网线路；可在高级设置中强制纳入。</p> : null}
+          {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+          {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
+        </section>
 	  <section className="interface-picker wide terminal-scope-settings" aria-label="终端范围自动识别">
         <strong>终端范围：自动识别</strong>
-        {props.terminalScope?.legacy ? <p>当前设备使用旧版手动终端网段配置。保存高级设置后可迁移为自动识别加覆盖模式。</p> : null}
+        {terminalScope?.legacy ? <p>当前设备使用旧版手动终端网段配置。保存高级设置后可迁移为自动识别加覆盖模式。</p> : null}
         <div className="terminal-scope-groups">
           <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
           <div className="terminal-scope-group"><span>IPv4 网段</span>{scopePrefixes.filter((item) => item.family === 'ipv4').map((item) => <p key={item.cidr}><strong>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.some((item) => item.family === 'ipv4') ? <small>尚未识别</small> : null}</div>
@@ -1341,15 +1357,19 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
       </section>
 	  <details className="interface-picker wide">
-        <summary>高级终端范围设置</summary>
+        <summary>高级覆盖设置</summary>
         <p>默认自动识别。仅在特殊拓扑中强制纳入或排除接口/网段；每行一项。</p>
+        <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
+        <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
+        <p>终端范围覆盖</p>
         <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
         <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
         <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
         <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
       </details>
+	  </details>
 	  <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
+      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
   </div>

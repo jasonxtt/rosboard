@@ -36,11 +36,26 @@ type VerificationWarning struct {
 	Message    string `json:"message"`
 }
 
+type TopologySnapshot struct {
+	Interfaces           []Interface
+	IPv4Addresses        []IPAddress
+	IPv6Addresses        []IPv6Address
+	InterfaceLists       []InterfaceList
+	InterfaceListMembers []InterfaceListMember
+	DHCPServers          []DHCPServer
+	DHCPClients          []DHCPClient
+	IPv6NDs              []IPv6ND
+	IPv6NDPrefixes       []IPv6NDPrefix
+	Routes               []RoutingRoute
+	PPPoEClients         []PPPoEClient
+}
+
 type VerificationResult struct {
 	Identity       VerificationIdentity    `json:"identity"`
 	Interfaces     []VerificationInterface `json:"interfaces"`
 	CIDRCandidates []CIDRCandidate         `json:"cidrCandidates"`
 	Warnings       []VerificationWarning   `json:"warnings"`
+	Topology       TopologySnapshot        `json:"-"`
 }
 
 type VerificationError struct {
@@ -84,6 +99,7 @@ func (c *Client) Verify(ctx context.Context) (VerificationResult, error) {
 			RouterName: resource.BoardName, Version: resource.Version, Platform: resource.Platform, BoardName: resource.BoardName,
 		},
 		Interfaces: verificationInterfaces(interfaces, ipv4, ipv6),
+		Topology:   TopologySnapshot{Interfaces: interfaces, IPv4Addresses: ipv4, IPv6Addresses: ipv6},
 	}
 	result.CIDRCandidates = verificationCIDRs(ipv4, ipv6)
 	optional := []struct {
@@ -112,6 +128,28 @@ func (c *Client) Verify(ctx context.Context) (VerificationResult, error) {
 				Capability: item.capability,
 				Message:    fmt.Sprintf("Optional RouterOS capability %s is unavailable.", item.capability),
 			})
+		}
+	}
+	loadTopology := []struct {
+		capability string
+		load       func() error
+	}{
+		{"interface-lists", func() error { var err error; result.Topology.InterfaceLists, err = c.InterfaceLists(ctx); return err }},
+		{"interface-list-members", func() error {
+			var err error
+			result.Topology.InterfaceListMembers, err = c.InterfaceListMembers(ctx)
+			return err
+		}},
+		{"dhcp-servers", func() error { var err error; result.Topology.DHCPServers, err = c.DHCPServers(ctx); return err }},
+		{"dhcp-clients", func() error { var err error; result.Topology.DHCPClients, err = c.DHCPClients(ctx); return err }},
+		{"ipv6-nd", func() error { var err error; result.Topology.IPv6NDs, err = c.IPv6NDs(ctx); return err }},
+		{"ipv6-nd-prefix", func() error { var err error; result.Topology.IPv6NDPrefixes, err = c.IPv6NDPrefixes(ctx); return err }},
+		{"routing-routes", func() error { var err error; result.Topology.Routes, err = c.RoutingRoutes(ctx); return err }},
+		{"pppoe-clients", func() error { var err error; result.Topology.PPPoEClients, err = c.PPPoEClients(ctx); return err }},
+	}
+	for _, item := range loadTopology {
+		if err := item.load(); err != nil {
+			result.Warnings = append(result.Warnings, VerificationWarning{Capability: item.capability, Message: fmt.Sprintf("Optional RouterOS capability %s is unavailable.", item.capability)})
 		}
 	}
 	return result, nil

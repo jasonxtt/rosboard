@@ -12,6 +12,7 @@ import (
 
 	"rosboard/internal/config"
 	"rosboard/internal/routeros"
+	"rosboard/internal/service"
 )
 
 func writeDeviceValidationError(writer http.ResponseWriter, err error) {
@@ -46,6 +47,10 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	if err != nil {
 		return config.DeviceConfig{}, false, err
 	}
+	trafficScope, err := canonicalTrafficScope(payload.TrafficScope)
+	if err != nil {
+		return config.DeviceConfig{}, false, err
+	}
 	scope, err := canonicalTerminalScope(payload.TerminalScope)
 	if err != nil {
 		return config.DeviceConfig{}, false, err
@@ -57,12 +62,14 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	connectionChanged := existing == nil || existing.RouterOS.BaseURL != baseURL || existing.RouterOS.Username != username || existing.RouterOS.Password != password
 	allowed := make(map[string]struct{})
 	consumeTicket := false
+	var verifiedTicket verificationTicket
 	if connectionChanged {
 		ticket, err := s.tickets.validate(payload.VerificationToken, connectionFingerprint(baseURL, username, password))
 		if err != nil {
 			return config.DeviceConfig{}, false, err
 		}
 		allowed = ticket.interfaces
+		verifiedTicket = ticket
 		consumeTicket = true
 	} else {
 		verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -77,21 +84,35 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 			}
 		}
 	}
-	interfaces, err := validateSelectedInterfaces(payload.TrafficInterfaces, allowed)
-	if err != nil {
-		return config.DeviceConfig{}, false, err
+	interfaces := []string{}
+	legacyTraffic := len(cleanStrings(payload.TrafficInterfaces)) > 0 && !strings.EqualFold(trafficScope.Mode, "auto")
+	if legacyTraffic {
+		interfaces, err = validateSelectedInterfaces(payload.TrafficInterfaces, allowed)
+		if err != nil {
+			return config.DeviceConfig{}, false, err
+		}
+		trafficCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if err := routeros.NewClient(baseURL, username, password).VerifyTrafficInterfaces(trafficCtx, interfaces); err != nil {
+			return config.DeviceConfig{}, false, err
+		}
 	}
-	trafficCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	if err := routeros.NewClient(baseURL, username, password).VerifyTrafficInterfaces(trafficCtx, interfaces); err != nil {
-		return config.DeviceConfig{}, false, err
+	if !legacyTraffic {
+		// Automatic results are runtime-only; persist rules, not selected names.
+		trafficScope.Mode = "auto"
+		if connectionChanged && len(trafficScope.IncludeInterfaces) == 0 {
+			_, preview := service.PreviewScopes(config.RouterOSConfig{TrafficScope: trafficScope, TerminalScope: scope}, verifiedTicket.topology)
+			if len(preview.Interfaces) == 0 {
+				return config.DeviceConfig{}, false, errors.New("unable to identify an ISP traffic interface; add a traffic-scope include interface")
+			}
+		}
 	}
 
 	device := config.DeviceConfig{
 		ID: id, Name: name, Enabled: payload.Enabled,
 		RouterOS: config.RouterOSConfig{
 			BaseURL: baseURL, Username: username, Password: password,
-			TrafficInterfaces: interfaces, TerminalCIDRs: cidrs, TerminalScope: scope,
+			TrafficInterfaces: interfaces, TrafficScope: trafficScope, TerminalCIDRs: cidrs, TerminalScope: scope,
 		},
 	}
 	if existing != nil {
@@ -121,6 +142,23 @@ func canonicalCIDRs(values []string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func canonicalTrafficScope(scope config.TrafficScopeConfig) (config.TrafficScopeConfig, error) {
+	scope.Mode = strings.ToLower(strings.TrimSpace(scope.Mode))
+	if scope.Mode != "" && scope.Mode != "auto" {
+		return config.TrafficScopeConfig{}, errors.New("traffic scope mode must be auto")
+	}
+	scope.IncludeInterfaces = normalizedStrings(scope.IncludeInterfaces)
+	scope.ExcludeInterfaces = normalizedStrings(scope.ExcludeInterfaces)
+	for _, name := range scope.IncludeInterfaces {
+		for _, excluded := range scope.ExcludeInterfaces {
+			if strings.EqualFold(name, excluded) {
+				return config.TrafficScopeConfig{}, fmt.Errorf("interface %q is both included and excluded", name)
+			}
+		}
+	}
+	return scope, nil
 }
 
 func canonicalTerminalScope(scope config.TerminalScopeConfig) (config.TerminalScopeConfig, error) {

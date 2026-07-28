@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"rosboard/internal/config"
 	"rosboard/internal/routeros"
+	"rosboard/internal/service"
 )
 
 const verificationLifetime = 15 * time.Minute
@@ -24,6 +26,7 @@ var errVerificationRequired = errors.New("connection verification is required")
 type verificationTicket struct {
 	fingerprint [32]byte
 	interfaces  map[string]struct{}
+	topology    routeros.TopologySnapshot
 	expiresAt   time.Time
 }
 
@@ -39,6 +42,10 @@ func newVerificationTickets() *verificationTickets {
 }
 
 func (t *verificationTickets) issue(fingerprint [32]byte, interfaces []routeros.VerificationInterface) (string, time.Time, error) {
+	return t.issueWithTopology(fingerprint, interfaces, routeros.TopologySnapshot{})
+}
+
+func (t *verificationTickets) issueWithTopology(fingerprint [32]byte, interfaces []routeros.VerificationInterface, topology routeros.TopologySnapshot) (string, time.Time, error) {
 	raw := make([]byte, 32)
 	if _, err := io.ReadFull(t.random, raw); err != nil {
 		return "", time.Time{}, fmt.Errorf("generate verification token: %w", err)
@@ -51,7 +58,7 @@ func (t *verificationTickets) issue(fingerprint [32]byte, interfaces []routeros.
 	}
 	t.mu.Lock()
 	t.pruneLocked()
-	t.items[tokenHash] = verificationTicket{fingerprint: fingerprint, interfaces: allowed, expiresAt: expiresAt}
+	t.items[tokenHash] = verificationTicket{fingerprint: fingerprint, interfaces: allowed, topology: topology, expiresAt: expiresAt}
 	t.mu.Unlock()
 	return base64.RawURLEncoding.EncodeToString(raw), expiresAt, nil
 }
@@ -109,12 +116,14 @@ func connectionFingerprint(baseURL, username, password string) [32]byte {
 }
 
 type connectionTestRequest struct {
-	DeviceID string `json:"deviceId"`
-	Scheme   string `json:"scheme"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	DeviceID      string                     `json:"deviceId"`
+	Scheme        string                     `json:"scheme"`
+	Host          string                     `json:"host"`
+	Port          int                        `json:"port"`
+	Username      string                     `json:"username"`
+	Password      string                     `json:"password"`
+	TrafficScope  config.TrafficScopeConfig  `json:"trafficScope"`
+	TerminalScope config.TerminalScopeConfig `json:"terminalScope"`
 }
 
 func (s *Server) serveDeviceConnectionTest(writer http.ResponseWriter, request *http.Request) {
@@ -144,15 +153,17 @@ func (s *Server) serveDeviceConnectionTest(writer http.ResponseWriter, request *
 		}
 		return
 	}
+	previewConfig := config.RouterOSConfig{TrafficScope: payload.TrafficScope, TerminalScope: payload.TerminalScope}
+	terminalScope, trafficScope := service.PreviewScopes(previewConfig, result.Topology)
 	fingerprint := connectionFingerprint(baseURL, payload.Username, password)
-	token, expiresAt, err := s.tickets.issue(fingerprint, result.Interfaces)
+	token, expiresAt, err := s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
 	if err != nil {
 		writeAPIError(writer, http.StatusInternalServerError, "verification_failed", "failed to create verification ticket")
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"verificationToken": token, "expiresAt": expiresAt, "identity": result.Identity,
-		"interfaces": result.Interfaces, "cidrCandidates": result.CIDRCandidates, "warnings": result.Warnings,
+		"interfaces": result.Interfaces, "cidrCandidates": result.CIDRCandidates, "trafficScope": trafficScope, "terminalScope": terminalScope, "warnings": result.Warnings,
 	})
 }
 

@@ -109,11 +109,24 @@ type DHCPServer struct {
 	Disabled  string `json:"disabled"`
 	Invalid   string `json:"invalid"`
 }
+type PPPoEClient struct {
+	ID                   string `json:".id"`
+	Name                 string `json:"name"`
+	Interface            string `json:"interface"`
+	Disabled             string `json:"disabled"`
+	Invalid              string `json:"invalid"`
+	Running              string `json:"running"`
+	AddDefaultRoute      string `json:"add-default-route"`
+	DefaultRouteDistance string `json:"default-route-distance"`
+}
+
 type DHCPClient struct {
-	ID        string `json:".id"`
-	Interface string `json:"interface"`
-	Disabled  string `json:"disabled"`
-	Status    string `json:"status"`
+	ID                   string `json:".id"`
+	Interface            string `json:"interface"`
+	Disabled             string `json:"disabled"`
+	Status               string `json:"status"`
+	AddDefaultRoute      string `json:"add-default-route"`
+	DefaultRouteDistance string `json:"default-route-distance"`
 }
 type IPv6ND struct {
 	ID        string `json:".id"`

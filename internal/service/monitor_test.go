@@ -13,19 +13,6 @@ import (
 	"rosboard/internal/store"
 )
 
-func TestSelectTrafficInterfacesPrefersPPPoE(t *testing.T) {
-	interfaces := []routeros.Interface{
-		{Name: "lan", Type: "ether", Running: "true"},
-		{Name: "wan", Type: "ether", Running: "true"},
-		{Name: "pppoe-out1", Type: "pppoe-out", Running: "true"},
-	}
-
-	selected := selectTrafficInterfaces(nil, interfaces)
-	if len(selected) != 1 || selected[0] != "pppoe-out1" {
-		t.Fatalf("expected pppoe-out1, got %#v", selected)
-	}
-}
-
 func TestEmptySnapshotUsesJSONArrays(t *testing.T) {
 	snapshot := (&Monitor{}).Snapshot()
 
@@ -41,6 +28,14 @@ func TestEmptySnapshotUsesJSONArrays(t *testing.T) {
 	if snapshot.TerminalScopeSummaries == nil {
 		t.Fatal("terminal scope summaries must be an empty map, not nil")
 	}
+}
+
+func testTerminalScope() terminalScope {
+	return terminalScope{Interfaces: map[string]InterfaceEvidence{
+		"lan":        {Interface: "lan", Role: InterfaceRoleLAN},
+		"wan":        {Interface: "wan", Role: InterfaceRoleWAN},
+		"pppoe-out1": {Interface: "pppoe-out1", Role: InterfaceRoleWAN},
+	}}
 }
 
 func TestSelectedTrafficRatesMapTXToUploadAndRXToDownload(t *testing.T) {
@@ -68,7 +63,7 @@ func TestConnectedLANDeviceCountIncludesOnlyOnlineLANDevices(t *testing.T) {
 		{ID: "online-unknown-interface", State: "online"},
 	}
 
-	if got := connectedLANDeviceCount(terminals, []string{"pppoe-out1"}); got != 2 {
+	if got := connectedLANDeviceCount(terminals, testTerminalScope()); got != 2 {
 		t.Fatalf("expected 2 online LAN devices, got %d", got)
 	}
 }
@@ -84,12 +79,12 @@ func TestTerminalStateCountsUseOverviewLANScope(t *testing.T) {
 		{ID: "selected-interface", State: "inactive", PrimaryInterface: "pppoe-out1"},
 	}
 
-	got := terminalStateCounts(terminals, []string{"pppoe-out1"})
+	got := terminalStateCounts(terminals, testTerminalScope())
 	want := model.TerminalStateCounts{Online: 2, Inactive: 1, Offline: 1}
 	if got != want {
 		t.Fatalf("unexpected terminal state counts: got %#v want %#v", got, want)
 	}
-	if got.Online != connectedLANDeviceCount(terminals, []string{"pppoe-out1"}) {
+	if got.Online != connectedLANDeviceCount(terminals, testTerminalScope()) {
 		t.Fatal("online state count must match connected LAN device count")
 	}
 }
@@ -138,7 +133,7 @@ func TestTerminalScopeSummariesAggregateEligibleOnlineLANDevices(t *testing.T) {
 		{ID: "selected-traffic", State: "online", PrimaryInterface: "pppoe-out1", IPv6: []string{"2001:db8::8"}, FamilyStats: map[string]model.TerminalFamilyStats{"ipv6": {ConnectionCount: 100}}},
 	}
 
-	got := terminalScopeSummaries(terminals, []string{"pppoe-out1"})
+	got := terminalScopeSummaries(terminals, testTerminalScope())
 	want := map[string]model.TerminalScopeSummary{
 		"all":  {DeviceCount: 3, ConnectionCount: 17, CurrentUploadBps: 1320, CurrentDownloadBps: 3080, ActiveUploadBytes: 16000, ActiveDownloadBytes: 20000},
 		"ipv4": {DeviceCount: 2, ConnectionCount: 7, CurrentUploadBps: 880, CurrentDownloadBps: 1760, ActiveUploadBytes: 6000, ActiveDownloadBytes: 8000},
@@ -150,7 +145,7 @@ func TestTerminalScopeSummariesAggregateEligibleOnlineLANDevices(t *testing.T) {
 }
 
 func TestTerminalScopeSummariesEmpty(t *testing.T) {
-	got := terminalScopeSummaries(nil, nil)
+	got := terminalScopeSummaries(nil, terminalScope{})
 	want := map[string]model.TerminalScopeSummary{
 		"all": {}, "ipv4": {}, "ipv6": {},
 	}
@@ -429,37 +424,6 @@ func TestOrientConnectionMapsReplySideWhenReplySourceIsLocal(t *testing.T) {
 	}
 	if view.UploadBps != 128000 || view.DownloadBps != 640000 {
 		t.Fatalf("unexpected rate mapping: %#v", view)
-	}
-}
-
-func TestDeriveLocalCIDRsIncludesLANIPv6AndExactNeighbors(t *testing.T) {
-	networks := deriveLocalCIDRs(
-		nil,
-		[]string{"pppoe-out1"},
-		[]routeros.IPAddress{
-			{Address: "10.0.0.1/24", Interface: "lan"},
-			{Address: "198.51.100.2/24", Interface: "wan"},
-		},
-		[]routeros.IPv6Address{
-			{Address: "fc00::1001/64", Interface: "lan"},
-			{Address: "2408:826c:6912:4516::1/64", Interface: "pppoe-out1"},
-			{Address: "fd00::1/64", Interface: "lo"},
-		},
-		[]routeros.IPv6Neighbor{
-			{Address: "240e:1234::88", Interface: "lan"},
-			{Address: "240e:9999::88", Interface: "wan"},
-		},
-	)
-
-	for _, address := range []string{"10.0.0.42", "fc00::2222", "240e:1234::88"} {
-		if !containsIP(networks, address) {
-			t.Errorf("expected %s to be recognized as local", address)
-		}
-	}
-	for _, address := range []string{"198.51.100.42", "2408:826c:6912:4516::99", "240e:1234::89", "240e:9999::88", "fd00::2"} {
-		if containsIP(networks, address) {
-			t.Errorf("expected %s to be excluded", address)
-		}
 	}
 }
 
