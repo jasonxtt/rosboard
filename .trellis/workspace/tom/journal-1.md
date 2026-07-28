@@ -1259,3 +1259,36 @@ Implemented explainable automatic RouterOS LAN/WAN terminal topology discovery w
 ### Next Steps
 
 - None - task complete
+
+
+## Session 39: Automatic ISP traffic scope
+
+**Date**: 2026-07-28
+**Task**: Automatic ISP traffic scope
+**Branch**: `main`
+
+### Summary
+
+Implemented independent RouterOS TrafficScope auto-detection, multi-WAN aggregation, legacy compatibility, per-device scope previews, settings isolation, health response compatibility, and warning presentation fixes; verified locally and deployed to network-vm.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8309a7f` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
