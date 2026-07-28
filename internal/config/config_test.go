@@ -18,7 +18,7 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.RealtimePollIntervalSeconds != 1 || cfg.TerminalPollIntervalSeconds != 3 || cfg.PollIntervalSeconds != 10 {
+	if cfg.RealtimePollIntervalSeconds != 1 || cfg.TerminalPollIntervalSeconds != 5 || cfg.PollIntervalSeconds != 10 {
 		t.Fatalf("unexpected polling defaults: realtime=%d terminal=%d full=%d", cfg.RealtimePollIntervalSeconds, cfg.TerminalPollIntervalSeconds, cfg.PollIntervalSeconds)
 	}
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {

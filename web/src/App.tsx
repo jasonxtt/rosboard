@@ -164,6 +164,32 @@ const emptyTerminalScopeSummary: TerminalScopeSummary = {
   activeDownloadBytes: 0,
 }
 
+function normalizeTerminal(terminal: Terminal): Terminal {
+  return {
+    ...terminal,
+    ipv4: terminal.ipv4 ?? [],
+    ipv6: terminal.ipv6 ?? [],
+    familyStats: terminal.familyStats ?? {} as Terminal['familyStats'],
+  }
+}
+
+function normalizeTerminalDetail(detail: TerminalDetail): TerminalDetail {
+  detail.terminal = normalizeTerminal(detail.terminal)
+  detail.connections ??= []
+  detail.flowCategories ??= []
+  detail.history ??= []
+  detail.capabilities ??= []
+  detail.familySummaries ??= {} as TerminalDetail['familySummaries']
+  for (const family of ['ipv4', 'ipv6'] as const) {
+    const summary = detail.familySummaries[family]
+    if (summary) detail.familySummaries[family] = normalizeTerminal(summary)
+  }
+  detail.familyFlows ??= {} as TerminalDetail['familyFlows']
+  detail.familyFlows.ipv4 ??= []
+  detail.familyFlows.ipv6 ??= []
+  return detail
+}
+
 function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
   const items = [
     ['设备', summary.deviceCount],
@@ -471,7 +497,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         }
         const payload = (await response.json()) as DashboardResponse
         payload.interfaces ??= []
-        payload.terminals ??= []
+        payload.terminals = (payload.terminals ?? []).map(normalizeTerminal)
         payload.capabilities ??= []
         payload.protocols ??= []
         payload.policies ??= []
@@ -505,7 +531,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     }
 
     refresh()
-    const timer = dashboardRefreshMs > 0 ? window.setInterval(refresh, 3000) : 0
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(refresh, dashboardRefreshMs) : 0
     return () => {
       cancelled = true
       if (timer) window.clearInterval(timer)
@@ -544,20 +570,42 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
+    if (activeView !== 'terminals') return
+    const heartbeat = () => {
+      if (document.visibilityState !== 'visible') return
+      void fetch(scopedURL('/api/terminal-viewer-heartbeat', selectedDeviceID), { method: 'POST' }).catch(() => undefined)
+    }
+    heartbeat()
+    const timer = window.setInterval(heartbeat, 10_000)
+    document.addEventListener('visibilitychange', heartbeat)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', heartbeat)
+    }
+  }, [activeView, selectedDeviceID])
+
+  useEffect(() => {
     if (!selectedTerminalID) {
       setTerminalDetail(null)
       return
     }
 
     let cancelled = false
+    let refreshing = false
     const load = async () => {
-      const response = await fetch(scopedURL(`/api/terminals/${encodeURIComponent(selectedTerminalID)}`, selectedDeviceID))
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      const payload = (await response.json()) as TerminalDetail
-      if (!cancelled) {
-        setTerminalDetail(payload)
+      if (refreshing) return
+      refreshing = true
+      try {
+        const response = await fetch(scopedURL(`/api/terminals/${encodeURIComponent(selectedTerminalID)}`, selectedDeviceID))
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        const payload = normalizeTerminalDetail((await response.json()) as TerminalDetail)
+        if (!cancelled) {
+          setTerminalDetail(payload)
+        }
+      } finally {
+        refreshing = false
       }
     }
 
@@ -567,13 +615,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       }
     }
     load().catch(handleError)
-    const timer = window.setInterval(() => load().catch(handleError), 3000)
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(handleError), 1000) : 0
 
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearInterval(timer)
     }
-  }, [restartPending, selectedTerminalID, selectedDeviceID])
+  }, [dashboardRefreshMs, restartPending, selectedTerminalID, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'load' && activeView !== 'overview') return
@@ -2094,6 +2142,7 @@ function TerminalDetailPage(props: {
             {isRouterConntrack ? <span>已回包 {repliedConnections} / 未回包 {unrepliedConnections}</span> : null}
             <span>↑ {formatBits(summary.currentUploadBps)}</span>
             <span>↓ {formatBits(summary.currentDownloadBps)}</span>
+            {props.detail.ratesUpdatedAt ? <span>速率更新 {relativeUpdateTime(props.detail.ratesUpdatedAt)}</span> : null}
           </div>
         </div>
         <div className="detail-head-actions">

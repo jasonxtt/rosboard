@@ -178,6 +178,13 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			activeUntil = s.manager.ViewerHeartbeat()
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"activeUntil": activeUntil})
+	case "/api/terminal-viewer-heartbeat":
+		if request.Method != http.MethodPost {
+			writer.Header().Set("Allow", http.MethodPost)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"activeUntil": monitor.TerminalViewerHeartbeat()})
 	case "/api/interfaces":
 		writeJSON(writer, http.StatusOK, map[string]any{"interfaces": monitor.Snapshot().Interfaces})
 	case "/api/terminals":
