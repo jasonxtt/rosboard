@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 37
+- **Total Sessions**: 38
 - **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1228 | Active |
+| `journal-1.md` | ~1261 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 38 | 2026-07-28 | RouterOS terminal topology discovery | `7389bae` | `main` |
 | 37 | 2026-07-28 | Secure first-run and multi-RouterOS onboarding | `94c5eba` | `main` |
 | 36 | 2026-07-27 | Clean panel settings copy | `99f6ce5` | `main` |
 | 35 | 2026-07-27 | Simplify connection routing columns | `3524a93` | `main` |

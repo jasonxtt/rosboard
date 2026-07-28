@@ -1226,3 +1226,36 @@ Added administrator authentication, verified multi-device onboarding, credential
 ### Next Steps
 
 - None - task complete
+
+
+## Session 38: RouterOS terminal topology discovery
+
+**Date**: 2026-07-28
+**Task**: RouterOS terminal topology discovery
+**Branch**: `main`
+
+### Summary
+
+Implemented explainable automatic RouterOS LAN/WAN terminal topology discovery with IPv4/IPv6 scope derivation, legacy CIDR compatibility, advanced overrides, API status, frontend display, regression tests, and deployed manual acceptance.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7389bae` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
