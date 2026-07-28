@@ -1193,3 +1193,36 @@ Removed redundant panel settings helper text, simplified maintenance settings fo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 37: Secure first-run and multi-RouterOS onboarding
+
+**Date**: 2026-07-28
+**Task**: Secure first-run and multi-RouterOS onboarding
+**Branch**: `main`
+
+### Summary
+
+Added administrator authentication, verified multi-device onboarding, credential-safe settings, empty panel, and full reinitialization; deployed and manually accepted.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `94c5eba` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
