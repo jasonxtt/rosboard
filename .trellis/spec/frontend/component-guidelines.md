@@ -511,3 +511,53 @@ overflow.
   footerRight={`峰值 ${maximum(values)}`}
 />
 ```
+
+## Scenario: Automatic terminal scope in device settings
+
+### 1. Scope / Trigger
+
+- Trigger: changes to device management, `DashboardResponse.terminalScope`, or advanced terminal-scope overrides.
+
+### 2. Signatures
+
+- Runtime response: `terminalScope.interfaces`, `terminalScope.prefixes`, and `terminalScope.warnings`.
+- Device save request: `terminalScope { mode: 'auto', include_interfaces, exclude_interfaces, include_cidrs, exclude_cidrs }`.
+
+### 3. Contracts
+
+- Ordinary settings show automatic results read-only. CIDR candidates and dynamic IPv6 prefixes are not editable ordinary controls.
+- LAN interfaces, IPv4 prefixes, and IPv6 prefixes render in independent grouped cards; each item puts value and evidence on separate lines.
+- Scope fields from a partial/older response are normalized to empty arrays before rendering. Settings-device drafts must also tolerate an absent `terminalScope` object.
+
+### 4. Validation & Error Matrix
+
+- No scope/prefix evidence -> show a readable waiting/advanced-settings state, never throw.
+- Legacy mode -> show migration notice without rewriting the legacy CIDR configuration.
+- Include/exclude conflict API error -> retain draft and display the returned error.
+
+### 5. Good/Base/Bad Cases
+
+- Good: desktop groups LAN, IPv4, and IPv6 in three cards; 375px stacks them vertically with no text overlap.
+- Base: an empty array presents `尚未识别`.
+- Bad: reuse the selectable three-column interface-option grid for unbounded evidence text.
+
+### 6. Tests Required
+
+- Frontend lint/build pass.
+- Browser verifies Device Management opens with complete, empty, and missing scope arrays; no console error or overlap at 375px and desktop.
+- Browser verifies advanced overrides stay collapsed by default and dynamic output does not enter editable fields.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+<div className="interface-options">{scope.prefixes.map(renderPrefix)}</div>
+```
+
+#### Correct
+
+```tsx
+const prefixes = scope?.prefixes ?? []
+<section className="terminal-scope-groups">{/* family-specific cards */}</section>
+```

@@ -456,3 +456,61 @@ setEditingTerminalID(terminal.id)
 setCustomNameDraft(terminal.customName)
 setRemarkDraft(terminal.remark)
 ```
+
+## Scenario: RouterOS terminal topology scope
+
+### 1. Scope / Trigger
+
+- Trigger: changing RouterOS terminal discovery, connection orientation, `terminal_scope`, or the dashboard terminal-scope projection.
+
+### 2. Signatures
+
+- Config: `RouterOSConfig.TerminalScope { mode, include_interfaces, exclude_interfaces, include_cidrs, exclude_cidrs }` and legacy `terminal_cidrs`.
+- Dashboard: `terminalScope { mode, legacy, interfaces[], prefixes[], warnings[], overridesApplied }`.
+- Service: `deriveTerminalScope(...)` is pure and consumes batched RouterOS snapshots.
+
+### 3. Contracts
+
+- RouterOS self is exact assigned-address matching only and always merges to `routeros:self`; never widen a WAN/tunnel self address to its prefix.
+- Interface lists resolve include, exclude, then enabled static members. DHCP server/IPv6 ND are LAN evidence; direct-interface default routes and DHCP clients are WAN evidence.
+- A route expressed as `gateway-ip%lan` proves a next hop is reachable through LAN, not that the LAN interface is WAN. Only a direct interface gateway, such as `pppoe-out1`, is default-route WAN evidence.
+- Empty terminal scope never accepts all DHCP, ARP, neighbor, or conntrack addresses. IPv6 neighbors never create `/128` scope prefixes.
+- Auxiliary topology permission/feature failures are warnings, not full-refresh failures.
+
+### 4. Validation & Error Matrix
+
+- Include/exclude same interface -> config/API validation error.
+- Conflicting genuine strong LAN/WAN evidence -> UNKNOWN plus warning; no automatic prefix.
+- Invalid optional topology endpoint -> warning and remaining evidence still publishes.
+- Missing scope arrays in a legacy/early dashboard snapshot -> API remains valid; UI must treat them as empty arrays.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `lan` has LAN-list/DHCP evidence and a default route via `10.0.0.99%lan`; it remains LAN and `10.0.0.0/24` is eligible.
+- Good: private address on `wan-xray` with direct default-route evidence remains WAN.
+- Bad: accepting all terminal sources when no prefix exists, or classifying WireGuard as LAN solely because it has `10.x`.
+
+### 6. Tests Required
+
+- Pure topology tests cover list order/cycles, direct versus next-hop default routes, WAN-private/tunnel rejection, IPv6 ND prefix and no neighbor `/128` behavior.
+- Service tests retain exact RouterOS self ownership, MAC merge, and empty-scope rejection.
+- API/UI tests verify the projection and tolerate absent arrays without rendering failure.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+if _, interfaceName, ok := strings.Cut(route.ImmediateGateway, "%"); ok {
+	markWAN(interfaceName)
+}
+```
+
+#### Correct
+
+```go
+// Only a direct interface gateway is unambiguous WAN evidence.
+if name := directRouteInterface(route.ImmediateGateway); name != "" {
+	markWAN(name)
+}
+```

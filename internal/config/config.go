@@ -34,11 +34,20 @@ type DeviceConfig struct {
 }
 
 type RouterOSConfig struct {
-	BaseURL           string   `yaml:"base_url"`
-	Username          string   `yaml:"username"`
-	Password          string   `yaml:"password"`
-	TrafficInterfaces []string `yaml:"traffic_interfaces"`
-	TerminalCIDRs     []string `yaml:"terminal_cidrs"`
+	BaseURL           string              `yaml:"base_url"`
+	Username          string              `yaml:"username"`
+	Password          string              `yaml:"password"`
+	TrafficInterfaces []string            `yaml:"traffic_interfaces"`
+	TerminalCIDRs     []string            `yaml:"terminal_cidrs,omitempty"`
+	TerminalScope     TerminalScopeConfig `yaml:"terminal_scope,omitempty"`
+}
+
+type TerminalScopeConfig struct {
+	Mode              string   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	IncludeInterfaces []string `yaml:"include_interfaces,omitempty" json:"include_interfaces,omitempty"`
+	ExcludeInterfaces []string `yaml:"exclude_interfaces,omitempty" json:"exclude_interfaces,omitempty"`
+	IncludeCIDRs      []string `yaml:"include_cidrs,omitempty" json:"include_cidrs,omitempty"`
+	ExcludeCIDRs      []string `yaml:"exclude_cidrs,omitempty" json:"exclude_cidrs,omitempty"`
 }
 
 func Load(path string) (Config, error) {
@@ -177,6 +186,36 @@ func (c Config) validate() error {
 		if strings.TrimSpace(device.Name) == "" {
 			return fmt.Errorf("devices[%d].name is required", index)
 		}
+		if err := device.RouterOS.TerminalScope.validate(); err != nil {
+			return fmt.Errorf("devices[%d].routeros.terminal_scope: %w", index, err)
+		}
+	}
+	if len(c.Devices) == 0 {
+		if err := c.RouterOS.TerminalScope.validate(); err != nil {
+			return fmt.Errorf("routeros.terminal_scope: %w", err)
+		}
+	}
+	return nil
+}
+
+func (scope TerminalScopeConfig) validate() error {
+	included := make(map[string]struct{}, len(scope.IncludeInterfaces))
+	for _, name := range scope.IncludeInterfaces {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			included[strings.ToLower(name)] = struct{}{}
+		}
+	}
+	for _, name := range scope.ExcludeInterfaces {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			if _, exists := included[strings.ToLower(name)]; exists {
+				return fmt.Errorf("interface %q is both included and excluded", name)
+			}
+		}
+	}
+	if mode := strings.TrimSpace(scope.Mode); mode != "" && !strings.EqualFold(mode, "auto") {
+		return fmt.Errorf("mode must be auto")
 	}
 	return nil
 }

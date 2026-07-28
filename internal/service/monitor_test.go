@@ -171,7 +171,7 @@ func TestBuildTerminalsDistinguishesStrongAndWeakPresenceEvidence(t *testing.T) 
 	terminals, _, err := monitor.buildTerminals(
 		context.Background(),
 		now,
-		nil,
+		parseCIDRs([]string{"10.0.0.0/24", "fc00::/64"}),
 		map[string]routerAssignedAddress{"10.0.0.1": {Family: "ipv4", Interface: "lan"}},
 		[]routeros.DHCPLease{{Address: "10.0.0.2", MACAddress: "00:11:22:33:44:02", Status: "bound"}},
 		[]routeros.ARPEntry{{Address: "10.0.0.3", MACAddress: "00:11:22:33:44:03", Interface: "lan", Complete: "true", Status: "stale"}},
@@ -257,12 +257,13 @@ func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testin
 	strongARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "reachable"}}
 	staleARP := []routeros.ARPEntry{{Address: "10.0.0.5", MACAddress: "BC:24:11:94:45:CA", Interface: "lan", Complete: "true", Status: "stale"}}
 
-	terminals, _, err := monitor.buildTerminals(ctx, firstSeen, nil, nil, nil, strongARP, nil, nil, nil, routeMatcher{})
+	localCIDRs := parseCIDRs([]string{"10.0.0.0/24"})
+	terminals, _, err := monitor.buildTerminals(ctx, firstSeen, localCIDRs, nil, nil, strongARP, nil, nil, nil, routeMatcher{})
 	if err != nil || len(terminals) != 1 || terminals[0].State != "online" {
 		t.Fatalf("expected initial strong evidence online, terminals=%#v err=%v", terminals, err)
 	}
 
-	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(time.Minute), nil, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(time.Minute), localCIDRs, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
 	if err != nil || terminals[0].State != "inactive" {
 		t.Fatalf("expected stale evidence inside grace period inactive, terminals=%#v err=%v", terminals, err)
 	}
@@ -270,7 +271,7 @@ func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testin
 		t.Fatalf("stale evidence advanced lastSeen: got %v want %v", terminals[0].LastSeen, firstSeen)
 	}
 
-	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(6*time.Minute), nil, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
+	terminals, _, err = monitor.buildTerminals(ctx, firstSeen.Add(6*time.Minute), localCIDRs, nil, nil, staleARP, nil, nil, nil, routeMatcher{})
 	if err != nil || terminals[0].State != "offline" {
 		t.Fatalf("expected stale evidence after grace period offline, terminals=%#v err=%v", terminals, err)
 	}
