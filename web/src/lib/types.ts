@@ -113,7 +113,25 @@ export type RouteStat = { id: string; kind: string; family: string; destination:
 export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
-  username: string; password: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]
+  username: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]
+}
+
+export type BootstrapResponse = {
+  phase: 'needs_admin' | 'needs_login' | 'needs_routeros' | 'ready'
+  authenticated: boolean
+  onboardingComplete: boolean
+  username?: string
+}
+
+export type VerificationInterface = { name: string; type: string; running: boolean; disabled: boolean; addresses: string[] }
+export type VerificationCIDR = { cidr: string; interface: string; family: string }
+export type VerificationResponse = {
+  verificationToken: string
+  expiresAt: string
+  identity: { routerName: string; version: string; platform: string; boardName: string }
+  interfaces: VerificationInterface[]
+  cidrCandidates: VerificationCIDR[]
+  warnings: { capability: string; message: string }[]
 }
 
 export type DashboardResponse = {
@@ -140,7 +158,6 @@ export type SettingsResponse = {
     routerosHost: string
     routerosPort: number
     routerosUsername: string
-    routerosPassword: string
     routerosPasswordSet: boolean
   }
   collection: {

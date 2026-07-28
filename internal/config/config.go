@@ -95,9 +95,35 @@ func Save(path string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(path, payload, 0o600); err != nil {
-		return fmt.Errorf("write config: %w", err)
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".rosboard-config-*")
+	if err != nil {
+		return fmt.Errorf("create temporary config: %w", err)
 	}
+	temporaryPath := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		_ = temporary.Close()
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return fmt.Errorf("set temporary config permissions: %w", err)
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		return fmt.Errorf("write temporary config: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return fmt.Errorf("sync temporary config: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary config: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace config: %w", err)
+	}
+	removeTemporary = false
 	return nil
 }
 

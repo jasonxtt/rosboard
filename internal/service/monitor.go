@@ -284,7 +284,7 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 		var err error
 		ipv6Neighbors, err = m.client.IPv6Neighbors(pollCtx)
 		if err != nil {
-			resultErrors <- fmt.Errorf("load terminal ipv6 neighbors: %w", err)
+			m.logger.Printf("load terminal ipv6 neighbors failed: %v", err)
 		}
 	})
 	waitGroup.Go(func() {
@@ -298,7 +298,7 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 		var err error
 		connectionsV6, err = m.client.FirewallConnectionsV6(pollCtx)
 		if err != nil {
-			resultErrors <- fmt.Errorf("load terminal ipv6 connections: %w", err)
+			m.logger.Printf("load terminal ipv6 connections failed: %v", err)
 		}
 	})
 	waitGroup.Wait()
@@ -600,7 +600,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	health, err := m.client.SystemHealth(pollCtx)
 	if err != nil {
-		return fmt.Errorf("load system health: %w", err)
+		m.logger.Printf("load system health failed: %v", err)
+		addWarning("system-health", "系统健康", "RouterOS 系统健康数据暂时不可用。")
 	}
 	interfaces, err := m.client.Interfaces(pollCtx)
 	if err != nil {
@@ -608,7 +609,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	ethernet, err := m.client.EthernetInterfaces(pollCtx)
 	if err != nil {
-		return fmt.Errorf("load ethernet interfaces: %w", err)
+		m.logger.Printf("load ethernet interfaces failed: %v", err)
+		addWarning("ethernet-details", "接口采集", "RouterOS 以太网接口详情暂时不可用。")
 	}
 	addresses, err := m.client.IPAddresses(pollCtx)
 	if err != nil {
@@ -628,7 +630,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	ipv6Neighbors, err := m.client.IPv6Neighbors(pollCtx)
 	if err != nil {
-		return fmt.Errorf("load ipv6 neighbors: %w", err)
+		m.logger.Printf("load ipv6 neighbors failed: %v", err)
+		addWarning("ipv6-neighbors", "IPv6 采集", "RouterOS IPv6 邻居数据暂时不可用。")
 	}
 	connectionsV4, err := m.client.FirewallConnectionsV4(pollCtx)
 	if err != nil {
@@ -636,7 +639,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	connectionsV6, err := m.client.FirewallConnectionsV6(pollCtx)
 	if err != nil {
-		return fmt.Errorf("load ipv6 connections: %w", err)
+		m.logger.Printf("load ipv6 connections failed: %v", err)
+		addWarning("ipv6-connections", "IPv6 采集", "RouterOS IPv6 连接跟踪暂时不可用。")
 	}
 	simpleQueues, err := m.client.SimpleQueues(pollCtx)
 	policyComplete := true

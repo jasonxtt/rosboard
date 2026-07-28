@@ -68,6 +68,29 @@ func TestLoadDeviceListAndSaveWithoutLegacyRouterOS(t *testing.T) {
 	}
 }
 
+func TestSaveUsesPrivatePermissionsAndLeavesNoTemporaryFile(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.yaml")
+	cfg := Config{PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("config permissions=%o", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
+		t.Fatalf("unexpected files after atomic save: %+v", entries)
+	}
+}
+
 func TestValidateRejectsDuplicateDeviceIDs(t *testing.T) {
 	cfg := Config{
 		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,

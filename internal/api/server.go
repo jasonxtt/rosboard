@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rosboard/internal/auth"
 	"rosboard/internal/config"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
@@ -23,6 +26,7 @@ import (
 
 type Server struct {
 	cfgMu        sync.RWMutex
+	deviceSaveMu sync.Mutex
 	cfg          config.Config
 	monitor      *service.Monitor
 	manager      *service.MonitorManager
@@ -31,6 +35,8 @@ type Server struct {
 	allowedCIDRs []*net.IPNet
 	fileServer   http.Handler
 	restart      func()
+	auth         *auth.Service
+	tickets      *verificationTickets
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
@@ -45,10 +51,15 @@ func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs
 		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
 		fileServer:   http.FileServer(http.FS(assets)),
 		restart:      restart,
+		tickets:      newVerificationTickets(),
 	}
 }
 
 func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func()) *Server {
+	var authService *auth.Service
+	if storage != nil {
+		authService = auth.New(storage)
+	}
 	return &Server{
 		cfg:          cfg,
 		manager:      manager,
@@ -57,14 +68,43 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
 		fileServer:   http.FileServer(http.FS(assets)),
 		restart:      restart,
+		auth:         authService,
+		tickets:      newVerificationTickets(),
 	}
+}
+
+func NewServerWithAuth(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), authService *auth.Service) *Server {
+	server := NewServerWithManager(cfg, manager, storage, assets, restart)
+	server.auth = authService
+	return server
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if strings.HasPrefix(request.URL.Path, "/api/") {
+		setSecurityHeaders(writer)
 		if !s.allowed(request) {
 			writeError(writer, http.StatusForbidden, "forbidden")
 			return
+		}
+		if s.auth != nil && !sameOriginWrite(request) {
+			writeError(writer, http.StatusForbidden, "cross-origin request denied")
+			return
+		}
+		if s.auth != nil && !publicAPI(request.URL.Path, request.Method) {
+			session, ok := s.authenticateRequest(writer, request)
+			if !ok {
+				return
+			}
+			request = request.WithContext(withRequestSession(request.Context(), session))
+			phaseAllowed, phaseErr := s.phaseAllows(request)
+			if phaseErr != nil {
+				writeAPIError(writer, http.StatusInternalServerError, "setup_state_failed", "failed to load setup state")
+				return
+			}
+			if !phaseAllowed {
+				writeAPIError(writer, http.StatusConflict, "onboarding_required", "complete setup before using this API")
+				return
+			}
 		}
 		s.serveAPI(writer, request)
 		return
@@ -74,6 +114,9 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
+	if s.serveAuthAPI(writer, request) {
+		return
+	}
 	if request.URL.Path == "/api/settings/connection" {
 		s.serveConnectionSettings(writer, request)
 		return
@@ -86,8 +129,16 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		s.serveRestart(writer, request)
 		return
 	}
+	if request.URL.Path == "/api/settings/full-reset" {
+		s.serveFullReset(writer, request)
+		return
+	}
 	if request.URL.Path == "/api/devices" && request.Method == http.MethodGet {
 		writeJSON(writer, http.StatusOK, map[string]any{"devices": s.deviceStatuses(false), "archivedDevices": s.deviceStatuses(true)})
+		return
+	}
+	if request.URL.Path == "/api/devices/test-connection" {
+		s.serveDeviceConnectionTest(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/devices" || strings.HasPrefix(request.URL.Path, "/api/devices/") {
@@ -212,7 +263,6 @@ type settingsDevice struct {
 	Host              string   `json:"host"`
 	Port              int      `json:"port"`
 	Username          string   `json:"username"`
-	Password          string   `json:"password"`
 	PasswordSet       bool     `json:"passwordSet"`
 	TrafficInterfaces []string `json:"trafficInterfaces"`
 	TerminalCIDRs     []string `json:"terminalCidrs"`
@@ -228,7 +278,6 @@ type settingsConnection struct {
 	RouterOSHost        string   `json:"routerosHost"`
 	RouterOSPort        int      `json:"routerosPort"`
 	RouterOSUsername    string   `json:"routerosUsername"`
-	RouterOSPassword    string   `json:"routerosPassword"`
 	RouterOSPasswordSet bool     `json:"routerosPasswordSet"`
 }
 
@@ -268,7 +317,7 @@ func (s *Server) settingsResponse() settingsResponse {
 		devices = append(devices, settingsDevice{
 			ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived,
 			Scheme: deviceScheme, Host: deviceHost, Port: devicePort, Username: device.RouterOS.Username,
-			Password: device.RouterOS.Password, PasswordSet: strings.TrimSpace(device.RouterOS.Password) != "",
+			PasswordSet:       strings.TrimSpace(device.RouterOS.Password) != "",
 			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs),
 		})
 	}
@@ -283,7 +332,6 @@ func (s *Server) settingsResponse() settingsResponse {
 			RouterOSHost:        host,
 			RouterOSPort:        port,
 			RouterOSUsername:    cfg.RouterOS.Username,
-			RouterOSPassword:    cfg.RouterOS.Password,
 			RouterOSPasswordSet: strings.TrimSpace(cfg.RouterOS.Password) != "",
 		},
 		Collection: settingsCollection{
@@ -350,42 +398,10 @@ type connectionSettingsRequest struct {
 
 func (s *Server) serveConnectionSettings(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
-		writer.Header().Set("Allow", http.MethodPost)
-		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		methodNotAllowed(writer, http.MethodPost)
 		return
 	}
-	if strings.TrimSpace(s.configSnapshot().Path) == "" {
-		writeError(writer, http.StatusBadRequest, "config path is required to save settings")
-		return
-	}
-
-	var payload connectionSettingsRequest
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid json body")
-		return
-	}
-	baseURL, err := routerOSBaseURL(payload)
-	if err != nil {
-		writeError(writer, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if err := s.saveSettings(func(next *config.Config) {
-		next.RouterOS.BaseURL = baseURL
-		next.RouterOS.Username = strings.TrimSpace(payload.Username)
-		next.RouterOS.Password = strings.TrimSpace(payload.Password)
-		if len(next.Devices) == 0 {
-			next.Devices = []config.DeviceConfig{{ID: config.DefaultDeviceID, Name: "RouterOS", Enabled: true, RouterOS: next.RouterOS}}
-		} else {
-			next.Devices[0].RouterOS = next.RouterOS
-		}
-	}); err != nil {
-		writeError(writer, http.StatusInternalServerError, "failed to save settings")
-		return
-	}
-
-	s.scheduleRestart()
-	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
+	writeAPIError(writer, http.StatusGone, "device_api_required", "use the verified device API to save RouterOS connections")
 }
 
 type collectionSettingsRequest struct {
@@ -396,16 +412,30 @@ type collectionSettingsRequest struct {
 }
 
 type deviceSettingsRequest struct {
-	Name              string   `json:"name"`
-	Enabled           bool     `json:"enabled"`
-	Scheme            string   `json:"scheme"`
-	Host              string   `json:"host"`
-	Port              int      `json:"port"`
-	Username          string   `json:"username"`
-	Password          string   `json:"password"`
-	TrafficInterfaces []string `json:"trafficInterfaces"`
-	TerminalCIDRs     []string `json:"terminalCidrs"`
-	Confirmation      string   `json:"confirmation"`
+	Name               string   `json:"name"`
+	Enabled            bool     `json:"enabled"`
+	Scheme             string   `json:"scheme"`
+	Host               string   `json:"host"`
+	Port               int      `json:"port"`
+	Username           string   `json:"username"`
+	Password           string   `json:"password"`
+	TrafficInterfaces  []string `json:"trafficInterfaces"`
+	TerminalCIDRs      []string `json:"terminalCidrs"`
+	VerificationToken  string   `json:"verificationToken"`
+	CompleteOnboarding bool     `json:"completeOnboarding"`
+	DeferRestart       bool     `json:"deferRestart"`
+	Confirmation       string   `json:"confirmation"`
+}
+
+func (s *Server) shouldDeferDeviceRestart(ctx context.Context, payload deviceSettingsRequest) (bool, error) {
+	if !payload.DeferRestart || payload.CompleteOnboarding || s.auth == nil {
+		return false, nil
+	}
+	complete, err := s.auth.OnboardingComplete(ctx)
+	if err != nil {
+		return false, err
+	}
+	return !complete, nil
 }
 
 func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Request) {
@@ -420,21 +450,38 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		var payload deviceSettingsRequest
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			writeError(writer, http.StatusBadRequest, "invalid json body")
+		if err := decodeJSONBody(writer, request, &payload); err != nil {
 			return
 		}
-		device, err := deviceConfigFromRequest(uuid.NewString(), payload)
+		deferRestart, err := s.shouldDeferDeviceRestart(request.Context(), payload)
 		if err != nil {
-			writeError(writer, http.StatusBadRequest, err.Error())
+			writeAPIError(writer, http.StatusInternalServerError, "setup_state_failed", "failed to load setup state")
+			return
+		}
+		s.deviceSaveMu.Lock()
+		defer s.deviceSaveMu.Unlock()
+		device, consumeTicket, err := s.prepareDevice(request.Context(), uuid.NewString(), payload, nil)
+		if err != nil {
+			writeDeviceValidationError(writer, err)
 			return
 		}
 		if err := s.saveSettings(func(next *config.Config) { next.Devices = append(next.Devices, device) }); err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to save device")
 			return
 		}
-		s.scheduleRestart()
-		writeJSON(writer, http.StatusCreated, map[string]any{"id": device.ID, "restarting": s.restart != nil})
+		if consumeTicket {
+			s.tickets.consume(payload.VerificationToken)
+		}
+		if s.auth != nil && payload.CompleteOnboarding {
+			if err := s.auth.CompleteOnboarding(request.Context()); err != nil {
+				writeAPIError(writer, http.StatusInternalServerError, "setup_completion_failed", "device was saved but setup could not be completed")
+				return
+			}
+		}
+		if !deferRestart {
+			s.scheduleRestart()
+		}
+		writeJSON(writer, http.StatusCreated, map[string]any{"id": device.ID, "restarting": !deferRestart && s.restart != nil})
 		return
 	}
 
@@ -453,16 +500,28 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 	switch {
 	case request.Method == http.MethodPut && action == "":
 		var payload deviceSettingsRequest
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			writeError(writer, http.StatusBadRequest, "invalid json body")
+		if err := decodeJSONBody(writer, request, &payload); err != nil {
 			return
 		}
-		device, err := deviceConfigFromRequest(deviceID, payload)
+		deferRestart, err := s.shouldDeferDeviceRestart(request.Context(), payload)
 		if err != nil {
-			writeError(writer, http.StatusBadRequest, err.Error())
+			writeAPIError(writer, http.StatusInternalServerError, "setup_state_failed", "failed to load setup state")
 			return
 		}
-		found := false
+		s.deviceSaveMu.Lock()
+		defer s.deviceSaveMu.Unlock()
+		cfg := s.configSnapshot()
+		existing, found := cfg.Device(deviceID)
+		if !found {
+			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+		device, consumeTicket, err := s.prepareDevice(request.Context(), deviceID, payload, &existing)
+		if err != nil {
+			writeDeviceValidationError(writer, err)
+			return
+		}
+		found = false
 		err = s.saveSettings(func(next *config.Config) {
 			for index := range next.Devices {
 				if next.Devices[index].ID == deviceID {
@@ -479,6 +538,19 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		}
 		if !found {
 			writeError(writer, http.StatusNotFound, "device not found")
+			return
+		}
+		if consumeTicket {
+			s.tickets.consume(payload.VerificationToken)
+		}
+		if s.auth != nil && payload.CompleteOnboarding {
+			if err := s.auth.CompleteOnboarding(request.Context()); err != nil {
+				writeAPIError(writer, http.StatusInternalServerError, "setup_completion_failed", "device was saved but setup could not be completed")
+				return
+			}
+		}
+		if deferRestart {
+			writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "id": deviceID, "restarting": false})
 			return
 		}
 	case request.Method == http.MethodDelete && action == "":
@@ -568,27 +640,6 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
 }
 
-func deviceConfigFromRequest(id string, payload deviceSettingsRequest) (config.DeviceConfig, error) {
-	name := strings.TrimSpace(payload.Name)
-	if name == "" {
-		return config.DeviceConfig{}, errors.New("device name is required")
-	}
-	baseURL, err := routerOSBaseURL(connectionSettingsRequest{
-		Scheme: payload.Scheme, Host: payload.Host, Port: payload.Port,
-		Username: payload.Username, Password: payload.Password,
-	})
-	if err != nil {
-		return config.DeviceConfig{}, err
-	}
-	return config.DeviceConfig{
-		ID: id, Name: name, Enabled: payload.Enabled,
-		RouterOS: config.RouterOSConfig{
-			BaseURL: baseURL, Username: strings.TrimSpace(payload.Username), Password: strings.TrimSpace(payload.Password),
-			TrafficInterfaces: cleanStrings(payload.TrafficInterfaces), TerminalCIDRs: cleanStrings(payload.TerminalCIDRs),
-		},
-	}, nil
-}
-
 func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		writer.Header().Set("Allow", http.MethodPost)
@@ -636,6 +687,62 @@ func (s *Server) serveRestart(writer http.ResponseWriter, request *http.Request)
 	}
 	s.scheduleRestart()
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": true})
+}
+
+func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		methodNotAllowed(writer, http.MethodPost)
+		return
+	}
+	if s.store == nil || s.auth == nil {
+		writeAPIError(writer, http.StatusServiceUnavailable, "full_reset_unavailable", "full reset is unavailable")
+		return
+	}
+	if strings.TrimSpace(s.configSnapshot().Path) == "" {
+		writeAPIError(writer, http.StatusBadRequest, "config_path_required", "config path is required for full reset")
+		return
+	}
+	var payload struct {
+		Confirmed bool `json:"confirmed"`
+	}
+	if err := decodeJSONBody(writer, request, &payload); err != nil {
+		return
+	}
+	if !payload.Confirmed {
+		writeAPIError(writer, http.StatusBadRequest, "confirmation_required", "full reset must be confirmed")
+		return
+	}
+
+	s.deviceSaveMu.Lock()
+	defer s.deviceSaveMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	previous := s.cfg
+	if err := os.Remove(previous.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		writeAPIError(writer, http.StatusInternalServerError, "full_reset_failed", "failed to remove configuration")
+		return
+	}
+	if err := s.store.ResetAll(request.Context()); err != nil {
+		if restoreErr := config.Save(previous.Path, previous); restoreErr != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "full_reset_failed", "full reset failed and device settings could not be restored")
+			return
+		}
+		writeAPIError(writer, http.StatusInternalServerError, "full_reset_failed", "full reset failed; configuration was restored")
+		return
+	}
+	resetConfig, err := config.Load(previous.Path)
+	if err != nil {
+		writeAPIError(writer, http.StatusInternalServerError, "full_reset_failed", "data was reset but default configuration could not be loaded")
+		return
+	}
+	s.cfg = resetConfig
+	if s.restart != nil {
+		_ = s.store.Close()
+	}
+	s.tickets.clear()
+	clearSessionCookie(writer, request)
+	s.scheduleRestart()
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "phase": "needs_admin", "restarting": s.restart != nil})
 }
 
 func (s *Server) configSnapshot() config.Config {
@@ -707,24 +814,28 @@ func parseTrafficWindow(value string) (string, time.Duration, time.Duration, boo
 }
 
 func routerOSBaseURL(payload connectionSettingsRequest) (string, error) {
-	scheme := strings.ToLower(strings.TrimSpace(payload.Scheme))
+	if strings.TrimSpace(payload.Username) == "" {
+		return "", errors.New("username is required")
+	}
+	if payload.Password == "" {
+		return "", errors.New("password is required")
+	}
+	return normalizedRouterOSURL(payload.Scheme, payload.Host, payload.Port)
+}
+
+func normalizedRouterOSURL(rawScheme, rawHost string, rawPort int) (string, error) {
+	scheme := strings.ToLower(strings.TrimSpace(rawScheme))
 	if scheme == "" {
 		scheme = "http"
 	}
 	if scheme != "http" && scheme != "https" {
 		return "", errors.New("scheme must be http or https")
 	}
-	host := strings.TrimSpace(payload.Host)
+	host := strings.TrimSpace(rawHost)
 	if host == "" {
 		return "", errors.New("host is required")
 	}
-	if strings.TrimSpace(payload.Username) == "" {
-		return "", errors.New("username is required")
-	}
-	if strings.TrimSpace(payload.Password) == "" {
-		return "", errors.New("password is required")
-	}
-	port := payload.Port
+	port := rawPort
 	if port == 0 {
 		port = defaultRouterOSRESTPort(scheme)
 	}

@@ -17,6 +17,7 @@ import {
 } from './lib/format'
 import type {
   ActiveView,
+  BootstrapResponse,
   ConnectionFamily,
   DashboardResponse,
   DeviceStatus,
@@ -38,10 +39,11 @@ import type {
   TerminalScopeSummary,
   TerminalSortKey,
   TerminalTab,
+  VerificationResponse,
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
-type SettingsSection = 'connection' | 'collection' | 'ui' | 'maintenance'
+type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
@@ -106,6 +108,7 @@ async function postJSON(path: string, body?: unknown) {
 
 async function requestJSON(path: string, method: string, body?: unknown) {
   const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+  if (response.status === 401) window.dispatchEvent(new Event('rosboard:authentication-required'))
   const failure = response.ok ? null : await response.json().catch(() => null) as { error?: string } | null
   if (!response.ok) throw new Error(failure?.error || `HTTP ${response.status}`)
   return response
@@ -136,16 +139,6 @@ function scopedURL(path: string, deviceID: string) {
   if (!deviceID) return path
   const separator = path.includes('?') ? '&' : '?'
   return `${path}${separator}device=${encodeURIComponent(deviceID)}`
-}
-
-function connectionDraftFromSettings(settings: SettingsResponse | null): ConnectionDraft {
-  return {
-    scheme: settings?.connection.routerosScheme === 'https' ? 'https' : 'http',
-    host: settings?.connection.routerosHost || '10.0.0.1',
-    port: settings?.connection.routerosPort || (settings?.connection.routerosScheme === 'https' ? 443 : 80),
-    username: settings?.connection.routerosUsername || '',
-    password: settings?.connection.routerosPassword || '',
-  }
 }
 
 function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraft {
@@ -231,6 +224,101 @@ function relativeUpdateTime(value: string) {
 }
 
 function App() {
+	const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null)
+	const [error, setError] = useState<string | null>(null)
+	const refresh = async () => {
+		try {
+			const response = await fetch('/api/bootstrap', { cache: 'no-store' })
+			if (!response.ok) throw new Error(`HTTP ${response.status}`)
+			setBootstrap(await response.json() as BootstrapResponse)
+			setError(null)
+		} catch (loadError) { setError(loadError instanceof Error ? loadError.message : '初始化状态读取失败') }
+	}
+	useEffect(() => {
+		void refresh()
+		const authenticationRequired = () => void refresh()
+		window.addEventListener('rosboard:authentication-required', authenticationRequired)
+		const timer = window.setInterval(() => void refresh(), 60_000)
+		return () => { window.clearInterval(timer); window.removeEventListener('rosboard:authentication-required', authenticationRequired) }
+	}, [])
+	if (!bootstrap) return <StartupCard title="Rosboard" description="正在读取初始化状态..." error={error} />
+	if (bootstrap.phase === 'needs_admin') return <AdminSetupPage onComplete={() => void refresh()} />
+	if (bootstrap.phase === 'needs_login') return <LoginPage onComplete={() => void refresh()} />
+	if (bootstrap.phase === 'needs_routeros') return <RouterOSSetupPage onComplete={() => void refresh()} />
+	return <PanelApp username={bootstrap.username ?? ''} onAuthenticationChanged={() => void refresh()} />
+}
+
+function StartupCard(props: { title: string; description: string; error?: string | null; children?: React.ReactNode }) {
+	return <main className="setup-shell"><section className="panel setup-panel auth-panel">
+		<div className="setup-brand"><img className="brand-mark" src={rosboardMark} alt="" /><div><h1>{props.title}</h1><p>{props.description}</p></div></div>
+		{props.error ? <div className="global-error">{props.error}</div> : null}
+		{props.children}
+	</section></main>
+}
+
+function AdminSetupPage(props: { onComplete: () => void }) {
+	const [username, setUsername] = useState('admin')
+	const [password, setPassword] = useState('')
+	const [confirmation, setConfirmation] = useState('')
+	const [error, setError] = useState<string | null>(null)
+	const [saving, setSaving] = useState(false)
+	return <StartupCard title="创建管理员" description="第一步：设置用于持续登录 Rosboard 的唯一管理员账号。密码至少 4 个字符。" error={error}>
+		<form className="settings-form auth-form admin-setup-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/setup/admin', { username, password, passwordConfirmation: confirmation }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '管理员创建失败') } finally { setSaving(false) } }}>
+			<label className="wide"><span>管理员用户名</span><input required maxLength={64} autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label><span>密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<label><span>确认密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+			<div className="settings-actions wide"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在创建...' : '创建管理员并继续'}</button></div>
+		</form>
+	</StartupCard>
+}
+
+function LoginPage(props: { onComplete: () => void }) {
+	const [username, setUsername] = useState('')
+	const [password, setPassword] = useState('')
+	const [error, setError] = useState<string | null>(null)
+	const [saving, setSaving] = useState(false)
+	return <StartupCard title="登录 Rosboard" description="使用管理员账号继续。" error={error}>
+		<form className="settings-form auth-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/auth/login', { username, password }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '登录失败') } finally { setSaving(false) } }}>
+			<label className="wide"><span>用户名</span><input required autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label className="wide"><span>密码</span><input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<div className="settings-actions wide"><button className="primary-button" disabled={saving} type="submit">{saving ? '正在登录...' : '登录'}</button></div>
+		</form>
+	</StartupCard>
+}
+
+function RouterOSSetupPage(props: { onComplete: () => void }) {
+	const [settings, setSettings] = useState<SettingsResponse | null>(null)
+	const [error, setError] = useState<string | null>(null)
+	const [stage, setStage] = useState<'choice' | 'editor'>('choice')
+	const [editorDeviceID, setEditorDeviceID] = useState('')
+	const [editorVersion, setEditorVersion] = useState(0)
+	const [message, setMessage] = useState<string | null>(null)
+	const loadSettings = async () => {
+		const response = await fetch('/api/settings', { cache: 'no-store' })
+		if (!response.ok) throw new Error(`HTTP ${response.status}`)
+		const result = await response.json() as SettingsResponse
+		setSettings(result)
+		return result
+	}
+	const onRestartingAction = async (action: () => Promise<void>, onOffline: () => void) => {
+		await action()
+		try { await waitForPanelRestart(onOffline) } finally { props.onComplete() }
+	}
+	useEffect(() => { void loadSettings().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '设置读取失败')) }, [])
+	if (stage === 'choice') return <StartupCard title="开始使用 Rosboard" description="管理员已创建。现在可以添加第一台 RouterOS，也可以稍后再配置。" error={error}>
+		<div className="onboarding-choice">
+			<button type="button" className="onboarding-choice-card primary-choice" onClick={() => { setEditorDeviceID(''); setEditorVersion((value) => value + 1); setStage('editor') }}><Icon name="router" /><span><strong>添加 ROS 设备</strong><small>测试连接并设置采集接口与本地 CIDR</small></span></button>
+			<button type="button" className="onboarding-choice-card" onClick={async () => { try { const hasDevices = Boolean(settings?.devices.length); if (hasDevices) await onRestartingAction(() => postJSON('/api/setup/complete', { skipRouterOS: false }).then(() => undefined), () => setError('面板正在启动，恢复后将自动进入面板...')); else { await postJSON('/api/setup/complete', { skipRouterOS: true }); props.onComplete() } } catch (skipError) { setError(skipError instanceof Error ? skipError.message : '进入面板失败') } }}><Icon name="overview" /><span><strong>{settings?.devices.length ? '进入面板' : '跳过并进入面板'}</strong><small>{settings?.devices.length ? '重启采集服务并进入监控面板' : '稍后可在设备管理中添加 RouterOS'}</small></span></button>
+		</div>
+	</StartupCard>
+	return <StartupCard title="添加 RouterOS" description="填写连接信息并测试成功后，再选择采集接口和本地 CIDR。" error={error}>
+		{message ? <div className="settings-message" role="status">{message}</div> : null}
+		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async (deviceID) => { await loadSettings(); setEditorDeviceID(deviceID); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可点击“+”继续添加设备，或点击“完成设置”。') }} onRestartingAction={onRestartingAction} /> : null}
+		<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button></div>
+	</StartupCard>
+}
+
+function PanelApp(props: { username: string; onAuthenticationChanged: () => void }) {
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>(() => panelPreferences.landingView)
@@ -239,8 +327,6 @@ function App() {
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
-  const [connectionSaving, setConnectionSaving] = useState(false)
-  const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
   const [collectionSaving, setCollectionSaving] = useState(false)
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
   const [restartSaving, setRestartSaving] = useState(false)
@@ -261,6 +347,7 @@ function App() {
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
   const [devices, setDevices] = useState<DeviceStatus[]>([])
+	const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedDeviceID, setSelectedDeviceID] = useState(() => window.localStorage.getItem(selectedDeviceKey) ?? '')
   const [trafficWindow, setTrafficWindow] = useState(() => window.sessionStorage.getItem(trafficWindowKey) ?? '5m')
   const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
@@ -290,6 +377,7 @@ function App() {
         if (cancelled) return
         const available = (payload.devices ?? []).filter((device) => device.enabled && !device.archived)
         setDevices(payload.devices ?? [])
+		setDevicesLoaded(true)
         const selectedAvailable = available.some((device) => device.id === selectedDeviceID)
         if (!selectedAvailable && available[0]) setSelectedDeviceID(available[0].id)
       } catch {
@@ -310,23 +398,6 @@ function App() {
     setTerminalDetail(null)
     setRefreshNonce((value) => value + 1)
   }, [selectedDeviceID])
-
-  const saveConnectionSettings = async (draft: ConnectionDraft) => {
-    setConnectionSaving(true)
-    setConnectionMessage(null)
-    setRestartPending(false)
-    try {
-      await postJSON('/api/settings/connection', draft)
-      setConnectionMessage('已保存，面板正在重启并连接 RouterOS，请保持此页面打开...')
-      setRestartPending(true)
-      await waitForPanelRestart(() => setConnectionMessage('面板正在启动，恢复后将自动刷新...'))
-    } catch (saveError) {
-      setRestartPending(false)
-      setConnectionMessage(saveError instanceof Error ? saveError.message : '设备管理保存失败')
-    } finally {
-      setConnectionSaving(false)
-    }
-  }
 
   const saveCollectionSettings = async (draft: CollectionDraft) => {
     setCollectionSaving(true)
@@ -576,17 +647,7 @@ function App() {
   }, [dashboard, editingTerminalID])
 
   if (!dashboard) {
-    if (settings && (!settings.connection.configured || error)) {
-      return (
-        <SetupPage
-          settings={settings}
-          error={error}
-          saving={connectionSaving}
-          message={connectionMessage}
-          onSave={saveConnectionSettings}
-        />
-      )
-    }
+	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} />
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
@@ -606,6 +667,7 @@ function App() {
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
     { key: 'ui', label: '界面设置', icon: 'overview' },
+    { key: 'account', label: '账号安全', icon: 'shield' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
   ]
 
@@ -816,14 +878,13 @@ function App() {
             preferences={panelPreferences}
             dashboard={dashboard}
             selectedDeviceID={selectedDeviceID}
-            connectionSaving={connectionSaving}
-            connectionMessage={connectionMessage}
             collectionSaving={collectionSaving}
             collectionMessage={collectionMessage}
             restartSaving={restartSaving}
             restartMessage={restartMessage}
-            onSaveConnection={saveConnectionSettings}
             onSaveCollection={saveCollectionSettings}
+			username={props.username}
+			onAuthenticationChanged={props.onAuthenticationChanged}
             onSavePreferences={(preferences) => {
               updatePanelPreferences(preferences)
               setDashboardRefreshMs(preferences.refreshMs)
@@ -938,25 +999,57 @@ function App() {
   )
 }
 
-function SetupPage(props: {
-  settings: SettingsResponse
-  error: string | null
-  saving: boolean
-  message: string | null
-  onSave: (draft: ConnectionDraft) => Promise<void>
-}) {
-  return (
-    <main className="setup-shell">
-      <section className="panel setup-panel">
-        <div className="setup-brand">
-          <img className="brand-mark" src={rosboardMark} alt="" />
-          <div><h1>Rosboard 初始化</h1><p>填写 RouterOS REST 连接信息后，面板会保存配置并重启采集服务。</p></div>
-        </div>
-        {props.error ? <div className="global-warning">当前还没有可用的 RouterOS 数据：{props.error}</div> : null}
-        <ConnectionSettingsForm settings={props.settings} saving={props.saving} message={props.message} onSave={props.onSave} />
-      </section>
-    </main>
-  )
+function EmptyDevicePanel(props: { settings: SettingsResponse; username: string; onAuthenticationChanged: () => void }) {
+	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
+	const [sidebarOpen, setSidebarOpen] = useState(false)
+	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '线路监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
+	const choose = (value: typeof section) => { setSection(value); setSidebarOpen(false) }
+	return <main className={sidebarOpen ? 'shell empty-device-shell sidebar-open' : 'shell empty-device-shell'}>
+		<button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
+		<aside className="sidebar">
+			<div className="brand"><img className="brand-mark" src={rosboardMark} alt="" /><div className="brand-copy"><h1>Rosboard</h1><p>尚未连接设备</p></div></div>
+			<nav className="menu">
+				<button className={section === 'overview' ? 'menu-item active' : 'menu-item'} onClick={() => choose('overview')}><NavLabel icon="overview" label="系统概览" /></button>
+				<button className={section === 'interfaces' ? 'menu-item active' : 'menu-item'} onClick={() => choose('interfaces')}><NavLabel icon="network" label="线路监控" /></button>
+				<button className={section === 'terminals' ? 'menu-item active' : 'menu-item'} onClick={() => choose('terminals')}><NavLabel icon="terminal" label="终端监控" /></button>
+				<button className={section === 'devices' ? 'menu-item active' : 'menu-item'} onClick={() => choose('devices')}><NavLabel icon="router" label="设备管理" /></button>
+				<button className={section === 'account' ? 'menu-item active' : 'menu-item'} onClick={() => choose('account')}><NavLabel icon="shield" label="账号安全" /></button>
+				<button className={section === 'maintenance' ? 'menu-item active' : 'menu-item'} onClick={() => choose('maintenance')}><NavLabel icon="storage" label="维护设置" /></button>
+			</nav>
+			<div className="sidebar-device-card"><label>当前设备</label><p>尚未添加 RouterOS</p></div>
+		</aside>
+		<section className="content"><header className="topbar"><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button><div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div></div></header>
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>测试连接并选择至少一个采集接口和本地 CIDR 后即可开始监控。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><div className="panel-head"><h3>维护设置</h3></div><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+		</section>
+	</main>
+}
+
+function FullResetZone(props: { onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+	const [resetting, setResetting] = useState(false)
+	const [message, setMessage] = useState<string | null>(null)
+	const reset = async () => {
+		if (!window.confirm('完全重新初始化会删除管理员、全部设备配置和所有采集历史，且无法撤销。确定继续吗？')) return
+		setResetting(true)
+		setMessage(null)
+		try {
+			await props.onRestartingAction(async () => {
+				await requestJSON('/api/settings/full-reset', 'POST', { confirmed: true })
+				window.localStorage.removeItem(panelPreferenceKey)
+				window.localStorage.removeItem(selectedDeviceKey)
+				window.sessionStorage.removeItem(trafficWindowKey)
+			}, () => setMessage('正在进入全新初始化页面...'))
+		} catch (resetError) {
+			setResetting(false)
+			setMessage(resetError instanceof Error ? resetError.message : '完全重新初始化失败')
+		}
+	}
+	return <>
+		<div className="full-reset-zone">
+			<div><strong>完全重新初始化</strong><p>删除管理员、所有会话、全部 RouterOS 配置和采集历史，并重新进入首次初始化页面。此操作与“重置界面偏好”不同，且无法撤销。</p></div>
+			<button type="button" className="full-reset-button" disabled={resetting} onClick={() => void reset()}>{resetting ? '正在完全重置...' : '完全重新初始化'}</button>
+		</div>
+		{message ? <div className="settings-message">{message}</div> : null}
+	</>
 }
 
 function SettingsPage(props: {
@@ -966,18 +1059,17 @@ function SettingsPage(props: {
   preferences: PanelPreferences
   dashboard: DashboardResponse
   selectedDeviceID: string
-  connectionSaving: boolean
-  connectionMessage: string | null
   collectionSaving: boolean
   collectionMessage: string | null
   restartSaving: boolean
   restartMessage: string | null
-  onSaveConnection: (draft: ConnectionDraft) => Promise<void>
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
   onSavePreferences: (preferences: PanelPreferences) => void
   onResetPreferences: () => void
   onRestart: () => Promise<void>
   onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void>
+	username: string
+	onAuthenticationChanged: () => void
 }) {
   const [preferenceDraft, setPreferenceDraft] = useState(props.preferences)
   const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
@@ -993,14 +1085,6 @@ function SettingsPage(props: {
     if (!props.settings) return
     const payload = JSON.stringify({
       ...props.settings,
-      connection: {
-        ...props.settings.connection,
-        routerosPassword: props.settings.connection.routerosPasswordSet ? '********' : '',
-      },
-      devices: props.settings.devices.map((device) => ({
-        ...device,
-        password: device.passwordSet ? '********' : '',
-      })),
     }, null, 2)
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -1101,10 +1185,37 @@ function SettingsPage(props: {
           </div>
           <ArchivedDevices settings={props.settings} onRestartingAction={props.onRestartingAction} />
           {props.restartMessage || maintenanceMessage ? <div className="settings-message">{props.restartMessage || maintenanceMessage}</div> : null}
+		  <FullResetZone onRestartingAction={props.onRestartingAction} />
         </section>
       ) : null}
+
+		{props.settings && props.activeSection === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : null}
     </div>
   )
+}
+
+function AccountSettings(props: { username: string; onAuthenticationChanged: () => void }) {
+	const [username, setUsername] = useState(props.username)
+	const [password, setPassword] = useState('')
+	const [confirmation, setConfirmation] = useState('')
+	const [message, setMessage] = useState<string | null>(null)
+	const [saving, setSaving] = useState(false)
+	const updateCredentials = async (event: React.FormEvent) => {
+		event.preventDefault(); setMessage(null); setSaving(true)
+		try { await requestJSON('/api/account', 'PUT', { username, password, passwordConfirmation: confirmation }); props.onAuthenticationChanged() }
+		catch (error) { setMessage(error instanceof Error ? error.message : '账号保存失败'); setSaving(false) }
+	}
+	return <section className="panel settings-panel">
+		<div className="panel-head"><h3>账号安全</h3></div>
+		<form className="settings-form account-credentials-form" onSubmit={updateCredentials}>
+			<label><span>管理员用户名</span><input required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
+			<label><span>密码（至少 4 个字符）</span><input required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
+			<label><span>再次输入密码</span><input required minLength={4} maxLength={128} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>
+			<div className="settings-actions"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在保存...' : '保存账号和密码'}</button></div>
+		</form>
+		{message ? <div className="settings-message" role="status">{message}</div> : null}
+		<div className="account-logout-zone"><div><strong>退出登录</strong><p>仅退出当前浏览器，不会修改管理员账号和密码。</p></div><button type="button" className="toolbar-button" onClick={async () => { await postJSON('/api/auth/logout'); props.onAuthenticationChanged() }}>退出登录</button></div>
+	</section>
 }
 
 function SettingItem(props: { label: string; value: string; wide?: boolean }) {
@@ -1117,7 +1228,7 @@ function deviceDraft(device?: SettingsDevice): DeviceDraft {
   return {
     id: device?.id ?? '', name: device?.name ?? '', enabled: device?.enabled ?? true,
     scheme: device?.scheme === 'https' ? 'https' : 'http', host: device?.host || '10.0.0.1',
-    port: device?.port || 80, username: device?.username ?? '', password: device?.password ?? '',
+    port: device?.port || 80, username: device?.username ?? '', password: '',
     trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
   }
 }
@@ -1156,21 +1267,29 @@ function cidrSuggestions(selected: string[], trafficInterfaces: string[], interf
   })
 }
 
-function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
-  const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(available[0]))
+  const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
   const [passwordVisible, setPasswordVisible] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [savingAction, setSavingAction] = useState<'save' | 'complete' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [manualCIDR, setManualCIDR] = useState('')
+	const [verification, setVerification] = useState<VerificationResponse | null>(null)
+	const [testing, setTesting] = useState(false)
+	const saving = savingAction !== null
+	const original = available.find((device) => device.id === draft.id)
+	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
+	const verificationRequired = connectionChanged && !verification
   const editingSelectedDevice = Boolean(draft.id) && draft.id === props.selectedDeviceID
   const trafficInterfaces = parseSettingList(draft.trafficInterfaces)
   const terminalCidrs = parseSettingList(draft.terminalCidrs)
-  const liveInterfaces = editingSelectedDevice ? props.interfaces : emptyInterfaceList
+  const verifiedInterfaces = verification?.interfaces.map((item) => ({ ...item, macAddress: '', status: '', lastLinkUpTime: '', linkDowns: 0, actualMtu: 0, rxBytes: 0, txBytes: 0, currentRxBps: 0, currentTxBps: 0, rxPackets: 0, txPackets: 0, rxDrops: 0, txDrops: 0, rxErrors: 0, txErrors: 0, linkRate: '', fullDuplex: false })) ?? []
+  const liveInterfaces = verification ? verifiedInterfaces : editingSelectedDevice ? props.interfaces : emptyInterfaceList
   const interfaceOptions = useMemo(() => interfacePickerOptions(trafficInterfaces, liveInterfaces), [trafficInterfaces, liveInterfaces])
-  const cidrOptions = useMemo(() => cidrSuggestions(terminalCidrs, trafficInterfaces, liveInterfaces), [terminalCidrs, trafficInterfaces, liveInterfaces])
-  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null) }
+  const verificationCIDRs = useMemo(() => verification?.cidrCandidates.map((item) => ({ name: item.interface, addresses: [item.cidr] } as InterfaceStatus)) ?? [], [verification])
+  const cidrOptions = useMemo(() => cidrSuggestions(terminalCidrs, trafficInterfaces, verification ? verificationCIDRs : liveInterfaces), [terminalCidrs, trafficInterfaces, liveInterfaces, verification, verificationCIDRs])
+  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null) }
   const setTrafficInterfaces = (values: string[]) => setDraft((current) => ({ ...current, trafficInterfaces: values.join('\n') }))
   const setTerminalCidrs = (values: string[]) => setDraft((current) => ({ ...current, terminalCidrs: values.join('\n') }))
   const toggleInterface = (name: string) => {
@@ -1186,27 +1305,48 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     setTerminalCidrs(Array.from(new Set(next)))
     setManualCIDR('')
   }
-  const request = async (path: string, method: string, body?: unknown) => {
-    setSaving(true); setMessage(null)
+	const testConnection = async () => {
+		setTesting(true); setMessage(null); setVerification(null)
+		try {
+			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password })
+			const result = await response.json() as VerificationResponse
+			setVerification(result)
+			setMessage(result.warnings?.length ? `连接成功，但有 ${result.warnings.length} 项可选能力不可用。` : `连接成功：${result.identity.routerName || result.identity.boardName} ${result.identity.version}`)
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : 'RouterOS 连接测试失败')
+		} finally { setTesting(false) }
+	}
+  const request = async (path: string, method: string, body?: unknown, completeOnboarding = false) => {
+	setSavingAction(completeOnboarding ? 'complete' : 'save'); setMessage(null)
     try {
+	  if (props.onboarding && !completeOnboarding) {
+		const response = await requestJSON(path, method, body)
+		const result = await response.json() as { id?: string }
+		await props.onSaved?.(result.id || draft.id)
+		setSavingAction(null)
+		return
+	  }
       setMessage('已保存，面板正在重启，请保持此页面打开...')
       await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
-    } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSaving(false) }
+    } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
   }
+	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs) }, completeOnboarding)
   return <div className="device-settings-workspace">
-    <div className="device-settings-list">
+	<div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
       {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
-    <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs) }) }}>
+    <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice(false) }}>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-      <label><span>协议</span><select value={draft.scheme} onChange={(event) => setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port }))}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
-      <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} /></label>
-      <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft((current) => ({ ...current, port: Number(event.target.value) }))} /></label>
-      <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} /></label>
-      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
-      <fieldset className="interface-picker wide">
+      <label><span>协议</span><select value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
+      <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
+      <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
+      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+      <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后才会提供接口和 CIDR 候选。</span></div>
+	  {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
+	  <fieldset className="interface-picker wide" hidden={verificationRequired} disabled={verificationRequired}>
         <legend>采集接口</legend>
         <div className="interface-picker-head"><span>{editingSelectedDevice ? '选择纳入这台设备流量采样的接口' : '切换到该设备后可显示实时接口候选；已保存接口仍可编辑'}</span><strong>{trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
         <div className="interface-options" role="group" aria-label="采集接口选项">
@@ -1221,7 +1361,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
           {!interfaceOptions.length ? <span className="settings-empty">暂无接口候选；可先保存连接并切换到该设备，或在下方手动保留配置</span> : null}
         </div>
       </fieldset>
-      <fieldset className="interface-picker wide">
+	  <fieldset className="interface-picker wide" hidden={verificationRequired} disabled={verificationRequired}>
         <legend>终端 CIDR</legend>
         <div className="interface-picker-head"><span>本地终端所在网段。候选来自 RouterOS 地址，仅供审核选择，不自动判定 LAN。</span><strong>{terminalCidrs.length} / {cidrOptions.length}</strong></div>
         <div className="interface-options cidr-options" role="group" aria-label="终端 CIDR 选项">
@@ -1236,11 +1376,11 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         </div>
         <div className="manual-cidr-row">
           <textarea rows={2} value={manualCIDR} onChange={(event) => setManualCIDR(event.target.value)} placeholder="手动添加，例如 10.0.0.0/24，每行一条" />
-          <button type="button" className="toolbar-button" onClick={addManualCIDRs} disabled={!manualCIDR.trim()}>添加</button>
+          <button type="button" className="toolbar-button" onClick={addManualCIDRs} disabled={verificationRequired || !manualCIDR.trim()}>添加</button>
         </div>
       </fieldset>
-      <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving}>{saving ? '保存中...' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
+	  <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
+      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0 || terminalCidrs.length === 0}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0 || terminalCidrs.length === 0} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
   </div>
@@ -1258,49 +1398,6 @@ function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsR
     )
   }
   return <div className="archived-devices"><strong>已归档设备</strong>{archived.map((device) => <div key={device.id}><span>{device.name}</span><button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button><button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button></div>)}</div>
-}
-
-function ConnectionSettingsForm(props: { settings: SettingsResponse | null; saving: boolean; message: string | null; onSave: (draft: ConnectionDraft) => Promise<void> }) {
-  const [draft, setDraft] = useState<ConnectionDraft>(() => connectionDraftFromSettings(props.settings))
-  const [passwordVisible, setPasswordVisible] = useState(false)
-  useEffect(() => setDraft(connectionDraftFromSettings(props.settings)), [props.settings])
-  const defaultPort = draft.scheme === 'https' ? 443 : 80
-  return <form className="settings-form connection-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
-    <label>
-      <span>协议</span>
-      <select value={draft.scheme} onChange={(event) => {
-        const scheme = event.target.value === 'https' ? 'https' : 'http'
-        setDraft((current) => ({ ...current, scheme, port: current.port === 80 || current.port === 443 ? (scheme === 'https' ? 443 : 80) : current.port }))
-      }}>
-        <option value="http">HTTP（默认 REST 端口 80）</option>
-        <option value="https">HTTPS（默认 REST 端口 443）</option>
-      </select>
-    </label>
-    <label>
-      <span>RouterOS IP / 主机名</span>
-      <input value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} placeholder="10.0.0.1" autoComplete="off" />
-    </label>
-    <label>
-      <span>REST API 端口</span>
-      <input type="number" min={1} max={65535} value={draft.port || defaultPort} onChange={(event) => setDraft((current) => ({ ...current, port: Number(event.target.value) }))} />
-    </label>
-    <label>
-      <span>RouterOS 用户名</span>
-      <input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} autoComplete="username" />
-    </label>
-    <div className="settings-field span-2">
-      <label htmlFor="routeros-password">RouterOS 密码</label>
-      <span className="password-input">
-        <input id="routeros-password" type={passwordVisible ? 'text' : 'password'} value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" />
-        <button type="button" title={passwordVisible ? '隐藏密码' : '显示密码'} aria-label={passwordVisible ? '隐藏 RouterOS 密码' : '显示 RouterOS 密码'} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button>
-      </span>
-    </div>
-    <div className="settings-actions wide">
-      <button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启连接'}</button>
-      <span className="settings-inline-note">当前面板使用 RouterOS REST：HTTP 默认 80，HTTPS 默认 443，不使用传统 API 8728/8729。</span>
-    </div>
-    {props.message ? <div className="settings-message wide">{props.message}</div> : null}
-  </form>
 }
 
 function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {
