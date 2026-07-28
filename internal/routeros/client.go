@@ -102,6 +102,31 @@ func (c *Client) IPv6Addresses(ctx context.Context) ([]IPv6Address, error) {
 	return payload, err
 }
 
+func (c *Client) InterfaceLists(ctx context.Context) ([]InterfaceList, error) {
+	var payload []InterfaceList
+	return payload, c.getJSON(ctx, "/rest/interface/list", &payload)
+}
+func (c *Client) InterfaceListMembers(ctx context.Context) ([]InterfaceListMember, error) {
+	var payload []InterfaceListMember
+	return payload, c.getJSON(ctx, "/rest/interface/list/member", &payload)
+}
+func (c *Client) DHCPServers(ctx context.Context) ([]DHCPServer, error) {
+	var payload []DHCPServer
+	return payload, c.getJSON(ctx, "/rest/ip/dhcp-server", &payload)
+}
+func (c *Client) DHCPClients(ctx context.Context) ([]DHCPClient, error) {
+	var payload []DHCPClient
+	return payload, c.getJSON(ctx, "/rest/ip/dhcp-client", &payload)
+}
+func (c *Client) IPv6NDs(ctx context.Context) ([]IPv6ND, error) {
+	var payload []IPv6ND
+	return payload, c.getJSON(ctx, "/rest/ipv6/nd", &payload)
+}
+func (c *Client) IPv6NDPrefixes(ctx context.Context) ([]IPv6NDPrefix, error) {
+	var payload []IPv6NDPrefix
+	return payload, c.getJSON(ctx, "/rest/ipv6/nd/prefix", &payload)
+}
+
 func (c *Client) DHCPLeases(ctx context.Context) ([]DHCPLease, error) {
 	var payload []DHCPLease
 	err := c.getJSON(ctx, "/rest/ip/dhcp-server/lease", &payload)

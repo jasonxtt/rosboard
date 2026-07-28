@@ -29,6 +29,7 @@ type Monitor struct {
 	mu              sync.RWMutex
 	snapshot        model.DashboardSnapshot
 	terminalDetails map[string]model.TerminalDetail
+	terminalScope   terminalScope
 	activityMu      sync.RWMutex
 	activeUntil     time.Time
 	realtimeWake    chan struct{}
@@ -310,7 +311,10 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 	previous := m.Snapshot()
 	trafficInterfaces := previous.Overview.TrafficInterfaces
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
-	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
+	m.mu.RLock()
+	scope := m.terminalScope
+	m.mu.RUnlock()
+	localCIDRs := scopeNetworks(scope)
 	terminals, details, err := m.buildTerminals(pollCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6, m.currentRouteMatcher())
 	if err != nil {
 		return err
@@ -363,6 +367,12 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	snapshot.Warnings = append([]string{}, snapshot.Warnings...)
 	snapshot.Overview.TrafficInterfaces = append([]string{}, snapshot.Overview.TrafficInterfaces...)
 	snapshot.Overview.ChartSamples = append([]model.RateSample{}, snapshot.Overview.ChartSamples...)
+	snapshot.TerminalScope.Interfaces = append([]model.TerminalScopeInterface(nil), snapshot.TerminalScope.Interfaces...)
+	for index := range snapshot.TerminalScope.Interfaces {
+		snapshot.TerminalScope.Interfaces[index].Reasons = append([]string(nil), snapshot.TerminalScope.Interfaces[index].Reasons...)
+	}
+	snapshot.TerminalScope.Prefixes = append([]model.TerminalScopePrefix(nil), snapshot.TerminalScope.Prefixes...)
+	snapshot.TerminalScope.Warnings = append([]string(nil), snapshot.TerminalScope.Warnings...)
 	if snapshot.TerminalScopeSummaries == nil {
 		snapshot.TerminalScopeSummaries = make(map[string]model.TerminalScopeSummary)
 	}
@@ -682,6 +692,30 @@ func (m *Monitor) refresh(ctx context.Context) error {
 			}
 		}
 	}
+	interfaceLists, listErr := m.client.InterfaceLists(pollCtx)
+	if listErr != nil {
+		addWarning("topology-interface-lists", "终端范围", "RouterOS 接口列表不可用，已使用其余拓扑证据。")
+	}
+	listMembers, memberErr := m.client.InterfaceListMembers(pollCtx)
+	if memberErr != nil {
+		addWarning("topology-interface-members", "终端范围", "RouterOS 接口列表成员不可用，已使用其余拓扑证据。")
+	}
+	dhcpServers, dhcpServerErr := m.client.DHCPServers(pollCtx)
+	if dhcpServerErr != nil {
+		addWarning("topology-dhcp-servers", "终端范围", "DHCP Server 拓扑数据不可用。")
+	}
+	dhcpClients, dhcpClientErr := m.client.DHCPClients(pollCtx)
+	if dhcpClientErr != nil {
+		addWarning("topology-dhcp-clients", "终端范围", "DHCP Client 拓扑数据不可用。")
+	}
+	nds, ndErr := m.client.IPv6NDs(pollCtx)
+	if ndErr != nil {
+		addWarning("topology-ipv6-nd", "终端范围", "IPv6 ND 拓扑数据不可用。")
+	}
+	ndPrefixes, ndPrefixErr := m.client.IPv6NDPrefixes(pollCtx)
+	if ndPrefixErr != nil {
+		addWarning("topology-ipv6-nd-prefix", "终端范围", "IPv6 ND 前缀拓扑数据不可用。")
+	}
 	routeLookup := newRouteMatcher(routingRules, routingRoutes)
 	m.routeMu.Lock()
 	m.routeLookup = routeLookup
@@ -710,7 +744,11 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
-	localCIDRs := deriveLocalCIDRs(m.cfg.RouterOS.TerminalCIDRs, trafficInterfaces, addresses, ipv6Addresses, ipv6Neighbors)
+	scope := deriveTerminalScope(m.cfg.RouterOS, interfaces, addresses, ipv6Addresses, interfaceLists, listMembers, dhcpServers, dhcpClients, nds, ndPrefixes, routingRoutes)
+	for _, warning := range scope.Warnings {
+		addWarning("terminal-scope-"+warning, "终端范围", warning)
+	}
+	localCIDRs := scopeNetworks(scope)
 	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
@@ -794,6 +832,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		Interfaces:             interfaceStatuses,
 		Terminals:              terminals,
 		TerminalScopeSummaries: terminalScopeSummaries(terminals, trafficInterfaces),
+		TerminalScope:          scope.projection(),
 		Capabilities:           buildCapabilities(strings.EqualFold(health.State, "enabled")),
 		Protocols:              protocols,
 		Policies:               policies,
@@ -808,6 +847,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	m.snapshot = snapshot
 	m.terminalDetails = details
+	m.terminalScope = scope
 	m.mu.Unlock()
 
 	return nil
@@ -1817,7 +1857,19 @@ func containsIP(networks []*net.IPNet, address string) bool {
 }
 
 func terminalDiscoveryInScope(networks []*net.IPNet, address string) bool {
-	return len(networks) == 0 || containsIP(networks, address)
+	return len(networks) > 0 && containsIP(networks, address)
+}
+
+func scopeNetworks(scope terminalScope) []*net.IPNet {
+	result := make([]*net.IPNet, 0, len(scope.Prefixes))
+	for _, prefix := range scope.Prefixes {
+		bits := 128
+		if prefix.Prefix.Addr().Is4() {
+			bits = 32
+		}
+		result = append(result, &net.IPNet{IP: net.IP(prefix.Prefix.Addr().AsSlice()), Mask: net.CIDRMask(prefix.Prefix.Bits(), bits)})
+	}
+	return result
 }
 
 func preferredName(values ...string) string {

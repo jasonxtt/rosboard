@@ -113,8 +113,10 @@ export type RouteStat = { id: string; kind: string; family: string; destination:
 export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
-  username: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]
+  username: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]; terminalScope: TerminalScopeConfig
 }
+export type TerminalScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[]; include_cidrs?: string[]; exclude_cidrs?: string[] }
+export type TerminalScope = { mode: string; legacy: boolean; interfaces: { name: string; role: 'lan' | 'wan' | 'unknown'; confidence: string; reasons: string[] }[]; prefixes: { cidr: string; family: 'ipv4' | 'ipv6'; interface: string; source: string; automatic: boolean }[]; warnings: string[]; overridesApplied: boolean }
 
 export type BootstrapResponse = {
   phase: 'needs_admin' | 'needs_login' | 'needs_routeros' | 'ready'
@@ -139,6 +141,7 @@ export type DashboardResponse = {
   interfaces: InterfaceStatus[]
   terminals: Terminal[]
   terminalScopeSummaries: Record<TerminalFamily, TerminalScopeSummary>
+  terminalScope: TerminalScope
   capabilities: CapabilityNote[]
   protocols: ProtocolStat[]
   policies: PolicyStat[]

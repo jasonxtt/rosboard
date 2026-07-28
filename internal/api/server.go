@@ -255,17 +255,18 @@ type settingsResponse struct {
 }
 
 type settingsDevice struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Enabled           bool     `json:"enabled"`
-	Archived          bool     `json:"archived"`
-	Scheme            string   `json:"scheme"`
-	Host              string   `json:"host"`
-	Port              int      `json:"port"`
-	Username          string   `json:"username"`
-	PasswordSet       bool     `json:"passwordSet"`
-	TrafficInterfaces []string `json:"trafficInterfaces"`
-	TerminalCIDRs     []string `json:"terminalCidrs"`
+	ID                string                     `json:"id"`
+	Name              string                     `json:"name"`
+	Enabled           bool                       `json:"enabled"`
+	Archived          bool                       `json:"archived"`
+	Scheme            string                     `json:"scheme"`
+	Host              string                     `json:"host"`
+	Port              int                        `json:"port"`
+	Username          string                     `json:"username"`
+	PasswordSet       bool                       `json:"passwordSet"`
+	TrafficInterfaces []string                   `json:"trafficInterfaces"`
+	TerminalCIDRs     []string                   `json:"terminalCidrs"`
+	TerminalScope     config.TerminalScopeConfig `json:"terminalScope"`
 }
 
 type settingsConnection struct {
@@ -318,7 +319,7 @@ func (s *Server) settingsResponse() settingsResponse {
 			ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived,
 			Scheme: deviceScheme, Host: deviceHost, Port: devicePort, Username: device.RouterOS.Username,
 			PasswordSet:       strings.TrimSpace(device.RouterOS.Password) != "",
-			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs),
+			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: device.RouterOS.TerminalScope,
 		})
 	}
 	return settingsResponse{
@@ -412,19 +413,20 @@ type collectionSettingsRequest struct {
 }
 
 type deviceSettingsRequest struct {
-	Name               string   `json:"name"`
-	Enabled            bool     `json:"enabled"`
-	Scheme             string   `json:"scheme"`
-	Host               string   `json:"host"`
-	Port               int      `json:"port"`
-	Username           string   `json:"username"`
-	Password           string   `json:"password"`
-	TrafficInterfaces  []string `json:"trafficInterfaces"`
-	TerminalCIDRs      []string `json:"terminalCidrs"`
-	VerificationToken  string   `json:"verificationToken"`
-	CompleteOnboarding bool     `json:"completeOnboarding"`
-	DeferRestart       bool     `json:"deferRestart"`
-	Confirmation       string   `json:"confirmation"`
+	Name               string                     `json:"name"`
+	Enabled            bool                       `json:"enabled"`
+	Scheme             string                     `json:"scheme"`
+	Host               string                     `json:"host"`
+	Port               int                        `json:"port"`
+	Username           string                     `json:"username"`
+	Password           string                     `json:"password"`
+	TrafficInterfaces  []string                   `json:"trafficInterfaces"`
+	TerminalCIDRs      []string                   `json:"terminalCidrs"`
+	TerminalScope      config.TerminalScopeConfig `json:"terminalScope"`
+	VerificationToken  string                     `json:"verificationToken"`
+	CompleteOnboarding bool                       `json:"completeOnboarding"`
+	DeferRestart       bool                       `json:"deferRestart"`
+	Confirmation       string                     `json:"confirmation"`
 }
 
 func (s *Server) shouldDeferDeviceRestart(ctx context.Context, payload deviceSettingsRequest) (bool, error) {

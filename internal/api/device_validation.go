@@ -46,6 +46,10 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	if err != nil {
 		return config.DeviceConfig{}, false, err
 	}
+	scope, err := canonicalTerminalScope(payload.TerminalScope)
+	if err != nil {
+		return config.DeviceConfig{}, false, err
+	}
 	if err := s.rejectDuplicateEndpoint(id, baseURL); err != nil {
 		return config.DeviceConfig{}, false, err
 	}
@@ -87,7 +91,7 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 		ID: id, Name: name, Enabled: payload.Enabled,
 		RouterOS: config.RouterOSConfig{
 			BaseURL: baseURL, Username: username, Password: password,
-			TrafficInterfaces: interfaces, TerminalCIDRs: cidrs,
+			TrafficInterfaces: interfaces, TerminalCIDRs: cidrs, TerminalScope: scope,
 		},
 	}
 	if existing != nil {
@@ -115,11 +119,49 @@ func canonicalCIDRs(values []string) ([]string, error) {
 		seen[canonical] = struct{}{}
 		result = append(result, canonical)
 	}
-	if len(result) == 0 {
-		return nil, errors.New("at least one local CIDR is required")
-	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func canonicalTerminalScope(scope config.TerminalScopeConfig) (config.TerminalScopeConfig, error) {
+	scope.Mode = strings.ToLower(strings.TrimSpace(scope.Mode))
+	if scope.Mode != "" && scope.Mode != "auto" {
+		return config.TerminalScopeConfig{}, errors.New("terminal scope mode must be auto")
+	}
+	scope.IncludeInterfaces = normalizedStrings(scope.IncludeInterfaces)
+	scope.ExcludeInterfaces = normalizedStrings(scope.ExcludeInterfaces)
+	for _, name := range scope.IncludeInterfaces {
+		for _, excluded := range scope.ExcludeInterfaces {
+			if strings.EqualFold(name, excluded) {
+				return config.TerminalScopeConfig{}, fmt.Errorf("interface %q is both included and excluded", name)
+			}
+		}
+	}
+	var err error
+	if scope.IncludeCIDRs, err = canonicalCIDRs(scope.IncludeCIDRs); err != nil {
+		return config.TerminalScopeConfig{}, err
+	}
+	if scope.ExcludeCIDRs, err = canonicalCIDRs(scope.ExcludeCIDRs); err != nil {
+		return config.TerminalScopeConfig{}, err
+	}
+	return scope, nil
+}
+
+func normalizedStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		key := strings.ToLower(value)
+		if value != "" {
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				result = append(result, value)
+			}
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (s *Server) rejectDuplicateEndpoint(id, baseURL string) error {

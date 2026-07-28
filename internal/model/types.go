@@ -251,12 +251,35 @@ type DashboardSnapshot struct {
 	Interfaces             []InterfaceStatus               `json:"interfaces"`
 	Terminals              []Terminal                      `json:"terminals"`
 	TerminalScopeSummaries map[string]TerminalScopeSummary `json:"terminalScopeSummaries"`
+	TerminalScope          TerminalScope                   `json:"terminalScope"`
 	Capabilities           []CapabilityNote                `json:"capabilities"`
 	Protocols              []ProtocolStat                  `json:"protocols"`
 	Policies               []PolicyStat                    `json:"policies"`
 	Routes                 []RouteStat                     `json:"routes"`
 	Alerts                 []AlertEvent                    `json:"alerts"`
 	Warnings               []string                        `json:"warnings"`
+}
+
+type TerminalScope struct {
+	Mode             string                   `json:"mode"`
+	Legacy           bool                     `json:"legacy"`
+	Interfaces       []TerminalScopeInterface `json:"interfaces"`
+	Prefixes         []TerminalScopePrefix    `json:"prefixes"`
+	Warnings         []string                 `json:"warnings"`
+	OverridesApplied bool                     `json:"overridesApplied"`
+}
+type TerminalScopeInterface struct {
+	Name       string   `json:"name"`
+	Role       string   `json:"role"`
+	Confidence string   `json:"confidence"`
+	Reasons    []string `json:"reasons"`
+}
+type TerminalScopePrefix struct {
+	CIDR      string `json:"cidr"`
+	Family    string `json:"family"`
+	Interface string `json:"interface"`
+	Source    string `json:"source"`
+	Automatic bool   `json:"automatic"`
 }
 
 type AlertEvent struct {

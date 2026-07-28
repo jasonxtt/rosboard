@@ -59,26 +59,77 @@ type MonitorTrafficEntry struct {
 }
 
 type IPAddress struct {
-	Address   string `json:"address"`
-	Interface string `json:"interface"`
-	Dynamic   string `json:"dynamic"`
-	Disabled  string `json:"disabled"`
-	Network   string `json:"network"`
+	ID              string `json:".id"`
+	Address         string `json:"address"`
+	Interface       string `json:"interface"`
+	ActualInterface string `json:"actual-interface"`
+	Dynamic         string `json:"dynamic"`
+	Disabled        string `json:"disabled"`
+	Invalid         string `json:"invalid"`
+	Network         string `json:"network"`
 }
 
 type IPv6Address struct {
-	Address   string `json:"address"`
-	Interface string `json:"interface"`
-	Dynamic   string `json:"dynamic"`
-	Disabled  string `json:"disabled"`
+	ID              string `json:".id"`
+	Address         string `json:"address"`
+	Interface       string `json:"interface"`
+	ActualInterface string `json:"actual-interface"`
+	Dynamic         string `json:"dynamic"`
+	Disabled        string `json:"disabled"`
+	Invalid         string `json:"invalid"`
+	Advertise       string `json:"advertise"`
 }
 
 type DHCPLease struct {
 	Address    string `json:"address"`
+	Server     string `json:"server"`
 	Comment    string `json:"comment"`
 	HostName   string `json:"host-name"`
 	MACAddress string `json:"mac-address"`
 	Status     string `json:"status"`
+}
+
+type InterfaceList struct {
+	ID      string `json:".id"`
+	Name    string `json:"name"`
+	Include string `json:"include"`
+	Exclude string `json:"exclude"`
+}
+type InterfaceListMember struct {
+	ID        string `json:".id"`
+	List      string `json:"list"`
+	Interface string `json:"interface"`
+	Disabled  string `json:"disabled"`
+	Dynamic   string `json:"dynamic"`
+}
+type DHCPServer struct {
+	ID        string `json:".id"`
+	Name      string `json:"name"`
+	Interface string `json:"interface"`
+	Disabled  string `json:"disabled"`
+	Invalid   string `json:"invalid"`
+}
+type DHCPClient struct {
+	ID        string `json:".id"`
+	Interface string `json:"interface"`
+	Disabled  string `json:"disabled"`
+	Status    string `json:"status"`
+}
+type IPv6ND struct {
+	ID        string `json:".id"`
+	Interface string `json:"interface"`
+	Disabled  string `json:"disabled"`
+	Invalid   string `json:"invalid"`
+}
+type IPv6NDPrefix struct {
+	ID         string `json:".id"`
+	Interface  string `json:"interface"`
+	Prefix     string `json:"prefix"`
+	Disabled   string `json:"disabled"`
+	Invalid    string `json:"invalid"`
+	OnLink     string `json:"on-link"`
+	Autonomous string `json:"autonomous"`
+	Dynamic    string `json:"dynamic"`
 }
 
 type ARPEntry struct {
