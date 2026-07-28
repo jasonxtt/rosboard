@@ -167,7 +167,10 @@ func (s *Store) initSchema() error {
 	if _, err := s.db.Exec(`ALTER TABLE load_samples ADD COLUMN connection_count INTEGER NOT NULL DEFAULT -1`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add load_samples.connection_count: %w", err)
 	}
-	return s.migrateDeviceScope()
+	if err := s.migrateDeviceScope(); err != nil {
+		return err
+	}
+	return s.initAuthSchema()
 }
 
 func (s *Store) migrateDeviceScope() error {
@@ -777,6 +780,30 @@ func (s *Store) PurgeDevice(ctx context.Context, deviceID string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit purge device: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ResetAll(ctx context.Context) error {
+	if !s.owner {
+		return errors.New("full reset requires the owner store")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin full reset: %w", err)
+	}
+	defer tx.Rollback()
+	for _, table := range []string{
+		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
+		"terminal_history", "load_samples", "protocol_samples", "terminals",
+		"auth_sessions", "admin_account", "app_state",
+	} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("reset %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit full reset: %w", err)
 	}
 	return nil
 }

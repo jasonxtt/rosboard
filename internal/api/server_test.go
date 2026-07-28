@@ -80,7 +80,6 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 			RouterOSHost        string   `json:"routerosHost"`
 			RouterOSPort        int      `json:"routerosPort"`
 			RouterOSUsername    string   `json:"routerosUsername"`
-			RouterOSPassword    string   `json:"routerosPassword"`
 			RouterOSPasswordSet bool     `json:"routerosPasswordSet"`
 		} `json:"connection"`
 		Collection struct {
@@ -101,9 +100,11 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		payload.Connection.RouterOSHost != "router.test" ||
 		payload.Connection.RouterOSPort != 80 ||
 		payload.Connection.RouterOSUsername != cfg.RouterOS.Username ||
-		payload.Connection.RouterOSPassword != cfg.RouterOS.Password ||
 		!payload.Connection.RouterOSPasswordSet {
 		t.Fatalf("unexpected connection settings: %+v", payload.Connection)
+	}
+	if strings.Contains(response.Body.String(), "super-secret") || strings.Contains(response.Body.String(), "routerosPassword\"") {
+		t.Fatalf("settings response exposed RouterOS password: %s", response.Body.String())
 	}
 	if len(payload.Connection.AllowedCIDRs) != 2 || payload.Connection.AllowedCIDRs[1] != "::1/128" {
 		t.Fatalf("unexpected cidrs: %+v", payload.Connection.AllowedCIDRs)
@@ -116,7 +117,7 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 	}
 }
 
-func TestConnectionSettingsPostSavesConfig(t *testing.T) {
+func TestConnectionSettingsPostRequiresVerifiedDeviceAPI(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path:                        path,
@@ -133,19 +134,11 @@ func TestConnectionSettingsPostSavesConfig(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/connection", strings.NewReader(`{"scheme":"https","host":"10.0.0.6","port":443,"username":"admin","password":"secret-key"}`))
 	request.RemoteAddr = "127.0.0.1:12345"
 	server.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusGone {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(payload)
-	if !strings.Contains(text, "base_url: https://10.0.0.6:443") ||
-		!strings.Contains(text, "username: admin") ||
-		!strings.Contains(text, "password: secret-key") {
-		t.Fatalf("saved config missing connection fields:\n%s", text)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("legacy endpoint unexpectedly saved config: %v", err)
 	}
 }
 
@@ -292,7 +285,7 @@ func TestDeviceLifecycleArchivesBeforePurging(t *testing.T) {
 	if err := storage.ForDevice("edge").UpsertTerminal(ctx, "mac:test", "AA:BB:CC:DD:EE:FF", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	server := NewServerWithManager(cfg, nil, storage, nil, nil)
+	server := NewServerWithAuth(cfg, nil, storage, nil, nil, nil)
 
 	archiveRecorder := httptest.NewRecorder()
 	archive := httptest.NewRequest(http.MethodDelete, "/api/devices/edge", nil)

@@ -2,7 +2,7 @@
 
 面向 RouterOS 的轻量级只读监控面板。rosboard 将系统资源、接口状态、IPv4/IPv6 终端、连接跟踪、策略计数器和路由状态集中到一个适合局域网部署的 Web 界面中。
 
-> 当前项目定位：单 RouterOS 设备、局域网部署、Linux 优先。rosboard 不会修改 RouterOS 配置；面板自身的连接与采集设置会写入本地 YAML 配置文件。
+> 当前项目定位：多 RouterOS 设备、局域网部署、Linux 优先。rosboard 不会修改 RouterOS 配置；面板自身的连接与采集设置会写入本地 YAML 配置文件。
 
 ## 主要功能
 
@@ -11,7 +11,8 @@
 - 统一终端视图：关联 DHCP、ARP、IPv6 Neighbor 与 Firewall Connection 数据
 - IPv4 / IPv6 分域查看：终端状态、连接、协议、流量与本地历史记录
 - 策略与路由：只读展示 Simple Queue、Queue Tree、Mangle、Routing Rule 和路由表状态
-- 面板设置：RouterOS 连接、采集周期、终端网段、界面偏好与脱敏配置导出
+- 首次初始化：先创建唯一管理员，再测试并添加零台或多台 RouterOS 设备
+- 面板设置：设备管理、采集周期、账号安全、界面偏好与脱敏配置导出
 - 本地持久化：使用 SQLite 保存采样数据、终端累计信息、名称和备注
 - 响应式界面：支持桌面和移动端浏览
 
@@ -54,24 +55,13 @@ Browser → rosboard HTTP/API → RouterOS REST API
    chmod 600 configs/config.local.yaml
    ```
 
-3. 编辑 `configs/config.local.yaml`，至少填写 RouterOS 地址、用户名、密码和需要统计流量的接口：
-
-   ```yaml
-   routeros:
-     base_url: "http://10.0.0.1"
-     username: "rosboard"
-     password: "replace-with-a-real-password"
-     traffic_interfaces:
-       - "pppoe-out1"
-   ```
-
-4. 启动后端：
+3. 按管理网段调整 `allowed_cidrs`，然后启动后端：
 
    ```bash
    go run ./cmd/rosboard -config ./configs/config.local.yaml
    ```
 
-5. 打开 `http://127.0.0.1:8080`。如需从局域网访问，请同时确认监听地址、防火墙和 `allowed_cidrs` 配置。
+4. 打开 `http://127.0.0.1:8080`，先创建管理员账号，再按引导测试并添加 RouterOS。RouterOS 步骤可以跳过，稍后从设备管理添加。
 
 ## 配置说明
 
@@ -91,15 +81,7 @@ Browser → rosboard HTTP/API → RouterOS REST API
 | `devices[].enabled` | 是否在后台持续采集该设备 |
 | `devices[].routeros.*` | 每台设备的 REST 地址、账号、密码、采集接口和终端网段 |
 
-旧版单个 `routeros` 配置仍可直接加载，并会自动映射为 `default` 设备；首次从面板保存后写为新的 `devices` 结构。
-
-RouterOS 连接参数也可通过环境变量覆盖：
-
-- `ROSBOARD_ROUTEROS_BASE_URL`
-- `ROSBOARD_ROUTEROS_USERNAME`
-- `ROSBOARD_ROUTEROS_PASSWORD`
-
-此外还支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR`。环境变量适合临时运行；长期部署建议使用权限为 `0600` 的配置文件。
+设备由面板在连接测试通过后写入配置文件；每台设备至少需要一个采集接口和一个 IPv4/IPv6 本地 CIDR。支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR` 环境变量覆盖。长期部署建议使用权限为 `0600` 的配置文件。
 
 ## 开发
 
@@ -183,14 +165,21 @@ web/                React + TypeScript 前端源码
 
 ## 安全说明
 
-- rosboard 当前没有独立的登录系统，设计目标是可信局域网，不应直接暴露到公网。
+- rosboard 使用单管理员账号和 7 天滚动会话；首次初始化页面受 `allowed_cidrs` 限制，仍不应直接暴露到公网。
 - `/api/*` 受 `allowed_cidrs` 限制；请按实际管理网段收紧默认配置，并配合主机防火墙或反向代理访问控制。
-- RouterOS 凭据保存在本地 YAML 中。请保持文件权限为 `0600`，使用专用的最小权限账号，并优先在可信网络中通过 HTTPS 连接 RouterOS。
+- RouterOS 凭据保存在原子写入的本地 YAML 中，不会返回浏览器。请保持文件权限为 `0600`，使用专用的最小权限账号，并优先在可信网络中通过 HTTPS 连接 RouterOS。
 - `configs/config.local.yaml`、`data/`、`web/node_modules/` 和本地 `rosboard` 二进制已加入 `.gitignore`。
+
+忘记管理员密码时，可在服务器终端交互式重置；该操作会撤销全部现有会话：
+
+```bash
+rosboard admin reset-password -config /opt/rosboard/config.yaml
+```
+
+维护设置中的“完全重新初始化”是独立的不可撤销操作：确认后会删除配置文件、管理员、全部会话、所有 RouterOS 设备及采集历史，并在服务重启后回到首次创建管理员页面。“重置界面偏好”只影响当前浏览器，两者不会互相替代。
 
 ## 当前限制
 
-- 仅支持单个 RouterOS 目标
 - 以 Linux 和 systemd 部署为主，暂未提供 Docker 镜像
 - RouterOS 硬件能力与版本差异可能导致部分健康、IPv6 或策略数据不可用
 - 项目尚未提供开源许可证；公开仓库仅用于当前阶段的代码归档与协作

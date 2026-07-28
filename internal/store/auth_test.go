@@ -1,0 +1,103 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+func TestPasswordUpdateRevokesAllSessionsAtomically(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := storage.CreateAdmin(ctx, "admin", "old-hash", now); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range [][]byte{{1}, {2}} {
+		if err := storage.CreateAuthSession(ctx, AuthSession{TokenHash: token, AdminID: 1, CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.UpdateAdminPassword(ctx, "new-hash", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range [][]byte{{1}, {2}} {
+		if _, err := storage.AuthSession(ctx, token); !errors.Is(err, ErrSessionNotFound) {
+			t.Fatalf("session %v survived: %v", token, err)
+		}
+	}
+	account, err := storage.Admin(ctx)
+	if err != nil || account.PasswordHash != "new-hash" {
+		t.Fatalf("password hash not updated: account=%#v err=%v", account, err)
+	}
+}
+
+func TestCredentialsUpdateChangesUsernameAndRevokesSessionsAtomically(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := storage.CreateAdmin(ctx, "admin", "old-hash", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.CreateAuthSession(ctx, AuthSession{TokenHash: []byte{1}, AdminID: 1, CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.UpdateAdminCredentials(ctx, "owner", "new-hash", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	account, err := storage.Admin(ctx)
+	if err != nil || account.Username != "owner" || account.PasswordHash != "new-hash" {
+		t.Fatalf("credentials not updated: account=%#v err=%v", account, err)
+	}
+	if _, err := storage.AuthSession(ctx, []byte{1}); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("session survived credentials update: %v", err)
+	}
+}
+
+func TestResetAllClearsAuthenticationStateAndMonitoringData(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := storage.CreateAdmin(ctx, "admin", "hash", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.CreateAuthSession(ctx, AuthSession{TokenHash: []byte{1}, AdminID: 1, CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SetOnboardingComplete(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.ExecContext(ctx, `INSERT INTO interface_samples (device_id, ts, interface_name, rx_bps, tx_bps) VALUES ('edge', 1, 'ether1', 1, 2)`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := storage.ResetAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.Admin(ctx); !errors.Is(err, ErrAdminNotFound) {
+		t.Fatalf("administrator survived reset: %v", err)
+	}
+	if _, err := storage.AuthSession(ctx, []byte{1}); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("session survived reset: %v", err)
+	}
+	if complete, err := storage.OnboardingComplete(ctx); err != nil || complete {
+		t.Fatalf("onboarding state survived reset: complete=%v err=%v", complete, err)
+	}
+	var samples int
+	if err := storage.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM interface_samples`).Scan(&samples); err != nil || samples != 0 {
+		t.Fatalf("monitoring data survived reset: count=%d err=%v", samples, err)
+	}
+}

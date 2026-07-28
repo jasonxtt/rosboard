@@ -179,6 +179,77 @@ const payload = JSON.stringify({
 <input type={passwordVisible ? 'text' : 'password'} value={password} />
 ```
 
+## Scenario: First-run onboarding and administrator forms
+
+### 1. Scope / Trigger
+
+- Trigger: changes to bootstrap routing, administrator setup/login/account forms, onboarding device editing, empty-device panels, or full-reset UI.
+
+### 2. Signatures
+
+- Root phase component mapping: `needs_admin -> AdminSetupPage`, `needs_login -> LoginPage`, `needs_routeros -> RouterOSSetupPage`, and `ready -> PanelApp`.
+- Shared device editor props include `onboarding`, `initialDeviceID`, `onSaved`, and `onRestartingAction`.
+- Onboarding device payloads use `completeOnboarding` and save-only `deferRestart`.
+- Administrator account update: `PUT /api/account { username, password, passwordConfirmation }`.
+
+### 3. Contracts
+
+- Render from `/api/bootstrap`; never infer setup completion from dashboard availability, browser storage, or RouterOS errors.
+- Administrator setup and account forms are single-column and bounded to `24rem` (`384px`). Username, password, confirmation, and submit controls are equal width.
+- The post-admin choice page is the only place that offers explicit RouterOS skip. The device editor does not repeat skip.
+- Before a successful connection test, hide collection interface/CIDR controls. Any connection-field change clears the verification result.
+- The onboarding editor keeps the device list and `+` entry visible. Save-only refreshes the list without waiting for restart, so another device can be added.
+- `保存设备` and `完成设置` are adjacent equal-size filled actions: blue save and semantic green completion. Completion may directly save a valid unsaved draft, shows `正在完成...`, restarts once, and reloads only after health/assets return.
+- On mobile, onboarding controls are at least 44px high and the document has no horizontal overflow.
+- Account security is one compact username/password/confirmation form. It does not request the old password; successful save returns to login. Logout is a separate session section.
+- Full reset uses a visually separate solid danger action and one native confirm; it does not require typed confirmation.
+
+### 4. Validation & Error Matrix
+
+- Bootstrap request failure -> keep an explicit startup error, not a guessed panel/setup page.
+- Password mismatch -> disable submission and preserve inputs.
+- Connection test failure -> retain connection inputs and keep collection controls unavailable.
+- Missing interface/CIDR -> disable both onboarding save and completion.
+- Save-only success -> show saved message, refresh settings/list, keep onboarding active, and do not show restart progress.
+- Completion request/restart failure -> show a recoverable inline error and keep the draft/setup phase.
+- API HTTP 401 -> dispatch authentication-required, clear sensitive in-memory state through bootstrap rerouting.
+
+### 5. Good/Base/Bad Cases
+
+- Good: verify a new device, select interface/CIDR, click `完成设置` without first saving, see completion progress, and land directly in the ready panel after restart.
+- Good: save device A, click `+`, save device B, then complete from B; both devices remain listed and configured.
+- Base: skip RouterOS and use the full empty-panel shell with device/account/maintenance settings available.
+- Bad: use one generic restart wrapper for onboarding save-only; it waits for a restart that must not occur.
+- Bad: hide the device list with a `createOnly` layout or route back to the initial choice after completion.
+- Bad: style completion as an unfilled toolbar button that is visually much smaller than save.
+
+### 6. Tests Required
+
+- Frontend: oxlint, TypeScript/Vite production build, and dependency audit.
+- Browser desktop: setup/account forms are 384px; onboarding save/completion actions are equal size with distinct blue/green backgrounds.
+- Browser 375px: action targets are 44px high, the device list and `+` are visible, and document overflow is false.
+- Browser runtime: no console warnings/errors; save-only shows no restart wait; completion reloads only after service recovery.
+- API regression: direct completion persists an unsaved device, sets phase ready, and schedules one restart.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+await onRestartingAction(() => saveDevice({ completeOnboarding: false }))
+```
+
+#### Correct
+
+```tsx
+if (completeOnboarding) {
+  await onRestartingAction(() => saveDevice({ completeOnboarding: true }))
+} else {
+  await saveDevice({ deferRestart: true })
+  await refreshDeviceList()
+}
+```
+
 ## Toolbar sizing
 
 Inputs and selects placed in `.data-toolbar` use a 34px control height. Search inputs should use a bounded width rather than `width: 100%` so they remain visually balanced with adjacent filters.

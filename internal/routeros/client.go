@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,16 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type HTTPError struct {
+	Path       string
+	StatusCode int
+	Status     string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("request %s: unexpected status %s", e.Path, e.Status)
+}
+
 func NewClient(baseURL, username, password string) *Client {
 	return &Client{
 		baseURL:  strings.TrimRight(baseURL, "/"),
@@ -24,6 +35,15 @@ func NewClient(baseURL, username, password string) *Client {
 		password: password,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return errors.New("too many redirects")
+				}
+				if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+					return errors.New("cross-host redirect denied")
+				}
+				return nil
+			},
 		},
 	}
 }
@@ -174,7 +194,7 @@ func (c *Client) do(req *http.Request, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("request %s: unexpected status %s", req.URL.Path, resp.Status)
+		return &HTTPError{Path: req.URL.Path, StatusCode: resp.StatusCode, Status: resp.Status}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode %s: %w", req.URL.Path, err)
