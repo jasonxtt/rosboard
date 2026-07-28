@@ -1359,3 +1359,36 @@ Refined terminal identity and IP layout, split raw source address and source por
 ### Next Steps
 
 - None - task complete
+
+
+## Session 42: 修复终端实时速率延迟
+
+**Date**: 2026-07-29
+**Task**: 修复终端实时速率延迟
+**Branch**: `main`
+
+### Summary
+
+拆分终端 conntrack 实时采集，修复终端页空地址数组白屏，并将默认终端发现采集间隔调整为 5 秒。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `241dd77` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

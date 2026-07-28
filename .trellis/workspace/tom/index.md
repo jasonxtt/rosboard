@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 41
-- **Last Active**: 2026-07-28
+- **Total Sessions**: 42
+- **Last Active**: 2026-07-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1361 | Active |
+| `journal-1.md` | ~1394 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 42 | 2026-07-29 | 修复终端实时速率延迟 | `241dd77` | `main` |
 | 41 | 2026-07-28 | Terminal list and connection detail refinement | `c77c864`, `b4c1d98` | `codex/terminal-connection-details` |
 | 40 | 2026-07-28 | Refine automatic scope settings layout | `ba90bfb` | `main` |
 | 39 | 2026-07-28 | Automatic ISP traffic scope | `8309a7f` | `main` |
