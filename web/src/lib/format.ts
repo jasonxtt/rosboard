@@ -89,11 +89,6 @@ export function terminalPrimaryAddress(terminal: Terminal, family: TerminalFamil
   return terminal.primaryIpv4 || terminal.primaryIpv6 || '-'
 }
 
-export function formatEndpoint(address: string, port: string) {
-  if (!port) return address
-  return address.includes(':') ? `[${address}]:${port}` : `${address}:${port}`
-}
-
 export function terminalMetrics(terminal: Terminal, family: TerminalFamily) {
   if (family === 'all' || !terminal.familyStats?.[family]) return terminal
   const stats = terminal.familyStats[family]

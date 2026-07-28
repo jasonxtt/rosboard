@@ -252,12 +252,29 @@ type DashboardSnapshot struct {
 	Terminals              []Terminal                      `json:"terminals"`
 	TerminalScopeSummaries map[string]TerminalScopeSummary `json:"terminalScopeSummaries"`
 	TerminalScope          TerminalScope                   `json:"terminalScope"`
+	TrafficScope           TrafficScope                    `json:"trafficScope"`
 	Capabilities           []CapabilityNote                `json:"capabilities"`
 	Protocols              []ProtocolStat                  `json:"protocols"`
 	Policies               []PolicyStat                    `json:"policies"`
 	Routes                 []RouteStat                     `json:"routes"`
 	Alerts                 []AlertEvent                    `json:"alerts"`
 	Warnings               []string                        `json:"warnings"`
+}
+
+type TrafficScope struct {
+	Mode             string                  `json:"mode"`
+	Legacy           bool                    `json:"legacy"`
+	Interfaces       []TrafficScopeInterface `json:"interfaces"`
+	Warnings         []string                `json:"warnings"`
+	OverridesApplied bool                    `json:"overridesApplied"`
+}
+type TrafficScopeInterface struct {
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Reasons   []string `json:"reasons"`
+	Automatic bool     `json:"automatic"`
+	Running   bool     `json:"running"`
+	Disabled  bool     `json:"disabled"`
 }
 
 type TerminalScope struct {

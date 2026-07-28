@@ -30,6 +30,7 @@ type Monitor struct {
 	snapshot        model.DashboardSnapshot
 	terminalDetails map[string]model.TerminalDetail
 	terminalScope   terminalScope
+	trafficScope    trafficScope
 	activityMu      sync.RWMutex
 	activeUntil     time.Time
 	realtimeWake    chan struct{}
@@ -189,15 +190,15 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	}
 
 	previous := m.Snapshot()
-	trafficInterfaces := append([]string(nil), m.cfg.RouterOS.TrafficInterfaces...)
-	if len(trafficInterfaces) == 0 {
-		trafficInterfaces = append(trafficInterfaces, previous.Overview.TrafficInterfaces...)
-	}
+	m.mu.RLock()
+	trafficInterfaces := m.trafficScope.selectedNames()
+	m.mu.RUnlock()
 	trafficRates := make(map[string]routeros.MonitorTrafficEntry, len(trafficInterfaces))
 	for _, name := range trafficInterfaces {
 		entry, err := m.client.MonitorTraffic(pollCtx, name)
 		if err != nil {
-			return fmt.Errorf("monitor realtime traffic for %s: %w", name, err)
+			m.logger.Printf("monitor realtime traffic for %s failed: %v", name, err)
+			continue
 		}
 		trafficRates[name] = entry
 		if err := m.store.SaveInterfaceSample(pollCtx, now, name, parseFloat(entry.RXBitsPerSecond), parseFloat(entry.TXBitsPerSecond)); err != nil {
@@ -308,8 +309,6 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 		return err
 	}
 
-	previous := m.Snapshot()
-	trafficInterfaces := previous.Overview.TrafficInterfaces
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
 	m.mu.RLock()
 	scope := m.terminalScope
@@ -326,11 +325,11 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 
 	m.mu.Lock()
 	m.snapshot.Terminals = terminals
-	m.snapshot.TerminalScopeSummaries = terminalScopeSummaries(terminals, trafficInterfaces)
+	m.snapshot.TerminalScopeSummaries = terminalScopeSummaries(terminals, scope)
 	m.snapshot.Protocols = protocols
-	m.snapshot.Overview.ConnectedDeviceCount = connectedLANDeviceCount(terminals, trafficInterfaces)
+	m.snapshot.Overview.ConnectedDeviceCount = connectedLANDeviceCount(terminals, scope)
 	m.snapshot.Overview.ConnectionCount = len(connectionsV4) + len(connectionsV6)
-	m.snapshot.Overview.TerminalStateCounts = terminalStateCounts(terminals, trafficInterfaces)
+	m.snapshot.Overview.TerminalStateCounts = terminalStateCounts(terminals, scope)
 	m.snapshot.Overview.ConnectionProtocolCounts = connectionProtocolCounts(connectionsV4, connectionsV6)
 	m.terminalDetails = details
 	m.mu.Unlock()
@@ -373,6 +372,26 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	}
 	snapshot.TerminalScope.Prefixes = append([]model.TerminalScopePrefix(nil), snapshot.TerminalScope.Prefixes...)
 	snapshot.TerminalScope.Warnings = append([]string(nil), snapshot.TerminalScope.Warnings...)
+	snapshot.TrafficScope.Interfaces = append([]model.TrafficScopeInterface(nil), snapshot.TrafficScope.Interfaces...)
+	for index := range snapshot.TrafficScope.Interfaces {
+		snapshot.TrafficScope.Interfaces[index].Reasons = append([]string(nil), snapshot.TrafficScope.Interfaces[index].Reasons...)
+	}
+	snapshot.TrafficScope.Warnings = append([]string(nil), snapshot.TrafficScope.Warnings...)
+	if snapshot.TerminalScope.Interfaces == nil {
+		snapshot.TerminalScope.Interfaces = []model.TerminalScopeInterface{}
+	}
+	if snapshot.TerminalScope.Prefixes == nil {
+		snapshot.TerminalScope.Prefixes = []model.TerminalScopePrefix{}
+	}
+	if snapshot.TerminalScope.Warnings == nil {
+		snapshot.TerminalScope.Warnings = []string{}
+	}
+	if snapshot.TrafficScope.Interfaces == nil {
+		snapshot.TrafficScope.Interfaces = []model.TrafficScopeInterface{}
+	}
+	if snapshot.TrafficScope.Warnings == nil {
+		snapshot.TrafficScope.Warnings = []string{}
+	}
 	if snapshot.TerminalScopeSummaries == nil {
 		snapshot.TerminalScopeSummaries = make(map[string]model.TerminalScopeSummary)
 	}
@@ -521,10 +540,9 @@ func downsampleLoadSamples(samples []model.LoadSample, bucket time.Duration) []m
 }
 
 func (m *Monitor) TrafficHistory(ctx context.Context, since time.Time, bucket time.Duration) ([]model.RateSample, error) {
-	interfaces := append([]string(nil), m.cfg.RouterOS.TrafficInterfaces...)
-	if len(interfaces) == 0 {
-		interfaces = append(interfaces, m.Snapshot().Overview.TrafficInterfaces...)
-	}
+	m.mu.RLock()
+	interfaces := m.trafficScope.selectedNames()
+	m.mu.RUnlock()
 	samples, err := m.store.LoadInterfaceSamples(ctx, interfaces, since)
 	if err != nil {
 		return nil, err
@@ -716,12 +734,15 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if ndPrefixErr != nil {
 		addWarning("topology-ipv6-nd-prefix", "终端范围", "IPv6 ND 前缀拓扑数据不可用。")
 	}
+	pppoeClients, pppoeErr := m.client.PPPoEClients(pollCtx)
+	if pppoeErr != nil {
+		addWarning("topology-pppoe-clients", "流量采集", "PPPoE Client 拓扑数据不可用，已使用接口类型降级识别。")
+	}
 	routeLookup := newRouteMatcher(routingRules, routingRoutes)
 	m.routeMu.Lock()
 	m.routeLookup = routeLookup
 	m.routeMu.Unlock()
 
-	trafficInterfaces := selectTrafficInterfaces(m.cfg.RouterOS.TrafficInterfaces, interfaces)
 	monitorInterfaces := selectMonitorableInterfaces(interfaces)
 	trafficRates := make(map[string]routeros.MonitorTrafficEntry, len(monitorInterfaces))
 	for _, name := range monitorInterfaces {
@@ -744,11 +765,16 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
-	scope := deriveTerminalScope(m.cfg.RouterOS, interfaces, addresses, ipv6Addresses, interfaceLists, listMembers, dhcpServers, dhcpClients, nds, ndPrefixes, routingRoutes)
-	for _, warning := range scope.Warnings {
+	terminalScope := deriveTerminalScope(m.cfg.RouterOS, interfaces, addresses, ipv6Addresses, interfaceLists, listMembers, dhcpServers, dhcpClients, nds, ndPrefixes, routingRoutes)
+	for _, warning := range terminalScope.Warnings {
 		addWarning("terminal-scope-"+warning, "终端范围", warning)
 	}
-	localCIDRs := scopeNetworks(scope)
+	trafficScope := deriveTrafficScope(m.cfg.RouterOS, terminalScope, interfaces, pppoeClients, dhcpClients, interfaceLists, listMembers, routingRoutes)
+	for _, warning := range trafficScope.Warnings {
+		addWarning("traffic-scope-"+warning, "流量采集", warning)
+	}
+	trafficInterfaces := trafficScope.selectedNames()
+	localCIDRs := scopeNetworks(terminalScope)
 	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
@@ -776,9 +802,9 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	storagePercent := memoryUsedPercent(parseInt(resource.TotalHDD), parseInt(resource.FreeHDD))
 	uploadBps := totalSelectedTXBps(trafficRates, trafficInterfaces)
 	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
-	connectedDevices := connectedLANDeviceCount(terminals, trafficInterfaces)
+	connectedDevices := connectedLANDeviceCount(terminals, terminalScope)
 	connectionCount := len(connectionsV4) + len(connectionsV6)
-	terminalStates := terminalStateCounts(terminals, trafficInterfaces)
+	terminalStates := terminalStateCounts(terminals, terminalScope)
 	connectionProtocols := connectionProtocolCounts(connectionsV4, connectionsV6)
 	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, ConnectionCount: connectionCount, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
 		return err
@@ -831,8 +857,9 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		},
 		Interfaces:             interfaceStatuses,
 		Terminals:              terminals,
-		TerminalScopeSummaries: terminalScopeSummaries(terminals, trafficInterfaces),
-		TerminalScope:          scope.projection(),
+		TerminalScopeSummaries: terminalScopeSummaries(terminals, terminalScope),
+		TerminalScope:          terminalScope.projection(),
+		TrafficScope:           trafficScope.projection(),
 		Capabilities:           buildCapabilities(strings.EqualFold(health.State, "enabled")),
 		Protocols:              protocols,
 		Policies:               policies,
@@ -847,7 +874,8 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	m.snapshot = snapshot
 	m.terminalDetails = details
-	m.terminalScope = scope
+	m.terminalScope = terminalScope
+	m.trafficScope = trafficScope
 	m.mu.Unlock()
 
 	return nil
@@ -1146,6 +1174,24 @@ func (m *Monitor) buildTerminals(
 
 	applyConnections := func(family string, connections []routeros.FirewallConnection) error {
 		for _, connection := range connections {
+			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
+			row := model.TerminalConnection{
+				Key:                firewallConnectionKey(family, connection),
+				Family:             family,
+				Application:        application,
+				Protocol:           strings.ToLower(connection.Protocol),
+				Line:               "未知",
+				SourceAddress:      connection.SrcAddress,
+				SourcePort:         connection.SrcPort,
+				DestinationAddress: connection.DstAddress,
+				DestinationPort:    connection.DstPort,
+				Status:             connectionStatus(connection.SeenReply, connection.Assured),
+				SeenReply:          parseBool(connection.SeenReply),
+				Assured:            parseBool(connection.Assured),
+				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
+				RoutingMark:        connection.RoutingMark,
+				Estimated:          true,
+			}
 			view, ok := orientConnection(family, connection, localCIDRs, routerAddresses)
 			if !ok {
 				continue
@@ -1172,40 +1218,23 @@ func (m *Monitor) buildTerminals(
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
-			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
 			destinationAddress := remoteAddress(connection, view.LocalAddress)
 			attribution := routeLookup.match(family, view.LocalAddress, destinationAddress, builder.PrimaryInterface, connection.RoutingMark)
-			connectionMap[builder.ID] = append(connectionMap[builder.ID], model.TerminalConnection{
-				Key:                view.ConnectionKey,
-				Family:             family,
-				Application:        application,
-				Protocol:           strings.ToLower(connection.Protocol),
-				Line:               "未知",
-				SourceAddress:      view.LocalAddress,
-				SourcePort:         localPort(connection, view.LocalAddress),
-				DestinationAddress: destinationAddress,
-				DestinationPort:    remotePort(connection, view.LocalAddress),
-				UploadBytes:        view.CurrentUploadBytes,
-				DownloadBytes:      view.CurrentDownloadBytes,
-				UploadBps:          view.UploadBps,
-				DownloadBps:        view.DownloadBps,
-				Status:             connectionStatus(connection.SeenReply, connection.Assured),
-				SeenReply:          parseBool(connection.SeenReply),
-				Assured:            parseBool(connection.Assured),
-				PublicAddress:      view.PublicAddress,
-				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
-				RoutingMark:        connection.RoutingMark,
-				RouteTable:         attribution.Table,
-				MatchedRule:        attribution.Rule,
-				MatchedRuleID:      attribution.RuleID,
-				RouteDestination:   attribution.Destination,
-				RouteID:            attribution.RouteID,
-				RouteIDs:           attribution.RouteIDs,
-				RouteGateways:      attribution.Gateways,
-				RouteMatchBasis:    attribution.Basis,
-				RouteAttribution:   attribution.State,
-				Estimated:          true,
-			})
+			row.UploadBytes = view.CurrentUploadBytes
+			row.DownloadBytes = view.CurrentDownloadBytes
+			row.UploadBps = view.UploadBps
+			row.DownloadBps = view.DownloadBps
+			row.PublicAddress = view.PublicAddress
+			row.RouteTable = attribution.Table
+			row.MatchedRule = attribution.Rule
+			row.MatchedRuleID = attribution.RuleID
+			row.RouteDestination = attribution.Destination
+			row.RouteID = attribution.RouteID
+			row.RouteIDs = attribution.RouteIDs
+			row.RouteGateways = attribution.Gateways
+			row.RouteMatchBasis = attribution.Basis
+			row.RouteAttribution = attribution.State
+			connectionMap[builder.ID] = append(connectionMap[builder.ID], row)
 
 			if flowMap[builder.ID] == nil {
 				flowMap[builder.ID] = map[string]*model.TerminalFlowCategory{}
@@ -1441,19 +1470,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 	srcLocal := containsIP(localCIDRs, connection.SrcAddress)
 	replySrcLocal := containsIP(localCIDRs, connection.ReplySrcAddress)
 
-	key := fmt.Sprintf(
-		"%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		family,
-		connection.Protocol,
-		connection.SrcAddress,
-		connection.SrcPort,
-		connection.DstAddress,
-		connection.DstPort,
-		connection.ReplySrcAddress,
-		connection.ReplySrcPort,
-		connection.ReplyDstAddress,
-		connection.ReplyDstPort,
-	)
+	key := firewallConnectionKey(family, connection)
 
 	switch {
 	case srcRouter || srcLocal:
@@ -1481,6 +1498,25 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 	default:
 		return connectionView{}, false
 	}
+}
+
+func firewallConnectionKey(family string, connection routeros.FirewallConnection) string {
+	if id := strings.TrimSpace(connection.ID); id != "" {
+		return family + "|" + id
+	}
+	return fmt.Sprintf(
+		"%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
+		family,
+		connection.Protocol,
+		connection.SrcAddress,
+		connection.SrcPort,
+		connection.DstAddress,
+		connection.DstPort,
+		connection.ReplySrcAddress,
+		connection.ReplySrcPort,
+		connection.ReplyDstAddress,
+		connection.ReplyDstPort,
+	)
 }
 
 func buildInterfaces(
@@ -1581,29 +1617,6 @@ func buildCapabilities(healthEnabled bool) []model.CapabilityNote {
 	}
 }
 
-func selectTrafficInterfaces(configured []string, interfaces []routeros.Interface) []string {
-	if len(configured) > 0 {
-		return configured
-	}
-
-	for _, iface := range interfaces {
-		if iface.Type == "pppoe-out" && parseBool(iface.Running) {
-			return []string{iface.Name}
-		}
-	}
-	for _, iface := range interfaces {
-		if strings.EqualFold(iface.Name, "wan") && parseBool(iface.Running) {
-			return []string{iface.Name}
-		}
-	}
-	for _, iface := range interfaces {
-		if iface.Type != "loopback" && parseBool(iface.Running) {
-			return []string{iface.Name}
-		}
-	}
-	return nil
-}
-
 func selectMonitorableInterfaces(interfaces []routeros.Interface) []string {
 	result := make([]string, 0, len(interfaces))
 	for _, iface := range interfaces {
@@ -1624,47 +1637,6 @@ func interfaceAddresses(addresses []routeros.IPAddress, interfaceName string) []
 	}
 	sort.Strings(result)
 	return result
-}
-
-func deriveLocalCIDRs(configured []string, trafficInterfaces []string, addresses []routeros.IPAddress, ipv6Addresses []routeros.IPv6Address, neighbors []routeros.IPv6Neighbor) []*net.IPNet {
-	if len(configured) > 0 {
-		return parseCIDRs(configured)
-	}
-
-	trafficSet := map[string]struct{}{}
-	for _, name := range trafficInterfaces {
-		trafficSet[name] = struct{}{}
-	}
-
-	cidrs := make([]string, 0)
-	for _, address := range addresses {
-		if parseBool(address.Dynamic) {
-			continue
-		}
-		if _, exists := trafficSet[address.Interface]; exists {
-			continue
-		}
-		if strings.Contains(strings.ToLower(address.Interface), "wan") {
-			continue
-		}
-		cidrs = append(cidrs, address.Address)
-	}
-	for _, address := range ipv6Addresses {
-		if parseBool(address.Disabled) || excludedTerminalInterface(address.Interface, trafficSet) {
-			continue
-		}
-		cidrs = append(cidrs, address.Address)
-	}
-	for _, neighbor := range neighbors {
-		address := strings.TrimSpace(neighbor.Address)
-		if address == "" || excludedTerminalInterface(neighbor.Interface, trafficSet) {
-			continue
-		}
-		if ip := net.ParseIP(address); ip != nil && ip.To4() == nil {
-			cidrs = append(cidrs, address+"/128")
-		}
-	}
-	return parseCIDRs(cidrs)
 }
 
 func deriveRouterAddresses(addresses []routeros.IPAddress, ipv6Addresses []routeros.IPv6Address) map[string]routerAssignedAddress {
@@ -1722,24 +1694,10 @@ func preferredRouterAddress(addresses map[string]routerAssignedAddress, family s
 	return candidates[0]
 }
 
-func excludedTerminalInterface(name string, trafficSet map[string]struct{}) bool {
-	name = strings.TrimSpace(name)
-	if _, exists := trafficSet[name]; exists {
-		return true
-	}
-	lower := strings.ToLower(name)
-	return name == "" || lower == "lo" || strings.Contains(lower, "loopback") || strings.Contains(lower, "wan")
-}
-
-func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []string) int {
-	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
-	for _, name := range trafficInterfaces {
-		trafficSet[strings.TrimSpace(name)] = struct{}{}
-	}
-
+func connectedLANDeviceCount(terminals []model.Terminal, scope terminalScope) int {
 	count := 0
 	for _, terminal := range terminals {
-		if !connectedLANTerminal(terminal, trafficSet) {
+		if !connectedLANTerminal(terminal, scope) {
 			continue
 		}
 		count++
@@ -1747,23 +1705,29 @@ func connectedLANDeviceCount(terminals []model.Terminal, trafficInterfaces []str
 	return count
 }
 
-func connectedLANTerminal(terminal model.Terminal, trafficSet map[string]struct{}) bool {
-	return terminal.State == "online" && scopedLANTerminal(terminal, trafficSet)
+func connectedLANTerminal(terminal model.Terminal, scope terminalScope) bool {
+	return terminal.State == "online" && scopedLANTerminal(terminal, scope)
 }
 
-func scopedLANTerminal(terminal model.Terminal, trafficSet map[string]struct{}) bool {
-	return terminal.ID != routerTerminalID && (terminal.PrimaryInterface == "" || !excludedTerminalInterface(terminal.PrimaryInterface, trafficSet))
-}
-
-func terminalStateCounts(terminals []model.Terminal, trafficInterfaces []string) model.TerminalStateCounts {
-	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
-	for _, name := range trafficInterfaces {
-		trafficSet[strings.TrimSpace(name)] = struct{}{}
+func scopedLANTerminal(terminal model.Terminal, scope terminalScope) bool {
+	if terminal.ID == routerTerminalID {
+		return false
 	}
+	name := strings.TrimSpace(terminal.PrimaryInterface)
+	if name == "" {
+		return true
+	}
+	if strings.EqualFold(name, "lo") || strings.Contains(strings.ToLower(name), "loopback") {
+		return false
+	}
+	evidence, known := scope.Interfaces[name]
+	return !known || evidence.Role == InterfaceRoleLAN
+}
 
+func terminalStateCounts(terminals []model.Terminal, scope terminalScope) model.TerminalStateCounts {
 	counts := model.TerminalStateCounts{}
 	for _, terminal := range terminals {
-		if !scopedLANTerminal(terminal, trafficSet) {
+		if !scopedLANTerminal(terminal, scope) {
 			continue
 		}
 		switch terminal.State {
@@ -1795,16 +1759,12 @@ func connectionProtocolCounts(groups ...[]routeros.FirewallConnection) model.Con
 	return counts
 }
 
-func terminalScopeSummaries(terminals []model.Terminal, trafficInterfaces []string) map[string]model.TerminalScopeSummary {
-	trafficSet := make(map[string]struct{}, len(trafficInterfaces))
-	for _, name := range trafficInterfaces {
-		trafficSet[strings.TrimSpace(name)] = struct{}{}
-	}
+func terminalScopeSummaries(terminals []model.Terminal, scope terminalScope) map[string]model.TerminalScopeSummary {
 	summaries := map[string]model.TerminalScopeSummary{
 		"all": {}, "ipv4": {}, "ipv6": {},
 	}
 	for _, terminal := range terminals {
-		if !connectedLANTerminal(terminal, trafficSet) {
+		if !connectedLANTerminal(terminal, scope) {
 			continue
 		}
 		all := summaries["all"]
@@ -2056,25 +2016,11 @@ func classifyApplication(protocol string, ports ...string) string {
 	}
 }
 
-func localPort(connection routeros.FirewallConnection, localAddress string) string {
-	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
-		return connection.SrcPort
-	}
-	return connection.ReplySrcPort
-}
-
 func remoteAddress(connection routeros.FirewallConnection, localAddress string) string {
 	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
 		return connection.DstAddress
 	}
 	return connection.ReplyDstAddress
-}
-
-func remotePort(connection routeros.FirewallConnection, localAddress string) string {
-	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
-		return connection.DstPort
-	}
-	return connection.ReplyDstPort
 }
 
 func connectionStatus(seenReply, assured string) string {

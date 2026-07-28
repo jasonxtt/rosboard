@@ -2,3 +2,8 @@ rosboard
 data/
 web/node_modules/
 configs/config.local.yaml
+
+# Local AI coding tool integrations
+.agents/
+.codex/
+.opencode/

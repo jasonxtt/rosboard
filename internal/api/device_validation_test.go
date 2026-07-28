@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -51,6 +52,30 @@ func TestDeviceCreateRequiresMatchingVerificationAndCanonicalizesCIDRs(t *testin
 	}
 	if got := saved.Devices[0].RouterOS.TerminalCIDRs; len(got) != 1 || got[0] != "10.0.0.0/24" {
 		t.Fatalf("CIDRs were not canonicalized: %v", got)
+	}
+}
+
+func TestDeviceCreateRejectsUnavailableTrafficScopeInclude(t *testing.T) {
+	router := newDeviceTestRouter(t)
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	baseURL, err := normalizedRouterOSURL(scheme, host, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	server := NewServer(config.Config{Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48}, nil, nil)
+	token, _, err := server.tickets.issue(connectionFingerprint(baseURL, "admin", "secret"), []routeros.VerificationInterface{{Name: "ether1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"secret","trafficScope":{"mode":"auto","include_interfaces":["pppoe-不存在"]},"terminalCidrs":["10.0.0.0/24"],"verificationToken":"` + token + `"}`
+	response := serveJSON(server, http.MethodPost, "/api/devices", body)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `traffic scope include interface \"pppoe-不存在\" is unavailable`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("unavailable include saved config: %v", err)
 	}
 }
 
@@ -191,6 +216,43 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	}
 }
 
+func TestDeviceEditRejectsUnavailableTrafficScopeInclude(t *testing.T) {
+	router := newDeviceTestRouter(t)
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	baseURL, _ := normalizedRouterOSURL(scheme, host, port)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret", TrafficScope: config.TrafficScopeConfig{Mode: "auto"}}}},
+	}
+	server := NewServer(cfg, nil, nil)
+	body := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"","trafficScope":{"mode":"auto","include_interfaces":["pppoe-不存在"]},"terminalCidrs":["10.0.0.0/24"]}`
+	response := serveJSON(server, http.MethodPut, "/api/devices/edge", body)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `traffic scope include interface \"pppoe-不存在\" is unavailable`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceConnectionTestRejectsUnavailableTrafficScopeInclude(t *testing.T) {
+	router := newDeviceVerificationRouter(t)
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	server := NewServer(config.Config{}, nil, nil)
+	body := `{"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"secret","trafficScope":{"mode":"auto","include_interfaces":["pppoe-不存在"]}}`
+	response := serveJSON(server, http.MethodPost, "/api/devices/test-connection", body)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `traffic scope include interface \"pppoe-不存在\" is unavailable`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestTrafficScopeIncludeExcludeConflictIsRejected(t *testing.T) {
+	_, err := canonicalTrafficScope(config.TrafficScopeConfig{Mode: "auto", IncludeInterfaces: []string{" ether1 "}, ExcludeInterfaces: []string{"ETHER1"}})
+	if err == nil || !strings.Contains(err.Error(), `interface "ether1" is both included and excluded`) {
+		t.Fatalf("expected include/exclude conflict, got %v", err)
+	}
+}
+
 func newDeviceTestRouter(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -202,6 +264,23 @@ func newDeviceTestRouter(t *testing.T) *httptest.Server {
 			_, _ = writer.Write([]byte(`[{"name":"ether1","rx-bits-per-second":"1","tx-bits-per-second":"2"}]`))
 		default:
 			http.NotFound(writer, request)
+		}
+	}))
+}
+
+func newDeviceVerificationRouter(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/system/resource":
+			_, _ = writer.Write([]byte(`{"board-name":"CCR","version":"7.20","platform":"MikroTik"}`))
+		case "/rest/interface":
+			_, _ = writer.Write([]byte(`[{"name":"ether1","type":"ether","running":"true"}]`))
+		case "/rest/ip/address", "/rest/ipv6/address", "/rest/ip/dhcp-server/lease", "/rest/ip/arp", "/rest/ip/firewall/connection":
+			_, _ = writer.Write([]byte(`[]`))
+		default:
+			http.Error(writer, "optional unavailable", http.StatusForbidden)
 		}
 	}))
 }

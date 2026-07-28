@@ -265,6 +265,7 @@ type settingsDevice struct {
 	Username          string                     `json:"username"`
 	PasswordSet       bool                       `json:"passwordSet"`
 	TrafficInterfaces []string                   `json:"trafficInterfaces"`
+	TrafficScope      config.TrafficScopeConfig  `json:"trafficScope"`
 	TerminalCIDRs     []string                   `json:"terminalCidrs"`
 	TerminalScope     config.TerminalScopeConfig `json:"terminalScope"`
 }
@@ -319,7 +320,7 @@ func (s *Server) settingsResponse() settingsResponse {
 			ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived,
 			Scheme: deviceScheme, Host: deviceHost, Port: devicePort, Username: device.RouterOS.Username,
 			PasswordSet:       strings.TrimSpace(device.RouterOS.Password) != "",
-			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: device.RouterOS.TerminalScope,
+			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TrafficScope: cloneTrafficScope(device.RouterOS.TrafficScope), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: cloneTerminalScope(device.RouterOS.TerminalScope),
 		})
 	}
 	return settingsResponse{
@@ -421,6 +422,7 @@ type deviceSettingsRequest struct {
 	Username           string                     `json:"username"`
 	Password           string                     `json:"password"`
 	TrafficInterfaces  []string                   `json:"trafficInterfaces"`
+	TrafficScope       config.TrafficScopeConfig  `json:"trafficScope"`
 	TerminalCIDRs      []string                   `json:"terminalCidrs"`
 	TerminalScope      config.TerminalScopeConfig `json:"terminalScope"`
 	VerificationToken  string                     `json:"verificationToken"`
@@ -759,11 +761,15 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	next := s.cfg
 	next.AllowedCIDRs = cloneStrings(s.cfg.AllowedCIDRs)
 	next.RouterOS.TrafficInterfaces = cloneStrings(s.cfg.RouterOS.TrafficInterfaces)
+	next.RouterOS.TrafficScope = cloneTrafficScope(s.cfg.RouterOS.TrafficScope)
 	next.RouterOS.TerminalCIDRs = cloneStrings(s.cfg.RouterOS.TerminalCIDRs)
+	next.RouterOS.TerminalScope = cloneTerminalScope(s.cfg.RouterOS.TerminalScope)
 	next.Devices = append([]config.DeviceConfig(nil), s.cfg.Devices...)
 	for index := range next.Devices {
 		next.Devices[index].RouterOS.TrafficInterfaces = cloneStrings(s.cfg.Devices[index].RouterOS.TrafficInterfaces)
+		next.Devices[index].RouterOS.TrafficScope = cloneTrafficScope(s.cfg.Devices[index].RouterOS.TrafficScope)
 		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)
+		next.Devices[index].RouterOS.TerminalScope = cloneTerminalScope(s.cfg.Devices[index].RouterOS.TerminalScope)
 	}
 	update(&next)
 	if err := config.Save(next.Path, next); err != nil {
@@ -878,6 +884,20 @@ func defaultRouterOSRESTPort(scheme string) int {
 		return 443
 	}
 	return 80
+}
+
+func cloneTrafficScope(scope config.TrafficScopeConfig) config.TrafficScopeConfig {
+	scope.IncludeInterfaces = cloneStrings(scope.IncludeInterfaces)
+	scope.ExcludeInterfaces = cloneStrings(scope.ExcludeInterfaces)
+	return scope
+}
+
+func cloneTerminalScope(scope config.TerminalScopeConfig) config.TerminalScopeConfig {
+	scope.IncludeInterfaces = cloneStrings(scope.IncludeInterfaces)
+	scope.ExcludeInterfaces = cloneStrings(scope.ExcludeInterfaces)
+	scope.IncludeCIDRs = cloneStrings(scope.IncludeCIDRs)
+	scope.ExcludeCIDRs = cloneStrings(scope.ExcludeCIDRs)
+	return scope
 }
 
 func cloneStrings(values []string) []string {
