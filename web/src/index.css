@@ -351,7 +351,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .link-button:focus-visible { outline: 2px solid rgba(37, 99, 235, .6); outline-offset: 2px; border-radius: 2px; }
 .terminal-link, .address-stack { display: grid; gap: 3px; }
 .terminal-link { text-align: left; }
-.terminal-name-link { max-width: 180px; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .action-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .detail-page { display: grid; gap: 8px; }
@@ -760,7 +759,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .terminal-toolbar .terminal-refresh-button { grid-column: 5; grid-row: 2; }
   .presence-label-full { display: none; }
   .presence-label-mobile { display: inline; }
-  .connection-mobile-actions { z-index: 6; display: flex; align-items: center; gap: 8px; padding-left: 4px; background: #fff; }
+  .connection-mobile-actions { z-index: 6; display: flex; align-items: center; gap: 8px; padding-left: 4px; background: var(--color-surface); }
   .connection-mobile-actions .table-search-button, .connection-mobile-actions .table-clear-button { position: relative; inset: auto; width: 36px; height: 36px; box-shadow: none; }
   .connection-mobile-actions .table-search-button::after, .connection-mobile-actions .table-clear-button::after { position: absolute; inset: -4px; content: ""; }
   .connection-mobile-actions .ui-icon { width: 15px; height: 15px; }

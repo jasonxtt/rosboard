@@ -161,6 +161,7 @@ type IPv6Neighbor struct {
 }
 
 type FirewallConnection struct {
+	ID              string `json:".id"`
 	Protocol        string `json:"protocol"`
 	SrcAddress      string `json:"src-address"`
 	SrcPort         string `json:"src-port"`

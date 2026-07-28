@@ -1174,6 +1174,24 @@ func (m *Monitor) buildTerminals(
 
 	applyConnections := func(family string, connections []routeros.FirewallConnection) error {
 		for _, connection := range connections {
+			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
+			row := model.TerminalConnection{
+				Key:                firewallConnectionKey(family, connection),
+				Family:             family,
+				Application:        application,
+				Protocol:           strings.ToLower(connection.Protocol),
+				Line:               "未知",
+				SourceAddress:      connection.SrcAddress,
+				SourcePort:         connection.SrcPort,
+				DestinationAddress: connection.DstAddress,
+				DestinationPort:    connection.DstPort,
+				Status:             connectionStatus(connection.SeenReply, connection.Assured),
+				SeenReply:          parseBool(connection.SeenReply),
+				Assured:            parseBool(connection.Assured),
+				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
+				RoutingMark:        connection.RoutingMark,
+				Estimated:          true,
+			}
 			view, ok := orientConnection(family, connection, localCIDRs, routerAddresses)
 			if !ok {
 				continue
@@ -1200,40 +1218,23 @@ func (m *Monitor) buildTerminals(
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
-			application := classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
 			destinationAddress := remoteAddress(connection, view.LocalAddress)
 			attribution := routeLookup.match(family, view.LocalAddress, destinationAddress, builder.PrimaryInterface, connection.RoutingMark)
-			connectionMap[builder.ID] = append(connectionMap[builder.ID], model.TerminalConnection{
-				Key:                view.ConnectionKey,
-				Family:             family,
-				Application:        application,
-				Protocol:           strings.ToLower(connection.Protocol),
-				Line:               "未知",
-				SourceAddress:      view.LocalAddress,
-				SourcePort:         localPort(connection, view.LocalAddress),
-				DestinationAddress: destinationAddress,
-				DestinationPort:    remotePort(connection, view.LocalAddress),
-				UploadBytes:        view.CurrentUploadBytes,
-				DownloadBytes:      view.CurrentDownloadBytes,
-				UploadBps:          view.UploadBps,
-				DownloadBps:        view.DownloadBps,
-				Status:             connectionStatus(connection.SeenReply, connection.Assured),
-				SeenReply:          parseBool(connection.SeenReply),
-				Assured:            parseBool(connection.Assured),
-				PublicAddress:      view.PublicAddress,
-				ConnectionMark:     preferredName(connection.ConnectionMark, connection.RoutingMark),
-				RoutingMark:        connection.RoutingMark,
-				RouteTable:         attribution.Table,
-				MatchedRule:        attribution.Rule,
-				MatchedRuleID:      attribution.RuleID,
-				RouteDestination:   attribution.Destination,
-				RouteID:            attribution.RouteID,
-				RouteIDs:           attribution.RouteIDs,
-				RouteGateways:      attribution.Gateways,
-				RouteMatchBasis:    attribution.Basis,
-				RouteAttribution:   attribution.State,
-				Estimated:          true,
-			})
+			row.UploadBytes = view.CurrentUploadBytes
+			row.DownloadBytes = view.CurrentDownloadBytes
+			row.UploadBps = view.UploadBps
+			row.DownloadBps = view.DownloadBps
+			row.PublicAddress = view.PublicAddress
+			row.RouteTable = attribution.Table
+			row.MatchedRule = attribution.Rule
+			row.MatchedRuleID = attribution.RuleID
+			row.RouteDestination = attribution.Destination
+			row.RouteID = attribution.RouteID
+			row.RouteIDs = attribution.RouteIDs
+			row.RouteGateways = attribution.Gateways
+			row.RouteMatchBasis = attribution.Basis
+			row.RouteAttribution = attribution.State
+			connectionMap[builder.ID] = append(connectionMap[builder.ID], row)
 
 			if flowMap[builder.ID] == nil {
 				flowMap[builder.ID] = map[string]*model.TerminalFlowCategory{}
@@ -1469,19 +1470,7 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 	srcLocal := containsIP(localCIDRs, connection.SrcAddress)
 	replySrcLocal := containsIP(localCIDRs, connection.ReplySrcAddress)
 
-	key := fmt.Sprintf(
-		"%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		family,
-		connection.Protocol,
-		connection.SrcAddress,
-		connection.SrcPort,
-		connection.DstAddress,
-		connection.DstPort,
-		connection.ReplySrcAddress,
-		connection.ReplySrcPort,
-		connection.ReplyDstAddress,
-		connection.ReplyDstPort,
-	)
+	key := firewallConnectionKey(family, connection)
 
 	switch {
 	case srcRouter || srcLocal:
@@ -1509,6 +1498,25 @@ func orientConnection(family string, connection routeros.FirewallConnection, loc
 	default:
 		return connectionView{}, false
 	}
+}
+
+func firewallConnectionKey(family string, connection routeros.FirewallConnection) string {
+	if id := strings.TrimSpace(connection.ID); id != "" {
+		return family + "|" + id
+	}
+	return fmt.Sprintf(
+		"%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
+		family,
+		connection.Protocol,
+		connection.SrcAddress,
+		connection.SrcPort,
+		connection.DstAddress,
+		connection.DstPort,
+		connection.ReplySrcAddress,
+		connection.ReplySrcPort,
+		connection.ReplyDstAddress,
+		connection.ReplyDstPort,
+	)
 }
 
 func buildInterfaces(
@@ -2008,25 +2016,11 @@ func classifyApplication(protocol string, ports ...string) string {
 	}
 }
 
-func localPort(connection routeros.FirewallConnection, localAddress string) string {
-	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
-		return connection.SrcPort
-	}
-	return connection.ReplySrcPort
-}
-
 func remoteAddress(connection routeros.FirewallConnection, localAddress string) string {
 	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
 		return connection.DstAddress
 	}
 	return connection.ReplyDstAddress
-}
-
-func remotePort(connection routeros.FirewallConnection, localAddress string) string {
-	if strings.TrimSpace(localAddress) == strings.TrimSpace(connection.SrcAddress) {
-		return connection.DstPort
-	}
-	return connection.ReplyDstPort
 }
 
 func connectionStatus(seenReply, assured string) string {

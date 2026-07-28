@@ -103,6 +103,13 @@ func TestConnectionProtocolCountsCoverRawConnections(t *testing.T) {
 	}
 }
 
+func TestFirewallConnectionKeyPrefersRouterOSID(t *testing.T) {
+	connection := routeros.FirewallConnection{ID: "*1A", Protocol: "tcp", SrcAddress: "10.0.0.2", DstAddress: "198.51.100.2"}
+	if got := firewallConnectionKey("ipv4", connection); got != "ipv4|*1A" {
+		t.Fatalf("unexpected RouterOS connection key: %q", got)
+	}
+}
+
 func TestTerminalScopeSummariesAggregateEligibleOnlineLANDevices(t *testing.T) {
 	terminals := []model.Terminal{
 		{
@@ -236,6 +243,42 @@ func TestBuildTerminalsFiltersDiscoveryOutsideTerminalCIDRs(t *testing.T) {
 	}
 	if terminal := byAddress["10.0.2.2"]; terminal.ID != routerTerminalID {
 		t.Fatalf("router self address must remain visible, got %#v", terminals)
+	}
+}
+
+func TestBuildTerminalsKeepsRawTupleAndTerminalTrafficDirection(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage}
+	connections := []routeros.FirewallConnection{{
+		Protocol: "tcp", SrcAddress: "198.51.100.20", SrcPort: "443", DstAddress: "203.0.113.10", DstPort: "51000",
+		ReplySrcAddress: "10.0.0.8", ReplySrcPort: "51000", ReplyDstAddress: "198.51.100.20", ReplyDstPort: "443",
+		OrigBytes: "900", ReplBytes: "100", OrigRate: "7200", ReplRate: "800", SeenReply: "true",
+	}}
+	_, details, err := monitor.buildTerminals(
+		context.Background(), time.Unix(1600, 0).UTC(), parseCIDRs([]string{"10.0.0.0/24"}), nil, nil,
+		[]routeros.ARPEntry{{Address: "10.0.0.8", MACAddress: "00:11:22:33:44:08", Interface: "lan", Status: "reachable"}},
+		nil, connections, nil, routeMatcher{},
+	)
+	if err != nil {
+		t.Fatalf("build terminals: %v", err)
+	}
+	var matched model.TerminalConnection
+	for _, detail := range details {
+		if len(detail.Connections) == 1 {
+			matched = detail.Connections[0]
+			break
+		}
+	}
+	if matched.SourcePort != "443" || matched.DestinationAddress != "203.0.113.10" || matched.DestinationPort != "51000" {
+		t.Fatalf("raw RouterOS tuple was rewritten: %#v", matched)
+	}
+	if matched.UploadBps != 800 || matched.DownloadBps != 7200 || matched.UploadBytes != 100 || matched.DownloadBytes != 900 {
+		t.Fatalf("terminal upload/download direction is wrong: %#v", matched)
 	}
 }
 
