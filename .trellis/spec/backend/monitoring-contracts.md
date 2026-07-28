@@ -35,7 +35,7 @@
 
 - Any visible Rosboard page counts as a viewer. Multiple tabs share one process-local `activeUntil`; no viewer identity is persisted.
 - The first heartbeat after expiry sends one non-blocking wake signal to each scheduler. Renewal heartbeats only extend the deadline and never trigger additional immediate collections.
-- Active mode retains 1-second realtime, 3-second terminal, and 10-second full polling. After activity expires, realtime and terminal polling stop; one full refresh runs every 60 seconds.
+- Active mode retains 1-second realtime, 5-second terminal discovery, and 10-second full polling. A visible terminal page additionally enables one-second conntrack-only terminal-rate polling; it stops after the terminal-viewer TTL expires. After general activity expires, realtime and terminal discovery stop; one full refresh runs every 60 seconds.
 - React sends no heartbeat while `document.visibilityState !== "visible"`. Closing or hiding the last page requires no unload request; activity expires naturally.
 - The heartbeat handler updates memory and returns without waiting for RouterOS. Scheduler wake-up performs the immediate realtime/full refresh asynchronously.
 
@@ -87,17 +87,17 @@ if (document.visibilityState === 'visible') {
 
 ### 2. Signatures
 
-- Config: `realtime_poll_interval_seconds` (default 1), `terminal_poll_interval_seconds` (default 3), and legacy/full `poll_interval_seconds` (default 10); all are positive integer seconds.
+- Config: `realtime_poll_interval_seconds` (default 1), `terminal_poll_interval_seconds` (default 5), and legacy/full `poll_interval_seconds` (default 10); all are positive integer seconds.
 - API: `GET /api/realtime` returns `model.Overview` from the in-memory snapshot and never initiates RouterOS work.
-- Service: `refreshRealtime`, `refreshTerminals`, and `refresh` own the realtime, terminal/connection, and full data layers respectively.
+- Service: `refreshRealtime`, `refreshTerminals`, `refreshTerminalRates`, and `refresh` own the realtime, terminal discovery, terminal-rate, and full data layers respectively.
 
 ### 3. Contracts
 
 - The realtime scheduler runs independently from the terminal/full scheduler. A slow conntrack or route read must not block CPU, memory, or selected-WAN traffic sampling.
-- Terminal and full refreshes share `refreshMu` and never overlap each other. Terminal source REST reads may run concurrently within one terminal refresh.
+- Terminal discovery and full refreshes share `refreshMu` and never overlap each other. The terminal-rate worker has its own mutex and reads only IPv4/IPv6 conntrack while a terminal page is visible, so full refreshes cannot freeze displayed terminal rates.
 - Realtime snapshot writes use `mu`. A full refresh that started before a newer realtime update preserves the newer CPU, memory, traffic, chart samples, selected interfaces, and `updatedAt` fields when committing.
 - Missing one-second chart slots carry forward the last measured rate for display continuity. The next actual measurement is not interpolated or altered.
-- Overview clients poll `/api/realtime` at the selected interval (default 1 second) and `/api/dashboard` every 3 seconds; neither browser endpoint directly polls RouterOS.
+- Overview and terminal-list clients poll cached snapshots at the selected interval (default 1 second); selected terminal details poll their cached snapshot each second. Neither browser endpoint directly polls RouterOS.
 
 ### 4. Validation & Error Matrix
 

@@ -185,6 +185,7 @@ type TerminalCapability struct {
 
 type TerminalDetail struct {
 	Terminal        Terminal                          `json:"terminal"`
+	RatesUpdatedAt  time.Time                         `json:"ratesUpdatedAt"`
 	Connections     []TerminalConnection              `json:"connections"`
 	FlowCategories  []TerminalFlowCategory            `json:"flowCategories"`
 	History         []TerminalHistoryEntry            `json:"history"`

@@ -64,7 +64,7 @@ func Load(path string) (Config, error) {
 		DataDir:                     "./data",
 		PollIntervalSeconds:         10,
 		RealtimePollIntervalSeconds: 1,
-		TerminalPollIntervalSeconds: 3,
+		TerminalPollIntervalSeconds: 5,
 		SampleRetentionHours:        48,
 		RouterOS: RouterOSConfig{
 			BaseURL: "http://10.0.0.1",

@@ -71,9 +71,9 @@ Browser → rosboard HTTP/API → RouterOS REST API
 | --- | --- |
 | `listen_address` | 面板监听地址，默认 `:8080` |
 | `data_dir` | SQLite 数据目录 |
-| `poll_interval_seconds` | 常规 RouterOS 数据采集间隔 |
-| `realtime_poll_interval_seconds` | 实时概览采集间隔 |
-| `terminal_poll_interval_seconds` | 终端与连接数据采集间隔 |
+| `poll_interval_seconds` | 完整 RouterOS 数据采集间隔，默认 `10` 秒 |
+| `realtime_poll_interval_seconds` | 实时概览采集间隔，默认 `1` 秒 |
+| `terminal_poll_interval_seconds` | 终端发现、地址与在线状态采集间隔，默认 `5` 秒；终端页当前速率由独立的 1 秒 conntrack 采集更新 |
 | `sample_retention_hours` | 历史采样保留时长 |
 | `allowed_cidrs` | 允许访问 `/api/*` 的客户端网段 |
 | `devices[].id` | 设备稳定标识；创建后不应修改 |

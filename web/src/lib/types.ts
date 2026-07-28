@@ -232,6 +232,7 @@ export type TerminalCapability = { tab: string; status: string; details: string 
 
 export type TerminalDetail = {
   terminal: Terminal
+  ratesUpdatedAt: string
   connections: TerminalConnection[]
   flowCategories: TerminalFlowCategory[]
   history: TerminalHistoryEntry[]

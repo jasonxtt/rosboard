@@ -675,3 +675,87 @@ func TestViewerActivityExtendsWithoutRepeatedTransition(t *testing.T) {
 		t.Fatal("activity must expire exactly at activeUntil")
 	}
 }
+
+func TestTerminalViewerActivityExtendsWithoutRepeatedTransition(t *testing.T) {
+	monitor := &Monitor{}
+	start := time.Date(2026, time.July, 13, 1, 0, 0, 0, time.UTC)
+
+	activeUntil, becameActive := monitor.markTerminalViewerActive(start)
+	if !becameActive || !activeUntil.Equal(start.Add(viewerHeartbeatTTL)) {
+		t.Fatalf("first terminal heartbeat must activate: until=%s active=%v", activeUntil, becameActive)
+	}
+	activeUntil, becameActive = monitor.markTerminalViewerActive(start.Add(10 * time.Second))
+	if becameActive || !activeUntil.Equal(start.Add(40*time.Second)) {
+		t.Fatalf("terminal heartbeat renewal must only extend activity: until=%s active=%v", activeUntil, becameActive)
+	}
+	if !monitor.terminalViewerActive(start.Add(39*time.Second)) || monitor.terminalViewerActive(start.Add(40*time.Second)) {
+		t.Fatal("terminal activity must expire exactly at activeUntil")
+	}
+}
+
+func TestRefreshTerminalRateProjectionUpdatesOnlyCurrentConnectionData(t *testing.T) {
+	ratesUpdatedAt := time.Date(2026, time.July, 13, 1, 2, 3, 0, time.UTC)
+	terminal := model.Terminal{
+		ID: "mac:00:11:22:33:44:55", DisplayName: "phone", PrimaryInterface: "lan",
+		IPv4: []string{"10.0.0.8"}, IPv6: []string{"fd00::8"},
+		TotalUploadBytes: 9000, TotalDownloadBytes: 12000,
+	}
+	details := map[string]model.TerminalDetail{
+		terminal.ID: {Terminal: terminal, History: []model.TerminalHistoryEntry{{Timestamp: ratesUpdatedAt.Add(-time.Minute), TotalUploadBytes: 8000}}},
+	}
+	connectionsV4 := []routeros.FirewallConnection{{
+		ID: "*1", Protocol: "tcp", SrcAddress: "10.0.0.8", SrcPort: "50000", DstAddress: "198.51.100.10", DstPort: "443",
+		OrigBytes: "1000", ReplBytes: "2000", OrigRate: "100", ReplRate: "200", SeenReply: "true", Assured: "true",
+	}}
+	connectionsV6 := []routeros.FirewallConnection{{
+		ID: "*2", Protocol: "udp", SrcAddress: "fd00::8", SrcPort: "53000", DstAddress: "2001:db8::53", DstPort: "53",
+		OrigBytes: "3000", ReplBytes: "4000", OrigRate: "300", ReplRate: "400", SeenReply: "true",
+	}}
+
+	refreshTerminalRateProjection(details, parseCIDRs([]string{"10.0.0.0/24", "fd00::/64"}), nil, routeMatcher{}, connectionsV4, connectionsV6, ratesUpdatedAt)
+
+	detail := details[terminal.ID]
+	if !detail.RatesUpdatedAt.Equal(ratesUpdatedAt) {
+		t.Fatalf("rates timestamp not updated: %s", detail.RatesUpdatedAt)
+	}
+	if detail.Terminal.ConnectionCount != 2 || detail.Terminal.CurrentUploadBps != 400 || detail.Terminal.CurrentDownloadBps != 600 {
+		t.Fatalf("unexpected current rates: %#v", detail.Terminal)
+	}
+	if detail.Terminal.TotalUploadBytes != 9000 || detail.Terminal.TotalDownloadBytes != 12000 {
+		t.Fatalf("rate refresh must not replace persisted totals: %#v", detail.Terminal)
+	}
+	if len(detail.Connections) != 2 || detail.FamilySummaries["ipv4"].CurrentDownloadBps != 200 || detail.FamilySummaries["ipv6"].CurrentUploadBps != 300 {
+		t.Fatalf("connection and family rate projection is incomplete: %#v", detail)
+	}
+	if len(detail.History) != 1 || detail.History[0].TotalUploadBytes != 8000 {
+		t.Fatalf("rate refresh must not alter history: %#v", detail.History)
+	}
+}
+
+func TestPreserveTerminalRateProjectionKeepsNewerRatesDuringFullRefreshCommit(t *testing.T) {
+	freshTerminal := model.Terminal{ID: "mac:test", DisplayName: "new metadata", CurrentUploadBps: 1, CurrentDownloadBps: 2}
+	latestTerminal := model.Terminal{ID: "mac:test", DisplayName: "old metadata", CurrentUploadBps: 300, CurrentDownloadBps: 400, ConnectionCount: 2}
+	freshDetails := map[string]model.TerminalDetail{"mac:test": {Terminal: freshTerminal}}
+	latestDetails := map[string]model.TerminalDetail{"mac:test": {
+		Terminal: latestTerminal, RatesUpdatedAt: time.Date(2026, time.July, 13, 1, 2, 3, 0, time.UTC),
+		Connections: []model.TerminalConnection{{Key: "ipv4|*1", UploadBps: 300, DownloadBps: 400}},
+	}}
+	snapshot := model.DashboardSnapshot{Terminals: []model.Terminal{freshTerminal}}
+	source := model.DashboardSnapshot{
+		Terminals: []model.Terminal{latestTerminal},
+		Overview:  model.Overview{ConnectionCount: 2},
+		Protocols: []model.ProtocolStat{{Name: "未知应用", UploadBps: 300, DownloadBps: 400}},
+	}
+
+	preserveTerminalRateProjection(&snapshot, freshDetails, terminalScope{}, source, latestDetails)
+
+	if snapshot.Terminals[0].DisplayName != "new metadata" || snapshot.Terminals[0].CurrentDownloadBps != 400 {
+		t.Fatalf("full refresh must retain metadata while preserving newer rates: %#v", snapshot.Terminals[0])
+	}
+	if freshDetails["mac:test"].Terminal.DisplayName != "new metadata" || len(freshDetails["mac:test"].Connections) != 1 {
+		t.Fatalf("detail merge lost metadata or current connections: %#v", freshDetails["mac:test"])
+	}
+	if snapshot.Overview.ConnectionCount != 2 || len(snapshot.Protocols) != 1 {
+		t.Fatalf("full snapshot did not retain current terminal projection: %#v", snapshot)
+	}
+}
