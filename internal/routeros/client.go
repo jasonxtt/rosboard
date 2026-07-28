@@ -55,9 +55,22 @@ func (c *Client) SystemResource(ctx context.Context) (SystemResource, error) {
 }
 
 func (c *Client) SystemHealth(ctx context.Context) (SystemHealth, error) {
+	var payload json.RawMessage
+	if err := c.getJSON(ctx, "/rest/system/health", &payload); err != nil {
+		return SystemHealth{}, err
+	}
+	var entries []SystemHealth
+	if err := json.Unmarshal(payload, &entries); err == nil {
+		if len(entries) == 0 {
+			return SystemHealth{}, errors.New("system health: empty response")
+		}
+		return entries[0], nil
+	}
 	var health SystemHealth
-	err := c.getJSON(ctx, "/rest/system/health", &health)
-	return health, err
+	if err := json.Unmarshal(payload, &health); err != nil {
+		return SystemHealth{}, fmt.Errorf("decode system health response: %w", err)
+	}
+	return health, nil
 }
 
 func (c *Client) Interfaces(ctx context.Context) ([]Interface, error) {
@@ -113,6 +126,10 @@ func (c *Client) InterfaceListMembers(ctx context.Context) ([]InterfaceListMembe
 func (c *Client) DHCPServers(ctx context.Context) ([]DHCPServer, error) {
 	var payload []DHCPServer
 	return payload, c.getJSON(ctx, "/rest/ip/dhcp-server", &payload)
+}
+func (c *Client) PPPoEClients(ctx context.Context) ([]PPPoEClient, error) {
+	var payload []PPPoEClient
+	return payload, c.getJSON(ctx, "/rest/interface/pppoe-client", &payload)
 }
 func (c *Client) DHCPClients(ctx context.Context) ([]DHCPClient, error) {
 	var payload []DHCPClient

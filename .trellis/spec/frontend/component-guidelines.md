@@ -9,6 +9,7 @@ The terminal monitor uses component-local state for table presentation. Its init
 - The nearby non-online-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter. It covers both `inactive` and `offline` states.
 - Any filter change resets pagination to page 1.
 - Default terminal sorting is numeric address ascending (`sortKey = "address"`), not device-name sorting.
+- The terminal identity column renders display name first and MAC as muted second-line metadata. The separate IP column renders primary IPv4 first and primary IPv6 second in `all` scope; family-specific scopes render only their selected family.
 
 ```tsx
 const [stateFilter, setStateFilter] = useState('online')
@@ -41,12 +42,12 @@ const showingInactive = stateFilter !== 'online'
 - Clicking the second-level `终端监控` sidebar item opens the terminal list itself, sets the family scope to `all`, and visually exposes the nested `全部终端` / `IPv4` / `IPv6` choices. The nested choices still switch scope directly.
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
-- Family, application, protocol, local endpoint, destination endpoint, route-table, and next-hop-gateway filters open from their column headers. RouterOS self connection tracking also exposes the status filter; ordinary terminal details do not render a status column. Active filters use both blue styling and accessible state/labels.
+- Family, application, protocol, source IP, source port, destination endpoint, route-table, and next-hop-gateway filters open from their column headers. Source IP and source port are independent columns and filters. RouterOS self connection tracking also exposes the status filter; ordinary terminal details do not render a status column. Active filters use both blue styling and accessible state/labels.
 - Every connection column label is a dedicated sort button. First click selects ascending, the next click toggles descending; a separate filter-arrow button never triggers sorting.
 - Keep the filter arrow immediately adjacent to the sort label. Do not reserve an empty sort-indicator width for unsorted columns; render the direction indicator only for the active sort.
 - Filter panels compute their horizontal position from the clicked arrow's bounding rect. Desktop panels align to the trigger when space permits; mobile panels use 240px width and clamp inside the visible table shell.
 - Family, application, protocol, route-table, and next-hop-gateway filters render their available values as direct option buttons in the first panel layer. A gateway option represents one member of `routeGateways`, including an ECMP member; missing route-table or gateway values use the filterable label `无法判断`. Selecting an option applies it and closes the panel; do not put these enum choices behind a native select that requires a second click.
-- Global fuzzy search is an icon button at table-header height on desktop and in the connection-detail tab row on mobile. Its floating input searches application, protocol, local/destination/public address, ports, connection mark, route table, and next-hop gateway without adding a permanent toolbar row.
+- Global fuzzy search is an icon button at table-header height on desktop and in the connection-detail tab row on mobile. Its floating input searches application, protocol, source/destination/public address, ports, connection mark, route table, and next-hop gateway without adding a permanent toolbar row.
 - A textless SVG clear button sits immediately left of global search. It clears all connection filters, search, family selection, panel, and sorting; it is disabled when no table state is active. Mobile clear/search actions render only while the connection tab is active.
 - Reserve enough width and right padding in the final visible connection header for the floating clear/search actions. This is `下一跳网关` for ordinary terminals and `连接状态` for RouterOS self tracking. The action buttons must not overlap the label or filter control even when the inner table is horizontally scrolled to the end.
 - The legacy `.connection-toolbar` and family tab strip do not render.
@@ -58,12 +59,13 @@ const showingInactive = stateFilter !== 'online'
 
 - `all` scope + IPv4 filter -> zero IPv6 badges, active family header indicator.
 - `ipv4` or `ipv6` scope -> no family filter button; every rendered row matches the scope.
-- Filter combination has no matches -> one empty row spans 13 columns for ordinary terminals and 14 columns for RouterOS self tracking.
+- Filter combination has no matches -> one empty row spans every rendered column: 14 for ordinary terminals and 15 for RouterOS self with status.
 - Search/filter panel opens -> it overlays the table and does not increase document width or add a toolbar row.
 - Direct enum filter opens -> all current choices are visible immediately; selection closes the panel and activates the header indicator.
 - Column label click -> changes only sort state; filter-arrow click -> changes only the active filter panel.
 - Clear with active sort/filter -> reset to unsorted scope rows and disable the clear button.
 - Live detail refresh -> local filter state remains component-local and continues filtering the new connection snapshot.
+- Original tuple -> source/destination cells show RouterOS `src-*` / `dst-*`; upload/download remain terminal-oriented.
 
 ### 5. Good/Base/Bad Cases
 
@@ -81,6 +83,7 @@ const showingInactive = stateFilter !== 'online'
 - Browser all scope: both badge families appear and the family filter removes the opposite family.
 - Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
 - Browser runtime: header filters and global search work with no console errors.
+- Browser runtime: terminal connection details render source IP and source port as independently filterable columns.
 - Browser interaction: application ascending begins with `常用协议`, descending begins with `未知应用`; filtering preserves sort until clear.
 - Browser geometry: desktop filter panel left equals its trigger left when space permits; mobile arrow is 44x44 and the clamped panel stays within the viewport.
 - Browser geometry: unsorted filterable headers have a zero-width visual gap between the sort button and filter button; at maximum horizontal table scroll, the final visible header controls end before the clear button begins.
@@ -526,7 +529,10 @@ overflow.
 ### 3. Contracts
 
 - Ordinary settings show automatic results read-only. CIDR candidates and dynamic IPv6 prefixes are not editable ordinary controls.
-- LAN interfaces, IPv4 prefixes, and IPv6 prefixes render in independent grouped cards; each item puts value and evidence on separate lines.
+- `自动识别范围` and `高级覆盖设置` are separate, sibling disclosure cards inside the device form. Both are collapsed by default, and the automatic card summary always exposes WAN-line, LAN-interface, and prefix counts.
+- Expanded automatic results have two top-level groups: `上网流量` and `本地终端`. The terminal group separates LAN interfaces from one compact prefix list; prefix rows use visible IPv4/IPv6 badges instead of reserving independent family cards that become sparse when one family has little data.
+- Each automatic result puts its value/status and lower-priority evidence on separate lines. Evidence remains readable but must not compete visually with interface names, status, or CIDRs.
+- Advanced overrides stay in the parent device form and reuse `保存设备`; do not introduce a modal, drawer, independent save, or nested disclosure. Group fields under `流量采集覆盖` and `终端范围覆盖`, with include/exclude pairs in two desktop columns and one mobile column.
 - Scope fields from a partial/older response are normalized to empty arrays before rendering. Settings-device drafts must also tolerate an absent `terminalScope` object.
 
 ### 4. Validation & Error Matrix
@@ -537,15 +543,16 @@ overflow.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: desktop groups LAN, IPv4, and IPv6 in three cards; 375px stacks them vertically with no text overlap.
+- Good: the collapsed automatic card shows `1 条上网线路 · 3 个 LAN 接口 · 4 个网段`; its expanded prefix list labels every row IPv4 or IPv6 without leaving an empty family card.
 - Base: an empty array presents `尚未识别`.
-- Bad: reuse the selectable three-column interface-option grid for unbounded evidence text.
+- Bad: nest advanced overrides inside the automatic-results disclosure or render all six textareas as full-width desktop rows.
 
 ### 6. Tests Required
 
 - Frontend lint/build pass.
-- Browser verifies Device Management opens with complete, empty, and missing scope arrays; no console error or overlap at 375px and desktop.
-- Browser verifies advanced overrides stay collapsed by default and dynamic output does not enter editable fields.
+- Browser verifies Device Management opens with complete, empty, and missing scope arrays; both disclosure cards are collapsed by default and no console error or overlap occurs at 375px and desktop.
+- Browser verifies the automatic summary counts, the IPv4/IPv6 row badges, the two-column desktop override grid, the one-column mobile override grid, and zero document-level horizontal overflow.
+- Browser verifies dynamic output does not enter editable fields and advanced values still submit through the existing device-save request.
 
 ### 7. Wrong vs Correct
 
@@ -559,5 +566,14 @@ overflow.
 
 ```tsx
 const prefixes = scope?.prefixes ?? []
-<section className="terminal-scope-groups">{/* family-specific cards */}</section>
+<details className="settings-disclosure auto-scope-settings">
+  <summary>自动识别范围{/* line, interface, and prefix counts */}</summary>
+  <section aria-label="本地终端">
+    {prefixes.map((prefix) => <span key={`${prefix.family}-${prefix.cidr}`}>{prefix.family} {prefix.cidr}</span>)}
+  </section>
+</details>
+<details className="settings-disclosure advanced-scope-settings">
+  <summary>高级覆盖设置</summary>
+  {/* existing device-form override fields */}
+</details>
 ```

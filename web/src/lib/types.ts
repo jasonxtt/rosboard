@@ -113,8 +113,10 @@ export type RouteStat = { id: string; kind: string; family: string; destination:
 export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
-  username: string; passwordSet: boolean; trafficInterfaces: string[]; terminalCidrs: string[]; terminalScope: TerminalScopeConfig
+  username: string; passwordSet: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
 }
+export type TrafficScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[] }
+export type TrafficScope = { mode: string; legacy: boolean; interfaces: { name: string; kind: string; reasons: string[]; automatic: boolean; running: boolean; disabled: boolean }[]; warnings: string[]; overridesApplied: boolean }
 export type TerminalScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[]; include_cidrs?: string[]; exclude_cidrs?: string[] }
 export type TerminalScope = { mode: string; legacy: boolean; interfaces: { name: string; role: 'lan' | 'wan' | 'unknown'; confidence: string; reasons: string[] }[]; prefixes: { cidr: string; family: 'ipv4' | 'ipv6'; interface: string; source: string; automatic: boolean }[]; warnings: string[]; overridesApplied: boolean }
 
@@ -133,6 +135,8 @@ export type VerificationResponse = {
   identity: { routerName: string; version: string; platform: string; boardName: string }
   interfaces: VerificationInterface[]
   cidrCandidates: VerificationCIDR[]
+  trafficScope?: TrafficScope
+  terminalScope?: TerminalScope
   warnings: { capability: string; message: string }[]
 }
 
@@ -142,6 +146,7 @@ export type DashboardResponse = {
   terminals: Terminal[]
   terminalScopeSummaries: Record<TerminalFamily, TerminalScopeSummary>
   terminalScope: TerminalScope
+  trafficScope: TrafficScope
   capabilities: CapabilityNote[]
   protocols: ProtocolStat[]
   policies: PolicyStat[]

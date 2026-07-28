@@ -1259,3 +1259,103 @@ Implemented explainable automatic RouterOS LAN/WAN terminal topology discovery w
 ### Next Steps
 
 - None - task complete
+
+
+## Session 39: Automatic ISP traffic scope
+
+**Date**: 2026-07-28
+**Task**: Automatic ISP traffic scope
+**Branch**: `main`
+
+### Summary
+
+Implemented independent RouterOS TrafficScope auto-detection, multi-WAN aggregation, legacy compatibility, per-device scope previews, settings isolation, health response compatibility, and warning presentation fixes; verified locally and deployed to network-vm.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8309a7f` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 40: Refine automatic scope settings layout
+
+**Date**: 2026-07-28
+**Task**: Refine automatic scope settings layout
+**Branch**: `main`
+
+### Summary
+
+Split automatic scope results and advanced overrides into independent collapsed cards, grouped detection results and override fields for desktop/mobile, updated frontend guidance, verified locally and deployed to 10.0.0.6 after timestamped backup and user approval.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba90bfb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 41: Terminal list and connection detail refinement
+
+**Date**: 2026-07-28
+**Task**: Terminal list and connection detail refinement
+**Branch**: `codex/terminal-connection-details`
+
+### Summary
+
+Refined terminal identity and IP layout, split raw source address and source port in terminal connection details while preserving terminal upload/download semantics, removed the unintended standalone flow table, deployed and received user approval, and removed local AI tool directories from version control with ignore rules.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c77c864` | (see git log) |
+| `b4c1d98` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -6,7 +6,6 @@ import {
   formatBits,
   formatBytes,
   formatDateTime,
-  formatEndpoint,
   formatOnlineDuration,
   formatSeconds,
   formatShortTime,
@@ -38,6 +37,7 @@ import type {
   TerminalFamily,
   TerminalScopeSummary,
   TerminalScope,
+  TrafficScope,
   TerminalSortKey,
   TerminalTab,
   VerificationResponse,
@@ -163,7 +163,6 @@ const emptyTerminalScopeSummary: TerminalScopeSummary = {
   activeUploadBytes: 0,
   activeDownloadBytes: 0,
 }
-const emptyInterfaceList: InterfaceStatus[] = []
 
 function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
   const items = [
@@ -356,6 +355,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [statusExpanded, setStatusExpanded] = useState(true)
   const [settingsExpanded, setSettingsExpanded] = useState(true)
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
+  const [warningsExpanded, setWarningsExpanded] = useState(false)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
     setPanelPreferences(next)
@@ -483,6 +483,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 		payload.terminalScope.interfaces ??= []
 		payload.terminalScope.prefixes ??= []
 		payload.terminalScope.warnings ??= []
+		payload.trafficScope ??= { mode: 'auto', legacy: false, interfaces: [], warnings: [], overridesApplied: false }
+		payload.trafficScope.interfaces ??= []
+		payload.trafficScope.warnings ??= []
         payload.overview.trafficInterfaces ??= []
         payload.overview.chartSamples ??= []
         if (!cancelled) {
@@ -667,6 +670,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
   const currentDevice = devices.find((device) => device.id === selectedDeviceID)
+  const globalWarnings = Array.from(new Set((dashboard.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
+  const alertCount = Math.max(dashboard.alerts?.length ?? 0, globalWarnings.length)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
@@ -851,7 +856,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             {activeView === 'overview' && !detailMode ? (
               <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
             ) : null}
-            <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
+            {globalWarnings.length ? (
+              <button type="button" className="system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i />{alertCount} 项告警</button>
+            ) : (
+              <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
+            )}
             <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
@@ -860,8 +869,16 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </div>
         </header>
 
+        {globalWarnings.length && warningsExpanded ? (
+          <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
+            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" onClick={() => setWarningsExpanded(false)}>收起</button></div>
+            <ul>
+              {globalWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          </section>
+        ) : null}
+
         {error ? <div className="global-error">最近一次刷新失败: {error}</div> : null}
-        {dashboard.warnings?.length ? <div className="global-warning">{dashboard.warnings.join(' ')}</div> : null}
 
         {activeView === 'overview' ? (
           <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
@@ -1108,7 +1125,7 @@ function SettingsPage(props: {
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
           <div className="panel-head"><h3>设备管理</h3></div>
-          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} onRestartingAction={props.onRestartingAction} />
+          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
             <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
@@ -1227,27 +1244,19 @@ function SettingItem(props: { label: string; value: string; wide?: boolean }) {
   return <div className={props.wide ? 'setting-item wide' : 'setting-item'}><span>{props.label}</span><strong>{props.value}</strong></div>
 }
 
-type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
+type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; trafficMode: '' | 'auto'; trafficIncludeInterfaces: string; trafficExcludeInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
 
 function deviceDraft(device?: SettingsDevice): DeviceDraft {
   return {
     id: device?.id ?? '', name: device?.name ?? '', enabled: device?.enabled ?? true,
     scheme: device?.scheme === 'https' ? 'https' : 'http', host: device?.host || '10.0.0.1',
     port: device?.port || 80, username: device?.username ?? '', password: '',
-    trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
+    trafficInterfaces: device?.trafficInterfaces.join('\n') ?? '', trafficMode: device?.trafficScope?.mode === 'auto' || !device ? 'auto' : '', trafficIncludeInterfaces: device?.trafficScope?.include_interfaces?.join('\n') ?? '', trafficExcludeInterfaces: device?.trafficScope?.exclude_interfaces?.join('\n') ?? '', terminalCidrs: device?.terminalCidrs.join('\n') ?? '',
     includeInterfaces: device?.terminalScope?.include_interfaces?.join('\n') ?? '', excludeInterfaces: device?.terminalScope?.exclude_interfaces?.join('\n') ?? '', includeCidrs: device?.terminalScope?.include_cidrs?.join('\n') ?? '', excludeCidrs: device?.terminalScope?.exclude_cidrs?.join('\n') ?? '',
   }
 }
 
-function interfacePickerOptions(selected: string[], interfaces: InterfaceStatus[]) {
-  const byName = new Map(interfaces.map((item) => [item.name, item]))
-  selected.forEach((name) => {
-    if (!byName.has(name)) byName.set(name, { name } as InterfaceStatus)
-  })
-  return Array.from(byName.values()).sort((left, right) => left.name.localeCompare(right.name))
-}
-
-function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
@@ -1255,29 +1264,54 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
   const [savingAction, setSavingAction] = useState<'save' | 'complete' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 	const [verification, setVerification] = useState<VerificationResponse | null>(null)
+	const [scopedDashboard, setScopedDashboard] = useState<Pick<DashboardResponse, 'trafficScope' | 'terminalScope'> | null>(null)
+	const [scopeLoading, setScopeLoading] = useState(false)
+	const [scopeError, setScopeError] = useState<string | null>(null)
 	const [testing, setTesting] = useState(false)
 	const saving = savingAction !== null
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
 	const verificationRequired = connectionChanged && !verification
-  const editingSelectedDevice = Boolean(draft.id) && draft.id === props.selectedDeviceID
   const trafficInterfaces = parseSettingList(draft.trafficInterfaces)
-	const scopeInterfaces = props.terminalScope?.interfaces ?? []
-	const scopePrefixes = props.terminalScope?.prefixes ?? []
-	const scopeWarnings = props.terminalScope?.warnings ?? []
-  const verifiedInterfaces = verification?.interfaces.map((item) => ({ ...item, macAddress: '', status: '', lastLinkUpTime: '', linkDowns: 0, actualMtu: 0, rxBytes: 0, txBytes: 0, currentRxBps: 0, currentTxBps: 0, rxPackets: 0, txPackets: 0, rxDrops: 0, txDrops: 0, rxErrors: 0, txErrors: 0, linkRate: '', fullDuplex: false })) ?? []
-  const liveInterfaces = verification ? verifiedInterfaces : editingSelectedDevice ? props.interfaces : emptyInterfaceList
-  const interfaceOptions = useMemo(() => interfacePickerOptions(trafficInterfaces, liveInterfaces), [trafficInterfaces, liveInterfaces])
-  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null) }
-  const setTrafficInterfaces = (values: string[]) => setDraft((current) => ({ ...current, trafficInterfaces: values.join('\n') }))
-  const toggleInterface = (name: string) => {
-    const next = trafficInterfaces.includes(name) ? trafficInterfaces.filter((item) => item !== name) : [...trafficInterfaces, name]
-    setTrafficInterfaces(next)
-  }
+	const trafficScope = verification?.trafficScope ?? scopedDashboard?.trafficScope
+	const terminalScope = verification?.terminalScope ?? scopedDashboard?.terminalScope
+	const trafficScopeInterfaces = trafficScope?.interfaces ?? []
+	const trafficScopeWarnings = trafficScope?.warnings ?? []
+	const scopeInterfaces = terminalScope?.interfaces ?? []
+	const scopePrefixes = terminalScope?.prefixes ?? []
+	const scopeWarnings = terminalScope?.warnings ?? []
+	useEffect(() => {
+		if (!draft.id) {
+			setScopedDashboard(null)
+			setScopeLoading(false)
+			setScopeError(null)
+			return
+		}
+		let cancelled = false
+		setScopedDashboard(null)
+		setScopeLoading(true)
+		setScopeError(null)
+		fetch(`/api/dashboard?device=${encodeURIComponent(draft.id)}`, { cache: 'no-store' })
+			.then(async (response) => {
+				if (!response.ok) throw new Error(`HTTP ${response.status}`)
+				return await response.json() as Pick<DashboardResponse, 'trafficScope' | 'terminalScope'>
+			})
+			.then((dashboard) => {
+				if (!cancelled) setScopedDashboard(dashboard)
+			})
+			.catch((error) => {
+				if (!cancelled) setScopeError(error instanceof Error ? error.message : '读取设备自动识别范围失败')
+			})
+			.finally(() => {
+				if (!cancelled) setScopeLoading(false)
+			})
+		return () => { cancelled = true }
+	}, [draft.id])
+  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null); setScopedDashboard(null); setScopeError(null) }
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
 		try {
-			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password })
+			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } })
 			const result = await response.json() as VerificationResponse
 			setVerification(result)
 			setMessage(result.warnings?.length ? `连接成功，但有 ${result.warnings.length} 项可选能力不可用。` : `连接成功：${result.identity.routerName || result.identity.boardName} ${result.identity.version}`)
@@ -1299,7 +1333,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
   }
-	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: parseSettingList(draft.trafficInterfaces), terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
+	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
   return <div className="device-settings-workspace">
 	<div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
@@ -1313,43 +1347,66 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
       <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
       <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
-      <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后才会提供接口和 CIDR 候选。</span></div>
+      <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
 	  {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
-	  <fieldset className="interface-picker wide" hidden={verificationRequired} disabled={verificationRequired}>
-        <legend>采集接口</legend>
-        <div className="interface-picker-head"><span>{editingSelectedDevice ? '选择纳入这台设备流量采样的接口' : '切换到该设备后可显示实时接口候选；已保存接口仍可编辑'}</span><strong>{trafficInterfaces.length} / {interfaceOptions.length}</strong></div>
-        <div className="interface-options" role="group" aria-label="采集接口选项">
-          {interfaceOptions.map((item) => {
-            const selected = trafficInterfaces.includes(item.name)
-            const status = item.disabled ? '已禁用' : item.running ? '运行中' : item.type ? '未连接' : '配置保留'
-            return <label key={item.name} className={selected ? 'interface-option selected' : 'interface-option'}>
-              <input type="checkbox" checked={selected} onChange={() => toggleInterface(item.name)} />
-              <span><strong>{item.name}</strong><small>{item.type || '未知类型'} · {status}</small></span>
-            </label>
-          })}
-          {!interfaceOptions.length ? <span className="settings-empty">暂无接口候选；可先保存连接并切换到该设备，或在下方手动保留配置</span> : null}
-        </div>
-      </fieldset>
-	  <section className="interface-picker wide terminal-scope-settings" aria-label="终端范围自动识别">
-        <strong>终端范围：自动识别</strong>
-        {props.terminalScope?.legacy ? <p>当前设备使用旧版手动终端网段配置。保存高级设置后可迁移为自动识别加覆盖模式。</p> : null}
-        <div className="terminal-scope-groups">
-          <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
-          <div className="terminal-scope-group"><span>IPv4 网段</span>{scopePrefixes.filter((item) => item.family === 'ipv4').map((item) => <p key={item.cidr}><strong>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.some((item) => item.family === 'ipv4') ? <small>尚未识别</small> : null}</div>
-          <div className="terminal-scope-group"><span>IPv6 网段</span>{scopePrefixes.filter((item) => item.family === 'ipv6').map((item) => <p key={item.cidr}><strong>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.some((item) => item.family === 'ipv6') ? <small>尚未识别</small> : null}</div>
-        </div>
-        {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
-      </section>
-	  <details className="interface-picker wide">
-        <summary>高级终端范围设置</summary>
-        <p>默认自动识别。仅在特殊拓扑中强制纳入或排除接口/网段；每行一项。</p>
-        <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
-        <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
-        <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
-        <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
-      </details>
+	  <details className="settings-disclosure wide auto-scope-settings">
+	    <summary>
+	      <span><strong>自动识别范围</strong><small>系统根据 RouterOS 拓扑自动判断</small></span>
+	      <small className="settings-disclosure-summary">{scopeLoading ? '正在读取…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small>
+	    </summary>
+	    <div className="settings-disclosure-body">
+	      {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
+	      {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
+	      <div className="scope-overview-grid">
+	        <section className="scope-result-section" aria-labelledby="traffic-scope-title">
+	          <div className="scope-result-head"><h4 id="traffic-scope-title">上网流量</h4><small>{trafficScopeInterfaces.length} 条线路</small></div>
+	          {trafficScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动采集接口配置。</p> : null}
+	          <div className="scope-result-list">
+	            {trafficScopeInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}
+	            {!trafficScopeInterfaces.length ? <p className="scope-empty">尚未识别上网线路；可在高级覆盖设置中强制纳入。</p> : null}
+	          </div>
+	          {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+	          {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
+	        </section>
+	        <section className="scope-result-section" aria-labelledby="terminal-scope-title">
+	          <div className="scope-result-head"><h4 id="terminal-scope-title">本地终端</h4><small>{scopeInterfaces.filter((item) => item.role === 'lan').length} 个接口 · {scopePrefixes.length} 个网段</small></div>
+	          {terminalScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动终端网段配置。保存高级覆盖设置后可迁移为自动识别加覆盖模式。</p> : null}
+	          <div className="terminal-scope-groups">
+	            <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
+	            <div className="terminal-scope-group"><span>网段</span>{scopePrefixes.map((item) => <p key={`${item.family}-${item.cidr}`}><strong><i className={`ip-family-badge scope-family ${item.family}`}>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</i>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.length ? <small>尚未识别</small> : null}</div>
+	          </div>
+	          {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+	        </section>
+	      </div>
+	    </div>
+	  </details>
+	  <details className="settings-disclosure wide advanced-scope-settings">
+	    <summary>
+	      <span><strong>高级覆盖设置</strong><small>仅用于特殊网络拓扑</small></span>
+	      <small className="settings-disclosure-summary">留空即使用自动识别</small>
+	    </summary>
+	    <div className="settings-disclosure-body scope-override-body">
+	      <p className="scope-override-help">仅在自动识别结果不符合实际拓扑时填写；每行一项。</p>
+	      <section className="scope-override-section" aria-labelledby="traffic-override-title">
+	        <h4 id="traffic-override-title">流量采集覆盖</h4>
+	        <div className="scope-override-grid">
+	          <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
+	          <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
+	        </div>
+	      </section>
+	      <section className="scope-override-section" aria-labelledby="terminal-override-title">
+	        <h4 id="terminal-override-title">终端范围覆盖</h4>
+	        <div className="scope-override-grid">
+	          <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
+	          <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
+	          <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
+	          <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
+	        </div>
+	      </section>
+	    </div>
+	  </details>
 	  <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired || trafficInterfaces.length === 0} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
+      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
   </div>
@@ -1735,7 +1792,7 @@ function TerminalsPage(props: {
         <table className="data-table terminal-table">
           <thead><tr>
             <SortHeader label="设备名称" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="IP / MAC" sortKey="address" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <SortHeader label="IP" sortKey="address" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="连接数" sortKey="connections" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="上行速率" sortKey="upload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="下行速率" sortKey="download" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
@@ -1747,14 +1804,14 @@ function TerminalsPage(props: {
           </tr></thead>
           <tbody>
             {rows.map((terminal) => {
-              const mainAddress = terminalPrimaryAddress(terminal, props.family)
               const metrics = terminalMetrics(terminal, props.family)
               const addressCount = props.family === 'ipv4' ? terminal.ipv4.length : props.family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
+              const shownAddressCount = props.family === 'all' ? Number(Boolean(terminal.primaryIpv4)) + Number(Boolean(terminal.primaryIpv6)) : Number(Boolean(terminalPrimaryAddress(terminal, props.family)))
+              const extraAddressCount = Math.max(0, addressCount - shownAddressCount)
               return <tr key={terminal.id}>
-                <td><button type="button" className="link-button terminal-name-link" onClick={() => props.onOpenDetail(terminal.id)}><strong>{terminal.displayName}</strong></button></td>
+                <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}><strong>{terminal.displayName}</strong><span className="muted-text">{terminal.macAddress || 'MAC 未知'}</span></button></td>
                 <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
-                  <strong>{mainAddress || '-'}</strong>
-                  <span className="muted-text">{terminal.macAddress || 'MAC 未知'}{addressCount > 1 ? `  +${addressCount - 1}` : ''}</span>
+                  {props.family === 'all' ? <><strong>{terminal.primaryIpv4 || terminal.primaryIpv6 || '-'}</strong>{terminal.primaryIpv4 && terminal.primaryIpv6 ? <span className="muted-text">{terminal.primaryIpv6}{extraAddressCount ? `  +${extraAddressCount}` : ''}</span> : extraAddressCount ? <span className="muted-text">+{extraAddressCount}</span> : null}</> : <><strong>{terminalPrimaryAddress(terminal, props.family) || '-'}</strong>{extraAddressCount ? <span className="muted-text">+{extraAddressCount}</span> : null}</>}
                 </button></td>
                 <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
@@ -1780,8 +1837,8 @@ function SortHeader(props: { label: string; sortKey: TerminalSortKey; activeKey:
   return <th><button type="button" className="sort-button" onClick={() => props.onSort(props.sortKey)}>{props.label}<span>{props.activeKey === props.sortKey ? (props.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>
 }
 
-type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'local' | 'destination' | 'routeTable' | 'gateway' | 'status' | 'search'
-type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'local' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'routeTable' | 'gateway' | 'status'
+type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'routeTable' | 'gateway' | 'status' | 'search'
+type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'routeTable' | 'gateway' | 'status'
 
 const unavailableRouteValue = '无法判断'
 
@@ -1827,7 +1884,8 @@ function compareConnection(left: TerminalConnection, right: TerminalConnection, 
     case 'family': return text(left.family, right.family)
     case 'application': return text(left.application, right.application)
     case 'protocol': return text(left.protocol, right.protocol)
-    case 'local': return text(formatEndpoint(left.sourceAddress, left.sourcePort), formatEndpoint(right.sourceAddress, right.sourcePort))
+    case 'sourceAddress': return text(left.sourceAddress, right.sourceAddress)
+    case 'sourcePort': return text(left.sourcePort, right.sourcePort)
     case 'destination': return text(left.destinationAddress, right.destinationAddress)
     case 'destinationPort': return text(left.destinationPort, right.destinationPort)
     case 'publicAddress': return text(left.publicAddress, right.publicAddress)
@@ -1841,27 +1899,18 @@ function compareConnection(left: TerminalConnection, right: TerminalConnection, 
   }
 }
 
-function TerminalDetailPage(props: {
-  detail: TerminalDetail
-  activeTab: TerminalTab
-  connectionFamily: ConnectionFamily
-  scope: TerminalFamily
-  onBack: () => void
-  onTabChange: (value: TerminalTab) => void
-  onConnectionFamilyChange: (value: ConnectionFamily) => void
+function useConnectionTableState(props: {
+  connections: TerminalConnection[]
+  scope: ConnectionFamily
+  family: ConnectionFamily
+  onFamilyChange: (value: ConnectionFamily) => void
+  showStatus: boolean
 }) {
-  const ipv4Connections = props.detail.connections.filter((item) => item.family === 'ipv4')
-  const ipv6Connections = props.detail.connections.filter((item) => item.family === 'ipv6')
-  const isRouterConntrack = props.detail.terminal.id === 'routeros:self'
-  const scopedConnections = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
-  const repliedConnections = scopedConnections.filter((item) => item.seenReply).length
-  const unrepliedConnections = scopedConnections.length - repliedConnections
-  const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
-  const visibleFlows = props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? [])
   const [connectionQuery, setConnectionQuery] = useState('')
   const [applicationQuery, setApplicationQuery] = useState('')
   const [protocolFilter, setProtocolFilter] = useState('all')
-  const [localQuery, setLocalQuery] = useState('')
+  const [sourceAddressQuery, setSourceAddressQuery] = useState('')
+  const [sourcePortQuery, setSourcePortQuery] = useState('')
   const [destinationQuery, setDestinationQuery] = useState('')
   const [routeTableFilter, setRouteTableFilter] = useState('all')
   const [gatewayFilter, setGatewayFilter] = useState('all')
@@ -1870,9 +1919,11 @@ function TerminalDetailPage(props: {
   const [connectionSortKey, setConnectionSortKey] = useState<ConnectionSortKey | null>(null)
   const [connectionSortDirection, setConnectionSortDirection] = useState<'asc' | 'desc'>('asc')
   const [filterPanelLeft, setFilterPanelLeft] = useState(7)
-  const scopedConnectionRows = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
-  const selectedFamily = props.scope === 'all' ? props.connectionFamily : props.scope
+  const scopedConnectionRows = props.scope === 'all' ? props.connections : props.connections.filter((item) => item.family === props.scope)
+  const selectedFamily = props.scope === 'all' ? props.family : props.scope
   const familyConnections = selectedFamily === 'all' ? scopedConnectionRows : scopedConnectionRows.filter((item) => item.family === selectedFamily)
+  const ipv4Connections = scopedConnectionRows.filter((item) => item.family === 'ipv4')
+  const ipv6Connections = scopedConnectionRows.filter((item) => item.family === 'ipv6')
   const applications = Array.from(new Set(familyConnections.map((item) => item.application).filter(Boolean))).sort()
   const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
   const routeTables = Array.from(new Set(familyConnections.map(connectionRouteTable))).sort()
@@ -1881,32 +1932,32 @@ function TerminalDetailPage(props: {
   const normalizedGlobalQuery = connectionQuery.trim().toLowerCase()
   const filteredConnections = familyConnections.filter((connection) =>
     (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
-    (routeTableFilter === 'all' || connectionRouteTable(connection) === routeTableFilter) &&
-    (gatewayFilter === 'all' || (gatewayFilter === unavailableRouteValue ? !connection.routeGateways?.length : connection.routeGateways?.includes(gatewayFilter))) &&
-    (!isRouterConntrack || statusFilter === 'all' || connection.status === statusFilter) &&
-    (!applicationQuery || connection.application === applicationQuery) &&
-    formatEndpoint(connection.sourceAddress, connection.sourcePort).toLowerCase().includes(localQuery.trim().toLowerCase()) &&
-    [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase()) &&
-    [connection.application, connection.protocol, connectionRouteTable(connection), connectionGateway(connection), connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
-      .join(' ').toLowerCase().includes(normalizedGlobalQuery),
+      (routeTableFilter === 'all' || connectionRouteTable(connection) === routeTableFilter) &&
+      (gatewayFilter === 'all' || (gatewayFilter === unavailableRouteValue ? !connection.routeGateways?.length : connection.routeGateways?.includes(gatewayFilter))) &&
+      (!props.showStatus || statusFilter === 'all' || connection.status === statusFilter) &&
+      (!applicationQuery || connection.application === applicationQuery) &&
+      connection.sourceAddress.toLowerCase().includes(sourceAddressQuery.trim().toLowerCase()) &&
+      connection.sourcePort.toLowerCase().includes(sourcePortQuery.trim().toLowerCase()) &&
+      [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase()) &&
+      [connection.application, connection.protocol, connectionRouteTable(connection), connectionGateway(connection), connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
+        .join(' ').toLowerCase().includes(normalizedGlobalQuery)
   )
   const visibleConnections = connectionSortKey ? [...filteredConnections].sort((left, right) => {
     const comparison = compareConnection(left, right, connectionSortKey)
     return connectionSortDirection === 'asc' ? comparison : -comparison
   }) : filteredConnections
-
   const filterActive: Record<ConnectionFilterKey, boolean> = {
-    family: props.scope === 'all' && props.connectionFamily !== 'all',
+    family: props.scope === 'all' && props.family !== 'all',
     application: Boolean(applicationQuery),
     protocol: protocolFilter !== 'all',
-    local: Boolean(localQuery),
+    sourceAddress: Boolean(sourceAddressQuery),
+    sourcePort: Boolean(sourcePortQuery),
     destination: Boolean(destinationQuery),
     routeTable: routeTableFilter !== 'all',
     gateway: gatewayFilter !== 'all',
-    status: isRouterConntrack && statusFilter !== 'all',
+    status: props.showStatus && statusFilter !== 'all',
     search: Boolean(connectionQuery),
   }
-
   const openConnectionFilter = (key: ConnectionFilterKey, anchor: HTMLElement) => {
     const shell = anchor.closest('.connection-table-shell')
     if (shell) {
@@ -1918,7 +1969,6 @@ function TerminalDetailPage(props: {
     }
     setActiveConnectionFilter((value) => value === key ? null : key)
   }
-
   const changeConnectionSort = (key: ConnectionSortKey) => {
     if (connectionSortKey === key) setConnectionSortDirection((value) => value === 'asc' ? 'desc' : 'asc')
     else {
@@ -1926,12 +1976,12 @@ function TerminalDetailPage(props: {
       setConnectionSortDirection('asc')
     }
   }
-
   const clearConnectionTableState = () => {
-    props.onConnectionFamilyChange(props.scope === 'all' ? 'all' : props.scope)
+    props.onFamilyChange(props.scope === 'all' ? 'all' : props.scope)
     setApplicationQuery('')
     setProtocolFilter('all')
-    setLocalQuery('')
+    setSourceAddressQuery('')
+    setSourcePortQuery('')
     setDestinationQuery('')
     setRouteTableFilter('all')
     setGatewayFilter('all')
@@ -1941,25 +1991,95 @@ function TerminalDetailPage(props: {
     setConnectionSortDirection('asc')
     setActiveConnectionFilter(null)
   }
-
-  const hasConnectionTableState = connectionSortKey !== null || Object.values(filterActive).some(Boolean)
   const chooseConnectionFilter = (apply: () => void) => {
     apply()
     setActiveConnectionFilter(null)
   }
+  return {
+    activeConnectionFilter, activeSort: connectionSortKey, applications, changeConnectionSort, chooseConnectionFilter,
+    clearConnectionTableState, connectionQuery, familyFilterable: props.scope === 'all', filterActive, filterPanelLeft, gateways, hasState: connectionSortKey !== null || Object.values(filterActive).some(Boolean),
+    ipv4Connections, ipv6Connections, onFamilyChange: props.onFamilyChange, openConnectionFilter, protocols, routeTables, scopedConnectionRows, selectedFamily,
+    setActiveConnectionFilter, setApplicationQuery, setConnectionQuery, setDestinationQuery, setFilterPanelLeft, setGatewayFilter,
+    setProtocolFilter, setRouteTableFilter, setSourceAddressQuery, setSourcePortQuery, setStatusFilter,
+    sortDirection: connectionSortDirection, sourceAddressQuery, sourcePortQuery, applicationQuery, destinationQuery, gatewayFilter,
+    protocolFilter, routeTableFilter, statusFilter, statuses, visibleConnections,
+  }
+}
 
-  const filterPanel = activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: filterPanelLeft }}>
-    <div className="connection-filter-panel-head"><strong>{activeConnectionFilter === 'search' ? '搜索全部连接字段' : '筛选连接'}</strong><button type="button" className="link-button" onClick={() => setActiveConnectionFilter(null)}>关闭</button></div>
-    {activeConnectionFilter === 'family' ? <ConnectionFilterOptions value={selectedFamily} options={[{ value: 'all', label: `全部 (${scopedConnectionRows.length})` }, { value: 'ipv4', label: `IPv4 (${ipv4Connections.length})` }, { value: 'ipv6', label: `IPv6 (${ipv6Connections.length})` }]} onChange={(value) => chooseConnectionFilter(() => props.onConnectionFamilyChange(value as ConnectionFamily))} /> : null}
-    {activeConnectionFilter === 'application' ? <ConnectionFilterOptions value={applicationQuery} options={[{ value: '', label: '全部应用' }, ...applications.map((application) => ({ value: application, label: application }))]} onChange={(value) => chooseConnectionFilter(() => setApplicationQuery(value))} /> : null}
-    {activeConnectionFilter === 'protocol' ? <ConnectionFilterOptions value={protocolFilter} options={[{ value: 'all', label: '全部协议' }, ...protocols.map((protocol) => ({ value: protocol, label: protocol }))]} onChange={(value) => chooseConnectionFilter(() => setProtocolFilter(value))} /> : null}
-    {activeConnectionFilter === 'local' ? <input value={localQuery} onChange={(event) => setLocalQuery(event.target.value)} placeholder="本地 IP 或端口" aria-label="本地地址筛选" /> : null}
-    {activeConnectionFilter === 'destination' ? <input value={destinationQuery} onChange={(event) => setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /> : null}
-    {activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => chooseConnectionFilter(() => setRouteTableFilter(value))} /> : null}
-    {activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => chooseConnectionFilter(() => setGatewayFilter(value))} /> : null}
-    {activeConnectionFilter === 'status' ? <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
-    {activeConnectionFilter === 'search' ? <input value={connectionQuery} onChange={(event) => setConnectionQuery(event.target.value)} placeholder="地址 / 端口 / 应用 / 标记" aria-label="搜索全部连接字段" /> : null}
+type ConnectionTableState = ReturnType<typeof useConnectionTableState>
+
+function ConnectionMobileActions(props: { state: ConnectionTableState }) {
+  return <div className="connection-mobile-actions">
+    <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!props.state.hasState} onClick={props.state.clearConnectionTableState}><Icon name="clear" /></button>
+    <button type="button" className={props.state.filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={props.state.activeConnectionFilter === 'search'} onClick={() => { props.state.setFilterPanelLeft(7); props.state.setActiveConnectionFilter((value) => value === 'search' ? null : 'search') }}><Icon name="search" /></button>
+  </div>
+}
+
+function ConnectionTable(props: { state: ConnectionTableState; showStatus: boolean; emptyLabel: string }) {
+  const state = props.state
+  const filterPanel = state.activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: state.filterPanelLeft }}>
+    <div className="connection-filter-panel-head"><strong>{state.activeConnectionFilter === 'search' ? '搜索全部连接字段' : '筛选连接'}</strong><button type="button" className="link-button" onClick={() => state.setActiveConnectionFilter(null)}>关闭</button></div>
+    {state.activeConnectionFilter === 'family' ? <ConnectionFilterOptions value={state.selectedFamily} options={[{ value: 'all', label: `全部 (${state.scopedConnectionRows.length})` }, { value: 'ipv4', label: `IPv4 (${state.ipv4Connections.length})` }, { value: 'ipv6', label: `IPv6 (${state.ipv6Connections.length})` }]} onChange={(value) => state.chooseConnectionFilter(() => state.onFamilyChange(value as ConnectionFamily))} /> : null}
+    {state.activeConnectionFilter === 'application' ? <ConnectionFilterOptions value={state.applicationQuery} options={[{ value: '', label: '全部应用' }, ...state.applications.map((application) => ({ value: application, label: application }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setApplicationQuery(value))} /> : null}
+    {state.activeConnectionFilter === 'protocol' ? <ConnectionFilterOptions value={state.protocolFilter} options={[{ value: 'all', label: '全部协议' }, ...state.protocols.map((protocol) => ({ value: protocol, label: protocol }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setProtocolFilter(value))} /> : null}
+    {state.activeConnectionFilter === 'sourceAddress' ? <input value={state.sourceAddressQuery} onChange={(event) => state.setSourceAddressQuery(event.target.value)} placeholder="来源 IP" aria-label="来源 IP 筛选" /> : null}
+    {state.activeConnectionFilter === 'sourcePort' ? <input value={state.sourcePortQuery} onChange={(event) => state.setSourcePortQuery(event.target.value)} placeholder="来源端口" aria-label="来源端口筛选" /> : null}
+    {state.activeConnectionFilter === 'destination' ? <input value={state.destinationQuery} onChange={(event) => state.setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /> : null}
+    {state.activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={state.routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...state.routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setRouteTableFilter(value))} /> : null}
+    {state.activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={state.gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...state.gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setGatewayFilter(value))} /> : null}
+    {state.activeConnectionFilter === 'status' ? <select value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
+    {state.activeConnectionFilter === 'search' ? <input value={state.connectionQuery} onChange={(event) => state.setConnectionQuery(event.target.value)} placeholder="地址 / 端口 / 应用 / 标记" aria-label="搜索全部连接字段" /> : null}
   </div> : null
+  const columnCount = 14 + Number(props.showStatus)
+  return <div className="connection-table-shell">
+    <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!state.hasState} onClick={state.clearConnectionTableState}><Icon name="clear" /></button>
+    <button type="button" className={state.filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={state.activeConnectionFilter === 'search'} onClick={(event) => state.openConnectionFilter('search', event.currentTarget)}><Icon name="search" /></button>
+    {filterPanel}
+    <div className="table-scroll"><table className="data-table connection-table"><thead><tr>
+      <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey={state.familyFilterable ? 'family' : undefined} filterActive={state.filterActive.family} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="应用" sortKey="application" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="application" filterActive={state.filterActive.application} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="protocol" filterActive={state.filterActive.protocol} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="来源 IP" sortKey="sourceAddress" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourceAddress" filterActive={state.filterActive.sourceAddress} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="来源端口" sortKey="sourcePort" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourcePort" filterActive={state.filterActive.sourcePort} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="destination" filterActive={state.filterActive.destination} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="目的端口" sortKey="destinationPort" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="外网地址" sortKey="publicAddress" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="当前上行" sortKey="upload" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="当前下行" sortKey="download" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="路由表" sortKey="routeTable" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="routeTable" filterActive={state.filterActive.routeTable} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="下一跳网关" sortKey="gateway" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="gateway" filterActive={state.filterActive.gateway} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      {props.showStatus ? <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="status" filterActive={state.filterActive.status} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} /> : null}
+    </tr></thead><tbody>{state.visibleConnections.length ? state.visibleConnections.map((connection) => (
+      <tr key={connection.key}>
+        <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
+        <td>{connection.application}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
+        <td>{connection.destinationAddress || '-'}</td><td>{connection.destinationPort || '-'}</td><td>{connection.publicAddress || '-'}</td>
+        <td>{formatBits(connection.uploadBps)}</td><td>{formatBits(connection.downloadBps)}</td>
+        <td>{formatBytes(connection.uploadBytes)}</td><td>{formatBytes(connection.downloadBytes)}</td>
+        <td>{connectionRouteTable(connection)}</td><td>{connectionGateway(connection)}</td>{props.showStatus ? <td>{connection.status}</td> : null}
+      </tr>
+    )) : <tr><td colSpan={columnCount} className="empty-row">{props.emptyLabel}</td></tr>}</tbody></table></div>
+  </div>
+}
+
+function TerminalDetailPage(props: {
+  detail: TerminalDetail
+  activeTab: TerminalTab
+  connectionFamily: ConnectionFamily
+  scope: TerminalFamily
+  onBack: () => void
+  onTabChange: (value: TerminalTab) => void
+  onConnectionFamilyChange: (value: ConnectionFamily) => void
+}) {
+  const isRouterConntrack = props.detail.terminal.id === 'routeros:self'
+  const scopedConnections = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
+  const repliedConnections = scopedConnections.filter((item) => item.seenReply).length
+  const unrepliedConnections = scopedConnections.length - repliedConnections
+  const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
+  const visibleFlows = props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? [])
+  const connectionTable = useConnectionTableState({ connections: props.detail.connections, scope: props.scope, family: props.connectionFamily, onFamilyChange: props.onConnectionFamilyChange, showStatus: isRouterConntrack })
 
   return (
     <section className="detail-page">
@@ -1988,10 +2108,7 @@ function TerminalDetailPage(props: {
         <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
         {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
-        {props.activeTab === 'connections' ? <div className="connection-mobile-actions">
-          <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!hasConnectionTableState} onClick={clearConnectionTableState}><Icon name="clear" /></button>
-          <button type="button" className={filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={activeConnectionFilter === 'search'} onClick={() => { setFilterPanelLeft(7); setActiveConnectionFilter((value) => value === 'search' ? null : 'search') }}><Icon name="search" /></button>
-        </div> : null}
+        {props.activeTab === 'connections' ? <ConnectionMobileActions state={connectionTable} /> : null}
       </div>
 
       <section className="panel detail-panel">
@@ -2017,65 +2134,7 @@ function TerminalDetailPage(props: {
           </div>
         ) : null}
 
-        {props.activeTab === 'connections' ? (
-          <div>
-            <div className="connection-table-shell">
-              <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!hasConnectionTableState} onClick={clearConnectionTableState}><Icon name="clear" /></button>
-              <button type="button" className={filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={activeConnectionFilter === 'search'} onClick={(event) => openConnectionFilter('search', event.currentTarget)}><Icon name="search" /></button>
-              {filterPanel}
-              <div className="table-scroll">
-              <table className="data-table connection-table">
-                <thead>
-                  <tr>
-                    <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey={props.scope === 'all' ? 'family' : undefined} filterActive={filterActive.family} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="应用" sortKey="application" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="application" filterActive={filterActive.application} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="protocol" filterActive={filterActive.protocol} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="本地地址 / 端口" sortKey="local" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="local" filterActive={filterActive.local} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="destination" filterActive={filterActive.destination} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="目的端口" sortKey="destinationPort" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="外网地址" sortKey="publicAddress" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="当前上行" sortKey="upload" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="当前下行" sortKey="download" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={connectionSortKey} sortDirection={connectionSortDirection} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="路由表" sortKey="routeTable" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="routeTable" filterActive={filterActive.routeTable} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    <ConnectionColumnHeader label="下一跳网关" sortKey="gateway" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="gateway" filterActive={filterActive.gateway} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} />
-                    {isRouterConntrack ? <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={connectionSortKey} sortDirection={connectionSortDirection} filterKey="status" filterActive={filterActive.status} onSort={changeConnectionSort} onOpenFilter={openConnectionFilter} /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleConnections.length === 0 ? (
-                    <tr>
-                      <td colSpan={isRouterConntrack ? 14 : 13} className="empty-row">
-                        当前筛选范围没有 {selectedFamily === 'all' ? '活动' : selectedFamily.toUpperCase()} {isRouterConntrack ? '跟踪条目' : '连接详情'}
-                      </td>
-                    </tr>
-                  ) : (
-                    visibleConnections.map((connection) => (
-                      <tr key={connection.key}>
-                        <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
-                        <td>{connection.application}</td>
-                        <td>{connection.protocol}</td>
-                        <td>{formatEndpoint(connection.sourceAddress, connection.sourcePort)}</td>
-                        <td>{connection.destinationAddress}</td>
-                        <td>{connection.destinationPort || '-'}</td>
-                        <td>{connection.publicAddress || '-'}</td>
-                        <td>{formatBits(connection.uploadBps)}</td>
-                        <td>{formatBits(connection.downloadBps)}</td>
-                        <td>{formatBytes(connection.uploadBytes)}</td>
-                        <td>{formatBytes(connection.downloadBytes)}</td>
-                        <td>{connectionRouteTable(connection)}</td>
-                        <td>{connectionGateway(connection)}</td>
-                        {isRouterConntrack ? <td>{connection.status}</td> : null}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          </div>
-        ) : null}
+        {props.activeTab === 'connections' ? <ConnectionTable state={connectionTable} showStatus={isRouterConntrack} emptyLabel={`当前筛选范围没有 ${connectionTable.selectedFamily === 'all' ? '活动' : connectionTable.selectedFamily.toUpperCase()} ${isRouterConntrack ? '跟踪条目' : '连接详情'}`} /> : null}
 
         {props.activeTab === 'flows' ? (
           <div>

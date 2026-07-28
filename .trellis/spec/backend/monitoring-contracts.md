@@ -155,6 +155,8 @@ go runBackgroundSchedule(ctx)
 - Stable router terminal ID: `routeros:self`.
 - Dashboard projection: `Terminal.FamilyStats map[string]TerminalFamilyStats` with `ipv4` and `ipv6` keys.
 - Terminal detail projection: `TerminalConnection.SeenReply` and `TerminalConnection.Assured` mirror RouterOS `seen-reply` and `assured`.
+- Terminal connection projection: `TerminalConnection.SourceAddress/SourcePort` and `DestinationAddress/DestinationPort` preserve RouterOS original `src-*` and `dst-*`; upload/download fields remain oriented to the owning terminal.
+- Connection identity prefers RouterOS REST `.id` scoped by IP family; the tuple-derived key is only a compatibility fallback when `.id` is absent.
 - Overview projection: `Overview.ConnectedDeviceCount` and `Overview.ConnectionCount` serialize as `connectedDeviceCount` and `connectionCount`.
 - WAN rate projection: `Overview.UploadBps` is selected-interface TX bit/s; `Overview.DownloadBps` is selected-interface RX bit/s.
 
@@ -172,6 +174,7 @@ go runBackgroundSchedule(ctx)
 - When strong evidence disappears, preserve the last strong `lastSeen`: emit `inactive` for at most five minutes, then `offline`. Only `online` contributes to online duration; entering `inactive` ends the current online interval.
 - `connectedDeviceCount` includes only `state == online` LAN terminals. It excludes `routeros:self`, inactive/offline terminals, selected traffic interfaces, loopback, and interfaces identified as WAN. An online terminal with no known interface remains countable so missing neighbor metadata does not hide a real device.
 - `connectionCount` is the raw RouterOS snapshot size: `len(ipv4 conntrack) + len(ipv6 conntrack)`. Do not derive this value by summing terminal connections because attribution intentionally omits external/unmatched rows.
+- Attributed terminal-detail rows preserve the original src/dst tuple while upload/download rates and bytes remain oriented to the matched terminal.
 - The selected WAN/PPPoE interface defines overview direction: TX is upload and RX is download. The UI names the metric as WAN traffic and displays the sampled interface instead of implying an all-interface aggregate.
 - `ROSBOARD_LISTEN_ADDRESS=0.0.0.0:8080` is the review/development delivery binding so LAN devices can open the built panel.
 - A live review endpoint uses the real RouterOS REST client. Replay data must be visibly identified and must not remain on port 8080 for live acceptance.
@@ -213,6 +216,7 @@ go runBackgroundSchedule(ctx)
 - Unit: another address in the WAN prefix is rejected.
 - Unit: DHCP/ARP/IPv6-neighbor discovery outside terminal CIDRs is rejected for non-router terminals while exact RouterOS self remains visible.
 - Unit: LAN original-source ownership is not stolen by a router reply-source address.
+- Unit: a reply-side LAN terminal retains the raw RouterOS src/dst tuple while upload/download use the terminal direction.
 - Unit: all textual forms of assigned router addresses resolve to `routeros:self`; disabled addresses do not.
 - Unit: connected LAN device count excludes RouterOS self, offline, WAN, and selected traffic-interface terminals while retaining online unknown-interface terminals.
 - Unit: reachable ARP is online; a later stale-only poll is inactive inside five minutes and offline after five minutes, without changing `lastSeen`.
