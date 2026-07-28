@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 39
+- **Total Sessions**: 40
 - **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1294 | Active |
+| `journal-1.md` | ~1327 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 40 | 2026-07-28 | Refine automatic scope settings layout | `ba90bfb` | `main` |
 | 39 | 2026-07-28 | Automatic ISP traffic scope | `8309a7f` | `main` |
 | 38 | 2026-07-28 | RouterOS terminal topology discovery | `7389bae` | `main` |
 | 37 | 2026-07-28 | Secure first-run and multi-RouterOS onboarding | `94c5eba` | `main` |

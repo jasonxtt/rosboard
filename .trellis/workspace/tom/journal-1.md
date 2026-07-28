@@ -1292,3 +1292,36 @@ Implemented independent RouterOS TrafficScope auto-detection, multi-WAN aggregat
 ### Next Steps
 
 - None - task complete
+
+
+## Session 40: Refine automatic scope settings layout
+
+**Date**: 2026-07-28
+**Task**: Refine automatic scope settings layout
+**Branch**: `main`
+
+### Summary
+
+Split automatic scope results and advanced overrides into independent collapsed cards, grouped detection results and override fields for desktop/mobile, updated frontend guidance, verified locally and deployed to 10.0.0.6 after timestamped backup and user approval.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba90bfb` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
