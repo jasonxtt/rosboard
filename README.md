@@ -37,6 +37,38 @@ Browser → rosboard HTTP/API → RouterOS REST API
 - 已启用且可从部署主机访问的 RouterOS REST API
 - 一个遵循最小权限原则、能够读取所需 RouterOS 资源并调用接口流量监控的账号
 
+## 快速接入 RouterOS
+
+rosboard 提供"快速接入"方式简化 RouterOS 设备添加流程。
+
+1. 用户只需填写**设备名称**和 **RouterOS IP/主机名**。
+2. 默认通过 **HTTP/80** 连接（协议和端口位于"高级设置"中，默认收起）。
+3. 后端自动生成：
+   - 随机 RouterOS 用户名（`rosboard_<16位hex>`）
+   - 随机 RouterOS 用户组名（`rosboard_g_<16位hex>`）
+   - 32 位随机强密码
+   - 一段可复制、可重复执行的 RouterOS 脚本
+4. 将脚本粘贴到 RouterOS Terminal 执行，脚本会创建只读专用账号。
+5. 回到 rosboard 点击"我已执行脚本，开始接入"，后端自动完成验证、识别和保存。
+
+### 权限与安全
+
+- 生成的 RouterOS 专用账号权限固定为 `read,test,rest-api`。
+- rosboard 日常为只读，不主动修改 RouterOS 配置。
+- 账号和密码仅保存在本地 `0600` 权限的 config.yaml 中，设置接口和导出不返回密码。
+- 脚本不会自动启用 www/www-ssl，也不会修改防火墙、证书或其他 RouterOS 设置。
+- 接入会话 15 分钟后在 rosboard 端失效，需重新生成。已粘贴到 RouterOS 创建的账号不会自动删除。
+
+### 版本要求
+
+- 快速接入要求 **RouterOS 7** 或更高版本。
+- HTTP REST 要求 **RouterOS 7.9** 或更高版本。
+- 如果 www 未启用，用户需在 RouterOS 的 IP → Services 中自行启用，或改用 HTTPS。
+
+### HTTP/HTTPS
+
+默认通过 HTTP（明文）连接。HTTPS 可在高级设置中选择，但自签证书必须被 rosboard 主机信任；当前客户端不会擅自忽略 TLS 校验。HTTP Basic Auth 明文传输凭据，只应在可信局域网使用。
+
 ## 快速开始
 
 1. 安装并构建前端：

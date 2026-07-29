@@ -37,10 +37,24 @@ type Server struct {
 	restart      func()
 	auth         *auth.Service
 	tickets      *verificationTickets
+	provisioning *provisioningSessions
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
 	return NewServerWithRestart(cfg, monitor, assets, nil)
+}
+
+func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
+	return &Server{
+		cfg:          cfg,
+		monitor:      monitor,
+		assets:       assets,
+		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
+		fileServer:   http.FileServer(http.FS(assets)),
+		restart:      restart,
+		tickets:      newVerificationTickets(),
+		provisioning: newProvisioningSessions(),
+	}
 }
 
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
@@ -52,6 +66,7 @@ func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs
 		fileServer:   http.FileServer(http.FS(assets)),
 		restart:      restart,
 		tickets:      newVerificationTickets(),
+		provisioning: newProvisioningSessions(),
 	}
 }
 
@@ -70,6 +85,7 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 		restart:      restart,
 		auth:         authService,
 		tickets:      newVerificationTickets(),
+		provisioning: newProvisioningSessions(),
 	}
 }
 
@@ -135,6 +151,14 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.URL.Path == "/api/devices" && request.Method == http.MethodGet {
 		writeJSON(writer, http.StatusOK, map[string]any{"devices": s.deviceStatuses(false), "archivedDevices": s.deviceStatuses(true)})
+		return
+	}
+	if request.URL.Path == "/api/device-onboarding/sessions" {
+		s.serveCreateProvisioningSession(writer, request)
+		return
+	}
+	if strings.HasPrefix(request.URL.Path, "/api/device-onboarding/sessions/") {
+		s.serveCompleteProvisioning(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/devices/test-connection" {
@@ -751,6 +775,7 @@ func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Reques
 		_ = s.store.Close()
 	}
 	s.tickets.clear()
+	s.provisioning.clear()
 	clearSessionCookie(writer, request)
 	s.scheduleRestart()
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "phase": "needs_admin", "restarting": s.restart != nil})

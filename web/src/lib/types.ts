@@ -182,6 +182,33 @@ export type SettingsResponse = {
   devices: SettingsDevice[]
 }
 
+export type ProvisioningSessionResponse = {
+  sessionId: string
+  script: string
+  expiresAt: string
+  username: string
+  connection: {
+    scheme: 'http' | 'https'
+    host: string
+    port: number
+  }
+}
+
+export type ProvisioningCompleteResponse = {
+  id: string
+  restarting: boolean
+  identity?: {
+    routerName: string
+    version: string
+    platform: string
+    boardName: string
+  }
+  warnings?: Array<{
+    capability: string
+    message: string
+  }>
+}
+
 export type AlertEvent = { id: string; level: 'warning' | 'error'; source: string; message: string; timestamp: string }
 
 export type TerminalConnection = {
