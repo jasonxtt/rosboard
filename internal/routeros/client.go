@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -22,10 +23,35 @@ type HTTPError struct {
 	Path       string
 	StatusCode int
 	Status     string
+	Detail     string
 }
 
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("request %s: unexpected status %s", e.Path, e.Status)
+}
+
+func routerOSErrorDetail(reader io.Reader) string {
+	body, err := io.ReadAll(io.LimitReader(reader, 8<<10))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Message string `json:"message"`
+		Detail  string `json:"detail"`
+	}
+	if json.Unmarshal(body, &payload) == nil {
+		parts := make([]string, 0, 2)
+		if value := strings.TrimSpace(payload.Message); value != "" {
+			parts = append(parts, value)
+		}
+		if value := strings.TrimSpace(payload.Detail); value != "" {
+			parts = append(parts, value)
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ": ")
+		}
+	}
+	return strings.TrimSpace(string(body))
 }
 
 func NewClient(baseURL, username, password string) *Client {
@@ -236,7 +262,12 @@ func (c *Client) do(req *http.Request, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &HTTPError{Path: req.URL.Path, StatusCode: resp.StatusCode, Status: resp.Status}
+		return &HTTPError{
+			Path:       req.URL.Path,
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Detail:     routerOSErrorDetail(resp.Body),
+		}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode %s: %w", req.URL.Path, err)

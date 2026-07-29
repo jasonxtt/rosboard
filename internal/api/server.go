@@ -872,6 +872,9 @@ func normalizedRouterOSURL(rawScheme, rawHost string, rawPort int) (string, erro
 		return "", errors.New("scheme must be http or https")
 	}
 	host := strings.TrimSpace(rawHost)
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = strings.TrimSpace(host[1 : len(host)-1])
+	}
 	if host == "" {
 		return "", errors.New("host is required")
 	}

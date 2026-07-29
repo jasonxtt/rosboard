@@ -43,6 +43,21 @@ func TestVerifyRequiresCoreDataAndReturnsCandidatesWithOptionalWarnings(t *testi
 	}
 }
 
+func TestVerifyClassifiesPermissionDetailReturnedAsHTTP500(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(`{"error":500,"message":"Internal Server Error","detail":"not enough permissions (9)"}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "rosboard", "secret").Verify(context.Background())
+	var verificationError *VerificationError
+	if !errors.As(err, &verificationError) || verificationError.Kind != "authentication" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+}
+
 func TestVerifyClassifiesCoreAuthenticationFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		http.Error(writer, "denied", http.StatusUnauthorized)

@@ -221,12 +221,13 @@ func TestProvisioningScriptContent(t *testing.T) {
 		t.Fatal("script should contain the generated group name")
 	}
 
-	// Correct permissions
-	if !strings.Contains(script, "read,test,rest-api") {
-		t.Fatal("script does not contain read,test,rest-api")
+	// Correct permissions. Some RouterOS releases log REST authentication via the
+	// internal API channel, so the read-only account needs both login policies.
+	if !strings.Contains(script, "read,test,api,rest-api") {
+		t.Fatal("script does not contain read,test,api,rest-api")
 	}
 	// Check that disallowed permission values are not present
-	for _, forbidden := range []string{"write", "sensitive", "sniff", "reboot", "full", "web", "winbox", "ssh", "api", "ftp", "password", "romon", "local", "telnet"} {
+	for _, forbidden := range []string{"write", "policy", "sensitive", "sniff", "reboot", "full", "web", "winbox", "ssh", "ftp", "password", "romon", "local", "telnet"} {
 		if strings.Contains(script, "policy="+forbidden) || strings.Contains(script, ","+forbidden) {
 			t.Fatalf("script contains unexpected permission: %s", forbidden)
 		}
@@ -277,6 +278,16 @@ func TestProvisioningSessionConsumed(t *testing.T) {
 	_, ok = ps.get(sessionID)
 	if ok {
 		t.Fatal("session should not exist after consume")
+	}
+}
+
+func TestNormalizedRouterOSURLAcceptsBracketedIPv6(t *testing.T) {
+	baseURL, err := normalizedRouterOSURL("http", "[2001:db8::1]", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseURL != "http://[2001:db8::1]:80" {
+		t.Fatalf("baseURL=%q", baseURL)
 	}
 }
 
