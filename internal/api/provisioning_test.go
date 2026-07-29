@@ -243,6 +243,67 @@ func TestProvisioningScriptContent(t *testing.T) {
 	}
 }
 
+func TestProvisioningCleanupScriptContent(t *testing.T) {
+	script := provisioningCleanupScript("rosboard_0123456789abcdef", "rosboard_g_0123456789abcdef")
+	trimmed := strings.TrimSpace(script)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		t.Fatal("cleanup script must be a single RouterOS scope block")
+	}
+	for _, required := range []string{
+		`/user find where name="rosboard_0123456789abcdef"`,
+		`/user remove $rbUserId`,
+		`/user group find where name="rosboard_g_0123456789abcdef"`,
+		`/user find where group="rosboard_g_0123456789abcdef"`,
+		`/user group remove $rbGroupId`,
+		"rosboard account cleanup complete",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("cleanup script missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"password=", "/ip service", "firewall", "policy="} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("cleanup script contains forbidden content %q", forbidden)
+		}
+	}
+}
+
+func TestManagedRouterOSAccountUsesStoredMetadata(t *testing.T) {
+	device := config.DeviceConfig{
+		ManagedAccount: &config.ManagedRouterOSAccount{
+			Username:  "stored-user",
+			GroupName: "stored-group",
+		},
+		RouterOS: config.RouterOSConfig{Username: "edited-connection-user"},
+	}
+	account, ok := managedRouterOSAccount(device)
+	if !ok || account.Username != "stored-user" || account.GroupName != "stored-group" {
+		t.Fatalf("unexpected managed account: %#v ok=%v", account, ok)
+	}
+}
+
+func TestManagedRouterOSAccountDerivesLegacyQuickUsername(t *testing.T) {
+	device := config.DeviceConfig{
+		RouterOS: config.RouterOSConfig{Username: "rosboard_0123456789abcdef"},
+	}
+	account, ok := managedRouterOSAccount(device)
+	if !ok {
+		t.Fatal("legacy quick-provisioned username should be recognized")
+	}
+	if account.GroupName != "rosboard_g_0123456789abcdef" {
+		t.Fatalf("group=%q", account.GroupName)
+	}
+}
+
+func TestManagedRouterOSAccountRejectsManualUsername(t *testing.T) {
+	device := config.DeviceConfig{
+		RouterOS: config.RouterOSConfig{Username: "admin"},
+	}
+	if _, ok := managedRouterOSAccount(device); ok {
+		t.Fatal("manual username must not expose a generated cleanup script")
+	}
+}
+
 func TestProvisioningSessionExpired(t *testing.T) {
 	ps := newProvisioningSessions()
 	ps.now = func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }

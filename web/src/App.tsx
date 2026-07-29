@@ -42,6 +42,7 @@ import type {
   TerminalTab,
   VerificationResponse,
   ProvisioningSessionResponse,
+  RouterOSCleanupResponse,
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
@@ -61,12 +62,74 @@ const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChar
 const panelPreferenceKey = 'rosboard:panel-preferences'
 const selectedDeviceKey = 'rosboard:selected-device'
 const trafficWindowKey = 'rosboard:traffic-window'
+const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
 const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'overview', terminalFamily: 'all', theme: 'light' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+
+function fallbackCopyText(value: string) {
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.readOnly = true
+  textarea.setAttribute('aria-hidden', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.inset = '0 auto auto 0'
+  textarea.style.width = '1px'
+  textarea.style.height = '1px'
+  textarea.style.padding = '0'
+  textarea.style.border = '0'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  try {
+    textarea.focus({ preventScroll: true })
+    textarea.select()
+    textarea.setSelectionRange(0, value.length)
+    if (!document.execCommand('copy')) throw new Error('copy command was rejected')
+  } finally {
+    textarea.remove()
+    activeElement?.focus({ preventScroll: true })
+  }
+}
+
+async function copyText(value: string) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // HTTP deployments and restricted browser permissions use the fallback below.
+    }
+  }
+  fallbackCopyText(value)
+}
+
+function pendingRouterOSCleanup(): RouterOSCleanupResponse | null {
+  try {
+    const raw = window.sessionStorage.getItem(pendingRouterOSCleanupKey)
+    if (!raw) return null
+    const value = JSON.parse(raw) as Partial<RouterOSCleanupResponse>
+    if (!value.deviceId || !value.name || !value.username || !value.groupName || !value.script) return null
+    return value as RouterOSCleanupResponse
+  } catch {
+    return null
+  }
+}
+
+function storePendingRouterOSCleanup(cleanup: RouterOSCleanupResponse) {
+  window.sessionStorage.setItem(pendingRouterOSCleanupKey, JSON.stringify(cleanup))
+}
+
+function consumePendingRouterOSCleanup() {
+  const cleanup = pendingRouterOSCleanup()
+  window.sessionStorage.removeItem(pendingRouterOSCleanupKey)
+  return cleanup
 }
 
 async function panelAssetsReady() {
@@ -359,7 +422,7 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 function PanelApp(props: { username: string; onAuthenticationChanged: () => void }) {
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [activeView, setActiveView] = useState<ActiveView>(() => panelPreferences.landingView)
+  const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() ? 'settings' : panelPreferences.landingView)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
@@ -1304,6 +1367,39 @@ function SettingItem(props: { label: string; value: string; wide?: boolean }) {
   return <div className={props.wide ? 'setting-item wide' : 'setting-item'}><span>{props.label}</span><strong>{props.value}</strong></div>
 }
 
+
+function RouterOSCleanupCard(props: { cleanup: RouterOSCleanupResponse; onClose: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const copy = async () => {
+    setError(null)
+    try {
+      await copyText(props.cleanup.script)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('复制失败，请手动选择脚本复制。')
+    }
+  }
+  return (
+    <section className="routeros-cleanup-card" aria-labelledby="routeros-cleanup-title">
+      <div className="routeros-cleanup-head">
+        <div>
+          <strong id="routeros-cleanup-title">清理 RouterOS 专用账号</strong>
+          <p>{props.cleanup.name} · 用户 {props.cleanup.username} · 组 {props.cleanup.groupName}</p>
+        </div>
+        <button type="button" className="close-button" onClick={props.onClose}>关闭</button>
+      </div>
+      <p className="routeros-cleanup-warning">只有确定不再恢复此设备时才执行。脚本会删除 rosboard 创建的专用用户；仅当专用组没有其他用户时才删除该组。</p>
+      <textarea readOnly value={props.cleanup.script} rows={12} spellCheck={false} aria-label="RouterOS 账号清理脚本" />
+      <div className="settings-actions">
+        <button type="button" className="toolbar-button" onClick={() => void copy()}>{copied ? '已复制' : '复制清理脚本'}</button>
+      </div>
+      {error ? <div className="settings-message" role="alert">{error}</div> : null}
+    </section>
+  )
+}
+
 type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; trafficMode: '' | 'auto'; trafficIncludeInterfaces: string; trafficExcludeInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
 
 function deviceDraft(device?: SettingsDevice): DeviceDraft {
@@ -1340,6 +1436,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	const [quickCompleting, setQuickCompleting] = useState(false)
 	const [quickCopied, setQuickCopied] = useState(false)
 	const [quickError, setQuickError] = useState<string | null>(null)
+	const [cleanup, setCleanup] = useState<RouterOSCleanupResponse | null>(() => consumePendingRouterOSCleanup())
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
 	const verificationRequired = connectionChanged && !verification
@@ -1473,12 +1570,29 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 
   const copyScript = async () => {
     if (!provisioningSession) return
+    setQuickError(null)
     try {
-      await navigator.clipboard.writeText(provisioningSession.script)
+      await copyText(provisioningSession.script)
       setQuickCopied(true)
-      setTimeout(() => setQuickCopied(false), 2000)
+      window.setTimeout(() => setQuickCopied(false), 2000)
     } catch {
       setQuickError('复制失败，请手动选择并复制脚本')
+    }
+  }
+
+  const archiveDevice = async () => {
+    if (!draft.id || !window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) return
+    setSavingAction('save')
+    setMessage('正在归档设备，面板随后会重启...')
+    try {
+      await props.onRestartingAction(async () => {
+        const response = await requestJSON(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE')
+        const result = await response.json() as { cleanup?: RouterOSCleanupResponse }
+        if (result.cleanup) storePendingRouterOSCleanup(result.cleanup)
+      }, () => setMessage('设备已归档，面板正在启动...'))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '归档设备失败')
+      setSavingAction(null)
     }
   }
 
@@ -1489,6 +1603,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
     <div className="device-settings-editor">
+    {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
         <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>快速接入（推荐）</button>
@@ -1614,7 +1729,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         </div>
       </details>
       <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
+      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
@@ -1624,6 +1739,9 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 
 function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsResponse; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const archived = settings.devices.filter((device) => device.archived)
+  const [cleanup, setCleanup] = useState<RouterOSCleanupResponse | null>(null)
+  const [cleanupLoadingID, setCleanupLoadingID] = useState('')
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
   if (!archived.length) return null
   const act = async (device: SettingsDevice, purge: boolean) => {
     const confirmation = purge ? window.prompt(`输入设备名称“${device.name}”以永久清除全部历史数据`) : null
@@ -1633,7 +1751,29 @@ function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsR
       () => undefined,
     )
   }
-  return <div className="archived-devices"><strong>已归档设备</strong>{archived.map((device) => <div key={device.id}><span>{device.name}</span><button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button><button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button></div>)}</div>
+  const loadCleanup = async (device: SettingsDevice) => {
+    setCleanupLoadingID(device.id)
+    setCleanupError(null)
+    try {
+      const response = await requestJSON(`/api/devices/${encodeURIComponent(device.id)}/cleanup-script`, 'GET')
+      setCleanup(await response.json() as RouterOSCleanupResponse)
+    } catch (error) {
+      setCleanupError(error instanceof Error ? error.message : '读取 RouterOS 清理脚本失败')
+    } finally {
+      setCleanupLoadingID('')
+    }
+  }
+  return <div className="archived-devices">
+    <strong>已归档设备</strong>
+    {archived.map((device) => <div className="archived-device-row" key={device.id}>
+      <span>{device.name}</span>
+      {device.cleanupAvailable ? <button type="button" className="toolbar-button" disabled={cleanupLoadingID === device.id} onClick={() => void loadCleanup(device)}>{cleanupLoadingID === device.id ? '正在生成...' : 'RouterOS 清理脚本'}</button> : null}
+      <button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button>
+      <button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button>
+    </div>)}
+    {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
+    {cleanupError ? <div className="settings-message" role="alert">{cleanupError}</div> : null}
+  </div>
 }
 
 function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: CollectionDraft) => Promise<void> }) {

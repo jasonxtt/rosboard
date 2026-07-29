@@ -26,11 +26,17 @@ type Config struct {
 const DefaultDeviceID = "default"
 
 type DeviceConfig struct {
-	ID       string         `yaml:"id"`
-	Name     string         `yaml:"name"`
-	Enabled  bool           `yaml:"enabled"`
-	Archived bool           `yaml:"archived,omitempty"`
-	RouterOS RouterOSConfig `yaml:"routeros"`
+	ID             string                  `yaml:"id"`
+	Name           string                  `yaml:"name"`
+	Enabled        bool                    `yaml:"enabled"`
+	Archived       bool                    `yaml:"archived,omitempty"`
+	ManagedAccount *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
+	RouterOS       RouterOSConfig          `yaml:"routeros"`
+}
+
+type ManagedRouterOSAccount struct {
+	Username  string `yaml:"username"`
+	GroupName string `yaml:"group_name"`
 }
 
 type RouterOSConfig struct {

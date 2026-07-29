@@ -113,7 +113,7 @@ export type RouteStat = { id: string; kind: string; family: string; destination:
 export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
-  username: string; passwordSet: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
+  username: string; passwordSet: boolean; cleanupAvailable: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
 }
 export type TrafficScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[] }
 export type TrafficScope = { mode: string; legacy: boolean; interfaces: { name: string; kind: string; reasons: string[]; automatic: boolean; running: boolean; disabled: boolean }[]; warnings: string[]; overridesApplied: boolean }
@@ -180,6 +180,15 @@ export type SettingsResponse = {
     updatedAt: string
   }
   devices: SettingsDevice[]
+}
+
+
+export type RouterOSCleanupResponse = {
+  deviceId: string
+  name: string
+  username: string
+  groupName: string
+  script: string
 }
 
 export type ProvisioningSessionResponse = {

@@ -173,6 +173,77 @@ func provisioningScript(username, groupName, password string) string {
 `, groupName, groupName, username, username, password, groupName, password, groupName, username)
 }
 
+func provisioningCleanupScript(username, groupName string) string {
+	return fmt.Sprintf(`{
+:local rbUserId [/user find where name="%s"]
+:if ([:len $rbUserId] > 0) do={
+    /user remove $rbUserId
+}
+:local rbGroupId [/user group find where name="%s"]
+:if ([:len $rbGroupId] > 0) do={
+    :local rbGroupUsers [/user find where group="%s"]
+    :if ([:len $rbGroupUsers] = 0) do={
+        /user group remove $rbGroupId
+    } else={
+        :put ("rosboard group retained because it is still in use: " . "%s")
+    }
+}
+:put ("rosboard account cleanup complete: " . "%s")
+}
+`, username, groupName, groupName, groupName, username)
+}
+
+type routerOSCleanupResponse struct {
+	DeviceID string `json:"deviceId"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Group    string `json:"groupName"`
+	Script   string `json:"script"`
+}
+
+func managedRouterOSAccount(device config.DeviceConfig) (config.ManagedRouterOSAccount, bool) {
+	if device.ManagedAccount != nil {
+		username := strings.TrimSpace(device.ManagedAccount.Username)
+		groupName := strings.TrimSpace(device.ManagedAccount.GroupName)
+		if username != "" && groupName != "" {
+			return config.ManagedRouterOSAccount{Username: username, GroupName: groupName}, true
+		}
+	}
+
+	const prefix = "rosboard_"
+	username := strings.TrimSpace(device.RouterOS.Username)
+	if !strings.HasPrefix(username, prefix) {
+		return config.ManagedRouterOSAccount{}, false
+	}
+	suffix := strings.TrimPrefix(username, prefix)
+	if len(suffix) != 16 {
+		return config.ManagedRouterOSAccount{}, false
+	}
+	for _, character := range suffix {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return config.ManagedRouterOSAccount{}, false
+		}
+	}
+	return config.ManagedRouterOSAccount{
+		Username:  username,
+		GroupName: "rosboard_g_" + suffix,
+	}, true
+}
+
+func routerOSCleanupForDevice(device config.DeviceConfig) (routerOSCleanupResponse, bool) {
+	account, ok := managedRouterOSAccount(device)
+	if !ok {
+		return routerOSCleanupResponse{}, false
+	}
+	return routerOSCleanupResponse{
+		DeviceID: device.ID,
+		Name:     device.Name,
+		Username: account.Username,
+		Group:    account.GroupName,
+		Script:   provisioningCleanupScript(account.Username, account.GroupName),
+	}, true
+}
+
 type createProvisioningSessionRequest struct {
 	Name   string `json:"name"`
 	Host   string `json:"host"`
@@ -378,6 +449,10 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 		device, consumeTicket, err := s.prepareDevice(ctx, deviceID, devicePayload, nil)
 		if err != nil {
 			return "", err
+		}
+		device.ManagedAccount = &config.ManagedRouterOSAccount{
+			Username:  session.username,
+			GroupName: session.groupName,
 		}
 		if err := s.saveSettings(func(next *config.Config) {
 			next.Devices = append(next.Devices, device)

@@ -120,6 +120,10 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	}
 	if existing != nil {
 		device.Archived = existing.Archived
+		if existing.ManagedAccount != nil {
+			managedAccount := *existing.ManagedAccount
+			device.ManagedAccount = &managedAccount
+		}
 	}
 	return device, consumeTicket, nil
 }
