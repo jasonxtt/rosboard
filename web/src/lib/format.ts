@@ -3,7 +3,7 @@ import type { ActiveView, Terminal, TerminalFamily, TerminalSortKey } from './ty
 export function viewTitle(view: ActiveView) {
   const titles: Record<ActiveView, string> = {
     overview: '系统概览',
-    interfaces: '线路监控',
+    interfaces: '接口监控',
     terminals: '终端监控',
     load: '负载历史',
     protocols: '协议统计',

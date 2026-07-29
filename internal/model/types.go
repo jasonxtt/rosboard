@@ -57,28 +57,35 @@ type LoadSample struct {
 }
 
 type InterfaceStatus struct {
-	Name           string   `json:"name"`
-	Type           string   `json:"type"`
-	Running        bool     `json:"running"`
-	Disabled       bool     `json:"disabled"`
-	MACAddress     string   `json:"macAddress"`
-	Status         string   `json:"status"`
-	LastLinkUpTime string   `json:"lastLinkUpTime"`
-	LinkDowns      int64    `json:"linkDowns"`
-	ActualMTU      int64    `json:"actualMtu"`
-	RXBytes        int64    `json:"rxBytes"`
-	TXBytes        int64    `json:"txBytes"`
-	CurrentRXBps   float64  `json:"currentRxBps"`
-	CurrentTXBps   float64  `json:"currentTxBps"`
-	Addresses      []string `json:"addresses"`
-	RXPackets      int64    `json:"rxPackets"`
-	TXPackets      int64    `json:"txPackets"`
-	RXDrops        int64    `json:"rxDrops"`
-	TXDrops        int64    `json:"txDrops"`
-	RXErrors       int64    `json:"rxErrors"`
-	TXErrors       int64    `json:"txErrors"`
-	LinkRate       string   `json:"linkRate"`
-	FullDuplex     bool     `json:"fullDuplex"`
+	Name           string              `json:"name"`
+	Type           string              `json:"type"`
+	Running        bool                `json:"running"`
+	Disabled       bool                `json:"disabled"`
+	MACAddress     string              `json:"macAddress"`
+	Status         string              `json:"status"`
+	LastLinkUpTime string              `json:"lastLinkUpTime"`
+	LinkDowns      int64               `json:"linkDowns"`
+	ActualMTU      int64               `json:"actualMtu"`
+	RXBytes        int64               `json:"rxBytes"`
+	TXBytes        int64               `json:"txBytes"`
+	CurrentRXBps   float64             `json:"currentRxBps"`
+	CurrentTXBps   float64             `json:"currentTxBps"`
+	Addresses      []string            `json:"addresses"`
+	RXPackets      int64               `json:"rxPackets"`
+	TXPackets      int64               `json:"txPackets"`
+	RXDrops        int64               `json:"rxDrops"`
+	TXDrops        int64               `json:"txDrops"`
+	RXErrors       int64               `json:"rxErrors"`
+	TXErrors       int64               `json:"txErrors"`
+	LinkRate       string              `json:"linkRate"`
+	FullDuplex     bool                `json:"fullDuplex"`
+	Category       string              `json:"category"`
+	Relations      []InterfaceRelation `json:"relations"`
+}
+
+type InterfaceRelation struct {
+	Kind      string `json:"kind"`
+	Interface string `json:"interface"`
 }
 
 type InterfaceDetail struct {
@@ -154,6 +161,8 @@ type TerminalConnection struct {
 	RouteID            string   `json:"routeId"`
 	RouteIDs           []string `json:"routeIds"`
 	RouteGateways      []string `json:"routeGateways"`
+	RouteInterfaces    []string `json:"routeInterfaces"`
+	EgressInterfaces   []string `json:"egressInterfaces"`
 	RouteMatchBasis    string   `json:"routeMatchBasis"`
 	RouteAttribution   string   `json:"routeAttribution"`
 	Estimated          bool     `json:"estimated"`

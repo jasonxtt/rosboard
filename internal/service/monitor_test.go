@@ -254,6 +254,10 @@ func TestBuildTerminalsKeepsRawTupleAndTerminalTrafficDirection(t *testing.T) {
 	t.Cleanup(func() { _ = storage.Close() })
 
 	monitor := &Monitor{store: storage}
+	routeLookup := newRouteMatcher(nil, []routeros.RoutingRoute{{ID: "*route", DstAddress: "0.0.0.0/0", RoutingTable: "main", ImmediateGateway: "pppoe-out1", Distance: "1", Active: "true"}}).withTopology(newInterfaceTopology(
+		[]routeros.Interface{{Name: "wan", Type: "ether"}, {Name: "pppoe-out1", Type: "pppoe-out"}},
+		[]routeros.EthernetInterface{{Name: "wan"}}, []routeros.PPPoEClient{{Name: "pppoe-out1", Interface: "wan"}}, nil, nil,
+	))
 	connections := []routeros.FirewallConnection{{
 		Protocol: "tcp", SrcAddress: "198.51.100.20", SrcPort: "443", DstAddress: "203.0.113.10", DstPort: "51000",
 		ReplySrcAddress: "10.0.0.8", ReplySrcPort: "51000", ReplyDstAddress: "198.51.100.20", ReplyDstPort: "443",
@@ -262,7 +266,7 @@ func TestBuildTerminalsKeepsRawTupleAndTerminalTrafficDirection(t *testing.T) {
 	_, details, err := monitor.buildTerminals(
 		context.Background(), time.Unix(1600, 0).UTC(), parseCIDRs([]string{"10.0.0.0/24"}), nil, nil,
 		[]routeros.ARPEntry{{Address: "10.0.0.8", MACAddress: "00:11:22:33:44:08", Interface: "lan", Status: "reachable"}},
-		nil, connections, nil, routeMatcher{},
+		nil, connections, nil, routeLookup,
 	)
 	if err != nil {
 		t.Fatalf("build terminals: %v", err)
@@ -279,6 +283,9 @@ func TestBuildTerminalsKeepsRawTupleAndTerminalTrafficDirection(t *testing.T) {
 	}
 	if matched.UploadBps != 800 || matched.DownloadBps != 7200 || matched.UploadBytes != 100 || matched.DownloadBytes != 900 {
 		t.Fatalf("terminal upload/download direction is wrong: %#v", matched)
+	}
+	if !reflect.DeepEqual(matched.RouteGateways, []string{"pppoe-out1"}) || !reflect.DeepEqual(matched.RouteInterfaces, []string{"pppoe-out1"}) || !reflect.DeepEqual(matched.EgressInterfaces, []string{"wan"}) {
+		t.Fatalf("terminal route egress projection is wrong: %#v", matched)
 	}
 }
 
@@ -757,5 +764,51 @@ func TestPreserveTerminalRateProjectionKeepsNewerRatesDuringFullRefreshCommit(t 
 	}
 	if snapshot.Overview.ConnectionCount != 2 || len(snapshot.Protocols) != 1 {
 		t.Fatalf("full snapshot did not retain current terminal projection: %#v", snapshot)
+	}
+}
+
+func TestBuildInterfacesClassifiesAndProjectsRelations(t *testing.T) {
+	interfaces := []routeros.Interface{
+		{Name: "lan", Type: "ether", Running: "true"},
+		{Name: "wan", Type: "ether", Running: "false"},
+		{Name: "pppoe-out1", Type: "pppoe-out", Running: "true"},
+		{Name: "vlan2-aruba", Type: "vlan", Running: "true"},
+		{Name: "br-container-test", Type: "bridge", Running: "true"},
+		{Name: "veth-test", Type: "veth", Running: "true"},
+		{Name: "wireguard1", Type: "wireguard", Running: "true"},
+		{Name: "lo", Type: "loopback", Running: "true"},
+	}
+	topology := newInterfaceTopology(
+		interfaces,
+		[]routeros.EthernetInterface{{Name: "lan"}, {Name: "wan"}},
+		[]routeros.PPPoEClient{{Name: "pppoe-out1", Interface: "wan"}},
+		[]routeros.VLANInterface{{Name: "vlan2-aruba", Interface: "lan"}},
+		[]routeros.BridgePort{{Interface: "veth-test", Bridge: "br-container-test"}},
+	)
+	got := buildInterfaces(interfaces, nil, nil, nil, topology)
+	byName := make(map[string]model.InterfaceStatus, len(got))
+	for _, iface := range got {
+		byName[iface.Name] = iface
+	}
+	if byName["lan"].Category != "physical" || byName["wan"].Category != "physical" || byName["lo"].Category != "system" {
+		t.Fatalf("unexpected categories: lan=%#v wan=%#v lo=%#v", byName["lan"], byName["wan"], byName["lo"])
+	}
+	for _, name := range []string{"pppoe-out1", "vlan2-aruba", "br-container-test", "veth-test", "wireguard1"} {
+		if byName[name].Category != "logical" {
+			t.Fatalf("%s category = %q", name, byName[name].Category)
+		}
+	}
+	if !reflect.DeepEqual(byName["pppoe-out1"].Relations, []model.InterfaceRelation{{Kind: "carrier", Interface: "wan"}}) ||
+		!reflect.DeepEqual(byName["vlan2-aruba"].Relations, []model.InterfaceRelation{{Kind: "parent", Interface: "lan"}}) ||
+		!reflect.DeepEqual(byName["veth-test"].Relations, []model.InterfaceRelation{{Kind: "bridge", Interface: "br-container-test"}}) ||
+		!reflect.DeepEqual(byName["br-container-test"].Relations, []model.InterfaceRelation{{Kind: "member", Interface: "veth-test"}}) {
+		t.Fatalf("unexpected relations: %#v", byName)
+	}
+	if len(byName["wireguard1"].Relations) != 0 {
+		t.Fatalf("WireGuard must remain independent: %#v", byName["wireguard1"])
+	}
+	fallback := newInterfaceTopology([]routeros.Interface{{Name: "ether-fallback", Type: "ether"}}, nil, nil, nil, nil)
+	if category := interfaceCategory(routeros.Interface{Name: "ether-fallback", Type: "ether"}, fallback); category != "physical" {
+		t.Fatalf("ethernet type fallback category = %q", category)
 	}
 }

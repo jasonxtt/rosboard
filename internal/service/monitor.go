@@ -563,7 +563,8 @@ func terminalConnectionRow(family string, connection routeros.FirewallConnection
 		PublicAddress: view.PublicAddress, ConnectionMark: preferredName(connection.ConnectionMark, connection.RoutingMark), RoutingMark: connection.RoutingMark,
 		RouteTable: attribution.Table, MatchedRule: attribution.Rule, MatchedRuleID: attribution.RuleID,
 		RouteDestination: attribution.Destination, RouteID: attribution.RouteID, RouteIDs: attribution.RouteIDs,
-		RouteGateways: attribution.Gateways, RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State, Estimated: true,
+		RouteGateways: attribution.Gateways, RouteInterfaces: attribution.RouteInterfaces, EgressInterfaces: attribution.EgressInterfaces,
+		RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State, Estimated: true,
 	}
 }
 
@@ -977,7 +978,16 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if pppoeErr != nil {
 		addWarning("topology-pppoe-clients", "流量采集", "PPPoE Client 拓扑数据不可用，已使用接口类型降级识别。")
 	}
-	routeLookup := newRouteMatcher(routingRules, routingRoutes)
+	vlans, vlanErr := m.client.VLANInterfaces(pollCtx)
+	if vlanErr != nil {
+		addWarning("topology-vlans", "接口采集", "VLAN 拓扑数据不可用，接口父级关系暂时缺失。")
+	}
+	bridgePorts, bridgePortErr := m.client.BridgePorts(pollCtx)
+	if bridgePortErr != nil {
+		addWarning("topology-bridge-ports", "接口采集", "Bridge 端口拓扑数据不可用，成员关系暂时缺失。")
+	}
+	interfaceTopology := newInterfaceTopology(interfaces, ethernet, pppoeClients, vlans, bridgePorts)
+	routeLookup := newRouteMatcher(routingRules, routingRoutes).withTopology(interfaceTopology)
 	m.routeMu.Lock()
 	m.routeLookup = routeLookup
 	m.routeMu.Unlock()
@@ -1014,7 +1024,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	trafficInterfaces := trafficScope.selectedNames()
 	localCIDRs := scopeNetworks(terminalScope)
-	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates)
+	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates, interfaceTopology)
 	terminals, details, err := m.buildTerminals(
 		pollCtx,
 		now,
@@ -1778,6 +1788,7 @@ func buildInterfaces(
 	ethernet []routeros.EthernetInterface,
 	addresses []routeros.IPAddress,
 	trafficRates map[string]routeros.MonitorTrafficEntry,
+	topology interfaceTopology,
 ) []model.InterfaceStatus {
 	ethernetByName := map[string]routeros.EthernetInterface{}
 	for _, iface := range ethernet {
@@ -1821,6 +1832,8 @@ func buildInterfaces(
 			TXErrors:       parseInt(iface.TXError),
 			LinkRate:       ethernetByName[iface.Name].Rate,
 			FullDuplex:     parseBool(ethernetByName[iface.Name].FullDuplex),
+			Category:       interfaceCategory(iface, topology),
+			Relations:      append([]model.InterfaceRelation{}, topology.relations[iface.Name]...),
 		})
 	}
 
@@ -1828,6 +1841,16 @@ func buildInterfaces(
 		return result[left].Name < result[right].Name
 	})
 	return result
+}
+
+func interfaceCategory(iface routeros.Interface, topology interfaceTopology) string {
+	if strings.EqualFold(strings.TrimSpace(iface.Type), "loopback") {
+		return "system"
+	}
+	if topology.physical[iface.Name] {
+		return "physical"
+	}
+	return "logical"
 }
 
 func buildCapabilities(healthEnabled bool) []model.CapabilityNote {

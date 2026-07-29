@@ -7,28 +7,110 @@ import (
 	"strconv"
 	"strings"
 
+	"rosboard/internal/model"
 	"rosboard/internal/routeros"
 )
 
 type routeAttribution struct {
-	Table       string
-	Rule        string
-	RuleID      string
-	Destination string
-	RouteID     string
-	RouteIDs    []string
-	Gateways    []string
-	Basis       string
-	State       string
+	Table            string
+	Rule             string
+	RuleID           string
+	Destination      string
+	RouteID          string
+	RouteIDs         []string
+	Gateways         []string
+	RouteInterfaces  []string
+	EgressInterfaces []string
+	Basis            string
+	State            string
 }
 
 type routeMatcher struct {
-	rules  []routeros.RoutingRule
-	routes []routeros.RoutingRoute
+	rules    []routeros.RoutingRule
+	routes   []routeros.RoutingRoute
+	topology interfaceTopology
+}
+
+type interfaceTopology struct {
+	physical  map[string]bool
+	parents   map[string]string
+	relations map[string][]model.InterfaceRelation
 }
 
 func newRouteMatcher(rules []routeros.RoutingRule, routes []routeros.RoutingRoute) routeMatcher {
 	return routeMatcher{rules: rules, routes: routes}
+}
+
+func (m routeMatcher) withTopology(topology interfaceTopology) routeMatcher {
+	m.topology = topology
+	return m
+}
+
+func newInterfaceTopology(interfaces []routeros.Interface, ethernet []routeros.EthernetInterface, pppoe []routeros.PPPoEClient, vlans []routeros.VLANInterface, bridgePorts []routeros.BridgePort) interfaceTopology {
+	topology := interfaceTopology{physical: map[string]bool{}, parents: map[string]string{}, relations: map[string][]model.InterfaceRelation{}}
+	for _, item := range ethernet {
+		topology.physical[item.Name] = true
+	}
+	for _, item := range interfaces {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "ether") {
+			topology.physical[item.Name] = true
+		}
+	}
+	addParent := func(child, parent, kind string) {
+		child, parent = strings.TrimSpace(child), strings.TrimSpace(parent)
+		if child == "" || parent == "" {
+			return
+		}
+		topology.parents[child] = parent
+		topology.relations[child] = appendUniqueRelation(topology.relations[child], model.InterfaceRelation{Kind: kind, Interface: parent})
+	}
+	for _, item := range pppoe {
+		addParent(item.Name, item.Interface, "carrier")
+	}
+	for _, item := range vlans {
+		addParent(item.Name, item.Interface, "parent")
+	}
+	for _, item := range bridgePorts {
+		member, bridge := strings.TrimSpace(item.Interface), strings.TrimSpace(item.Bridge)
+		if member == "" || bridge == "" {
+			continue
+		}
+		topology.relations[member] = appendUniqueRelation(topology.relations[member], model.InterfaceRelation{Kind: "bridge", Interface: bridge})
+		topology.relations[bridge] = appendUniqueRelation(topology.relations[bridge], model.InterfaceRelation{Kind: "member", Interface: member})
+	}
+	for name := range topology.relations {
+		sort.Slice(topology.relations[name], func(i, j int) bool {
+			left, right := topology.relations[name][i], topology.relations[name][j]
+			if left.Kind != right.Kind {
+				return left.Kind < right.Kind
+			}
+			return left.Interface < right.Interface
+		})
+	}
+	return topology
+}
+
+func appendUniqueRelation(relations []model.InterfaceRelation, relation model.InterfaceRelation) []model.InterfaceRelation {
+	for _, existing := range relations {
+		if existing == relation {
+			return relations
+		}
+	}
+	return append(relations, relation)
+}
+
+func (t interfaceTopology) physicalEgress(name string) string {
+	visited := map[string]bool{}
+	for name = strings.TrimSpace(name); name != "" && !visited[name]; name = strings.TrimSpace(t.parents[name]) {
+		if t.physical[name] {
+			return name
+		}
+		visited[name] = true
+		if _, exists := t.parents[name]; !exists {
+			return ""
+		}
+	}
+	return ""
 }
 
 func (m routeMatcher) match(family, source, destination, inputInterface, routingMark string) routeAttribution {
@@ -110,7 +192,7 @@ func (m routeMatcher) match(family, source, destination, inputInterface, routing
 		}{index: index, route: route, prefix: ones, distance: parseInt(route.Distance)})
 	}
 	if len(candidates) == 0 && matchedRuleIndex >= 0 && strings.EqualFold(matchedRule.Action, "lookup") && normalizedTable(table) != "main" {
-		fallback := newRouteMatcher(nil, m.routes).match(family, source, destination, inputInterface, "main")
+		fallback := newRouteMatcher(nil, m.routes).withTopology(m.topology).match(family, source, destination, inputInterface, "main")
 		fallback.Rule = attribution.Rule
 		fallback.RuleID = attribution.RuleID
 		fallback.Basis = "routing rule fallback"
@@ -133,16 +215,43 @@ func (m routeMatcher) match(family, source, destination, inputInterface, routing
 		if candidate.prefix != best.prefix || candidate.distance != best.distance || candidate.route.DstAddress != best.route.DstAddress {
 			break
 		}
-		gateway := preferredName(candidate.route.ImmediateGateway, candidate.route.Gateway)
+		gateway, routeInterface := routeGatewayAndInterface(candidate.route)
 		attribution.RouteIDs = append(attribution.RouteIDs, stableRouteID(candidate.route, candidate.index))
-		if gateway != "" {
-			attribution.Gateways = append(attribution.Gateways, gateway)
-		}
+		attribution.Gateways = appendUniqueString(attribution.Gateways, gateway)
+		attribution.RouteInterfaces = appendUniqueString(attribution.RouteInterfaces, routeInterface)
+		attribution.EgressInterfaces = appendUniqueString(attribution.EgressInterfaces, m.topology.physicalEgress(routeInterface))
 	}
-	if len(attribution.Gateways) > 1 {
+	if len(attribution.RouteIDs) > 1 {
 		attribution.State = "ambiguous"
 	}
 	return attribution
+}
+
+func routeGatewayAndInterface(route routeros.RoutingRoute) (string, string) {
+	value := strings.TrimSpace(preferredName(route.ImmediateGateway, route.Gateway))
+	if value == "" {
+		return "", ""
+	}
+	if separator := strings.LastIndex(value, "%"); separator > 0 && separator < len(value)-1 {
+		return strings.TrimSpace(value[:separator]), strings.TrimSpace(value[separator+1:])
+	}
+	if net.ParseIP(value) == nil {
+		return value, value
+	}
+	return value, ""
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func addressMatches(address, prefix string) bool {

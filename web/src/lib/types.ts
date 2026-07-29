@@ -59,6 +59,8 @@ export type InterfaceStatus = {
   txErrors: number
   linkRate: string
   fullDuplex: boolean
+  category: 'physical' | 'logical' | 'system'
+  relations: Array<{ kind: 'carrier' | 'parent' | 'bridge' | 'member'; interface: string }>
 }
 
 export type InterfaceDetail = { interface: InterfaceStatus; samples: RateSample[] }
@@ -247,6 +249,8 @@ export type TerminalConnection = {
   routeId: string
   routeIds: string[]
   routeGateways: string[]
+  routeInterfaces: string[]
+  egressInterfaces: string[]
   routeMatchBasis: string
   routeAttribution: string
   estimated: boolean
