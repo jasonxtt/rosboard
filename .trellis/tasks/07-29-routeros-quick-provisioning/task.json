@@ -12,7 +12,7 @@
   "assignee": "tom",
   "createdAt": "2026-07-29",
   "completedAt": null,
-  "branch": null,
+  "branch": "feat/quick-provisioning",
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,

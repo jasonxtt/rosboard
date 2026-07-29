@@ -56,6 +56,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .loading-card .brand-mark { display: block; margin: 0 auto 12px; }
 .loading-card h1 { margin: 0 0 8px; color: var(--color-sidebar); }
 .setup-panel { width: min(720px, 100%); }
+.setup-panel-wide { width: min(1240px, 100%); }
 .auth-panel { padding: 24px; }
 .auth-form { margin-top: 20px; }
 .settings-form.admin-setup-form { grid-template-columns: 1fr; width: min(384px, 100%); margin-inline: auto; }
@@ -69,7 +70,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .onboarding-choice-card small { color: var(--color-text-muted); line-height: 1.5; }
 .primary-choice { background: var(--color-primary-soft); border-color: var(--color-primary); }
 .setup-skip { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-soft); }
-.setup-back { display: flex; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-soft); }
+.setup-back { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-soft); }
 .empty-device-callout { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 16px; color: var(--color-text-muted); background: var(--color-primary-soft); border: 1px solid #bfdbfe; border-radius: var(--radius-md); }
 .empty-device-callout .ui-icon { flex: 0 0 auto; color: var(--color-primary); font-size: 28px; }
 .empty-device-callout h3 { margin: 0 0 4px; color: var(--color-text); }
@@ -530,7 +531,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 2px; }
 .settings-actions .toolbar-button { display: inline-flex; align-items: center; gap: 7px; }
 .settings-actions .toolbar-button .ui-icon { width: 14px; height: 14px; }
-.onboarding-device-actions > button { display: inline-flex; min-width: 128px; align-items: center; justify-content: center; }
 .settings-inline-note { align-self: center; color: var(--color-text-muted); font-size: 12px; }
 .settings-message { padding: 10px 12px; color: #075985; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: var(--radius-sm); font-size: 12px; }
 .password-input, .number-input { position: relative; display: block; color: inherit; font-size: inherit; font-weight: inherit; }
@@ -825,6 +825,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .provisioning-form > .settings-message { grid-column: 1 / -1; }
 .provisioning-step { display: grid; gap: 16px; min-width: 0; }
 .provisioning-step-card { display: grid; gap: 10px; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.provisioning-step-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.provisioning-script-toggle { min-height: 32px; }
 .provisioning-step-card strong { font-size: 14px; color: var(--color-text); }
 .provisioning-step-card p { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.6; }
 .provisioning-script-area { max-width: 100%; overflow-x: auto; }
@@ -833,6 +835,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .provisioning-http-notice { margin: 0; padding: 10px 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.5; }
 .provisioning-expiry { margin: 0; color: var(--color-text-muted); font-size: 12px; }
 .provisioning-advanced { min-width: 0; }
+.pending-device-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: min(920px, 100%); margin-top: 18px; padding: 14px 16px; color: var(--color-text-muted); background: var(--color-primary-soft); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 13px; }
+.pending-device-actions .complete-setup-button { flex: 0 0 auto; }
 
 @media (max-width: 767px) {
   .provisioning-mode-toggle, .provisioning-flow, .provisioning-form { width: 100%; max-width: none; }
@@ -841,6 +845,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .provisioning-form > .provisioning-http-notice,
   .provisioning-form > .settings-actions,
   .provisioning-form > .settings-message { grid-column: auto; }
+  .provisioning-script-toggle { min-height: 44px; }
+  .setup-back { flex-wrap: wrap; }
+  .setup-back .complete-setup-button { min-height: 44px; }
+  .pending-device-actions { align-items: stretch; flex-direction: column; }
+  .pending-device-actions .complete-setup-button { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

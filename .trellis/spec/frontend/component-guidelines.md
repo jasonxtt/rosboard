@@ -202,7 +202,10 @@ const payload = JSON.stringify({
 - The post-admin choice page is the only place that offers explicit RouterOS skip. The device editor does not repeat skip.
 - Before a successful connection test, hide collection interface/CIDR controls. Any connection-field change clears the verification result.
 - The onboarding editor keeps the device list and `+` entry visible. Save-only refreshes the list without waiting for restart, so another device can be added.
-- `保存设备` and `完成设置` are adjacent equal-size filled actions: blue save and semantic green completion. Completion may directly save a valid unsaved draft, shows `正在完成...`, restarts once, and reloads only after health/assets return.
+- Quick-provisioning script content uses progressive disclosure: keep it out of the default layout, provide separate copy and `查看脚本` / `隐藏脚本` controls, and announce expansion with `aria-expanded`.
+- Keep the three quick-provisioning steps vertically stacked at every width. The collapsed default must fit the normal desktop viewport without making the script the visual focus.
+- Each onboarding save returns to a blank new-device editor without restarting. Once at least one device is saved, a separate bottom `完成设置并进入面板` action completes onboarding and restarts once.
+- Ready-phase new-device saves also defer restart. Keep a visible `应用全部设备并重启` action until the user applies the batch; existing-device edits retain their normal save-and-restart behavior.
 - On mobile, onboarding controls are at least 44px high and the document has no horizontal overflow.
 - Account security is one compact username/password/confirmation form. It does not request the old password; successful save returns to login. Logout is a separate session section.
 - Full reset uses a visually separate solid danger action and one native confirm; it does not require typed confirmation.
@@ -212,15 +215,15 @@ const payload = JSON.stringify({
 - Bootstrap request failure -> keep an explicit startup error, not a guessed panel/setup page.
 - Password mismatch -> disable submission and preserve inputs.
 - Connection test failure -> retain connection inputs and keep collection controls unavailable.
-- Missing interface/CIDR -> disable both onboarding save and completion.
+- Missing interface/CIDR -> disable onboarding save; the separate final completion action appears only after at least one device has been saved.
 - Save-only success -> show saved message, refresh settings/list, keep onboarding active, and do not show restart progress.
 - Completion request/restart failure -> show a recoverable inline error and keep the draft/setup phase.
 - API HTTP 401 -> dispatch authentication-required, clear sensitive in-memory state through bootstrap rerouting.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: verify a new device, select interface/CIDR, click `完成设置` without first saving, see completion progress, and land directly in the ready panel after restart.
-- Good: save device A, click `+`, save device B, then complete from B; both devices remain listed and configured.
+- Good: save device A, immediately add and save device B, then click the separate final completion action; both devices remain configured and only one restart occurs.
+- Good: from ready-phase device management, save multiple new devices and apply the batch once.
 - Base: skip RouterOS and use the full empty-panel shell with device/account/maintenance settings available.
 - Bad: use one generic restart wrapper for onboarding save-only; it waits for a restart that must not occur.
 - Bad: hide the device list with a `createOnly` layout or route back to the initial choice after completion.
@@ -229,10 +232,10 @@ const payload = JSON.stringify({
 ### 6. Tests Required
 
 - Frontend: oxlint, TypeScript/Vite production build, and dependency audit.
-- Browser desktop: setup/account forms are 384px; onboarding save/completion actions are equal size with distinct blue/green backgrounds.
+- Browser desktop: setup/account forms remain 384px; quick-provisioning steps are vertical and the script is collapsed by default.
 - Browser 375px: action targets are 44px high, the device list and `+` are visible, and document overflow is false.
-- Browser runtime: no console warnings/errors; save-only shows no restart wait; completion reloads only after service recovery.
-- API regression: direct completion persists an unsaved device, sets phase ready, and schedules one restart.
+- Browser runtime: no console warnings/errors; save-only shows no restart wait; the batch apply/final completion action reloads only after service recovery.
+- API regression: onboarding, ready-phase creation, and quick provisioning honor explicit deferred restart; completion still schedules one restart.
 
 ### 7. Wrong vs Correct
 
@@ -245,12 +248,10 @@ await onRestartingAction(() => saveDevice({ completeOnboarding: false }))
 #### Correct
 
 ```tsx
-if (completeOnboarding) {
-  await onRestartingAction(() => saveDevice({ completeOnboarding: true }))
-} else {
-  await saveDevice({ deferRestart: true })
-  await refreshDeviceList()
-}
+await saveDevice({ completeOnboarding: false, deferRestart: true })
+await refreshDeviceList()
+// Later, after all devices are saved:
+await onRestartingAction(() => completeSetup())
 ```
 
 ## Toolbar sizing

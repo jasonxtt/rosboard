@@ -56,8 +56,10 @@ Add:
 - Quick mode form: name, host, advanced settings (scheme/port with HTTP security notice)
 - "Generate Script" button
 - Step display after generation: script readonly textarea, copy button, "I've executed the script, start provisioning" button, "Re-generate script" link
+- Keep the script collapsed by default and stack all three steps vertically.
 - On complete: POST to provisioning session endpoint
-- On restart: reuse existing waitForPanelRestart pattern
+- Save each new device with deferred restart; refresh the device list and allow another device to be added.
+- Reuse `waitForPanelRestart` only for the final onboarding completion or explicit ready-phase apply action.
 - Expired session handling: show re-generate prompt, return to form
 - Error handling: preserve script on failure, allow retry
 

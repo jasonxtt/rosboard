@@ -30,8 +30,9 @@ Add a "Quick Provisioning" flow to rosboard's Device Management that generates r
     - Automatic IPv4/IPv6 local terminal subnet detection
     - verificationTicket creation
     - Device saving logic (config.yaml)
-    - Collection restart → Panel
-11. Existing "Manual Add" flow remains untouched.
+11. Saving a newly added device does not restart collection. The user may add more devices, then explicitly apply all device changes once.
+12. During first-run onboarding, the final "Complete Setup and Enter Panel" action completes onboarding and restarts once after all devices are saved.
+13. Existing-device edits keep their current save-and-restart behavior.
 
 ## Product Boundaries (v1)
 
@@ -69,14 +70,16 @@ Requires admin authentication, same-origin write check, allowed_cidrs. Not a pub
 ### POST /api/device-onboarding/sessions/{sessionId}/complete
 Complete provisioning using stored credentials.
 
-Request: `{ completeOnboarding: boolean }`
+Request: `{ completeOnboarding: boolean, deferRestart?: boolean }`
 
 Reuses existing Verify, PreviewScopes, verificationTicket, prepareDevice, saveSettings logic.
 
 ## Frontend Changes
 
 - Add mode toggle to DeviceSettingsPanel when adding a new device: "Quick Provisioning (Recommended)" / "Manual Add"
-- Quick provisioning flow: name + host fields, advanced settings (protocol/port), generate script, script display area with copy button, completion button
+- Quick provisioning flow: name + host fields, advanced settings (protocol/port), generate script, copy button, script hidden by default behind an accessible disclosure button, completion button
+- The three provisioning steps remain vertically stacked at every width.
+- New devices use save-only behavior; first-run setup and ready-phase device management expose one explicit final apply/restart action.
 - Reuse existing save/restart machinery
 - Accessibility: labels, roles, responsive, no modals
 
@@ -98,3 +101,5 @@ Reuses existing Verify, PreviewScopes, verificationTicket, prepareDevice, saveSe
 14. Frontend lint/build pass
 15. Deployed to 10.0.0.6 with full backup
 16. User manual acceptance before commit
+17. Quick provisioning can save multiple devices without intermediate restarts
+18. A newly added device in ready-phase device management is saved without restart; one explicit apply action restarts after the batch

@@ -42,6 +42,7 @@ import type {
   TerminalTab,
   VerificationResponse,
   ProvisioningSessionResponse,
+  ProvisioningCompleteResponse,
   RouterOSCleanupResponse,
 } from './lib/types'
 
@@ -349,8 +350,8 @@ function App() {
 	return <PanelApp username={bootstrap.username ?? ''} onAuthenticationChanged={() => void refresh()} />
 }
 
-function StartupCard(props: { title: string; description: string; error?: string | null; children?: React.ReactNode }) {
-	return <main className="setup-shell"><section className="panel setup-panel auth-panel">
+function StartupCard(props: { title: string; description: string; error?: string | null; children?: React.ReactNode; wide?: boolean }) {
+	return <main className="setup-shell"><section className={`panel setup-panel auth-panel${props.wide ? ' setup-panel-wide' : ''}`}>
 		<div className="setup-brand"><img className="brand-mark" src={rosboardMark} alt="" /><div><h1>{props.title}</h1><p>{props.description}</p></div></div>
 		{props.error ? <div className="global-error">{props.error}</div> : null}
 		{props.children}
@@ -394,6 +395,7 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 	const [editorDeviceID, setEditorDeviceID] = useState('')
 	const [editorVersion, setEditorVersion] = useState(0)
 	const [message, setMessage] = useState<string | null>(null)
+	const [finishing, setFinishing] = useState(false)
 	const loadSettings = async () => {
 		const response = await fetch('/api/settings', { cache: 'no-store' })
 		if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -405,6 +407,16 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 		await action()
 		try { await waitForPanelRestart(onOffline) } finally { props.onComplete() }
 	}
+	const finishSetup = async () => {
+		setFinishing(true)
+		setError(null)
+		try {
+			await onRestartingAction(() => postJSON('/api/setup/complete', { skipRouterOS: false }).then(() => undefined), () => setError('面板正在启动，恢复后将自动进入面板...'))
+		} catch (finishError) {
+			setError(finishError instanceof Error ? finishError.message : '完成设置失败')
+			setFinishing(false)
+		}
+	}
 	useEffect(() => { void loadSettings().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '设置读取失败')) }, [])
 	if (stage === 'choice') return <StartupCard title="开始使用 Rosboard" description="管理员已创建。现在可以添加第一台 RouterOS，也可以稍后再配置。" error={error}>
 		<div className="onboarding-choice">
@@ -412,10 +424,10 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 			<button type="button" className="onboarding-choice-card" onClick={async () => { try { const hasDevices = Boolean(settings?.devices.length); if (hasDevices) await onRestartingAction(() => postJSON('/api/setup/complete', { skipRouterOS: false }).then(() => undefined), () => setError('面板正在启动，恢复后将自动进入面板...')); else { await postJSON('/api/setup/complete', { skipRouterOS: true }); props.onComplete() } } catch (skipError) { setError(skipError instanceof Error ? skipError.message : '进入面板失败') } }}><Icon name="overview" /><span><strong>{settings?.devices.length ? '进入面板' : '跳过并进入面板'}</strong><small>{settings?.devices.length ? '重启采集服务并进入监控面板' : '稍后可在设备管理中添加 RouterOS'}</small></span></button>
 		</div>
 	</StartupCard>
-	return <StartupCard title="添加 RouterOS" description="填写连接信息并测试成功后，再选择采集接口和本地 CIDR。" error={error}>
+	return <StartupCard wide title="添加 RouterOS" description="填写连接信息并测试成功后，再选择采集接口和本地 CIDR。" error={error}>
 		{message ? <div className="settings-message" role="status">{message}</div> : null}
-		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async (deviceID) => { await loadSettings(); setEditorDeviceID(deviceID); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可点击“+”继续添加设备，或点击“完成设置”。') }} onRestartingAction={onRestartingAction} /> : null}
-		<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button></div>
+		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async () => { await loadSettings(); setEditorDeviceID(''); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可继续添加设备，全部确认后再完成设置。') }} onRestartingAction={onRestartingAction} /> : null}
+		<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button>{settings?.devices.some((device) => !device.archived) ? <button type="button" className="complete-setup-button" disabled={finishing} onClick={() => void finishSetup()}>{finishing ? '正在完成...' : '完成设置并进入面板'}</button> : null}</div>
 	</StartupCard>
 }
 
@@ -427,6 +439,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [deviceChangesPending, setDeviceChangesPending] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
   const [collectionSaving, setCollectionSaving] = useState(false)
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
@@ -463,6 +476,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     savePanelPreferences(next)
   }
   const hasDashboard = dashboard !== null
+
+	const refreshSettingsAfterDeviceSave = async () => {
+		const response = await fetch('/api/settings', { cache: 'no-store' })
+		if (!response.ok) throw new Error(`HTTP ${response.status}`)
+		setSettings(await response.json() as SettingsResponse)
+		setSettingsError(null)
+		setDeviceChangesPending(true)
+	}
 
   useEffect(() => {
     document.documentElement.dataset.theme = panelPreferences.theme
@@ -778,7 +799,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [dashboard, editingTerminalID])
 
   if (!dashboard) {
-	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} />
+	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
@@ -1028,6 +1049,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             restartSaving={restartSaving}
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
+			onDeviceSaved={refreshSettingsAfterDeviceSave}
 			username={props.username}
 			onAuthenticationChanged={props.onAuthenticationChanged}
             onSavePreferences={(preferences) => {
@@ -1144,7 +1166,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   )
 }
 
-function EmptyDevicePanel(props: { settings: SettingsResponse; username: string; onAuthenticationChanged: () => void }) {
+function EmptyDevicePanel(props: { settings: SettingsResponse; username: string; onAuthenticationChanged: () => void; onDeviceSaved: (deviceID: string) => Promise<void> }) {
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '线路监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
@@ -1164,7 +1186,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; username: string;
 			<div className="sidebar-device-card"><label>当前设备</label><p>尚未添加 RouterOS</p></div>
 		</aside>
 		<section className="content"><header className="topbar"><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button><div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div></div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>测试连接并选择至少一个采集接口和本地 CIDR 后即可开始监控。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><div className="panel-head"><h3>维护设置</h3></div><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><div className="panel-head"><h3>维护设置</h3></div><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }
@@ -1209,6 +1231,7 @@ function SettingsPage(props: {
   restartSaving: boolean
   restartMessage: string | null
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
+  onDeviceSaved: (deviceID: string) => Promise<void>
   onSavePreferences: (preferences: PanelPreferences) => void
   onResetPreferences: () => void
   onRestart: () => Promise<void>
@@ -1248,7 +1271,7 @@ function SettingsPage(props: {
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
           <div className="panel-head"><h3>设备管理</h3></div>
-          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onRestartingAction={props.onRestartingAction} />
+          <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onSaved={props.onDeviceSaved} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
             <SettingItem label="服务监听地址" value={props.settings.connection.listenAddress || '-'} />
@@ -1417,7 +1440,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
   const [passwordVisible, setPasswordVisible] = useState(false)
-  const [savingAction, setSavingAction] = useState<'save' | 'complete' | null>(null)
+  const [savingAction, setSavingAction] = useState<'save' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 	const [verification, setVerification] = useState<VerificationResponse | null>(null)
 	const [scopedDashboard, setScopedDashboard] = useState<Pick<DashboardResponse, 'trafficScope' | 'terminalScope'> | null>(null)
@@ -1428,6 +1451,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	// Quick provisioning state
 	const [provisioningMode, setProvisioningMode] = useState<'quick' | 'manual'>('quick')
 	const [provisioningSession, setProvisioningSession] = useState<ProvisioningSessionResponse | null>(null)
+	const [provisioningScriptVisible, setProvisioningScriptVisible] = useState(false)
 	const [quickName, setQuickName] = useState('')
 	const [quickHost, setQuickHost] = useState('10.0.0.1')
 	const [quickScheme, setQuickScheme] = useState<'http' | 'https'>('http')
@@ -1436,6 +1460,9 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	const [quickCompleting, setQuickCompleting] = useState(false)
 	const [quickCopied, setQuickCopied] = useState(false)
 	const [quickError, setQuickError] = useState<string | null>(null)
+	const [quickMessage, setQuickMessage] = useState<string | null>(null)
+	const [pendingDeviceChanges, setPendingDeviceChanges] = useState(false)
+	const [applyingDeviceChanges, setApplyingDeviceChanges] = useState(false)
 	const [cleanup, setCleanup] = useState<RouterOSCleanupResponse | null>(() => consumePendingRouterOSCleanup())
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
@@ -1478,7 +1505,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
   const choose = (device?: SettingsDevice) => {
 	setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null);
 	setVerification(null); setScopedDashboard(null); setScopeError(null);
-	setProvisioningSession(null); setQuickError(null); setQuickCopied(false);
+	setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false);
 	setProvisioningMode('quick')
 	if (!device) {
 	  setQuickName('')
@@ -1498,13 +1525,19 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 			setMessage(error instanceof Error ? error.message : 'RouterOS 连接测试失败')
 		} finally { setTesting(false) }
 	}
-  const request = async (path: string, method: string, body?: unknown, completeOnboarding = false) => {
-	setSavingAction(completeOnboarding ? 'complete' : 'save'); setMessage(null)
+  const request = async (path: string, method: string, body?: unknown) => {
+	setSavingAction('save'); setMessage(null)
     try {
-	  if (props.onboarding && !completeOnboarding) {
+	  if (props.onboarding || !draft.id) {
 		const response = await requestJSON(path, method, body)
 		const result = await response.json() as { id?: string }
 		await props.onSaved?.(result.id || draft.id)
+		if (!props.onboarding) {
+			setDraft(deviceDraft())
+			setVerification(null)
+			setPendingDeviceChanges(true)
+			setMessage('设备已保存，尚未重启采集。可继续添加设备，全部确认后再统一应用。')
+		}
 		setSavingAction(null)
 		return
 	  }
@@ -1512,7 +1545,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
     } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
   }
-	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
+	const saveDevice = () => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding: false, deferRestart: props.onboarding || !draft.id, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } })
   const isAddingNew = !draft.id
   const showQuick = isAddingNew && provisioningMode === 'quick'
   const showManual = !isAddingNew || provisioningMode === 'manual'
@@ -1529,7 +1562,9 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     if (!quickName.trim() || !quickHost.trim()) return
     setQuickGenerating(true)
     setQuickError(null)
+	setQuickMessage(null)
     setProvisioningSession(null)
+	setProvisioningScriptVisible(false)
     setQuickCopied(false)
     try {
       const response = await requestJSON('/api/device-onboarding/sessions', 'POST', {
@@ -1551,12 +1586,23 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     if (!provisioningSession) return
     setQuickCompleting(true)
     setQuickError(null)
+	setQuickMessage(null)
     try {
       const path = `/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`
-      await props.onRestartingAction(
-        () => requestJSON(path, 'POST', { completeOnboarding: Boolean(props.onboarding) }).then(() => undefined),
-        () => setQuickError('面板正在启动，恢复后将自动刷新...'),
-      )
+	  const response = await requestJSON(path, 'POST', { completeOnboarding: false, deferRestart: true })
+	  const result = await response.json() as ProvisioningCompleteResponse
+	  await props.onSaved?.(result.id)
+	  setProvisioningSession(null)
+	  setProvisioningScriptVisible(false)
+	  setQuickCopied(false)
+	  setQuickName('')
+	  setQuickHost('10.0.0.1')
+	  setQuickScheme('http')
+	  setQuickPort(80)
+	  if (!props.onboarding) {
+		setPendingDeviceChanges(true)
+		setQuickMessage('设备已保存，尚未重启采集。可继续添加设备，全部确认后再统一应用。')
+	  }
     } catch (error) {
       if (error instanceof APIRequestError && error.code === 'provisioning_expired') {
         setProvisioningSession(null)
@@ -1567,6 +1613,24 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       setQuickCompleting(false)
     }
   }
+
+	const applyDeviceChanges = async () => {
+		setApplyingDeviceChanges(true)
+		setQuickError(null)
+		setMessage('正在重启面板并应用全部设备配置...')
+		setQuickMessage('正在重启面板并应用全部设备配置...')
+		try {
+			await props.onRestartingAction(() => postJSON('/api/settings/restart').then(() => undefined), () => {
+				setMessage('面板正在启动，恢复后将自动刷新...')
+				setQuickMessage('面板正在启动，恢复后将自动刷新...')
+			})
+		} catch (error) {
+			const failure = error instanceof Error ? error.message : '应用设备配置失败'
+			setMessage(failure)
+			setQuickMessage(failure)
+			setApplyingDeviceChanges(false)
+		}
+	}
 
   const copyScript = async () => {
     if (!provisioningSession) return
@@ -1606,8 +1670,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
-        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>快速接入（推荐）</button>
-        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'active' : ''} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>手动添加</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'active' : ''} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
       </div>
     ) : null}
     {showQuick ? (
@@ -1634,16 +1698,18 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
             <div className="settings-actions">
               <button type="submit" className="primary-button" disabled={quickGenerating || !quickName.trim() || !quickHost.trim()}>{quickGenerating ? '正在生成...' : '生成接入脚本'}</button>
             </div>
+			{quickMessage ? <div className="settings-message" role="status">{quickMessage}</div> : null}
             {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
           </form>
         ) : (
           <div className="provisioning-step">
             <div className="provisioning-step-card">
-              <strong>步骤 1：复制脚本</strong>
-              <div className="provisioning-script-area">
-                <textarea readOnly value={provisioningSession.script} rows={14} spellCheck={false} aria-label="RouterOS 接入脚本" />
-              </div>
-              <button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
+			  <div className="provisioning-step-head"><strong>步骤 1：复制脚本</strong><button type="button" className="toolbar-button provisioning-script-toggle" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button></div>
+			  <p>直接复制完整脚本，无需查看内容；需要核对时可展开。</p>
+			  {provisioningScriptVisible ? <div className="provisioning-script-area">
+				<textarea readOnly value={provisioningSession.script} rows={14} spellCheck={false} aria-label="RouterOS 接入脚本" />
+			  </div> : null}
+			  <button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
             </div>
             <div className="provisioning-step-card">
               <strong>步骤 2：在 RouterOS 执行</strong>
@@ -1653,8 +1719,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
               <strong>步骤 3：完成接入</strong>
               <p className="provisioning-expiry">脚本将在 {new Date(provisioningSession.expiresAt).toLocaleString('zh-CN')} 过期，请在此之前完成。</p>
               <div className="settings-actions">
-                <button type="button" className="primary-button" disabled={quickCompleting} onClick={() => void completeQuickProvisioning()}>{quickCompleting ? '正在验证 RouterOS...' : '我已执行脚本，开始接入'}</button>
-                <button type="button" className="toolbar-button" disabled={quickGenerating} onClick={() => { setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>重新生成脚本</button>
+				<button type="button" className="primary-button" disabled={quickCompleting} onClick={() => void completeQuickProvisioning()}>{quickCompleting ? '正在验证 RouterOS...' : '验证并保存设备'}</button>
+				<button type="button" className="toolbar-button" disabled={quickGenerating} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>重新生成脚本</button>
               </div>
             </div>
             {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
@@ -1663,7 +1729,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       </div>
     ) : null}
     {showManual ? (
-    <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice(false) }}>
+    <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice() }}>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
       <label><span>协议</span><select value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
       <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
@@ -1729,10 +1795,11 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         </div>
       </details>
       <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
+      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
+	{pendingDeviceChanges && !props.onboarding ? <div className="pending-device-actions" role="status"><span>设备配置已保存但尚未应用，可继续添加其他设备。</span><button type="button" className="complete-setup-button" disabled={applyingDeviceChanges} onClick={() => void applyDeviceChanges()}>{applyingDeviceChanges ? '正在应用...' : '应用全部设备并重启'}</button></div> : null}
     </div>
   </div>
 }

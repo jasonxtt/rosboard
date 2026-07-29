@@ -13,7 +13,8 @@
 - Bootstrap: `GET /api/bootstrap` -> `phase`, `authenticated`, `onboardingComplete`, and authenticated `username`.
 - Setup/auth: `POST /api/setup/admin`, `POST /api/auth/login`, `POST /api/auth/logout`, `PUT /api/account`, and `POST /api/setup/complete`.
 - Verification: `POST /api/devices/test-connection` -> one-use `verificationToken`, identity, interfaces, CIDR candidates, warnings, and expiry.
-- Device writes: `POST /api/devices` and `PUT /api/devices/{id}` accept `verificationToken`, `completeOnboarding`, and onboarding-only `deferRestart` in addition to device fields.
+- Device writes: `POST /api/devices` and `PUT /api/devices/{id}` accept `verificationToken`, `completeOnboarding`, and optional `deferRestart` in addition to device fields.
+- Quick provisioning: `POST /api/device-onboarding/sessions` creates a 15-minute in-memory session; `POST /api/device-onboarding/sessions/{id}/complete` accepts `completeOnboarding` and optional `deferRestart`.
 - Local recovery: `rosboard admin reset-password -config <path>`.
 - Destructive reset: `POST /api/settings/full-reset {"confirmed":true}`.
 
@@ -26,7 +27,8 @@
 - RouterOS connection fields are tested before collection fields are available. Required probes must pass; optional probe failures become warnings.
 - Verification tokens are memory-only, expire after 15 minutes, bind to normalized endpoint/username/password fingerprints, and are consumed only after successful YAML persistence.
 - Device saves require at least one verified traffic interface and one canonical IPv4/IPv6 CIDR. Normalized endpoints are unique across active, disabled, and archived devices.
-- During onboarding, `deferRestart=true` is honored only while `onboarding_complete=false`: save YAML and update the server snapshot without restarting so more devices can be added. In ready phase it cannot suppress the normal device restart.
+- `deferRestart=true` saves YAML and updates the server snapshot without restarting unless `completeOnboarding=true`. This supports batched new-device creation both during onboarding and from ready-phase device management.
+- Existing-device edits use normal restart semantics in the frontend. After one or more ready-phase additions, the UI must expose an explicit apply action that restarts once for the batch.
 - `completeOnboarding=true` saves the current new or existing device, sets onboarding complete, and schedules one restart. `POST /api/setup/complete {"skipRouterOS":false}` also restarts when saved devices exist; explicit empty-device skip does not need a restart.
 - Full reset deletes the configured YAML plus all administrator, session, setup, device-history, and monitoring state, clears verification tickets/cookie, and restarts into `needs_admin`.
 
@@ -40,12 +42,13 @@
 - Missing/unknown interface, invalid/empty CIDR, or duplicate endpoint -> reject save; do not consume the ticket.
 - YAML save failure -> preserve the old configuration and onboarding state.
 - Device persisted but onboarding-state write fails -> retain the device, remain in onboarding, and allow `/api/setup/complete` recovery.
-- `deferRestart=true` after onboarding -> ignore the deferral and use normal restart semantics.
+- `deferRestart=true` with `completeOnboarding=true` -> completion wins: mark onboarding complete and restart once.
 - Full reset without `confirmed=true` -> HTTP 400 and preserve every file/table.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: save device A with `deferRestart=true`, immediately save device B, then complete from B; only completion restarts and the next bootstrap is `ready`.
+- Good: add devices A and B from ready-phase device management with `deferRestart=true`, then explicitly apply the batch; only the apply action restarts.
 - Good: update username and password atomically, revoke all sessions, clear the current cookie, and require login with the new credentials.
 - Base: explicitly skip RouterOS after creating the administrator; enter a ready empty panel and add a device later.
 - Bad: restart after every onboarding save; the user returns to the setup choice and cannot efficiently add multiple devices.
@@ -57,7 +60,7 @@
 - Store/auth: singleton administrator concurrency, Argon2id verification, token hashing/expiry/renewal/revocation, atomic credential update, and full reset transaction.
 - API: phase matrix, allowed-CIDR ordering, same-origin writes, login throttling, password-free responses, setup completion, and unauthenticated rejection.
 - RouterOS/API: required/optional probes, ticket expiry/fingerprint/replay, endpoint uniqueness, interface sampling permission, and CIDR canonicalization.
-- Restart regression: save-only onboarding emits `restarting=false` and does not call restart; direct completion of an unsaved device and completion of a saved device both persist, enter `ready`, and call restart once.
+- Restart regression: save-only onboarding and ready-phase creation emit `restarting=false` and do not call restart; deferred quick provisioning also persists without restart; setup completion persists, enters `ready`, and calls restart once.
 - Quality: `go test ./...`, targeted race tests, `go vet ./...`, frontend lint/build/audit, local browser verification, and deployed health/assets/polling checks.
 
 ### 7. Wrong vs Correct
@@ -76,7 +79,7 @@ saveDevice(payload)
 if payload.CompleteOnboarding {
     completeOnboarding()
 }
-if !deferRestartWhileOnboarding(payload) {
+if !shouldDeferDeviceRestart(payload) {
     scheduleRestart()
 }
 ```
