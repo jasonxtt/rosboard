@@ -108,11 +108,22 @@ async function postJSON(path: string, body?: unknown) {
   return requestJSON(path, 'POST', body)
 }
 
+class APIRequestError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'APIRequestError'
+    this.status = status
+    this.code = code
+  }
+}
+
 async function requestJSON(path: string, method: string, body?: unknown) {
   const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
   if (response.status === 401) window.dispatchEvent(new Event('rosboard:authentication-required'))
-  const failure = response.ok ? null : await response.json().catch(() => null) as { error?: string } | null
-  if (!response.ok) throw new Error(failure?.error || `HTTP ${response.status}`)
+  const failure = response.ok ? null : await response.json().catch(() => null) as { error?: string; code?: string } | null
+  if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
 const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'routes', 'settings']
@@ -1325,7 +1336,6 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	const [quickHost, setQuickHost] = useState('10.0.0.1')
 	const [quickScheme, setQuickScheme] = useState<'http' | 'https'>('http')
 	const [quickPort, setQuickPort] = useState(80)
-	const [quickPortManuallySet, setQuickPortManuallySet] = useState(false)
 	const [quickGenerating, setQuickGenerating] = useState(false)
 	const [quickCompleting, setQuickCompleting] = useState(false)
 	const [quickCopied, setQuickCopied] = useState(false)
@@ -1373,6 +1383,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	setVerification(null); setScopedDashboard(null); setScopeError(null);
 	setProvisioningSession(null); setQuickError(null); setQuickCopied(false);
 	setProvisioningMode('quick')
+	if (!device) {
+	  setQuickName('')
+	  setQuickHost('10.0.0.1')
+	  setQuickScheme('http')
+	  setQuickPort(80)
+	}
   }
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
@@ -1404,6 +1420,14 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
   const showQuick = isAddingNew && provisioningMode === 'quick'
   const showManual = !isAddingNew || provisioningMode === 'manual'
 
+  const changeQuickScheme = (newScheme: 'http' | 'https') => {
+    setQuickPort((currentPort) => {
+      const previousDefault = quickScheme === 'https' ? 443 : 80
+      return currentPort === previousDefault ? (newScheme === 'https' ? 443 : 80) : currentPort
+    })
+    setQuickScheme(newScheme)
+  }
+
   const generateQuickScript = async () => {
     if (!quickName.trim() || !quickHost.trim()) return
     setQuickGenerating(true)
@@ -1411,15 +1435,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     setProvisioningSession(null)
     setQuickCopied(false)
     try {
-      const response = await fetch('/api/device-onboarding/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: quickName.trim(), host: quickHost.trim(), scheme: quickScheme, port: quickPort }),
+      const response = await requestJSON('/api/device-onboarding/sessions', 'POST', {
+        name: quickName.trim(),
+        host: quickHost.trim(),
+        scheme: quickScheme,
+        port: quickPort,
       })
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(failure?.error || `HTTP ${response.status}`)
-      }
       const result = await response.json() as ProvisioningSessionResponse
       setProvisioningSession(result)
     } catch (error) {
@@ -1434,17 +1455,16 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     setQuickCompleting(true)
     setQuickError(null)
     try {
-      const response = await fetch(`/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completeOnboarding: Boolean(props.onboarding) }),
-      })
-      if (!response.ok) {
-        const failure = await response.json().catch(() => null) as { error?: string; code?: string } | null
-        throw new Error(failure?.error || `HTTP ${response.status}`)
-      }
-      await props.onRestartingAction(() => Promise.resolve(), () => setQuickError('面板正在启动，恢复后将自动刷新...'))
+      const path = `/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`
+      await props.onRestartingAction(
+        () => requestJSON(path, 'POST', { completeOnboarding: Boolean(props.onboarding) }).then(() => undefined),
+        () => setQuickError('面板正在启动，恢复后将自动刷新...'),
+      )
     } catch (error) {
+      if (error instanceof APIRequestError && error.code === 'provisioning_expired') {
+        setProvisioningSession(null)
+        setQuickCopied(false)
+      }
       setQuickError(error instanceof Error ? error.message : '接入失败')
     } finally {
       setQuickCompleting(false)
@@ -1468,6 +1488,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
+    <div className="device-settings-editor">
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
         <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>快速接入（推荐）</button>
@@ -1477,35 +1498,29 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     {showQuick ? (
       <div className="provisioning-flow">
         {!provisioningSession ? (
-          <div className="provisioning-step">
+          <form className="settings-form provisioning-form" onSubmit={(event) => { event.preventDefault(); void generateQuickScript() }}>
             <label><span>设备名称</span><input required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
             <label><span>RouterOS IP / 主机名</span><input required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
             <details className="settings-disclosure provisioning-advanced">
               <summary><span><strong>高级设置</strong><small>协议和端口</small></span></summary>
               <div className="settings-disclosure-body">
                 <label><span>协议</span>
-                  <select value={quickScheme} onChange={(event) => {
-                    const newScheme = event.target.value === 'https' ? 'https' : 'http'
-                    setQuickScheme(newScheme)
-                    if (!quickPortManuallySet) {
-                      setQuickPort(newScheme === 'https' ? 443 : 80)
-                    }
-                  }}>
+                  <select value={quickScheme} onChange={(event) => changeQuickScheme(event.target.value === 'https' ? 'https' : 'http')}>
                     <option value="http">HTTP</option>
                     <option value="https">HTTPS</option>
                   </select>
                 </label>
                 <label><span>REST 端口</span>
-                  <input type="number" min={1} max={65535} value={quickPort} onChange={(event) => { setQuickPort(Number(event.target.value)); setQuickPortManuallySet(true) }} />
+                  <input type="number" min={1} max={65535} value={quickPort} onChange={(event) => setQuickPort(Number(event.target.value))} />
                 </label>
               </div>
             </details>
             <p className="provisioning-http-notice">默认通过可信局域网内的 HTTP 连接 RouterOS。HTTP 会明文传输登录凭据；如需 HTTPS，请在高级设置中修改。</p>
             <div className="settings-actions">
-              <button type="button" className="primary-button" disabled={quickGenerating || !quickName.trim() || !quickHost.trim()} onClick={() => void generateQuickScript()}>{quickGenerating ? '正在生成...' : '生成接入脚本'}</button>
+              <button type="submit" className="primary-button" disabled={quickGenerating || !quickName.trim() || !quickHost.trim()}>{quickGenerating ? '正在生成...' : '生成接入脚本'}</button>
             </div>
             {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
-          </div>
+          </form>
         ) : (
           <div className="provisioning-step">
             <div className="provisioning-step-card">
@@ -1603,6 +1618,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
+    </div>
   </div>
 }
 

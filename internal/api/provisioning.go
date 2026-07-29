@@ -158,9 +158,9 @@ func provisioningScript(username, groupName, password string) string {
 	return fmt.Sprintf(`{
 :local rbGroupId [/user group find where name="%s"]
 :if ([:len $rbGroupId] = 0) do={
-    /user group add name="%s" policy=read,test,rest-api
+    /user group add name="%s" policy=read,test,api,rest-api
 } else={
-    /user group set $rbGroupId policy=read,test,rest-api
+    /user group set $rbGroupId policy=read,test,api,rest-api
 }
 :local rbUserId [/user find where name="%s"]
 :if ([:len $rbUserId] = 0) do={
@@ -281,10 +281,10 @@ type completeProvisioningRequest struct {
 }
 
 type completeProvisioningResponse struct {
-	ID         string                           `json:"id"`
-	Restarting bool                             `json:"restarting"`
-	Identity   *routeros.VerificationIdentity   `json:"identity,omitempty"`
-	Warnings   []routeros.VerificationWarning   `json:"warnings,omitempty"`
+	ID         string                         `json:"id"`
+	Restarting bool                           `json:"restarting"`
+	Identity   *routeros.VerificationIdentity `json:"identity,omitempty"`
+	Warnings   []routeros.VerificationWarning `json:"warnings,omitempty"`
 }
 
 func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *http.Request) {

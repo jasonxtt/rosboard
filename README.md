@@ -53,7 +53,8 @@ rosboard 提供"快速接入"方式简化 RouterOS 设备添加流程。
 
 ### 权限与安全
 
-- 生成的 RouterOS 专用账号权限固定为 `read,test,rest-api`。
+- 生成的 RouterOS 专用账号权限固定为 `read,test,api,rest-api`。
+- `api` 用于兼容部分 RouterOS 版本中 REST 的内部 API 登录通道；账号仍不具备 `write`、`policy`、`sensitive` 等配置修改权限。
 - rosboard 日常为只读，不主动修改 RouterOS 配置。
 - 账号和密码仅保存在本地 `0600` 权限的 config.yaml 中，设置接口和导出不返回密码。
 - 脚本不会自动启用 www/www-ssl，也不会修改防火墙、证书或其他 RouterOS 设置。

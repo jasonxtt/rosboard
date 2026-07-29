@@ -246,10 +246,20 @@ func classifyVerificationError(capability string, err error) error {
 	message := "Unable to connect to RouterOS."
 	var httpError *HTTPError
 	if errors.As(err, &httpError) {
-		switch httpError.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
+		detail := strings.ToLower(strings.TrimSpace(httpError.Detail))
+		authenticationFailure := httpError.StatusCode == http.StatusUnauthorized ||
+			httpError.StatusCode == http.StatusForbidden ||
+			strings.Contains(detail, "not enough permissions") ||
+			strings.Contains(detail, "permission denied") ||
+			strings.Contains(detail, "cannot log in") ||
+			strings.Contains(detail, "login failure") ||
+			strings.Contains(detail, "authentication failed") ||
+			strings.Contains(detail, "invalid username or password") ||
+			strings.Contains(detail, "invalid user name or password") ||
+			strings.Contains(detail, "bad user name or password")
+		if authenticationFailure {
 			kind, message = "authentication", "RouterOS username, password, or required permissions are incorrect."
-		default:
+		} else {
 			kind, message = "routeros_response", fmt.Sprintf("RouterOS could not provide required %s data.", capability)
 		}
 	} else if errors.Is(err, context.DeadlineExceeded) {
