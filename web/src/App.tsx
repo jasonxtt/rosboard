@@ -41,6 +41,7 @@ import type {
   TerminalSortKey,
   TerminalTab,
   VerificationResponse,
+  ProvisioningSessionResponse,
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
@@ -1317,6 +1318,18 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	const [scopeError, setScopeError] = useState<string | null>(null)
 	const [testing, setTesting] = useState(false)
 	const saving = savingAction !== null
+	// Quick provisioning state
+	const [provisioningMode, setProvisioningMode] = useState<'quick' | 'manual'>('quick')
+	const [provisioningSession, setProvisioningSession] = useState<ProvisioningSessionResponse | null>(null)
+	const [quickName, setQuickName] = useState('')
+	const [quickHost, setQuickHost] = useState('10.0.0.1')
+	const [quickScheme, setQuickScheme] = useState<'http' | 'https'>('http')
+	const [quickPort, setQuickPort] = useState(80)
+	const [quickPortManuallySet, setQuickPortManuallySet] = useState(false)
+	const [quickGenerating, setQuickGenerating] = useState(false)
+	const [quickCompleting, setQuickCompleting] = useState(false)
+	const [quickCopied, setQuickCopied] = useState(false)
+	const [quickError, setQuickError] = useState<string | null>(null)
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
 	const verificationRequired = connectionChanged && !verification
@@ -1355,7 +1368,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 			})
 		return () => { cancelled = true }
 	}, [draft.id])
-  const choose = (device?: SettingsDevice) => { setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null); setVerification(null); setScopedDashboard(null); setScopeError(null) }
+  const choose = (device?: SettingsDevice) => {
+	setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null);
+	setVerification(null); setScopedDashboard(null); setScopeError(null);
+	setProvisioningSession(null); setQuickError(null); setQuickCopied(false);
+	setProvisioningMode('quick')
+  }
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
 		try {
@@ -1382,12 +1400,139 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
   }
 	const saveDevice = (completeOnboarding: boolean) => request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding, deferRestart: props.onboarding && !completeOnboarding, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } }, completeOnboarding)
+  const isAddingNew = !draft.id
+  const showQuick = isAddingNew && provisioningMode === 'quick'
+  const showManual = !isAddingNew || provisioningMode === 'manual'
+
+  const generateQuickScript = async () => {
+    if (!quickName.trim() || !quickHost.trim()) return
+    setQuickGenerating(true)
+    setQuickError(null)
+    setProvisioningSession(null)
+    setQuickCopied(false)
+    try {
+      const response = await fetch('/api/device-onboarding/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: quickName.trim(), host: quickHost.trim(), scheme: quickScheme, port: quickPort }),
+      })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      const result = await response.json() as ProvisioningSessionResponse
+      setProvisioningSession(result)
+    } catch (error) {
+      setQuickError(error instanceof Error ? error.message : '生成接入脚本失败')
+    } finally {
+      setQuickGenerating(false)
+    }
+  }
+
+  const completeQuickProvisioning = async () => {
+    if (!provisioningSession) return
+    setQuickCompleting(true)
+    setQuickError(null)
+    try {
+      const response = await fetch(`/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completeOnboarding: Boolean(props.onboarding) }),
+      })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string; code?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      await props.onRestartingAction(() => Promise.resolve(), () => setQuickError('面板正在启动，恢复后将自动刷新...'))
+    } catch (error) {
+      setQuickError(error instanceof Error ? error.message : '接入失败')
+    } finally {
+      setQuickCompleting(false)
+    }
+  }
+
+  const copyScript = async () => {
+    if (!provisioningSession) return
+    try {
+      await navigator.clipboard.writeText(provisioningSession.script)
+      setQuickCopied(true)
+      setTimeout(() => setQuickCopied(false), 2000)
+    } catch {
+      setQuickError('复制失败，请手动选择并复制脚本')
+    }
+  }
+
   return <div className="device-settings-workspace">
-	<div className="device-settings-list">
+    <div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
       {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
+    {isAddingNew ? (
+      <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
+        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>快速接入（推荐）</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'active' : ''} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>手动添加</button>
+      </div>
+    ) : null}
+    {showQuick ? (
+      <div className="provisioning-flow">
+        {!provisioningSession ? (
+          <div className="provisioning-step">
+            <label><span>设备名称</span><input required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
+            <label><span>RouterOS IP / 主机名</span><input required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
+            <details className="settings-disclosure provisioning-advanced">
+              <summary><span><strong>高级设置</strong><small>协议和端口</small></span></summary>
+              <div className="settings-disclosure-body">
+                <label><span>协议</span>
+                  <select value={quickScheme} onChange={(event) => {
+                    const newScheme = event.target.value === 'https' ? 'https' : 'http'
+                    setQuickScheme(newScheme)
+                    if (!quickPortManuallySet) {
+                      setQuickPort(newScheme === 'https' ? 443 : 80)
+                    }
+                  }}>
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                  </select>
+                </label>
+                <label><span>REST 端口</span>
+                  <input type="number" min={1} max={65535} value={quickPort} onChange={(event) => { setQuickPort(Number(event.target.value)); setQuickPortManuallySet(true) }} />
+                </label>
+              </div>
+            </details>
+            <p className="provisioning-http-notice">默认通过可信局域网内的 HTTP 连接 RouterOS。HTTP 会明文传输登录凭据；如需 HTTPS，请在高级设置中修改。</p>
+            <div className="settings-actions">
+              <button type="button" className="primary-button" disabled={quickGenerating || !quickName.trim() || !quickHost.trim()} onClick={() => void generateQuickScript()}>{quickGenerating ? '正在生成...' : '生成接入脚本'}</button>
+            </div>
+            {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
+          </div>
+        ) : (
+          <div className="provisioning-step">
+            <div className="provisioning-step-card">
+              <strong>步骤 1：复制脚本</strong>
+              <div className="provisioning-script-area">
+                <textarea readOnly value={provisioningSession.script} rows={14} spellCheck={false} aria-label="RouterOS 接入脚本" />
+              </div>
+              <button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
+            </div>
+            <div className="provisioning-step-card">
+              <strong>步骤 2：在 RouterOS 执行</strong>
+              <p>打开 WinBox/WebFig/SSH 中的 Terminal，以管理员账号登录，把整段脚本粘贴并执行。看到 "rosboard account ready" 后再返回本页。</p>
+            </div>
+            <div className="provisioning-step-card">
+              <strong>步骤 3：完成接入</strong>
+              <p className="provisioning-expiry">脚本将在 {new Date(provisioningSession.expiresAt).toLocaleString('zh-CN')} 过期，请在此之前完成。</p>
+              <div className="settings-actions">
+                <button type="button" className="primary-button" disabled={quickCompleting} onClick={() => void completeQuickProvisioning()}>{quickCompleting ? '正在验证 RouterOS...' : '我已执行脚本，开始接入'}</button>
+                <button type="button" className="toolbar-button" disabled={quickGenerating} onClick={() => { setProvisioningSession(null); setQuickError(null); setQuickCopied(false) }}>重新生成脚本</button>
+              </div>
+            </div>
+            {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
+          </div>
+        )}
+      </div>
+    ) : null}
+    {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice(false) }}>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
       <label><span>协议</span><select value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
@@ -1396,67 +1541,68 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
       <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
       <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
-	  {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
-	  <details className="settings-disclosure wide auto-scope-settings">
-	    <summary>
-	      <span><strong>自动识别范围</strong><small>系统根据 RouterOS 拓扑自动判断</small></span>
-	      <small className="settings-disclosure-summary">{scopeLoading ? '正在读取…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small>
-	    </summary>
-	    <div className="settings-disclosure-body">
-	      {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
-	      {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
-	      <div className="scope-overview-grid">
-	        <section className="scope-result-section" aria-labelledby="traffic-scope-title">
-	          <div className="scope-result-head"><h4 id="traffic-scope-title">上网流量</h4><small>{trafficScopeInterfaces.length} 条线路</small></div>
-	          {trafficScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动采集接口配置。</p> : null}
-	          <div className="scope-result-list">
-	            {trafficScopeInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}
-	            {!trafficScopeInterfaces.length ? <p className="scope-empty">尚未识别上网线路；可在高级覆盖设置中强制纳入。</p> : null}
-	          </div>
-	          {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
-	          {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
-	        </section>
-	        <section className="scope-result-section" aria-labelledby="terminal-scope-title">
-	          <div className="scope-result-head"><h4 id="terminal-scope-title">本地终端</h4><small>{scopeInterfaces.filter((item) => item.role === 'lan').length} 个接口 · {scopePrefixes.length} 个网段</small></div>
-	          {terminalScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动终端网段配置。保存高级覆盖设置后可迁移为自动识别加覆盖模式。</p> : null}
-	          <div className="terminal-scope-groups">
-	            <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
-	            <div className="terminal-scope-group"><span>网段</span>{scopePrefixes.map((item) => <p key={`${item.family}-${item.cidr}`}><strong><i className={`ip-family-badge scope-family ${item.family}`}>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</i>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.length ? <small>尚未识别</small> : null}</div>
-	          </div>
-	          {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
-	        </section>
-	      </div>
-	    </div>
-	  </details>
-	  <details className="settings-disclosure wide advanced-scope-settings">
-	    <summary>
-	      <span><strong>高级覆盖设置</strong><small>仅用于特殊网络拓扑</small></span>
-	      <small className="settings-disclosure-summary">留空即使用自动识别</small>
-	    </summary>
-	    <div className="settings-disclosure-body scope-override-body">
-	      <p className="scope-override-help">仅在自动识别结果不符合实际拓扑时填写；每行一项。</p>
-	      <section className="scope-override-section" aria-labelledby="traffic-override-title">
-	        <h4 id="traffic-override-title">流量采集覆盖</h4>
-	        <div className="scope-override-grid">
-	          <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
-	          <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
-	        </div>
-	      </section>
-	      <section className="scope-override-section" aria-labelledby="terminal-override-title">
-	        <h4 id="terminal-override-title">终端范围覆盖</h4>
-	        <div className="scope-override-grid">
-	          <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
-	          <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
-	          <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
-	          <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
-	        </div>
-	      </section>
-	    </div>
-	  </details>
-	  <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
+      {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
+      <details className="settings-disclosure wide auto-scope-settings">
+        <summary>
+          <span><strong>自动识别范围</strong><small>系统根据 RouterOS 拓扑自动判断</small></span>
+          <small className="settings-disclosure-summary">{scopeLoading ? '正在读取…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</small>
+        </summary>
+        <div className="settings-disclosure-body">
+          {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
+          {scopeError ? <p className="settings-message">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
+          <div className="scope-overview-grid">
+            <section className="scope-result-section" aria-labelledby="traffic-scope-title">
+              <div className="scope-result-head"><h4 id="traffic-scope-title">上网流量</h4><small>{trafficScopeInterfaces.length} 条线路</small></div>
+              {trafficScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动采集接口配置。</p> : null}
+              <div className="scope-result-list">
+                {trafficScopeInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开，仍作为备用线路保留'}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}
+                {!trafficScopeInterfaces.length ? <p className="scope-empty">尚未识别上网线路；可在高级覆盖设置中强制纳入。</p> : null}
+              </div>
+              {trafficScopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+              {trafficScope?.legacy ? <button type="button" className="toolbar-button" onClick={() => setDraft((current) => ({ ...current, trafficMode: 'auto', trafficInterfaces: '' }))}>恢复自动识别</button> : null}
+            </section>
+            <section className="scope-result-section" aria-labelledby="terminal-scope-title">
+              <div className="scope-result-head"><h4 id="terminal-scope-title">本地终端</h4><small>{scopeInterfaces.filter((item) => item.role === 'lan').length} 个接口 · {scopePrefixes.length} 个网段</small></div>
+              {terminalScope?.legacy ? <p className="scope-legacy-note">当前设备使用旧版手动终端网段配置。保存高级覆盖设置后可迁移为自动识别加覆盖模式。</p> : null}
+              <div className="terminal-scope-groups">
+                <div className="terminal-scope-group"><span>LAN 接口</span>{scopeInterfaces.filter((item) => item.role === 'lan').map((item) => <p key={item.name}><strong>{item.name}</strong><small>{(item.reasons ?? []).join('、')}</small></p>)}{!scopeInterfaces.some((item) => item.role === 'lan') ? <small>尚未识别</small> : null}</div>
+                <div className="terminal-scope-group"><span>网段</span>{scopePrefixes.map((item) => <p key={`${item.family}-${item.cidr}`}><strong><i className={`ip-family-badge scope-family ${item.family}`}>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</i>{item.cidr}</strong><small>{item.interface || '手动'} · {item.source}</small></p>)}{!scopePrefixes.length ? <small>尚未识别</small> : null}</div>
+              </div>
+              {scopeWarnings.map((warning) => <p key={warning} className="settings-message">{warning}</p>)}
+            </section>
+          </div>
+        </div>
+      </details>
+      <details className="settings-disclosure wide advanced-scope-settings">
+        <summary>
+          <span><strong>高级覆盖设置</strong><small>仅用于特殊网络拓扑</small></span>
+          <small className="settings-disclosure-summary">留空即使用自动识别</small>
+        </summary>
+        <div className="settings-disclosure-body scope-override-body">
+          <p className="scope-override-help">仅在自动识别结果不符合实际拓扑时填写；每行一项。</p>
+          <section className="scope-override-section" aria-labelledby="traffic-override-title">
+            <h4 id="traffic-override-title">流量采集覆盖</h4>
+            <div className="scope-override-grid">
+              <label><span>强制纳入采集接口</span><textarea rows={2} value={draft.trafficIncludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficIncludeInterfaces: event.target.value }))} /></label>
+              <label><span>强制排除采集接口</span><textarea rows={2} value={draft.trafficExcludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, trafficExcludeInterfaces: event.target.value }))} /></label>
+            </div>
+          </section>
+          <section className="scope-override-section" aria-labelledby="terminal-override-title">
+            <h4 id="terminal-override-title">终端范围覆盖</h4>
+            <div className="scope-override-grid">
+              <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
+              <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
+              <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
+              <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
+            </div>
+          </section>
+        </div>
+      </details>
+      <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
       <div className={props.onboarding ? 'settings-actions onboarding-device-actions span-2' : 'settings-actions span-2'}><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{props.onboarding ? <button type="button" className="complete-setup-button" disabled={saving || verificationRequired} onClick={() => void saveDevice(true)}>{savingAction === 'complete' ? '正在完成...' : '完成设置'}</button> : null}{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => { if (window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) void request(`/api/devices/${encodeURIComponent(draft.id)}`, 'DELETE') }}>归档设备</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
+    ) : null}
   </div>
 }
 

@@ -803,6 +803,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .terminal-table .action-links { display: grid; gap: 6px; }
 }
 
+.provisioning-mode-toggle { display: flex; gap: 0; margin-bottom: 18px; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
+.provisioning-mode-toggle button { flex: 1; min-height: 40px; padding: 0 16px; color: var(--color-text-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; font-weight: 600; text-align: center; transition: color .18s ease, background .18s ease; }
+.provisioning-mode-toggle button.active { color: #fff; background: var(--color-primary); }
+.provisioning-mode-toggle button:not(.active):hover { color: var(--color-text); background: rgba(37, 99, 235, .07); }
+.provisioning-flow { display: grid; gap: 18px; min-width: 0; }
+.provisioning-step { display: grid; gap: 16px; min-width: 0; }
+.provisioning-step-card { display: grid; gap: 10px; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.provisioning-step-card strong { font-size: 14px; color: var(--color-text); }
+.provisioning-step-card p { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.6; }
+.provisioning-script-area { max-width: 100%; overflow-x: auto; }
+.provisioning-script-area textarea { width: 100%; min-height: 280px; padding: 12px; color: #1e293b; background: #f8fafc; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; resize: none; white-space: pre; overflow-x: auto; tab-size: 2; }
+.provisioning-script-area textarea:focus { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.provisioning-http-notice { margin: 0; padding: 10px 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.5; }
+.provisioning-expiry { margin: 0; color: var(--color-text-muted); font-size: 12px; }
+.provisioning-advanced { min-width: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

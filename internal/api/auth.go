@@ -63,7 +63,9 @@ func (s *Server) phaseAllows(request *http.Request) (bool, error) {
 		path == "/api/settings" ||
 		strings.HasPrefix(path, "/api/settings/") ||
 		path == "/api/devices" ||
-		strings.HasPrefix(path, "/api/devices/"), nil
+		strings.HasPrefix(path, "/api/devices/") ||
+		path == "/api/device-onboarding/sessions" ||
+		strings.HasPrefix(path, "/api/device-onboarding/sessions/"), nil
 }
 
 func (s *Server) authenticateRequest(writer http.ResponseWriter, request *http.Request) (auth.Session, bool) {

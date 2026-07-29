@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "Auth/onboarding contracts for session management, phase routing, and verification tickets"}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Monitor contracts for scope preview and device status"}
+{"file": ".trellis/spec/backend/runtime-configuration.md", "reason": "Config persistence contracts for device saving"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality standards and testing requirements"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend verification requirements"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Frontend component patterns for device settings"}
