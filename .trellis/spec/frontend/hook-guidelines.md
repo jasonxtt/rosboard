@@ -30,9 +30,11 @@ Questions to answer:
 
 ## Data Fetching
 
-<!-- How data fetching is handled (React Query, SWR, etc.) -->
-
-(To be filled by the team)
+Overview traffic-history polling follows the operator's global auto-refresh
+selection. Keep the initial request when the overview, device, or time range
+changes, but only create the periodic timer when the selected interval is
+greater than zero. A zero interval means "停止刷新" and must not leave a
+separate chart-specific timer running.
 
 ---
 

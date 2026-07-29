@@ -744,9 +744,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     }
     window.sessionStorage.setItem(trafficWindowKey, trafficWindow)
     void load().catch((historyError) => { if (!restartPending) setError(historyError instanceof Error ? historyError.message : '流量历史读取失败') })
-    const timer = window.setInterval(() => void load().catch(() => undefined), trafficWindow === '5m' ? 3000 : 30000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => void load().catch(() => undefined), dashboardRefreshMs) : 0
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+    }
+  }, [activeView, dashboardRefreshMs, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
 
   useEffect(() => {
     if (activeView !== 'settings' && hasDashboard) return

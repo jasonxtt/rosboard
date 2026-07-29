@@ -172,16 +172,16 @@ go build -o ./rosboard ./cmd/rosboard
 
 ## 发布版本
 
-根目录的 [`VERSION`](VERSION) 是唯一的发布开关，当前版本为 `0.0.1`。普通代码提交不会创建 Release。准备发布时，在同一个提交中完成需要发布的代码，并将 `VERSION` 改为新的语义化版本（例如 `0.0.2`），然后推送到 `main`：
+根目录的 [`VERSION`](VERSION) 是唯一的发布开关，当前版本为 `0.0.2`。普通代码提交不会创建 Release。准备发布时，在同一个提交中完成需要发布的代码，并将 `VERSION` 改为新的语义化版本（例如 `0.0.3`），然后推送到 `main`：
 
 ```bash
-printf '0.0.2\n' > VERSION
+printf '0.0.3\n' > VERSION
 git add VERSION
-git commit -m "release: v0.0.2"
+git commit -m "release: v0.0.3"
 git push origin main
 ```
 
-GitHub Actions 仅在 `main` 上的 `VERSION` 发生变更时运行；它会测试后端、重新构建前端，并创建对应的 `v0.0.2` Release，附带 `linux_amd64`、`linux_amd64-v3`、`linux_arm64`、`linux_armv7` 压缩包及 `sha256sums.txt`。`amd64-v3` 适用于支持 x86-64-v3 指令集的较新 x86 处理器；其他 x86 服务器请选择通用 `amd64` 包。同一版本号已经存在时会失败，避免覆盖既有 Release。
+GitHub Actions 仅在 `main` 上的 `VERSION` 发生变更时运行；它会测试后端、重新构建前端，并创建对应版本（例如 `v0.0.3`）的 Release，附带 `linux_amd64`、`linux_amd64-v3`、`linux_arm64`、`linux_armv7` 压缩包及 `sha256sums.txt`。`amd64-v3` 适用于支持 x86-64-v3 指令集的较新 x86 处理器；其他 x86 服务器请选择通用 `amd64` 包。同一版本号已经存在时会失败，避免覆盖既有 Release。
 
 ## systemd 部署
 
