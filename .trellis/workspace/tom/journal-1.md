@@ -1392,3 +1392,36 @@ Refined terminal identity and IP layout, split raw source address and source por
 ### Next Steps
 
 - None - task complete
+
+
+## Session 43: 发布 0.0.1 与完善安装说明
+
+**Date**: 2026-07-29
+**Task**: 发布 0.0.1 与完善安装说明
+**Branch**: `main`
+
+### Summary
+
+修复 cmd 目录被忽略的问题；首次启动自动使用 config.yaml；完善采集说明；新增仅由 VERSION 变更触发的 GitHub Release，并验证 v0.0.1 四种 Linux 架构资产。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e96ad4a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
