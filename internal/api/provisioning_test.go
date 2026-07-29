@@ -427,6 +427,58 @@ func TestCompleteProvisioningInvalidSession(t *testing.T) {
 	}
 }
 
+func TestCompleteProvisioningCanSaveWithoutRestart(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/system/resource":
+			_, _ = writer.Write([]byte(`{"board-name":"CCR","version":"7.20","platform":"MikroTik"}`))
+		case "/rest/interface":
+			_, _ = writer.Write([]byte(`[{"name":"ether1","type":"ether","running":"true"}]`))
+		case "/rest/ip/dhcp-client":
+			_, _ = writer.Write([]byte(`[{"interface":"ether1","status":"bound","add-default-route":"true"}]`))
+		case "/rest/ip/address", "/rest/ipv6/address", "/rest/ip/dhcp-server/lease", "/rest/ip/arp", "/rest/ip/firewall/connection":
+			_, _ = writer.Write([]byte(`[]`))
+		default:
+			http.Error(writer, "optional unavailable", http.StatusForbidden)
+		}
+	}))
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	restarted := make(chan struct{}, 1)
+	path := t.TempDir() + "/config.yaml"
+	server := NewServerWithRestart(config.Config{Path: path}, nil, nil, func() { restarted <- struct{}{} })
+	sessionID, _, _, err := server.provisioning.create("Edge", scheme, host, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := strings.NewReader(`{"completeOnboarding":false,"deferRestart":true}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/device-onboarding/sessions/"+sessionID+"/complete", body)
+	request.RemoteAddr = "127.0.0.1:12345"
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload completeProvisioningResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ID == "" || payload.Restarting {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+	if len(server.configSnapshot().Devices) != 1 {
+		t.Fatalf("device was not saved: %#v", server.configSnapshot().Devices)
+	}
+	select {
+	case <-restarted:
+		t.Fatal("save-only quick provisioning restarted the panel")
+	case <-time.After(400 * time.Millisecond):
+	}
+}
+
 func TestProvisioningFullResetClearsSessions(t *testing.T) {
 	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
 	server := NewServerWithProvisioning(config.Config{}, monitor, nil, nil)

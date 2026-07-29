@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -465,15 +464,8 @@ type deviceSettingsRequest struct {
 	Confirmation       string                     `json:"confirmation"`
 }
 
-func (s *Server) shouldDeferDeviceRestart(ctx context.Context, payload deviceSettingsRequest) (bool, error) {
-	if !payload.DeferRestart || payload.CompleteOnboarding || s.auth == nil {
-		return false, nil
-	}
-	complete, err := s.auth.OnboardingComplete(ctx)
-	if err != nil {
-		return false, err
-	}
-	return !complete, nil
+func shouldDeferDeviceRestart(payload deviceSettingsRequest) bool {
+	return payload.DeferRestart && !payload.CompleteOnboarding
 }
 
 func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Request) {
@@ -491,11 +483,7 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		if err := decodeJSONBody(writer, request, &payload); err != nil {
 			return
 		}
-		deferRestart, err := s.shouldDeferDeviceRestart(request.Context(), payload)
-		if err != nil {
-			writeAPIError(writer, http.StatusInternalServerError, "setup_state_failed", "failed to load setup state")
-			return
-		}
+		deferRestart := shouldDeferDeviceRestart(payload)
 		s.deviceSaveMu.Lock()
 		defer s.deviceSaveMu.Unlock()
 		device, consumeTicket, err := s.prepareDevice(request.Context(), uuid.NewString(), payload, nil)
@@ -560,11 +548,7 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		if err := decodeJSONBody(writer, request, &payload); err != nil {
 			return
 		}
-		deferRestart, err := s.shouldDeferDeviceRestart(request.Context(), payload)
-		if err != nil {
-			writeAPIError(writer, http.StatusInternalServerError, "setup_state_failed", "failed to load setup state")
-			return
-		}
+		deferRestart := shouldDeferDeviceRestart(payload)
 		s.deviceSaveMu.Lock()
 		defer s.deviceSaveMu.Unlock()
 		cfg := s.configSnapshot()

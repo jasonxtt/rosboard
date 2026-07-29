@@ -118,7 +118,7 @@ func TestDeviceCreateOnlyCompletesOnboardingWhenRequested(t *testing.T) {
 	select {
 	case <-restarted:
 		t.Fatal("save-only restarted the panel")
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(400 * time.Millisecond):
 	}
 
 	scheme, host, port := testConnectionParts(t, firstRouter.URL)
@@ -133,6 +133,33 @@ func TestDeviceCreateOnlyCompletesOnboardingWhenRequested(t *testing.T) {
 	case <-restarted:
 	case <-time.After(time.Second):
 		t.Fatal("save-and-enter did not restart the panel")
+	}
+}
+
+func TestDeviceCreateCanDeferRestartAfterOnboarding(t *testing.T) {
+	router := newDeviceTestRouter(t)
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	baseURL, err := normalizedRouterOSURL(scheme, host, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := make(chan struct{}, 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	server := NewServerWithRestart(config.Config{Path: path}, nil, nil, func() { restarted <- struct{}{} })
+	token, _, err := server.tickets.issue(connectionFingerprint(baseURL, "admin", "secret"), []routeros.VerificationInterface{{Name: "ether1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"secret","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.0/24"],"verificationToken":"` + token + `","deferRestart":true}`
+	response := serveJSON(server, http.MethodPost, "/api/devices", body)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"restarting":false`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	select {
+	case <-restarted:
+		t.Fatal("save-only device creation restarted the panel")
+	case <-time.After(400 * time.Millisecond):
 	}
 }
 

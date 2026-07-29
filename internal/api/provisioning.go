@@ -349,6 +349,7 @@ func (s *Server) serveCreateProvisioningSession(writer http.ResponseWriter, requ
 
 type completeProvisioningRequest struct {
 	CompleteOnboarding bool `json:"completeOnboarding"`
+	DeferRestart       bool `json:"deferRestart"`
 }
 
 type completeProvisioningResponse struct {
@@ -483,12 +484,15 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 		}
 	}
 
-	s.scheduleRestart()
+	deferRestart := payload.DeferRestart && !payload.CompleteOnboarding
+	if !deferRestart {
+		s.scheduleRestart()
+	}
 
 	writer.Header().Set("Cache-Control", "no-store")
 	writeJSON(writer, http.StatusCreated, completeProvisioningResponse{
 		ID:         deviceID,
-		Restarting: s.restart != nil,
+		Restarting: !deferRestart && s.restart != nil,
 		Identity: &routeros.VerificationIdentity{
 			RouterName: result.Identity.RouterName,
 			Version:    result.Identity.Version,
