@@ -514,8 +514,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .danger-button { min-height: 36px; padding: 0 12px; color: #b91c1c; background: #fff; border: 1px solid #fecaca; border-radius: 4px; cursor: pointer; }
 .danger-button:disabled { opacity: .5; cursor: not-allowed; }
 .archived-devices { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--color-border-soft); }
-.archived-devices > div { display: flex; align-items: center; gap: 8px; }
-.archived-devices > div span { margin-right: auto; }
+.archived-device-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.archived-device-row > span { margin-right: auto; }
+.routeros-cleanup-card { display: grid; gap: 12px; width: min(920px, 100%); margin-bottom: 18px; padding: 16px; background: #fff7ed; border: 1px solid #fdba74; border-radius: var(--radius-md); }
+.routeros-cleanup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.routeros-cleanup-head p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.routeros-cleanup-warning { margin: 0; color: #9a3412; font-size: 12px; line-height: 1.6; }
+.routeros-cleanup-card textarea { width: 100%; min-height: 230px; padding: 12px; color: #1e293b; background: #fff; border: 1px solid #fdba74; border-radius: var(--radius-sm); font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; resize: vertical; white-space: pre; overflow-x: auto; }
 .full-reset-zone { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; padding: 18px; background: #fff7ed; border: 1px solid #fdba74; border-radius: var(--radius-md); }
 .full-reset-zone strong { color: #9a3412; }
 .full-reset-zone p { max-width: 680px; margin: 5px 0 0; color: #9a3412; font-size: 12px; line-height: 1.6; }
@@ -639,8 +644,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 :root[data-theme="dark"] .connection-filter-panel select,
 :root[data-theme="dark"] .close-button,
 :root[data-theme="dark"] .danger-button { color: var(--color-text); background: var(--color-surface-muted); border-color: var(--color-border); }
-:root[data-theme="dark"] .full-reset-zone { background: #431407; border-color: #9a3412; }
-:root[data-theme="dark"] .full-reset-zone strong, :root[data-theme="dark"] .full-reset-zone p { color: #fed7aa; }
+:root[data-theme="dark"] .full-reset-zone,
+:root[data-theme="dark"] .routeros-cleanup-card { background: #431407; border-color: #9a3412; }
+:root[data-theme="dark"] .full-reset-zone strong,
+:root[data-theme="dark"] .full-reset-zone p,
+:root[data-theme="dark"] .routeros-cleanup-warning { color: #fed7aa; }
+:root[data-theme="dark"] .routeros-cleanup-card textarea { color: var(--color-text); background: var(--color-surface-muted); border-color: #9a3412; }
 :root[data-theme="dark"] .settings-form input[readonly] { color: var(--color-text-muted); background: var(--color-surface-muted); }
 :root[data-theme="dark"] .data-table thead th,
 :root[data-theme="dark"] .overview-interface-table th { color: var(--color-text-muted); background: #152236; }

@@ -295,6 +295,7 @@ type settingsDevice struct {
 	Port              int                        `json:"port"`
 	Username          string                     `json:"username"`
 	PasswordSet       bool                       `json:"passwordSet"`
+	CleanupAvailable  bool                       `json:"cleanupAvailable"`
 	TrafficInterfaces []string                   `json:"trafficInterfaces"`
 	TrafficScope      config.TrafficScopeConfig  `json:"trafficScope"`
 	TerminalCIDRs     []string                   `json:"terminalCidrs"`
@@ -347,10 +348,12 @@ func (s *Server) settingsResponse() settingsResponse {
 	devices := make([]settingsDevice, 0, len(cfg.Devices))
 	for _, device := range cfg.Devices {
 		deviceScheme, deviceHost, devicePort := routerOSConnectionParts(device.RouterOS.BaseURL)
+		_, cleanupAvailable := managedRouterOSAccount(device)
 		devices = append(devices, settingsDevice{
 			ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived,
 			Scheme: deviceScheme, Host: deviceHost, Port: devicePort, Username: device.RouterOS.Username,
 			PasswordSet:       strings.TrimSpace(device.RouterOS.Password) != "",
+			CleanupAvailable:  cleanupAvailable,
 			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TrafficScope: cloneTrafficScope(device.RouterOS.TrafficScope), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: cloneTerminalScope(device.RouterOS.TerminalScope),
 		})
 	}
@@ -532,7 +535,26 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		action = parts[1]
 	}
 
+	var cleanup *routerOSCleanupResponse
 	switch {
+	case request.Method == http.MethodGet && action == "cleanup-script":
+		cfg := s.configSnapshot()
+		device, found := cfg.Device(deviceID)
+		if !found {
+			writeAPIError(writer, http.StatusNotFound, "device_not_found", "device not found")
+			return
+		}
+		if !device.Archived {
+			writeAPIError(writer, http.StatusConflict, "device_not_archived", "archive the device before generating its RouterOS cleanup script")
+			return
+		}
+		value, ok := routerOSCleanupForDevice(device)
+		if !ok {
+			writeAPIError(writer, http.StatusNotFound, "cleanup_unavailable", "this device was not added with a rosboard-managed RouterOS account")
+			return
+		}
+		writeJSON(writer, http.StatusOK, value)
+		return
 	case request.Method == http.MethodPut && action == "":
 		var payload deviceSettingsRequest
 		if err := decodeJSONBody(writer, request, &payload); err != nil {
@@ -593,6 +615,9 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		err := s.saveSettings(func(next *config.Config) {
 			for index := range next.Devices {
 				if next.Devices[index].ID == deviceID {
+					if value, ok := routerOSCleanupForDevice(next.Devices[index]); ok {
+						cleanup = &value
+					}
 					next.Devices[index].Archived = true
 					next.Devices[index].Enabled = false
 					found = true
@@ -672,7 +697,11 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 	}
 
 	s.scheduleRestart()
-	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
+	response := map[string]any{"ok": true, "restarting": s.restart != nil}
+	if cleanup != nil {
+		response["cleanup"] = cleanup
+	}
+	writeJSON(writer, http.StatusOK, response)
 }
 
 func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *http.Request) {
