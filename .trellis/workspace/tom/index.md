@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 44
+- **Total Sessions**: 45
 - **Last Active**: 2026-07-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1460 | Active |
+| `journal-1.md` | ~1509 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 45 | 2026-07-29 | Realtime traffic refresh and v0.0.2 release | `3930f04`, `710f09f` | `main` |
 | 44 | 2026-07-29 | RouterOS quick provisioning | `d5373f4` | `feat/quick-provisioning` |
 | 43 | 2026-07-29 | 发布 0.0.1 与完善安装说明 | `e96ad4a` | `main` |
 | 42 | 2026-07-29 | 修复终端实时速率延迟 | `241dd77` | `main` |

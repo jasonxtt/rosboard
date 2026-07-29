@@ -1458,3 +1458,52 @@ Added secure RouterOS quick provisioning, cleanup support, collapsed vertical sc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 45: Realtime traffic refresh and v0.0.2 release
+
+**Date**: 2026-07-29
+**Task**: Realtime traffic refresh and v0.0.2 release
+**Branch**: `main`
+
+### Summary
+
+Made the overview realtime traffic chart follow the global auto-refresh interval, deployed and received user approval, then prepared v0.0.2 for GitHub release.
+
+### Main Changes
+
+### Main Changes
+
+- Replaced the chart-specific 3/30-second traffic-history timer with the selected global auto-refresh interval.
+- Preserved the initial history load while making "停止刷新" disable periodic traffic-history requests.
+- Regenerated embedded frontend assets and updated the release version to 0.0.2.
+- Deployed to 10.0.0.6 with rollback backup `/opt/rosboard/backups/20260729-130806-traffic-refresh` and received manual acceptance.
+
+### Testing
+
+- `git diff --check`
+- `npm --prefix web run lint`
+- `npm --prefix web run build`
+- `go test ./...`
+- `go vet ./...`
+- Remote systemd active/enabled, `/api/health` healthy, authentication contract intact, and served asset checksum matched the local embedded build.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3930f04` | (see git log) |
+| `710f09f` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
