@@ -43,6 +43,25 @@ func TestLoadMissingConfigStartsSetupDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadWithoutPathUsesDefaultConfigFile(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Path != "config.yaml" {
+		t.Fatalf("unexpected default config path: %q", cfg.Path)
+	}
+	if err := Save(cfg.Path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "config.yaml")); err != nil {
+		t.Fatalf("default config file was not created: %v", err)
+	}
+}
+
 func TestLoadDeviceListAndSaveWithoutLegacyRouterOS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	payload := []byte("devices:\n  - id: edge\n    name: Edge router\n    enabled: true\n    routeros:\n      base_url: http://edge.test\n      username: test\n      password: secret\n")

@@ -48,24 +48,23 @@ Browser → rosboard HTTP/API → RouterOS REST API
    cd ..
    ```
 
-2. 创建本地配置：
+2. 直接启动后端：
 
    ```bash
-   cp configs/config.example.yaml configs/config.local.yaml
-   chmod 600 configs/config.local.yaml
+   go run ./cmd/rosboard
    ```
 
-3. 按管理网段调整 `allowed_cidrs`，然后启动后端：
+3. 打开 `http://127.0.0.1:8080`，先创建管理员账号，再按引导测试并添加 RouterOS。首次保存设备时，程序会在当前工作目录自动创建权限为 `0600` 的 `config.yaml`。RouterOS 步骤可以跳过，稍后从设备管理添加。
 
-   ```bash
-   go run ./cmd/rosboard -config ./configs/config.local.yaml
-   ```
+如需将配置放在指定位置，启动时传入路径即可；文件同样可以不存在：
 
-4. 打开 `http://127.0.0.1:8080`，先创建管理员账号，再按引导测试并添加 RouterOS。RouterOS 步骤可以跳过，稍后从设备管理添加。
+```bash
+go run ./cmd/rosboard -config /etc/rosboard/config.yaml
+```
 
 ## 配置说明
 
-完整示例见 [`configs/config.example.yaml`](configs/config.example.yaml)。
+完整示例见 [`configs/config.example.yaml`](configs/config.example.yaml)。未传 `-config` 时，rosboard 使用当前工作目录的 `./config.yaml`；传入 `-config` 时则严格使用指定路径。两种方式都允许配置文件在首次启动时不存在，网页引导首次保存 RouterOS 设置时会自动创建它。
 
 | 字段 | 说明 |
 | --- | --- |
@@ -81,14 +80,25 @@ Browser → rosboard HTTP/API → RouterOS REST API
 | `devices[].enabled` | 是否在后台持续采集该设备 |
 | `devices[].routeros.*` | 每台设备的 REST 地址、账号、密码、采集接口和终端网段 |
 
-设备由面板在连接测试通过后写入配置文件；每台设备至少需要一个采集接口和一个 IPv4/IPv6 本地 CIDR。支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR` 环境变量覆盖。长期部署建议使用权限为 `0600` 的配置文件。
+设备由面板在连接测试通过后写入配置文件；每台设备至少需要一个采集接口和一个 IPv4/IPv6 本地 CIDR。支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR` 环境变量覆盖。自动创建与后续更新的配置文件权限均为 `0600`。
+
+### 采集与页面刷新
+
+| 层级 | 默认周期 | 控制项 | 作用 |
+| --- | --- | --- | --- |
+| 完整采集 | 10 秒 | `poll_interval_seconds` | 系统、接口、地址、路由、策略、终端完整快照与接口流量 |
+| 概览实时采集 | 1 秒 | `realtime_poll_interval_seconds` | CPU、内存、所选 WAN 接口速率与图表采样 |
+| 终端发现采集 | 5 秒 | `terminal_poll_interval_seconds` | DHCP、ARP、IPv6 Neighbor、地址/MAC 关联、在线状态、累计流量与历史 |
+| 终端当前速率 | 1 秒 | 固定 | 终端页面可见时仅读取 IPv4/IPv6 conntrack，更新当前上下行速率、连接和流量分类 |
+
+终端当前速率采集不受上述三个配置项、也不受页面“自动刷新”下拉框控制；终端页面离开或隐藏约 30 秒后会自动停止。页面自动刷新只控制浏览器读取后端缓存并更新显示：终端列表遵从所选周期，终端详情在启用自动刷新时每秒读取一次。
 
 ## 开发
 
 先启动 Go 后端，再在另一个终端启动 Vite 开发服务器：
 
 ```bash
-go run ./cmd/rosboard -config ./configs/config.local.yaml
+go run ./cmd/rosboard
 ```
 
 ```bash
@@ -124,7 +134,20 @@ go build -o ./rosboard ./cmd/rosboard
 ./scripts/run-local.sh
 ```
 
-该脚本读取已忽略的 `configs/config.local.yaml`，不会从环境或历史记录中提取凭据。
+该脚本使用仓库根目录已忽略的 `config.yaml`；首次保存设备时自动创建该文件，且不会从环境或历史记录中提取凭据。
+
+## 发布版本
+
+根目录的 [`VERSION`](VERSION) 是唯一的发布开关，当前版本为 `0.0.1`。普通代码提交不会创建 Release。准备发布时，在同一个提交中完成需要发布的代码，并将 `VERSION` 改为新的语义化版本（例如 `0.0.2`），然后推送到 `main`：
+
+```bash
+printf '0.0.2\n' > VERSION
+git add VERSION
+git commit -m "release: v0.0.2"
+git push origin main
+```
+
+GitHub Actions 仅在 `main` 上的 `VERSION` 发生变更时运行；它会测试后端、重新构建前端，并创建对应的 `v0.0.2` Release，附带 `linux_amd64`、`linux_amd64-v3`、`linux_arm64`、`linux_armv7` 压缩包及 `sha256sums.txt`。`amd64-v3` 适用于支持 x86-64-v3 指令集的较新 x86 处理器；其他 x86 服务器请选择通用 `amd64` 包。同一版本号已经存在时会失败，避免覆盖既有 Release。
 
 ## systemd 部署
 
@@ -134,12 +157,12 @@ go build -o ./rosboard ./cmd/rosboard
 sudo useradd --system --home /opt/rosboard --shell /usr/sbin/nologin rosboard
 sudo install -d -o rosboard -g rosboard /opt/rosboard
 sudo install -o rosboard -g rosboard -m 0755 ./rosboard /opt/rosboard/rosboard
-sudo install -o rosboard -g rosboard -m 0600 configs/config.example.yaml /opt/rosboard/config.yaml
 sudo install -m 0644 deploy/rosboard.service /etc/systemd/system/rosboard.service
-sudoedit /opt/rosboard/config.yaml
 sudo systemctl daemon-reload
 sudo systemctl enable --now rosboard
 ```
+
+首次访问 `http://<服务器地址>:8080` 后按网页引导创建管理员并添加 RouterOS。服务的工作目录是 `/opt/rosboard`，因此首次保存设备时会自动创建 `/opt/rosboard/config.yaml`；不需要预先复制或编辑 YAML。
 
 查看运行状态与日志：
 
@@ -168,7 +191,7 @@ web/                React + TypeScript 前端源码
 - rosboard 使用单管理员账号和 7 天滚动会话；首次初始化页面受 `allowed_cidrs` 限制，仍不应直接暴露到公网。
 - `/api/*` 受 `allowed_cidrs` 限制；请按实际管理网段收紧默认配置，并配合主机防火墙或反向代理访问控制。
 - RouterOS 凭据保存在原子写入的本地 YAML 中，不会返回浏览器。请保持文件权限为 `0600`，使用专用的最小权限账号，并优先在可信网络中通过 HTTPS 连接 RouterOS。
-- `configs/config.local.yaml`、`data/`、`web/node_modules/` 和本地 `rosboard` 二进制已加入 `.gitignore`。
+- `config.yaml`、`configs/config.local.yaml`、`data/`、`web/node_modules/` 和本地 `rosboard` 二进制已加入 `.gitignore`。
 
 忘记管理员密码时，可在服务器终端交互式重置；该操作会撤销全部现有会话：
 

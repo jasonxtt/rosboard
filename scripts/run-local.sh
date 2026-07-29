@@ -3,7 +3,6 @@ set -euo pipefail
 
 root_dir=$(cd "$(dirname "$0")/.." && pwd)
 binary="$root_dir/rosboard"
-config="$root_dir/configs/config.local.yaml"
 
 if [[ ! -x "$binary" ]]; then
   print -u2 "rosboard binary not found: $binary"
@@ -11,10 +10,5 @@ if [[ ! -x "$binary" ]]; then
   exit 1
 fi
 
-if [[ ! -r "$config" ]]; then
-  print -u2 "local config not found or unreadable: $config"
-  exit 1
-fi
-
 cd "$root_dir"
-exec "$binary" -config "$config"
+exec "$binary"

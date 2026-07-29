@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - VERSION
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Read and validate version
+        id: version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "VERSION must contain a semantic version such as 0.0.1" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test backend
+        run: go test ./...
+
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build release archives
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p dist
+          build() {
+            name="$1"
+            shift
+            env "$@" go build -trimpath -ldflags='-s -w' -o dist/rosboard ./cmd/rosboard
+            tar -C dist -czf "dist/rosboard_${VERSION}_linux_${name}.tar.gz" rosboard
+            rm dist/rosboard
+          }
+          build amd64 GOOS=linux GOARCH=amd64 CGO_ENABLED=0
+          build amd64-v3 GOOS=linux GOARCH=amd64 GOAMD64=v3 CGO_ENABLED=0
+          build arm64 GOOS=linux GOARCH=arm64 CGO_ENABLED=0
+          build armv7 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0
+          sha256sum dist/*.tar.gz > dist/sha256sums.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gh release create "v${VERSION}" dist/*.tar.gz dist/sha256sums.txt \
+            --target "$GITHUB_SHA" \
+            --title "v${VERSION}" \
+            --generate-notes

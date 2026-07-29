@@ -1,4 +1,5 @@
-rosboard
+/rosboard
+.DS_Store
 data/
 web/node_modules/
 configs/config.local.yaml
@@ -7,3 +8,4 @@ configs/config.local.yaml
 .agents/
 .codex/
 .opencode/
+config.yaml
