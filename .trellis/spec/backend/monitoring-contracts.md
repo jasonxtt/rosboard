@@ -19,6 +19,41 @@
 - Store/API: traffic ranges are bounded and scoped by device.
 - Race: one failed device retry does not block healthy device snapshots or heartbeat fan-out.
 
+## Scenario: Interface topology and physical-egress attribution
+
+### Signatures
+
+- Interface inventory uses `/rest/interface`; physical membership and Ethernet
+  details use `/rest/interface/ethernet`.
+- Optional logical topology uses `/rest/interface/pppoe-client`,
+  `/rest/interface/vlan`, and `/rest/interface/bridge/port`.
+- `InterfaceStatus.category` is `physical`, `logical`, or `system`;
+  `InterfaceStatus.relations[]` uses `carrier`, `parent`, `bridge`, or `member`.
+- `TerminalConnection.routeInterfaces[]` preserves logical route evidence;
+  `TerminalConnection.egressInterfaces[]` contains resolved physical egresses.
+
+### Contracts
+
+- Loopback interfaces are system interfaces. Ethernet-inventory members are
+  physical; Ethernet type is the failure fallback; all remaining interfaces
+  are logical.
+- PPPoE carrier and VLAN parent chains may be followed recursively to a known
+  physical interface. WireGuard, unknown/cyclic chains, and ambiguous bridge
+  membership never receive a guessed physical egress.
+- `gateway%interface` separates gateway and logical interface. A direct
+  interface gateway such as `pppoe-out1` remains visible as logical route
+  evidence while its physical carrier is projected separately.
+- Equal-best route candidates preserve all distinct physical egresses. Missing
+  physical attribution does not invalidate otherwise valid route attribution.
+- Interface topology collection and route attribution remain read-only.
+
+### Tests Required
+
+- Interface projection covers physical/logical/system classification,
+  Ethernet fallback, PPPoE/VLAN relations, and bridge/member relations.
+- Route projection covers `%interface`, direct PPPoE, VLAN parent traversal,
+  IPv6 zone syntax, ECMP, cycles, and unavailable physical egress.
+
 ## Scenario: Viewer-aware idle polling
 
 ### 1. Scope / Trigger

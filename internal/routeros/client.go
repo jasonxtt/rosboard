@@ -157,6 +157,14 @@ func (c *Client) PPPoEClients(ctx context.Context) ([]PPPoEClient, error) {
 	var payload []PPPoEClient
 	return payload, c.getJSON(ctx, "/rest/interface/pppoe-client", &payload)
 }
+func (c *Client) VLANInterfaces(ctx context.Context) ([]VLANInterface, error) {
+	var payload []VLANInterface
+	return payload, c.getJSON(ctx, "/rest/interface/vlan", &payload)
+}
+func (c *Client) BridgePorts(ctx context.Context) ([]BridgePort, error) {
+	var payload []BridgePort
+	return payload, c.getJSON(ctx, "/rest/interface/bridge/port", &payload)
+}
 func (c *Client) DHCPClients(ctx context.Context) ([]DHCPClient, error) {
 	var payload []DHCPClient
 	return payload, c.getJSON(ctx, "/rest/ip/dhcp-client", &payload)

@@ -120,6 +120,22 @@ type PPPoEClient struct {
 	DefaultRouteDistance string `json:"default-route-distance"`
 }
 
+type VLANInterface struct {
+	ID        string `json:".id"`
+	Name      string `json:"name"`
+	Interface string `json:"interface"`
+	VLANID    string `json:"vlan-id"`
+	Disabled  string `json:"disabled"`
+}
+
+type BridgePort struct {
+	ID        string `json:".id"`
+	Interface string `json:"interface"`
+	Bridge    string `json:"bridge"`
+	Disabled  string `json:"disabled"`
+	Invalid   string `json:"invalid"`
+}
+
 type DHCPClient struct {
 	ID                   string `json:".id"`
 	Interface            string `json:"interface"`

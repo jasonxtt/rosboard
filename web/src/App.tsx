@@ -252,6 +252,10 @@ function normalizeTerminal(terminal: Terminal): Terminal {
 function normalizeTerminalDetail(detail: TerminalDetail): TerminalDetail {
   detail.terminal = normalizeTerminal(detail.terminal)
   detail.connections ??= []
+  detail.connections.forEach((connection) => {
+    connection.routeInterfaces ??= []
+    connection.egressInterfaces ??= []
+  })
   detail.flowCategories ??= []
   detail.history ??= []
   detail.capabilities ??= []
@@ -264,6 +268,11 @@ function normalizeTerminalDetail(detail: TerminalDetail): TerminalDetail {
   detail.familyFlows.ipv4 ??= []
   detail.familyFlows.ipv6 ??= []
   return detail
+}
+
+function normalizeInterface(item: InterfaceStatus): InterfaceStatus {
+  const type = item.type?.trim().toLowerCase()
+  return { ...item, category: item.category || (type === 'loopback' ? 'system' : type === 'ether' ? 'physical' : 'logical'), relations: item.relations ?? [] }
 }
 
 function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
@@ -592,7 +601,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           throw new Error(`HTTP ${response.status}`)
         }
         const payload = (await response.json()) as DashboardResponse
-        payload.interfaces ??= []
+        payload.interfaces = (payload.interfaces ?? []).map(normalizeInterface)
         payload.terminals = (payload.terminals ?? []).map(normalizeTerminal)
         payload.capabilities ??= []
         payload.protocols ??= []
@@ -882,13 +891,17 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   setSidebarOpen(false)
                 }}
               >
-                <NavLabel icon="network" label="线路监控" />
+                <NavLabel icon="network" label="接口监控" />
               </button>
               <button
                 type="button"
                 className="submenu-section submenu-toggle"
                 aria-expanded={expandedMonitorGroup === 'terminals'}
                 onClick={() => {
+                  if (expandedMonitorGroup === 'terminals') {
+                    setExpandedMonitorGroup(null)
+                    return
+                  }
                   setExpandedMonitorGroup('terminals')
                   setActiveView('terminals')
                   setTerminalFamily('all')
@@ -1143,7 +1156,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 const failure = await response.json().catch(() => null) as { error?: string } | null
                 throw new Error(failure?.error || `HTTP ${response.status}`)
               }
-              const payload = (await response.json()) as TerminalDetail
+              const payload = normalizeTerminalDetail((await response.json()) as TerminalDetail)
               setTerminalDetail(payload)
               setDashboard((previous) =>
                 previous
@@ -1172,7 +1185,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 function EmptyDevicePanel(props: { settings: SettingsResponse; username: string; onAuthenticationChanged: () => void; onDeviceSaved: (deviceID: string) => Promise<void> }) {
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
-	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '线路监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
+	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
 	const choose = (value: typeof section) => { setSection(value); setSidebarOpen(false) }
 	return <main className={sidebarOpen ? 'shell empty-device-shell sidebar-open' : 'shell empty-device-shell'}>
 		<button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
@@ -1180,7 +1193,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; username: string;
 			<div className="brand"><img className="brand-mark" src={rosboardMark} alt="" /><div className="brand-copy"><h1>Rosboard</h1><p>尚未连接设备</p></div></div>
 			<nav className="menu">
 				<button className={section === 'overview' ? 'menu-item active' : 'menu-item'} onClick={() => choose('overview')}><NavLabel icon="overview" label="系统概览" /></button>
-				<button className={section === 'interfaces' ? 'menu-item active' : 'menu-item'} onClick={() => choose('interfaces')}><NavLabel icon="network" label="线路监控" /></button>
+				<button className={section === 'interfaces' ? 'menu-item active' : 'menu-item'} onClick={() => choose('interfaces')}><NavLabel icon="network" label="接口监控" /></button>
 				<button className={section === 'terminals' ? 'menu-item active' : 'menu-item'} onClick={() => choose('terminals')}><NavLabel icon="terminal" label="终端监控" /></button>
 				<button className={section === 'devices' ? 'menu-item active' : 'menu-item'} onClick={() => choose('devices')}><NavLabel icon="router" label="设备管理" /></button>
 				<button className={section === 'account' ? 'menu-item active' : 'menu-item'} onClick={() => choose('account')}><NavLabel icon="shield" label="账号安全" /></button>
@@ -2024,54 +2037,41 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
       const response = await fetch(scopedURL(`/api/interfaces/${encodeURIComponent(selected)}`, props.deviceID))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const payload = (await response.json()) as InterfaceDetail
+      payload.interface = normalizeInterface(payload.interface)
       if (!cancelled) setDetail(payload)
     }
     load().catch(() => undefined)
     const timer = window.setInterval(() => load().catch(() => undefined), 5000)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [selected, props.deviceID])
+  const physical = props.interfaces.filter((item) => item.category === 'physical').sort((left, right) => {
+    const rank = (item: InterfaceStatus) => item.disabled ? 2 : item.running ? 1 : 0
+    return rank(left) - rank(right) || left.name.localeCompare(right.name, 'zh-CN', { numeric: true })
+  })
+  const logical = props.interfaces.filter((item) => item.category === 'logical').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
+  const system = props.interfaces.filter((item) => item.category === 'system').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
+  const interfaceState = (item: InterfaceStatus) => item.disabled ? '已禁用' : item.running ? (item.category === 'physical' ? '在线' : '运行中') : 'Down'
+  const relationLabel = (kind: InterfaceStatus['relations'][number]['kind']) => ({ carrier: '承载接口', parent: '父接口', bridge: '所属 Bridge', member: '成员接口' })[kind] ?? kind
+  const table = (items: InterfaceStatus[]) => <div className="table-scroll">
+    <table className="data-table interface-table">
+      <thead><tr><th>接口</th><th>类型</th><th>关联接口</th><th>地址 / MAC</th><th>状态</th><th>上行速率</th><th>下行速率</th><th>累计上行</th><th>累计下行</th><th>MTU</th><th>掉线次数</th><th>错误 / 丢包</th></tr></thead>
+      <tbody>{items.length ? items.map((item) => <tr key={item.name} className={!item.disabled && !item.running ? 'interface-row-down' : ''}>
+        <td><button type="button" className="link-button" onClick={() => setSelected(item.name)}>{item.name}</button></td>
+        <td>{item.type}</td>
+        <td>{item.relations?.length ? <div className="interface-relations">{item.relations.map((relation) => <span key={`${relation.kind}-${relation.interface}`}>{relationLabel(relation.kind)}：{relation.interface}</span>)}</div> : '-'}</td>
+        <td><div className="address-stack"><span>{item.addresses?.join(' / ') || '-'}</span><span className="muted-text">{item.macAddress || '-'}</span></div></td>
+        <td><span className={`interface-state interface-state-${item.disabled ? 'disabled' : item.running ? 'online' : 'down'}`}>{interfaceState(item)}</span></td>
+        <td>{formatBits(item.currentTxBps)}</td><td>{formatBits(item.currentRxBps)}</td><td>{formatBytes(item.txBytes)}</td><td>{formatBytes(item.rxBytes)}</td>
+        <td>{item.actualMtu || '-'}</td><td>{item.linkDowns}</td><td>{item.rxErrors + item.txErrors} / {item.rxDrops + item.txDrops}</td>
+      </tr>) : <tr><td colSpan={12} className="empty-row">暂无接口</td></tr>}</tbody>
+    </table>
+  </div>
   return (
     <div className="page-grid">
-    {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={detail.interface.running && !detail.interface.disabled ? '在线' : '离线'} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
-    <section className="panel compact-panel">
-      <div className="data-toolbar"><strong>接口运行状态</strong><span className="result-count">物理与逻辑接口只读监控</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>
-      <div className="table-scroll">
-        <table className="data-table interface-table">
-          <thead>
-            <tr>
-              <th>接口</th>
-              <th>类型</th>
-              <th>地址 / MAC</th>
-              <th>状态</th>
-              <th>上行速率</th>
-              <th>下行速率</th>
-              <th>累计上行</th>
-              <th>累计下行</th>
-              <th>MTU</th>
-              <th>掉线次数</th>
-              <th>错误 / 丢包</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.interfaces.map((item) => (
-              <tr key={item.name}>
-                <td><button type="button" className="link-button" onClick={() => setSelected(item.name)}>{item.name}</button></td>
-                <td>{item.type}</td>
-                <td><div className="address-stack"><span>{item.addresses?.join(' / ') || '-'}</span><span className="muted-text">{item.macAddress || '-'}</span></div></td>
-                <td>{item.running && !item.disabled ? '在线' : '离线'}</td>
-                <td>{formatBits(item.currentTxBps)}</td>
-                <td>{formatBits(item.currentRxBps)}</td>
-                <td>{formatBytes(item.txBytes)}</td>
-                <td>{formatBytes(item.rxBytes)}</td>
-                <td>{item.actualMtu || '-'}</td>
-                <td>{item.linkDowns}</td>
-                <td>{item.rxErrors + item.txErrors} / {item.rxDrops + item.txDrops}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={interfaceState(detail.interface)} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
+    <section className="panel compact-panel interface-section"><div className="panel-head"><h3>物理接口</h3><span>{physical.length} 个 · Down {physical.filter((item) => !item.disabled && !item.running).length}</span></div>{table(physical)}</section>
+    <section className="panel compact-panel interface-section"><div className="panel-head"><h3>逻辑接口</h3><span>{logical.length} 个</span></div>{table(logical)}</section>
+    {system.length ? <details className="panel compact-panel interface-system-section"><summary>系统接口 <span>{system.length} 个</span></summary>{table(system)}</details> : null}
     </div>
   )
 }
@@ -2257,8 +2257,8 @@ function SortHeader(props: { label: string; sortKey: TerminalSortKey; activeKey:
   return <th><button type="button" className="sort-button" onClick={() => props.onSort(props.sortKey)}>{props.label}<span>{props.activeKey === props.sortKey ? (props.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>
 }
 
-type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'routeTable' | 'gateway' | 'status' | 'search'
-type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'destinationPort' | 'publicAddress' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'routeTable' | 'gateway' | 'status'
+type ConnectionFilterKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'routeTable' | 'gateway' | 'egress' | 'status'
+type ConnectionSortKey = 'family' | 'application' | 'protocol' | 'sourceAddress' | 'sourcePort' | 'destination' | 'destinationPort' | 'upload' | 'download' | 'uploadBytes' | 'downloadBytes' | 'routeTable' | 'gateway' | 'egress' | 'status'
 
 const unavailableRouteValue = '无法判断'
 
@@ -2270,6 +2270,10 @@ function connectionGateway(connection: TerminalConnection) {
   return connection.routeGateways?.length ? connection.routeGateways.join(' / ') : unavailableRouteValue
 }
 
+function connectionEgress(connection: TerminalConnection) {
+  return connection.egressInterfaces?.length ? connection.egressInterfaces.join(' / ') : '-'
+}
+
 function ConnectionColumnHeader(props: {
   label: string
   sortKey: ConnectionSortKey
@@ -2277,14 +2281,15 @@ function ConnectionColumnHeader(props: {
   sortDirection: 'asc' | 'desc'
   filterKey?: ConnectionFilterKey
   filterActive?: boolean
+  filterOpen?: boolean
   onSort: (key: ConnectionSortKey) => void
   onOpenFilter: (key: ConnectionFilterKey, anchor: HTMLElement) => void
 }) {
   const sorting = props.activeSort === props.sortKey
   const filterKey = props.filterKey
-  return <th><div className="connection-header-controls">
+  return <th aria-sort={sorting ? (props.sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}><div className="connection-header-controls">
     <button type="button" className={sorting ? 'connection-sort-button active' : 'connection-sort-button'} aria-label={`${props.label}${sorting ? `，当前${props.sortDirection === 'asc' ? '升序' : '降序'}` : ''}，点击排序`} onClick={() => props.onSort(props.sortKey)}><span>{props.label}</span>{sorting ? <span className="connection-sort-indicator" aria-hidden="true">{props.sortDirection === 'asc' ? '↑' : '↓'}</span> : null}</button>
-    {filterKey ? <button type="button" className={props.filterActive ? 'column-filter-button active' : 'column-filter-button'} aria-label={`筛选${props.label}`} aria-pressed={Boolean(props.filterActive)} onClick={(event) => props.onOpenFilter(filterKey, event.currentTarget)}><span aria-hidden="true">▾</span></button> : null}
+    {filterKey ? <button type="button" className={props.filterActive ? 'column-filter-button active' : 'column-filter-button'} aria-label={`筛选${props.label}`} aria-pressed={Boolean(props.filterActive)} aria-expanded={Boolean(props.filterOpen)} aria-controls={props.filterOpen ? 'connection-filter-panel' : undefined} onClick={(event) => props.onOpenFilter(filterKey, event.currentTarget)}><span aria-hidden="true">▾</span></button> : null}
   </div></th>
 }
 
@@ -2308,13 +2313,13 @@ function compareConnection(left: TerminalConnection, right: TerminalConnection, 
     case 'sourcePort': return text(left.sourcePort, right.sourcePort)
     case 'destination': return text(left.destinationAddress, right.destinationAddress)
     case 'destinationPort': return text(left.destinationPort, right.destinationPort)
-    case 'publicAddress': return text(left.publicAddress, right.publicAddress)
     case 'upload': return left.uploadBps - right.uploadBps
     case 'download': return left.downloadBps - right.downloadBps
     case 'uploadBytes': return left.uploadBytes - right.uploadBytes
     case 'downloadBytes': return left.downloadBytes - right.downloadBytes
     case 'routeTable': return text(connectionRouteTable(left), connectionRouteTable(right))
     case 'gateway': return text(connectionGateway(left), connectionGateway(right))
+    case 'egress': return text(connectionEgress(left), connectionEgress(right))
     case 'status': return text(left.status, right.status)
   }
 }
@@ -2326,7 +2331,6 @@ function useConnectionTableState(props: {
   onFamilyChange: (value: ConnectionFamily) => void
   showStatus: boolean
 }) {
-  const [connectionQuery, setConnectionQuery] = useState('')
   const [applicationQuery, setApplicationQuery] = useState('')
   const [protocolFilter, setProtocolFilter] = useState('all')
   const [sourceAddressQuery, setSourceAddressQuery] = useState('')
@@ -2334,11 +2338,13 @@ function useConnectionTableState(props: {
   const [destinationQuery, setDestinationQuery] = useState('')
   const [routeTableFilter, setRouteTableFilter] = useState('all')
   const [gatewayFilter, setGatewayFilter] = useState('all')
+  const [egressFilter, setEgressFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [activeConnectionFilter, setActiveConnectionFilter] = useState<ConnectionFilterKey | null>(null)
   const [connectionSortKey, setConnectionSortKey] = useState<ConnectionSortKey | null>(null)
   const [connectionSortDirection, setConnectionSortDirection] = useState<'asc' | 'desc'>('asc')
   const [filterPanelLeft, setFilterPanelLeft] = useState(7)
+  const [filterPanelTop, setFilterPanelTop] = useState(96)
   const scopedConnectionRows = props.scope === 'all' ? props.connections : props.connections.filter((item) => item.family === props.scope)
   const selectedFamily = props.scope === 'all' ? props.family : props.scope
   const familyConnections = selectedFamily === 'all' ? scopedConnectionRows : scopedConnectionRows.filter((item) => item.family === selectedFamily)
@@ -2348,19 +2354,18 @@ function useConnectionTableState(props: {
   const protocols = Array.from(new Set(familyConnections.map((item) => item.protocol))).sort()
   const routeTables = Array.from(new Set(familyConnections.map(connectionRouteTable))).sort()
   const gateways = Array.from(new Set(familyConnections.flatMap((item) => item.routeGateways?.length ? item.routeGateways : [unavailableRouteValue]))).sort()
+  const egresses = Array.from(new Set(familyConnections.flatMap((item) => item.egressInterfaces?.length ? item.egressInterfaces : ['-']))).sort()
   const statuses = Array.from(new Set(familyConnections.map((item) => item.status).filter(Boolean))).sort()
-  const normalizedGlobalQuery = connectionQuery.trim().toLowerCase()
   const filteredConnections = familyConnections.filter((connection) =>
     (protocolFilter === 'all' || connection.protocol === protocolFilter) &&
       (routeTableFilter === 'all' || connectionRouteTable(connection) === routeTableFilter) &&
       (gatewayFilter === 'all' || (gatewayFilter === unavailableRouteValue ? !connection.routeGateways?.length : connection.routeGateways?.includes(gatewayFilter))) &&
+      (egressFilter === 'all' || (egressFilter === '-' ? !connection.egressInterfaces?.length : connection.egressInterfaces?.includes(egressFilter))) &&
       (!props.showStatus || statusFilter === 'all' || connection.status === statusFilter) &&
       (!applicationQuery || connection.application === applicationQuery) &&
       connection.sourceAddress.toLowerCase().includes(sourceAddressQuery.trim().toLowerCase()) &&
       connection.sourcePort.toLowerCase().includes(sourcePortQuery.trim().toLowerCase()) &&
-      [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase()) &&
-      [connection.application, connection.protocol, connectionRouteTable(connection), connectionGateway(connection), connection.sourceAddress, connection.sourcePort, connection.destinationAddress, connection.destinationPort, connection.publicAddress, connection.connectionMark]
-        .join(' ').toLowerCase().includes(normalizedGlobalQuery)
+      [connection.destinationAddress, connection.destinationPort].join(' ').toLowerCase().includes(destinationQuery.trim().toLowerCase())
   )
   const visibleConnections = connectionSortKey ? [...filteredConnections].sort((left, right) => {
     const comparison = compareConnection(left, right, connectionSortKey)
@@ -2375,8 +2380,8 @@ function useConnectionTableState(props: {
     destination: Boolean(destinationQuery),
     routeTable: routeTableFilter !== 'all',
     gateway: gatewayFilter !== 'all',
+    egress: egressFilter !== 'all',
     status: props.showStatus && statusFilter !== 'all',
-    search: Boolean(connectionQuery),
   }
   const openConnectionFilter = (key: ConnectionFilterKey, anchor: HTMLElement) => {
     const shell = anchor.closest('.connection-table-shell')
@@ -2386,6 +2391,7 @@ function useConnectionTableState(props: {
       const preferredWidth = shellRect.width < 600 ? 240 : 300
       const panelWidth = Math.min(preferredWidth, Math.max(220, shellRect.width - 14))
       setFilterPanelLeft(Math.max(7, Math.min(anchorRect.left - shellRect.left, shellRect.width - panelWidth - 7)))
+      setFilterPanelTop(anchorRect.bottom - shellRect.top + 4)
     }
     setActiveConnectionFilter((value) => value === key ? null : key)
   }
@@ -2396,89 +2402,65 @@ function useConnectionTableState(props: {
       setConnectionSortDirection('asc')
     }
   }
-  const clearConnectionTableState = () => {
-    props.onFamilyChange(props.scope === 'all' ? 'all' : props.scope)
-    setApplicationQuery('')
-    setProtocolFilter('all')
-    setSourceAddressQuery('')
-    setSourcePortQuery('')
-    setDestinationQuery('')
-    setRouteTableFilter('all')
-    setGatewayFilter('all')
-    setStatusFilter('all')
-    setConnectionQuery('')
-    setConnectionSortKey(null)
-    setConnectionSortDirection('asc')
-    setActiveConnectionFilter(null)
-  }
   const chooseConnectionFilter = (apply: () => void) => {
     apply()
     setActiveConnectionFilter(null)
   }
   return {
     activeConnectionFilter, activeSort: connectionSortKey, applications, changeConnectionSort, chooseConnectionFilter,
-    clearConnectionTableState, connectionQuery, familyFilterable: props.scope === 'all', filterActive, filterPanelLeft, gateways, hasState: connectionSortKey !== null || Object.values(filterActive).some(Boolean),
+    egresses, familyFilterable: props.scope === 'all', filterActive, filterPanelLeft, filterPanelTop, gateways,
     ipv4Connections, ipv6Connections, onFamilyChange: props.onFamilyChange, openConnectionFilter, protocols, routeTables, scopedConnectionRows, selectedFamily,
-    setActiveConnectionFilter, setApplicationQuery, setConnectionQuery, setDestinationQuery, setFilterPanelLeft, setGatewayFilter,
+    setActiveConnectionFilter, setApplicationQuery, setDestinationQuery, setEgressFilter, setGatewayFilter,
     setProtocolFilter, setRouteTableFilter, setSourceAddressQuery, setSourcePortQuery, setStatusFilter,
     sortDirection: connectionSortDirection, sourceAddressQuery, sourcePortQuery, applicationQuery, destinationQuery, gatewayFilter,
-    protocolFilter, routeTableFilter, statusFilter, statuses, visibleConnections,
+    egressFilter, protocolFilter, routeTableFilter, statusFilter, statuses, visibleConnections,
   }
 }
 
 type ConnectionTableState = ReturnType<typeof useConnectionTableState>
 
-function ConnectionMobileActions(props: { state: ConnectionTableState }) {
-  return <div className="connection-mobile-actions">
-    <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!props.state.hasState} onClick={props.state.clearConnectionTableState}><Icon name="clear" /></button>
-    <button type="button" className={props.state.filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={props.state.activeConnectionFilter === 'search'} onClick={() => { props.state.setFilterPanelLeft(7); props.state.setActiveConnectionFilter((value) => value === 'search' ? null : 'search') }}><Icon name="search" /></button>
-  </div>
-}
-
 function ConnectionTable(props: { state: ConnectionTableState; showStatus: boolean; emptyLabel: string }) {
   const state = props.state
-  const filterPanel = state.activeConnectionFilter ? <div className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: state.filterPanelLeft }}>
-    <div className="connection-filter-panel-head"><strong>{state.activeConnectionFilter === 'search' ? '搜索全部连接字段' : '筛选连接'}</strong><button type="button" className="link-button" onClick={() => state.setActiveConnectionFilter(null)}>关闭</button></div>
+  const filterPanel = state.activeConnectionFilter ? <div id="connection-filter-panel" className="connection-filter-panel" role="dialog" aria-label="连接筛选" style={{ left: state.filterPanelLeft, top: state.filterPanelTop }}>
+    <div className="connection-filter-panel-head"><strong>筛选连接</strong><button type="button" className="link-button" onClick={() => state.setActiveConnectionFilter(null)}>关闭</button></div>
     {state.activeConnectionFilter === 'family' ? <ConnectionFilterOptions value={state.selectedFamily} options={[{ value: 'all', label: `全部 (${state.scopedConnectionRows.length})` }, { value: 'ipv4', label: `IPv4 (${state.ipv4Connections.length})` }, { value: 'ipv6', label: `IPv6 (${state.ipv6Connections.length})` }]} onChange={(value) => state.chooseConnectionFilter(() => state.onFamilyChange(value as ConnectionFamily))} /> : null}
     {state.activeConnectionFilter === 'application' ? <ConnectionFilterOptions value={state.applicationQuery} options={[{ value: '', label: '全部应用' }, ...state.applications.map((application) => ({ value: application, label: application }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setApplicationQuery(value))} /> : null}
     {state.activeConnectionFilter === 'protocol' ? <ConnectionFilterOptions value={state.protocolFilter} options={[{ value: 'all', label: '全部协议' }, ...state.protocols.map((protocol) => ({ value: protocol, label: protocol }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setProtocolFilter(value))} /> : null}
-    {state.activeConnectionFilter === 'sourceAddress' ? <input value={state.sourceAddressQuery} onChange={(event) => state.setSourceAddressQuery(event.target.value)} placeholder="来源 IP" aria-label="来源 IP 筛选" /> : null}
-    {state.activeConnectionFilter === 'sourcePort' ? <input value={state.sourcePortQuery} onChange={(event) => state.setSourcePortQuery(event.target.value)} placeholder="来源端口" aria-label="来源端口筛选" /> : null}
-    {state.activeConnectionFilter === 'destination' ? <input value={state.destinationQuery} onChange={(event) => state.setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /> : null}
+    {state.activeConnectionFilter === 'sourceAddress' ? <><ConnectionFilterOptions value={state.sourceAddressQuery ? 'filtered' : 'all'} options={[{ value: 'all', label: '全部来源 IP' }]} onChange={() => state.chooseConnectionFilter(() => state.setSourceAddressQuery(''))} /><input value={state.sourceAddressQuery} onChange={(event) => state.setSourceAddressQuery(event.target.value)} placeholder="来源 IP" aria-label="来源 IP 筛选" /></> : null}
+    {state.activeConnectionFilter === 'sourcePort' ? <><ConnectionFilterOptions value={state.sourcePortQuery ? 'filtered' : 'all'} options={[{ value: 'all', label: '全部来源端口' }]} onChange={() => state.chooseConnectionFilter(() => state.setSourcePortQuery(''))} /><input value={state.sourcePortQuery} onChange={(event) => state.setSourcePortQuery(event.target.value)} placeholder="来源端口" aria-label="来源端口筛选" /></> : null}
+    {state.activeConnectionFilter === 'destination' ? <><ConnectionFilterOptions value={state.destinationQuery ? 'filtered' : 'all'} options={[{ value: 'all', label: '全部目的地址' }]} onChange={() => state.chooseConnectionFilter(() => state.setDestinationQuery(''))} /><input value={state.destinationQuery} onChange={(event) => state.setDestinationQuery(event.target.value)} placeholder="目的 IP 或端口" aria-label="目的地址筛选" /></> : null}
     {state.activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={state.routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...state.routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setRouteTableFilter(value))} /> : null}
     {state.activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={state.gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...state.gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setGatewayFilter(value))} /> : null}
+    {state.activeConnectionFilter === 'egress' ? <ConnectionFilterOptions value={state.egressFilter} options={[{ value: 'all', label: '全部出接口' }, ...state.egresses.map((egress) => ({ value: egress, label: egress }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setEgressFilter(value))} /> : null}
     {state.activeConnectionFilter === 'status' ? <select value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
-    {state.activeConnectionFilter === 'search' ? <input value={state.connectionQuery} onChange={(event) => state.setConnectionQuery(event.target.value)} placeholder="地址 / 端口 / 应用 / 标记" aria-label="搜索全部连接字段" /> : null}
   </div> : null
   const columnCount = 14 + Number(props.showStatus)
-  return <div className="connection-table-shell">
-    <button type="button" className="table-clear-button" aria-label="清除全部筛选和排序" disabled={!state.hasState} onClick={state.clearConnectionTableState}><Icon name="clear" /></button>
-    <button type="button" className={state.filterActive.search ? 'table-search-button active' : 'table-search-button'} aria-label="搜索全部连接字段" aria-expanded={state.activeConnectionFilter === 'search'} onClick={(event) => state.openConnectionFilter('search', event.currentTarget)}><Icon name="search" /></button>
+  return <div className="connection-table-shell" onKeyDown={(event) => { if (event.key === 'Escape') state.setActiveConnectionFilter(null) }}>
     {filterPanel}
-    <div className="table-scroll"><table className="data-table connection-table"><thead><tr>
-      <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey={state.familyFilterable ? 'family' : undefined} filterActive={state.filterActive.family} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="应用" sortKey="application" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="application" filterActive={state.filterActive.application} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="protocol" filterActive={state.filterActive.protocol} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="来源 IP" sortKey="sourceAddress" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourceAddress" filterActive={state.filterActive.sourceAddress} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="来源端口" sortKey="sourcePort" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourcePort" filterActive={state.filterActive.sourcePort} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="destination" filterActive={state.filterActive.destination} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+    <div className="connection-table-viewport" role="region" aria-label="终端连接明细" tabIndex={0}><table className="data-table connection-table"><thead><tr>
+      <ConnectionColumnHeader label="IP版本" sortKey="family" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey={state.familyFilterable ? 'family' : undefined} filterActive={state.filterActive.family} filterOpen={state.activeConnectionFilter === 'family'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="应用" sortKey="application" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="application" filterActive={state.filterActive.application} filterOpen={state.activeConnectionFilter === 'application'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="协议" sortKey="protocol" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="protocol" filterActive={state.filterActive.protocol} filterOpen={state.activeConnectionFilter === 'protocol'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="来源 IP" sortKey="sourceAddress" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourceAddress" filterActive={state.filterActive.sourceAddress} filterOpen={state.activeConnectionFilter === 'sourceAddress'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="来源端口" sortKey="sourcePort" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="sourcePort" filterActive={state.filterActive.sourcePort} filterOpen={state.activeConnectionFilter === 'sourcePort'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="目的地址" sortKey="destination" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="destination" filterActive={state.filterActive.destination} filterOpen={state.activeConnectionFilter === 'destination'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
       <ConnectionColumnHeader label="目的端口" sortKey="destinationPort" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="外网地址" sortKey="publicAddress" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
       <ConnectionColumnHeader label="当前上行" sortKey="upload" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
       <ConnectionColumnHeader label="当前下行" sortKey="download" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
       <ConnectionColumnHeader label="累计上行" sortKey="uploadBytes" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
       <ConnectionColumnHeader label="累计下行" sortKey="downloadBytes" activeSort={state.activeSort} sortDirection={state.sortDirection} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="路由表" sortKey="routeTable" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="routeTable" filterActive={state.filterActive.routeTable} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      <ConnectionColumnHeader label="下一跳网关" sortKey="gateway" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="gateway" filterActive={state.filterActive.gateway} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
-      {props.showStatus ? <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="status" filterActive={state.filterActive.status} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} /> : null}
+      <ConnectionColumnHeader label="路由表" sortKey="routeTable" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="routeTable" filterActive={state.filterActive.routeTable} filterOpen={state.activeConnectionFilter === 'routeTable'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="下一跳网关" sortKey="gateway" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="gateway" filterActive={state.filterActive.gateway} filterOpen={state.activeConnectionFilter === 'gateway'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      <ConnectionColumnHeader label="出接口" sortKey="egress" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="egress" filterActive={state.filterActive.egress} filterOpen={state.activeConnectionFilter === 'egress'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} />
+      {props.showStatus ? <ConnectionColumnHeader label="连接状态" sortKey="status" activeSort={state.activeSort} sortDirection={state.sortDirection} filterKey="status" filterActive={state.filterActive.status} filterOpen={state.activeConnectionFilter === 'status'} onSort={state.changeConnectionSort} onOpenFilter={state.openConnectionFilter} /> : null}
     </tr></thead><tbody>{state.visibleConnections.length ? state.visibleConnections.map((connection) => (
       <tr key={connection.key}>
         <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
         <td>{connection.application}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
-        <td>{connection.destinationAddress || '-'}</td><td>{connection.destinationPort || '-'}</td><td>{connection.publicAddress || '-'}</td>
+        <td>{connection.destinationAddress || '-'}</td><td>{connection.destinationPort || '-'}</td>
         <td>{formatBits(connection.uploadBps)}</td><td>{formatBits(connection.downloadBps)}</td>
         <td>{formatBytes(connection.uploadBytes)}</td><td>{formatBytes(connection.downloadBytes)}</td>
-        <td>{connectionRouteTable(connection)}</td><td>{connectionGateway(connection)}</td>{props.showStatus ? <td>{connection.status}</td> : null}
+        <td>{connectionRouteTable(connection)}</td><td>{connectionGateway(connection)}</td><td>{connectionEgress(connection)}</td>{props.showStatus ? <td>{connection.status}</td> : null}
       </tr>
     )) : <tr><td colSpan={columnCount} className="empty-row">{props.emptyLabel}</td></tr>}</tbody></table></div>
   </div>
@@ -2495,6 +2477,7 @@ function TerminalDetailPage(props: {
 }) {
   const isRouterConntrack = props.detail.terminal.id === 'routeros:self'
   const scopedConnections = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
+  const scopedEgressInterfaces = Array.from(new Set(scopedConnections.flatMap((item) => item.egressInterfaces ?? []))).sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true }))
   const repliedConnections = scopedConnections.filter((item) => item.seenReply).length
   const unrepliedConnections = scopedConnections.length - repliedConnections
   const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
@@ -2524,12 +2507,11 @@ function TerminalDetailPage(props: {
         </div>
       </div>
 
-      <div className={`tab-row detail-tabs${props.scope === 'all' ? ' has-history' : ''}${props.activeTab === 'connections' ? ' with-mobile-actions' : ''}`}>
+      <div className={`tab-row detail-tabs${props.scope === 'all' ? ' has-history' : ''}`}>
         <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
         <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
         <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
         {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
-        {props.activeTab === 'connections' ? <ConnectionMobileActions state={connectionTable} /> : null}
       </div>
 
       <section className="panel detail-panel">
@@ -2541,6 +2523,7 @@ function TerminalDetailPage(props: {
             {props.scope !== 'ipv4' ? <DetailItem label="IPv6 地址" value={summary.ipv6.join(' / ') || '-'} /> : null}
             <DetailItem label="MAC 地址" value={summary.macAddress || '-'} />
             <DetailItem label="接入接口" value={summary.primaryInterface || '-'} />
+            <DetailItem label="出接口" value={scopedEgressInterfaces.join(' / ') || '-'} />
             <DetailItem label={isRouterConntrack ? (props.scope === 'all' ? 'conntrack 条目（IPv4+IPv6）' : `${props.scope.toUpperCase()} conntrack 条目`) : (props.scope === 'all' ? '连接数（IPv4+IPv6）' : `${props.scope.toUpperCase()} 连接数`)} value={`${summary.connectionCount}`} />
             {isRouterConntrack ? <DetailItem label="已见回包（S）" value={`${repliedConnections}`} /> : null}
             {isRouterConntrack ? <DetailItem label="未见回包" value={`${unrepliedConnections}`} /> : null}

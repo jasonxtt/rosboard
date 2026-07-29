@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Route attribution and read-only monitoring contracts"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Existing table and control conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required frontend visual and runtime verification"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "API/model/frontend contract changes"}
