@@ -59,6 +59,9 @@ type TerminalScopeConfig struct {
 }
 
 func Load(path string) (Config, error) {
+	if strings.TrimSpace(path) == "" {
+		path = "config.yaml"
+	}
 	cfg := Config{
 		ListenAddress:               ":8080",
 		DataDir:                     "./data",
