@@ -151,4 +151,4 @@ updates, while the expand branch preserves the existing all-terminal behavior.
 - [x] Implementation and automated verification completed.
 - [x] Timestamped remote backup, deployment, and service/API/assets checks completed.
 - [x] User manually inspected the deployed interface and terminal workflows and explicitly accepted the result.
-- [ ] Work commit, push, release publication, session recording, and task archival remain for the release/finish workflow.
+- [x] Work commit, push, release publication, session recording, and task archival completed.

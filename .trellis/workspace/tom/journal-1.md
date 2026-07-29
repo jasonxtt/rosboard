@@ -1507,3 +1507,36 @@ Made the overview realtime traffic chart follow the global auto-refresh interval
 ### Next Steps
 
 - None - task complete
+
+
+## Session 46: 接口监控分类与终端物理出接口发布
+
+**Date**: 2026-07-29
+**Task**: 接口监控分类与终端物理出接口发布
+**Branch**: `main`
+
+### Summary
+
+完成接口监控物理/逻辑/系统分类、逻辑拓扑关系、终端连接物理出接口追溯、连接表格交互优化和终端菜单折叠修复；经 10.0.0.6 手动验收后发布 v0.0.3。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ed1774a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
