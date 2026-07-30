@@ -1606,3 +1606,37 @@ Implemented and deployed the fleet dashboard with device overview cards, list an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 49: Fleet dashboard list redesign
+
+**Date**: 2026-07-31
+**Task**: Fleet dashboard list redesign
+**Branch**: `codex/fleet-dashboard-cards`
+
+### Summary
+
+Reworked the fleet dashboard into a reference-aligned list-only layout, refined responsive metric alignment, deployed and verified it on 10.0.0.6, and prepared v0.0.5.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0586b991c3e2c2351e5648c9ba93de322c929c8` | (see git log) |
+| `1391628b31f02abbea9176b11c65de7c89fd5271` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
