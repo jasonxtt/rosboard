@@ -1540,3 +1540,36 @@ Made the overview realtime traffic chart follow the global auto-refresh interval
 ### Next Steps
 
 - None - task complete
+
+
+## Session 47: DHCP monitoring deployment acceptance
+
+**Date**: 2026-07-30
+**Task**: DHCP monitoring deployment acceptance
+**Branch**: `main`
+
+### Summary
+
+Verified DHCP monitoring and route/menu reorganization with Go tests, vet, frontend lint/build, and isolated runtime asset checks. Deployed the Linux amd64 binary to 10.0.0.6 after timestamped binary/config/SQLite rollback backup at /opt/rosboard/backups/20260730-145710-dhcp-monitoring; verified systemd, health, assets, and received user manual acceptance.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e2aa239` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
