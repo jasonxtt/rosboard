@@ -242,18 +242,64 @@ type PolicyStat struct {
 }
 
 type RouteStat struct {
-	ID             string `json:"id"`
-	Kind           string `json:"kind"`
-	Family         string `json:"family"`
-	Destination    string `json:"destination"`
-	Gateway        string `json:"gateway"`
-	Table          string `json:"table"`
-	Action         string `json:"action"`
-	Source         string `json:"source"`
-	Distance       int64  `json:"distance"`
-	Active         bool   `json:"active"`
-	Disabled       bool   `json:"disabled"`
-	CurrentMatches int    `json:"currentMatches"`
+	ID               string `json:"id"`
+	Kind             string `json:"kind"`
+	Family           string `json:"family"`
+	Destination      string `json:"destination"`
+	Gateway          string `json:"gateway"`
+	Table            string `json:"table"`
+	Action           string `json:"action"`
+	Source           string `json:"source"`
+	Distance         int64  `json:"distance"`
+	Active           bool   `json:"active"`
+	Disabled         bool   `json:"disabled"`
+	PrefSrc          string `json:"prefSrc"`
+	Scope            string `json:"scope"`
+	TargetScope      string `json:"targetScope"`
+	ImmediateGateway string `json:"immediateGateway"`
+	Protocol         string `json:"protocol"`
+	Comment          string `json:"comment"`
+	CurrentMatches   int    `json:"currentMatches"`
+}
+
+type DHCPServerStat struct {
+	Name        string `json:"name"`
+	Interface   string `json:"interface"`
+	AddressPool string `json:"addressPool"`
+	LeaseTime   string `json:"leaseTime"`
+	Disabled    bool   `json:"disabled"`
+	Invalid     bool   `json:"invalid"`
+}
+
+type DHCPPoolStat struct {
+	Name        string   `json:"name"`
+	Ranges      string   `json:"ranges"`
+	Total       int      `json:"total"`
+	Used        int      `json:"used"`
+	Free        int      `json:"free"`
+	UsedPercent float64  `json:"usedPercent"`
+	Servers     []string `json:"servers"`
+}
+
+type DHCPLeaseStat struct {
+	ID           string `json:"id"`
+	Address      string `json:"address"`
+	MACAddress   string `json:"macAddress"`
+	HostName     string `json:"hostName"`
+	Comment      string `json:"comment"`
+	Server       string `json:"server"`
+	Status       string `json:"status"`
+	ExpiresAfter int64  `json:"expiresAfter"`
+	LastSeen     int64  `json:"lastSeen"`
+	Dynamic      bool   `json:"dynamic"`
+	Blocked      bool   `json:"blocked"`
+	Disabled     bool   `json:"disabled"`
+}
+
+type DHCPStat struct {
+	Servers []DHCPServerStat `json:"servers"`
+	Pools   []DHCPPoolStat   `json:"pools"`
+	Leases  []DHCPLeaseStat  `json:"leases"`
 }
 
 type DashboardSnapshot struct {
@@ -267,6 +313,7 @@ type DashboardSnapshot struct {
 	Protocols              []ProtocolStat                  `json:"protocols"`
 	Policies               []PolicyStat                    `json:"policies"`
 	Routes                 []RouteStat                     `json:"routes"`
+	DHCP                   DHCPStat                        `json:"dhcp"`
 	Alerts                 []AlertEvent                    `json:"alerts"`
 	Warnings               []string                        `json:"warnings"`
 }

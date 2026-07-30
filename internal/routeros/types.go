@@ -81,12 +81,20 @@ type IPv6Address struct {
 }
 
 type DHCPLease struct {
-	Address    string `json:"address"`
-	Server     string `json:"server"`
-	Comment    string `json:"comment"`
-	HostName   string `json:"host-name"`
-	MACAddress string `json:"mac-address"`
-	Status     string `json:"status"`
+	ID               string `json:".id"`
+	Address          string `json:"address"`
+	Server           string `json:"server"`
+	Comment          string `json:"comment"`
+	HostName         string `json:"host-name"`
+	MACAddress       string `json:"mac-address"`
+	Status           string `json:"status"`
+	ExpiresAfter     string `json:"expires-after"`
+	LastSeen         string `json:"last-seen"`
+	Dynamic          string `json:"dynamic"`
+	Blocked          string `json:"blocked"`
+	Disabled         string `json:"disabled"`
+	ActiveAddress    string `json:"active-address"`
+	ActiveMACAddress string `json:"active-mac-address"`
 }
 
 type InterfaceList struct {
@@ -103,11 +111,13 @@ type InterfaceListMember struct {
 	Dynamic   string `json:"dynamic"`
 }
 type DHCPServer struct {
-	ID        string `json:".id"`
-	Name      string `json:"name"`
-	Interface string `json:"interface"`
-	Disabled  string `json:"disabled"`
-	Invalid   string `json:"invalid"`
+	ID          string `json:".id"`
+	Name        string `json:"name"`
+	Interface   string `json:"interface"`
+	Disabled    string `json:"disabled"`
+	Invalid     string `json:"invalid"`
+	AddressPool string `json:"address-pool"`
+	LeaseTime   string `json:"lease-time"`
 }
 type PPPoEClient struct {
 	ID                   string `json:".id"`
@@ -143,6 +153,8 @@ type DHCPClient struct {
 	Status               string `json:"status"`
 	AddDefaultRoute      string `json:"add-default-route"`
 	DefaultRouteDistance string `json:"default-route-distance"`
+	Address              string `json:"address"`
+	Gateway              string `json:"gateway"`
 }
 type IPv6ND struct {
 	ID        string `json:".id"`
@@ -252,16 +264,36 @@ type IPRoute struct {
 	Distance     string `json:"distance"`
 	Active       string `json:"active"`
 	Disabled     string `json:"disabled"`
+	PrefSrc      string `json:"pref-src"`
+	Static       string `json:"static"`
+	Connect      string `json:"connect"`
+	Comment      string `json:"comment"`
 }
 
 type RoutingRoute struct {
-	ID               string `json:".id"`
-	AFI              string `json:"afi"`
-	DstAddress       string `json:"dst-address"`
-	Gateway          string `json:"gateway"`
-	ImmediateGateway string `json:"immediate-gw"`
-	RoutingTable     string `json:"routing-table"`
-	Distance         string `json:"distance"`
-	Active           string `json:"active"`
-	Disabled         string `json:"disabled"`
+	ID                 string `json:".id"`
+	AFI                string `json:"afi"`
+	DstAddress         string `json:"dst-address"`
+	Gateway            string `json:"gateway"`
+	ImmediateGateway   string `json:"immediate-gw"`
+	ImmediateInterface string `json:"immediate-interface"`
+	RoutingTable       string `json:"routing-table"`
+	Distance           string `json:"distance"`
+	Active             string `json:"active"`
+	Disabled           string `json:"disabled"`
+	PrefSrc            string `json:"pref-src"`
+	Scope              string `json:"scope"`
+	TargetScope        string `json:"target-scope"`
+	Static             string `json:"static"`
+	Connect            string `json:"connect"`
+	Dynamic            string `json:"dynamic"`
+	ECMP               string `json:"ecmp"`
+	Comment            string `json:"comment"`
+}
+
+type IPPool struct {
+	ID      string `json:".id"`
+	Name    string `json:"name"`
+	Ranges  string `json:"ranges"`
+	Comment string `json:"comment"`
 }

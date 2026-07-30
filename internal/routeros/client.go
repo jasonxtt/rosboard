@@ -238,6 +238,12 @@ func (c *Client) IPRoutes(ctx context.Context) ([]IPRoute, error) {
 	return payload, err
 }
 
+func (c *Client) IPPools(ctx context.Context) ([]IPPool, error) {
+	var payload []IPPool
+	err := c.getJSON(ctx, "/rest/ip/pool", &payload)
+	return payload, err
+}
+
 func (c *Client) RoutingRoutes(ctx context.Context) ([]RoutingRoute, error) {
 	var payload []RoutingRoute
 	err := c.getJSON(ctx, "/rest/routing/route", &payload)

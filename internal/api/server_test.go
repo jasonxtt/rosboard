@@ -296,6 +296,28 @@ func TestRestartSettingsSchedulesRestart(t *testing.T) {
 	}
 }
 
+func TestDHCPEndpointReturnsEmptyCollections(t *testing.T) {
+	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
+	server := NewServer(config.Config{}, monitor, nil)
+
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/dhcp", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Servers []map[string]any `json:"servers"`
+		Pools   []map[string]any `json:"pools"`
+		Leases  []map[string]any `json:"leases"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Servers == nil || payload.Pools == nil || payload.Leases == nil {
+		t.Fatalf("dhcp collections must be arrays, got %s", response.Body.String())
+	}
+}
+
 func TestDeviceLifecycleArchivesBeforePurging(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

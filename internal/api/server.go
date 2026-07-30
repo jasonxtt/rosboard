@@ -250,6 +250,8 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{"policies": monitor.Snapshot().Policies})
 	case "/api/routes":
 		writeJSON(writer, http.StatusOK, map[string]any{"routes": monitor.Snapshot().Routes})
+	case "/api/dhcp":
+		writeJSON(writer, http.StatusOK, monitor.Snapshot().DHCP)
 	default:
 		if strings.HasPrefix(request.URL.Path, "/api/interfaces/") && request.Method == http.MethodGet {
 			name, err := url.PathUnescape(strings.TrimPrefix(request.URL.Path, "/api/interfaces/"))
