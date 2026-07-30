@@ -36,6 +36,41 @@ export type Overview = {
   chartSamples: RateSample[]
 }
 
+export type FleetDevice = {
+  id: string
+  name: string
+  state: 'online' | 'offline'
+  alerting: boolean
+  error?: string
+  routerName: string
+  platform: string
+  boardName: string
+  version: string
+  address: string
+  cpuLoadPercent: number
+  memoryUsedPercent: number
+  uploadBps: number
+  downloadBps: number
+  terminalCount: number
+  terminalOnline: number
+  terminalInactive: number
+  terminalOffline: number
+  connectionCount: number
+  connectionTCP: number
+  connectionUDP: number
+  connectionOther: number
+  uptime: string
+  updatedAt: string
+}
+
+export type FleetOverview = {
+  totalDevices: number
+  onlineDevices: number
+  offlineDevices: number
+  alertDevices: number
+  devices: FleetDevice[]
+}
+
 export type InterfaceStatus = {
   name: string
   type: string
@@ -286,7 +321,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings'
+export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

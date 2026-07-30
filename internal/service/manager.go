@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/url"
 	"sort"
 	"sync"
 	"time"
@@ -28,6 +29,43 @@ type DeviceStatus struct {
 	RouterName string    `json:"routerName"`
 	Version    string    `json:"version"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+const fleetSnapshotStaleAfter = 90 * time.Second
+
+type FleetOverview struct {
+	TotalDevices   int           `json:"totalDevices"`
+	OnlineDevices  int           `json:"onlineDevices"`
+	OfflineDevices int           `json:"offlineDevices"`
+	AlertDevices   int           `json:"alertDevices"`
+	Devices        []FleetDevice `json:"devices"`
+}
+
+type FleetDevice struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	State             string    `json:"state"`
+	Alerting          bool      `json:"alerting"`
+	Error             string    `json:"error,omitempty"`
+	RouterName        string    `json:"routerName"`
+	Platform          string    `json:"platform"`
+	BoardName         string    `json:"boardName"`
+	Version           string    `json:"version"`
+	Address           string    `json:"address"`
+	CPULoadPercent    int64     `json:"cpuLoadPercent"`
+	MemoryUsedPercent float64   `json:"memoryUsedPercent"`
+	UploadBps         float64   `json:"uploadBps"`
+	DownloadBps       float64   `json:"downloadBps"`
+	TerminalCount     int       `json:"terminalCount"`
+	TerminalOnline    int       `json:"terminalOnline"`
+	TerminalInactive  int       `json:"terminalInactive"`
+	TerminalOffline   int       `json:"terminalOffline"`
+	ConnectionCount   int       `json:"connectionCount"`
+	ConnectionTCP     int       `json:"connectionTCP"`
+	ConnectionUDP     int       `json:"connectionUDP"`
+	ConnectionOther   int       `json:"connectionOther"`
+	Uptime            string    `json:"uptime"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type managedMonitor struct {
@@ -182,5 +220,68 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 		result = append(result, status)
 	}
 	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+func (m *MonitorManager) FleetOverview(now time.Time) FleetOverview {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := FleetOverview{Devices: make([]FleetDevice, 0, len(m.order))}
+	for _, id := range m.order {
+		item := m.items[id]
+		if item == nil || !item.device.Enabled || item.device.Archived {
+			continue
+		}
+		device := FleetDevice{ID: item.device.ID, Name: item.device.Name, State: "offline", Error: item.err}
+		if endpoint, err := url.Parse(item.device.RouterOS.BaseURL); err == nil {
+			device.Address = endpoint.Hostname()
+		}
+		if item.monitor == nil {
+			if device.Error == "" {
+				device.Error = "设备尚未完成连接设置"
+			}
+		} else {
+			snapshot := item.monitor.Snapshot()
+			overview := snapshot.Overview
+			device.RouterName = overview.RouterName
+			device.Platform = overview.Platform
+			device.BoardName = overview.BoardName
+			device.Version = overview.Version
+			device.CPULoadPercent = overview.CPULoadPercent
+			device.MemoryUsedPercent = overview.MemoryUsedPercent
+			device.UploadBps = overview.UploadBps
+			device.DownloadBps = overview.DownloadBps
+			device.TerminalCount = overview.ConnectedDeviceCount
+			device.TerminalOnline = overview.TerminalStateCounts.Online
+			device.TerminalInactive = overview.TerminalStateCounts.Inactive
+			device.TerminalOffline = overview.TerminalStateCounts.Offline
+			device.ConnectionCount = overview.ConnectionCount
+			device.ConnectionTCP = overview.ConnectionProtocolCounts.TCP
+			device.ConnectionUDP = overview.ConnectionProtocolCounts.UDP
+			device.ConnectionOther = overview.ConnectionProtocolCounts.Other
+			device.Uptime = overview.Uptime
+			device.UpdatedAt = overview.UpdatedAt
+			fresh := !overview.UpdatedAt.IsZero() && now.Sub(overview.UpdatedAt) <= fleetSnapshotStaleAfter
+			if item.started && fresh {
+				device.State = "online"
+			} else if device.Error == "" {
+				device.Error = "采集数据未更新"
+			}
+			device.Alerting = len(snapshot.Alerts) > 0 || len(snapshot.Warnings) > 0
+		}
+		if device.State == "offline" {
+			result.OfflineDevices++
+			device.Alerting = true
+		} else {
+			result.OnlineDevices++
+		}
+		if device.Alerting {
+			result.AlertDevices++
+		}
+		result.Devices = append(result.Devices, device)
+	}
+	result.TotalDevices = len(result.Devices)
+	sort.SliceStable(result.Devices, func(i, j int) bool { return result.Devices[i].Name < result.Devices[j].Name })
 	return result
 }
