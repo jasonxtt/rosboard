@@ -44,6 +44,22 @@ func TestViewerHeartbeatRequiresPostAndReturnsDeadline(t *testing.T) {
 	}
 }
 
+func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
+	server := NewServer(config.Config{}, nil, nil)
+
+	getResponse := httptest.NewRecorder()
+	server.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/fleet-overview", nil))
+	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"devices":[]`) {
+		t.Fatalf("GET status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+
+	postResponse := httptest.NewRecorder()
+	server.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/api/fleet-overview", nil))
+	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("POST status=%d allow=%q", postResponse.Code, postResponse.Header().Get("Allow"))
+	}
+}
+
 func TestTerminalViewerHeartbeatRequiresPostAndReturnsDeadline(t *testing.T) {
 	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
 	server := NewServer(config.Config{}, monitor, nil)

@@ -172,6 +172,19 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if request.URL.Path == "/api/fleet-overview" {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.manager == nil {
+			writeJSON(writer, http.StatusOK, service.FleetOverview{Devices: []service.FleetDevice{}})
+			return
+		}
+		writeJSON(writer, http.StatusOK, s.manager.FleetOverview(time.Now()))
+		return
+	}
 	monitor, monitorErr := s.monitorFor(request)
 	if monitorErr != nil && request.URL.Path != "/api/settings" {
 		if errors.Is(monitorErr, service.ErrDeviceNotFound) {

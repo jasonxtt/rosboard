@@ -21,6 +21,8 @@ import type {
   DashboardResponse,
   DeviceStatus,
   DHCPStat,
+  FleetDevice,
+  FleetOverview,
   InterfaceDetail,
   InterfaceStatus,
   LoadSample,
@@ -50,7 +52,8 @@ import type {
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
 type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
-type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
+type FleetView = 'list' | 'icons'
+type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme; fleetView: FleetView }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
   pollIntervalSeconds: number
@@ -65,7 +68,7 @@ const panelPreferenceKey = 'rosboard:panel-preferences'
 const selectedDeviceKey = 'rosboard:selected-device'
 const trafficWindowKey = 'rosboard:traffic-window'
 const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
-const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'overview', terminalFamily: 'all', theme: 'light' }
+const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light', fleetView: 'list' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
 
@@ -191,7 +194,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
+const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -203,6 +206,7 @@ function loadPanelPreferences(): PanelPreferences {
       landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
       terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
       theme: parsed.theme === 'dark' ? 'dark' : 'light',
+      fleetView: parsed.fleetView === 'icons' ? 'icons' : 'list',
     }
   } catch {
     return defaultPanelPreferences
@@ -470,6 +474,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
   const [loadSamples, setLoadSamples] = useState<LoadSample[]>([])
+  const [fleetOverview, setFleetOverview] = useState<FleetOverview | null>(null)
   const [devices, setDevices] = useState<DeviceStatus[]>([])
 	const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedDeviceID, setSelectedDeviceID] = useState(() => window.localStorage.getItem(selectedDeviceKey) ?? '')
@@ -521,6 +526,36 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     const timer = window.setInterval(() => void load(), 10000)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [restartPending, selectedDeviceID])
+
+  useEffect(() => {
+    if (activeView !== 'fleet') return
+    let cancelled = false
+    let refreshing = false
+    const refresh = async () => {
+      if (refreshing) return
+      refreshing = true
+      try {
+        const response = await fetch('/api/fleet-overview')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const payload = (await response.json()) as FleetOverview
+        if (!cancelled) {
+          payload.devices ??= []
+          setFleetOverview(payload)
+          setError(null)
+        }
+      } catch (refreshError) {
+        if (!cancelled && !restartPending) setError(refreshError instanceof Error ? refreshError.message : '设备概览读取失败')
+      } finally {
+        refreshing = false
+      }
+    }
+    void refresh()
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => void refresh(), dashboardRefreshMs) : 0
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+    }
+  }, [activeView, dashboardRefreshMs, refreshNonce, restartPending])
 
   useEffect(() => {
     if (!selectedDeviceID) return
@@ -591,6 +626,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView])
 
   useEffect(() => {
+    if (activeView === 'fleet') return
     let cancelled = false
     let refreshing = false
 
@@ -644,7 +680,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
-  }, [dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
+  }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'overview' || dashboardRefreshMs <= 0) return
@@ -813,7 +849,16 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     return dashboard.terminals.find((terminal) => terminal.id === editingTerminalID) ?? null
   }, [dashboard, editingTerminalID])
 
-  if (!dashboard) {
+
+  const currentDevice = devices.find((device) => device.id === selectedDeviceID)
+  const globalWarnings = Array.from(new Set((dashboard?.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
+  const alertCount = Math.max(dashboard?.alerts?.length ?? 0, globalWarnings.length)
+
+  if (activeView === 'fleet' && fleetOverview && fleetOverview.totalDevices === 0 && settings) {
+	return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
+  }
+
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview)) {
 	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
     return (
       <main className="shell loading-shell">
@@ -828,9 +873,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
-  const currentDevice = devices.find((device) => device.id === selectedDeviceID)
-  const globalWarnings = Array.from(new Set((dashboard.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
-  const alertCount = Math.max(dashboard.alerts?.length ?? 0, globalWarnings.length)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes' || activeView === 'dhcp'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
@@ -853,11 +895,22 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <img className="brand-mark" src={rosboardMark} alt="" />
           <div className="brand-copy">
             <h1>Rosboard</h1>
-            <p>{dashboard.overview.version}</p>
+            <p>{dashboard?.overview.version || currentDevice?.version || '多设备监控'}</p>
           </div>
         </div>
 
         <nav className="menu">
+          <button
+            type="button"
+            className={activeView === 'fleet' ? 'menu-item active' : 'menu-item'}
+            onClick={() => {
+              setActiveView('fleet')
+              setSelectedTerminalID(null)
+              setSidebarOpen(false)
+            }}
+          >
+            <NavLabel icon="overview" label="仪表台" />
+          </button>
           <button
             type="button"
             className={activeView === 'overview' ? 'menu-item active' : 'menu-item'}
@@ -989,8 +1042,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </select>
           <dl>
             <div><dt>连接状态</dt><dd>{currentDevice?.healthy ? '采集正常' : currentDevice?.error ? '连接异常' : '等待采集'}</dd></div>
-            <div><dt>RouterOS 版本</dt><dd>{dashboard.overview.version || '-'}</dd></div>
-            <div><dt>运行时间</dt><dd>{dashboard.overview.uptime || '-'}</dd></div>
+            <div><dt>RouterOS 版本</dt><dd>{dashboard?.overview.version || currentDevice?.version || '-'}</dd></div>
+            <div><dt>运行时间</dt><dd>{dashboard?.overview.uptime || '-'}</dd></div>
           </dl>
         </div>
       </aside>
@@ -1012,23 +1065,25 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <p className="topbar-subtitle">
                 {detailMode
                   ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
-                  : `系统正常 · 更新于 ${formatDateTime(dashboard.overview.updatedAt)}`}
+                  : activeView === 'fleet'
+                    ? '多设备运行概览'
+                    : `系统正常 · 更新于 ${formatDateTime(dashboard?.overview.updatedAt ?? '')}`}
               </p>
             </div>
           </div>
           <div className="topbar-controls">
-            {activeView === 'terminals' && !detailMode ? (
+            {activeView === 'terminals' && !detailMode && dashboard ? (
               <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
             ) : null}
             {activeView === 'overview' && !detailMode ? (
               <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
             ) : null}
-            {globalWarnings.length ? (
+            {activeView !== 'fleet' && globalWarnings.length ? (
               <button type="button" className="system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i />{alertCount} 项告警</button>
-            ) : (
-              <span className={dashboard.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
-            )}
-            <span className="last-updated">最后更新 {relativeUpdateTime(dashboard.overview.updatedAt)}</span>
+            ) : activeView !== 'fleet' ? (
+              <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
+            ) : null}
+            {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
               <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
@@ -1047,20 +1102,33 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
         {error ? <div className="global-error">最近一次刷新失败: {error}</div> : null}
 
-        {activeView === 'overview' ? (
+        {activeView === 'fleet' && fleetOverview ? (
+          <FleetDashboardPage
+            overview={fleetOverview}
+            view={panelPreferences.fleetView}
+            onViewChange={(fleetView) => updatePanelPreferences({ ...panelPreferences, fleetView })}
+            onOpenDevice={(deviceID) => {
+              setSelectedDeviceID(deviceID)
+              setActiveView('overview')
+              setSidebarOpen(false)
+            }}
+          />
+        ) : null}
+
+        {activeView === 'overview' && dashboard ? (
           <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
         ) : null}
 
-        {activeView === 'interfaces' ? (
+        {activeView === 'interfaces' && dashboard ? (
           <InterfacesPage interfaces={dashboard.interfaces} deviceID={selectedDeviceID} />
         ) : null}
 
-        {activeView === 'load' ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
-        {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
-        {activeView === 'policies' ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
-        {activeView === 'dhcp' ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [], leases: [] }} /> : null}
-        {activeView === 'routes' ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
-        {activeView === 'settings' ? (
+        {activeView === 'load' && dashboard ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
+        {activeView === 'protocols' && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
+        {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
+        {activeView === 'routes' && dashboard ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
+        {activeView === 'settings' && dashboard ? (
           <SettingsPage
             settings={settings}
             error={settingsError}
@@ -1101,7 +1169,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           />
         ) : null}
 
-        {activeView === 'terminals' && !detailMode ? (
+        {activeView === 'terminals' && !detailMode && dashboard ? (
           <TerminalsPage
             terminals={filteredTerminals}
             family={terminalFamily}
@@ -1894,6 +1962,119 @@ function formatSettingList(values: string[]) {
 
 function OverviewRangePills(props: { value: string; onChange: (value: string) => void }) {
   return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'active' : ''} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
+}
+
+type FleetStatusFilter = 'all' | 'online' | 'offline' | 'alerting'
+type FleetSort = 'name-asc' | 'name-desc'
+
+function FleetDashboardPage(props: { overview: FleetOverview; view: FleetView; onViewChange: (view: FleetView) => void; onOpenDevice: (deviceID: string) => void }) {
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all')
+  const [sort, setSort] = useState<FleetSort>('name-asc')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    return props.overview.devices
+      .filter((device) => {
+        if (statusFilter === 'online' && device.state !== 'online') return false
+        if (statusFilter === 'offline' && device.state !== 'offline') return false
+        if (statusFilter === 'alerting' && !device.alerting) return false
+        return !keyword || [device.name, device.routerName, device.boardName, device.version].join(' ').toLowerCase().includes(keyword)
+      })
+      .sort((left, right) => {
+        const comparison = left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+        return sort === 'name-asc' ? comparison : -comparison
+      })
+  }, [props.overview.devices, query, sort, statusFilter])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const devices = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => setPage(1), [query, sort, statusFilter])
+
+  const summaries: Array<{ label: string; value: number; tone: string; icon: IconName }> = [
+    { label: '全部设备', value: props.overview.totalDevices, tone: 'blue', icon: 'router' },
+    { label: '在线设备', value: props.overview.onlineDevices, tone: 'green', icon: 'check' },
+    { label: '离线设备', value: props.overview.offlineDevices, tone: 'slate', icon: 'network' },
+    { label: '告警设备', value: props.overview.alertDevices, tone: 'amber', icon: 'alert' },
+  ]
+
+  return <div className="fleet-dashboard">
+    <section className="fleet-summary-grid">
+      {summaries.map((summary) => <article className={`fleet-summary fleet-summary-${summary.tone}`} key={summary.label}><span><Icon name={summary.icon} /></span><div><small>{summary.label}</small><strong>{summary.value}<em>台</em></strong></div></article>)}
+    </section>
+    <section className="fleet-panel panel compact-panel">
+      <div className="fleet-toolbar">
+        <label className="fleet-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索设备名称、型号或版本" aria-label="搜索设备" /></label>
+        <span className="toolbar-spacer" />
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as FleetStatusFilter)} aria-label="设备状态筛选"><option value="all">全部状态</option><option value="online">在线设备</option><option value="offline">离线设备</option><option value="alerting">告警设备</option></select>
+        <select value={sort} onChange={(event) => setSort(event.target.value as FleetSort)} aria-label="设备排序"><option value="name-asc">按名称排序</option><option value="name-desc">按名称倒序</option></select>
+        <div className="fleet-view-toggle" aria-label="展示方式"><button type="button" className={props.view === 'list' ? 'active' : ''} aria-pressed={props.view === 'list'} onClick={() => props.onViewChange('list')}>列表</button><button type="button" className={props.view === 'icons' ? 'active' : ''} aria-pressed={props.view === 'icons'} onClick={() => props.onViewChange('icons')}>图标</button></div>
+      </div>
+      {props.view === 'list' ? <FleetOverviewCardList devices={devices} onOpenDevice={props.onOpenDevice} /> : <FleetIconGrid devices={devices} onOpenDevice={props.onOpenDevice} />}
+      <div className="fleet-pagination"><span>共 {filtered.length} 台</span><span className="toolbar-spacer" /><button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><strong>{currentPage} / {pageCount}</strong><button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button></div>
+    </section>
+  </div>
+}
+
+function FleetOverviewCardList(props: { devices: FleetDevice[]; onOpenDevice: (deviceID: string) => void }) {
+  return <div className="fleet-overview-cards">{props.devices.length ? props.devices.map((device) => <DeviceOverviewCard key={device.id} device={device} onOpen={() => props.onOpenDevice(device.id)} />) : <div className="empty-row">没有符合条件的设备</div>}</div>
+}
+
+function DeviceOverviewCard(props: { device: FleetDevice; onOpen: () => void }) {
+  const { device } = props
+  const online = device.state === 'online'
+  const status = device.alerting ? 'alerting' : online ? 'online' : 'offline'
+  const statusText = device.alerting && online ? '告警' : online ? '正常' : '离线'
+  return <button type="button" className={`device-overview-card${online ? '' : ' offline'}`} onClick={props.onOpen} aria-label={`打开 ${device.name} 的系统概览`}>
+    <span className="device-overview-identity"><strong>{device.name}</strong><small>{[device.boardName || device.routerName, device.version].filter(Boolean).join(' · ') || 'RouterOS 设备'}</small><em className={status}>● {statusText}</em><small>{device.address || '未设置地址'}</small></span>
+    {online ? <>
+      <FleetPercent label="CPU" value={device.cpuLoadPercent} />
+      <FleetPercent label="MEM" value={device.memoryUsedPercent} />
+      <FleetDistribution label="终端" total={device.terminalCount} entries={[['在线', device.terminalOnline, 'online'], ['未活跃', device.terminalInactive, 'inactive'], ['离线', device.terminalOffline, 'offline']]} />
+      <FleetDistribution label="活动连接" total={device.connectionCount} entries={[['TCP', device.connectionTCP, 'tcp'], ['UDP', device.connectionUDP, 'udp'], ['其他', device.connectionOther, 'other']]} />
+      <span className="device-overview-traffic"><small>实时流量</small><strong>↑ 上传 <b>{formatBitRate(device.uploadBps)}</b></strong><strong>↓ 下载 <b>{formatBitRate(device.downloadBps)}</b></strong></span>
+      <span className="device-overview-uptime"><small>运行时间</small><strong>{device.uptime || '-'}</strong><span>更新：{device.updatedAt ? relativeUpdateTime(device.updatedAt) : '尚未成功采集'}</span></span>
+    </> : <span className="device-overview-offline"><Icon name="alert" /><strong>{device.error || '无法连接设备'}</strong><small>最后在线：{device.updatedAt ? relativeUpdateTime(device.updatedAt) : '暂无采集记录'}</small></span>}
+  </button>
+}
+
+type FleetDistributionEntry = [label: string, value: number, tone: string]
+
+function FleetDistribution(props: { label: string; total: number; entries: FleetDistributionEntry[] }) {
+  const total = Math.max(props.total, props.entries.reduce((sum, entry) => sum + entry[1], 0))
+  const colors: Record<string, string> = { online: '#16a34a', inactive: '#f59e0b', offline: '#94a3b8', tcp: '#2563eb', udp: '#16a34a', other: '#f59e0b' }
+  let offset = 0
+  const segments = props.entries.map((entry) => {
+    const next = total ? offset + entry[1] / total * 100 : offset
+    const segment = `${colors[entry[2]]} ${offset}% ${next}%`
+    offset = next
+    return segment
+  })
+  const ring = total ? `conic-gradient(${segments.join(', ')})` : '#e7edf4'
+  return <span className="fleet-distribution"><small>{props.label}</small><span className="fleet-distribution-body"><i style={{ '--fleet-ring': ring } as React.CSSProperties}>{total}</i><span>{props.entries.map(([label, value, tone]) => <small key={label} className={tone}>● {label} <b>{value}</b></small>)}</span></span></span>
+}
+
+function FleetPercent(props: { label: string; value: number }) {
+  const value = Math.max(0, Math.min(100, props.value))
+  return <span className="fleet-percent" style={{ '--fleet-percent': `${value}%` } as React.CSSProperties}><i>{Math.round(value)}%</i><small>{props.label}</small></span>
+}
+
+function FleetMetricBar(props: { label: string; value: number }) {
+  const value = Math.max(0, Math.min(100, props.value))
+  return <span className="fleet-metric-bar"><small>{props.label}</small><span><i style={{ width: `${value}%` }}><b>{Math.round(value)}%</b></i></span></span>
+}
+
+function FleetTiming(props: { device: FleetDevice }) {
+  return <span className="fleet-timing"><strong>{props.device.uptime || '-'}</strong><small>{props.device.updatedAt ? `更新于 ${relativeUpdateTime(props.device.updatedAt)}` : '尚未成功采集'}</small><b>›</b></span>
+}
+
+function FleetIconGrid(props: { devices: FleetDevice[]; onOpenDevice: (deviceID: string) => void }) {
+  return <div className="fleet-icon-grid">{props.devices.length ? props.devices.map((device) => {
+    const online = device.state === 'online'
+    return <button type="button" className={`fleet-icon-card${online ? '' : ' offline'}`} key={device.id} onClick={() => props.onOpenDevice(device.id)} aria-label={`打开 ${device.name} 的系统概览`}><span className="fleet-card-head"><span><strong>{device.name}</strong><small>{[device.routerName || device.boardName, device.version].filter(Boolean).join(' · ') || 'RouterOS 设备'}</small></span><em className={device.alerting ? 'alerting' : online ? 'online' : 'offline'}>{device.alerting && online ? '告警' : online ? '在线' : '离线'}</em></span>{online ? <span className="fleet-card-metrics"><FleetMetricBar label="CPU" value={device.cpuLoadPercent} /><FleetMetricBar label="内存" value={device.memoryUsedPercent} /><span className="fleet-card-pairs"><small><b>实时速率</b><strong>↑ {formatBitRate(device.uploadBps)}<br />↓ {formatBitRate(device.downloadBps)}</strong></small><small><b>终端</b><strong>{device.terminalCount} 台在线</strong></small><small><b>连接</b><strong>{device.connectionCount.toLocaleString()} 个活动</strong></small></span></span> : <span className="fleet-card-error">{device.error || '设备暂不可用'}</span>}<FleetTiming device={device} /></button>
+  }) : <div className="empty-row">没有符合条件的设备</div>}</div>
 }
 
 function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
