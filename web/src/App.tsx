@@ -52,8 +52,7 @@ import type {
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
 type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
-type FleetView = 'list' | 'icons'
-type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme; fleetView: FleetView }
+type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
   pollIntervalSeconds: number
@@ -68,7 +67,7 @@ const panelPreferenceKey = 'rosboard:panel-preferences'
 const selectedDeviceKey = 'rosboard:selected-device'
 const trafficWindowKey = 'rosboard:traffic-window'
 const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
-const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light', fleetView: 'list' }
+const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
 
@@ -206,7 +205,6 @@ function loadPanelPreferences(): PanelPreferences {
       landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
       terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
       theme: parsed.theme === 'dark' ? 'dark' : 'light',
-      fleetView: parsed.fleetView === 'icons' ? 'icons' : 'list',
     }
   } catch {
     return defaultPanelPreferences
@@ -1105,8 +1103,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'fleet' && fleetOverview ? (
           <FleetDashboardPage
             overview={fleetOverview}
-            view={panelPreferences.fleetView}
-            onViewChange={(fleetView) => updatePanelPreferences({ ...panelPreferences, fleetView })}
             onOpenDevice={(deviceID) => {
               setSelectedDeviceID(deviceID)
               setActiveView('overview')
@@ -1967,7 +1963,7 @@ function OverviewRangePills(props: { value: string; onChange: (value: string) =>
 type FleetStatusFilter = 'all' | 'online' | 'offline' | 'alerting'
 type FleetSort = 'name-asc' | 'name-desc'
 
-function FleetDashboardPage(props: { overview: FleetOverview; view: FleetView; onViewChange: (view: FleetView) => void; onOpenDevice: (deviceID: string) => void }) {
+function FleetDashboardPage(props: { overview: FleetOverview; onOpenDevice: (deviceID: string) => void }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all')
   const [sort, setSort] = useState<FleetSort>('name-asc')
@@ -1980,7 +1976,7 @@ function FleetDashboardPage(props: { overview: FleetOverview; view: FleetView; o
         if (statusFilter === 'online' && device.state !== 'online') return false
         if (statusFilter === 'offline' && device.state !== 'offline') return false
         if (statusFilter === 'alerting' && !device.alerting) return false
-        return !keyword || [device.name, device.routerName, device.boardName, device.version].join(' ').toLowerCase().includes(keyword)
+        return !keyword || [device.name, device.routerName, device.boardName, device.version, device.address].join(' ').toLowerCase().includes(keyword)
       })
       .sort((left, right) => {
         const comparison = left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
@@ -1996,7 +1992,7 @@ function FleetDashboardPage(props: { overview: FleetOverview; view: FleetView; o
   const summaries: Array<{ label: string; value: number; tone: string; icon: IconName }> = [
     { label: '全部设备', value: props.overview.totalDevices, tone: 'blue', icon: 'router' },
     { label: '在线设备', value: props.overview.onlineDevices, tone: 'green', icon: 'check' },
-    { label: '离线设备', value: props.overview.offlineDevices, tone: 'slate', icon: 'network' },
+    { label: '离线设备', value: props.overview.offlineDevices, tone: 'red', icon: 'network' },
     { label: '告警设备', value: props.overview.alertDevices, tone: 'amber', icon: 'alert' },
   ]
 
@@ -2004,39 +2000,92 @@ function FleetDashboardPage(props: { overview: FleetOverview; view: FleetView; o
     <section className="fleet-summary-grid">
       {summaries.map((summary) => <article className={`fleet-summary fleet-summary-${summary.tone}`} key={summary.label}><span><Icon name={summary.icon} /></span><div><small>{summary.label}</small><strong>{summary.value}<em>台</em></strong></div></article>)}
     </section>
-    <section className="fleet-panel panel compact-panel">
-      <div className="fleet-toolbar">
-        <label className="fleet-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索设备名称、型号或版本" aria-label="搜索设备" /></label>
-        <span className="toolbar-spacer" />
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as FleetStatusFilter)} aria-label="设备状态筛选"><option value="all">全部状态</option><option value="online">在线设备</option><option value="offline">离线设备</option><option value="alerting">告警设备</option></select>
-        <select value={sort} onChange={(event) => setSort(event.target.value as FleetSort)} aria-label="设备排序"><option value="name-asc">按名称排序</option><option value="name-desc">按名称倒序</option></select>
-        <div className="fleet-view-toggle" aria-label="展示方式"><button type="button" className={props.view === 'list' ? 'active' : ''} aria-pressed={props.view === 'list'} onClick={() => props.onViewChange('list')}>列表</button><button type="button" className={props.view === 'icons' ? 'active' : ''} aria-pressed={props.view === 'icons'} onClick={() => props.onViewChange('icons')}>图标</button></div>
-      </div>
-      {props.view === 'list' ? <FleetOverviewCardList devices={devices} onOpenDevice={props.onOpenDevice} /> : <FleetIconGrid devices={devices} onOpenDevice={props.onOpenDevice} />}
-      <div className="fleet-pagination"><span>共 {filtered.length} 台</span><span className="toolbar-spacer" /><button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><strong>{currentPage} / {pageCount}</strong><button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button></div>
+
+    <section className="fleet-toolbar">
+      <label className="fleet-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /></label>
+      <span className="toolbar-spacer" />
+      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as FleetStatusFilter)} aria-label="设备状态筛选"><option value="all">全部状态</option><option value="online">在线设备</option><option value="offline">离线设备</option><option value="alerting">告警设备</option></select>
+      <select value={sort} onChange={(event) => setSort(event.target.value as FleetSort)} aria-label="设备排序"><option value="name-asc">按名称排序</option><option value="name-desc">按名称倒序</option></select>
     </section>
+
+    <FleetOverviewList devices={devices} onOpenDevice={props.onOpenDevice} />
+
+    <div className="fleet-pagination">
+      <span>共 {filtered.length} 台</span>
+      <span className="toolbar-spacer" />
+      <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+      <strong>{currentPage} / {pageCount}</strong>
+      <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button>
+    </div>
   </div>
 }
 
-function FleetOverviewCardList(props: { devices: FleetDevice[]; onOpenDevice: (deviceID: string) => void }) {
-  return <div className="fleet-overview-cards">{props.devices.length ? props.devices.map((device) => <DeviceOverviewCard key={device.id} device={device} onOpen={() => props.onOpenDevice(device.id)} />) : <div className="empty-row">没有符合条件的设备</div>}</div>
+function FleetOverviewList(props: { devices: FleetDevice[]; onOpenDevice: (deviceID: string) => void }) {
+  return <section className="fleet-overview-list" aria-label="设备运行列表">
+    <div className="fleet-list-head" aria-hidden="true">
+      <span>设备信息</span><span>CPU</span><span>内存</span><span>流量速率</span><span>终端数量</span><span>连接数量</span><span>运行时间</span><span />
+    </div>
+    {props.devices.length ? props.devices.map((device) => <DeviceOverviewRow key={device.id} device={device} onOpen={() => props.onOpenDevice(device.id)} />) : <div className="empty-row">没有符合条件的设备</div>}
+  </section>
 }
 
-function DeviceOverviewCard(props: { device: FleetDevice; onOpen: () => void }) {
+function DeviceOverviewRow(props: { device: FleetDevice; onOpen: () => void }) {
   const { device } = props
   const online = device.state === 'online'
   const status = device.alerting ? 'alerting' : online ? 'online' : 'offline'
   const statusText = device.alerting && online ? '告警' : online ? '正常' : '离线'
-  return <button type="button" className={`device-overview-card${online ? '' : ' offline'}`} onClick={props.onOpen} aria-label={`打开 ${device.name} 的系统概览`}>
-    <span className="device-overview-identity"><strong>{device.name}</strong><small>{[device.boardName || device.routerName, device.version].filter(Boolean).join(' · ') || 'RouterOS 设备'}</small><em className={status}>● {statusText}</em><small>{device.address || '未设置地址'}</small></span>
+  const identity = [device.boardName || device.routerName, device.version].filter(Boolean).join(' · ') || 'RouterOS 设备'
+  const updatedAt = device.updatedAt ? relativeUpdateTime(device.updatedAt) : '尚未成功采集'
+
+  return <button type="button" className={`device-overview-row ${status}`} onClick={props.onOpen} aria-label={`打开 ${device.name} 的系统概览`}>
+    <span className="device-overview-identity">
+      <strong>{device.name}</strong>
+      <small>{identity}</small>
+      <span>
+        <em className={status}>{statusText}</em>
+        <small>{device.address || '未设置地址'}</small>
+      </span>
+    </span>
+
     {online ? <>
       <FleetPercent label="CPU" value={device.cpuLoadPercent} />
-      <FleetPercent label="MEM" value={device.memoryUsedPercent} />
-      <FleetDistribution label="终端" total={device.terminalCount} entries={[['在线', device.terminalOnline, 'online'], ['未活跃', device.terminalInactive, 'inactive'], ['离线', device.terminalOffline, 'offline']]} />
-      <FleetDistribution label="活动连接" total={device.connectionCount} entries={[['TCP', device.connectionTCP, 'tcp'], ['UDP', device.connectionUDP, 'udp'], ['其他', device.connectionOther, 'other']]} />
-      <span className="device-overview-traffic"><small>实时流量</small><strong>↑ 上传 <b>{formatBitRate(device.uploadBps)}</b></strong><strong>↓ 下载 <b>{formatBitRate(device.downloadBps)}</b></strong></span>
-      <span className="device-overview-uptime"><small>运行时间</small><strong>{device.uptime || '-'}</strong><span>更新：{device.updatedAt ? relativeUpdateTime(device.updatedAt) : '尚未成功采集'}</span></span>
-    </> : <span className="device-overview-offline"><Icon name="alert" /><strong>{device.error || '无法连接设备'}</strong><small>最后在线：{device.updatedAt ? relativeUpdateTime(device.updatedAt) : '暂无采集记录'}</small></span>}
+      <FleetPercent label="内存" value={device.memoryUsedPercent} />
+
+      <span className="device-overview-traffic">
+        <small>流量速率</small>
+        <strong className="upload">↑ <span>上传</span><b>{formatBitRate(device.uploadBps)}</b></strong>
+        <strong className="download">↓ <span>下载</span><b>{formatBitRate(device.downloadBps)}</b></strong>
+      </span>
+
+      <FleetDistribution label="终端数量" total={device.terminalCount} entries={[
+        ['在线', device.terminalOnline, 'online'],
+        ['未活跃', device.terminalInactive, 'inactive'],
+        ['离线', device.terminalOffline, 'offline'],
+      ]} />
+
+      <FleetDistribution label="连接数量" total={device.connectionCount} entries={[
+        ['TCP', device.connectionTCP, 'tcp'],
+        ['UDP', device.connectionUDP, 'udp'],
+        ['其他', device.connectionOther, 'other'],
+      ]} />
+
+      <span className="device-overview-uptime">
+        <small>运行时间</small>
+        <strong>{device.uptime || '-'}</strong>
+        <span>更新于 {updatedAt}</span>
+      </span>
+    </> : <>
+      <span className="device-overview-offline">
+        <Icon name="alert" />
+        <span><strong>{device.error || '设备离线'}</strong><small>设备暂不可用</small></span>
+      </span>
+      <span className="device-overview-uptime">
+        <small>离线时间</small>
+        <strong>{updatedAt}</strong>
+        <span>最后采集：{updatedAt}</span>
+      </span>
+    </>}
+    <span className="device-overview-chevron" aria-hidden="true">›</span>
   </button>
 }
 
@@ -2053,28 +2102,12 @@ function FleetDistribution(props: { label: string; total: number; entries: Fleet
     return segment
   })
   const ring = total ? `conic-gradient(${segments.join(', ')})` : '#e7edf4'
-  return <span className="fleet-distribution"><small>{props.label}</small><span className="fleet-distribution-body"><i style={{ '--fleet-ring': ring } as React.CSSProperties}>{total}</i><span>{props.entries.map(([label, value, tone]) => <small key={label} className={tone}>● {label} <b>{value}</b></small>)}</span></span></span>
+  return <span className="fleet-distribution"><small>{props.label}</small><span className="fleet-distribution-body"><i style={{ '--fleet-ring': ring } as React.CSSProperties}><b>{total}</b></i><span>{props.entries.map(([label, value, tone]) => <small key={label} className={tone}>● {label}<b>{value}</b></small>)}</span></span></span>
 }
 
 function FleetPercent(props: { label: string; value: number }) {
   const value = Math.max(0, Math.min(100, props.value))
   return <span className="fleet-percent" style={{ '--fleet-percent': `${value}%` } as React.CSSProperties}><i>{Math.round(value)}%</i><small>{props.label}</small></span>
-}
-
-function FleetMetricBar(props: { label: string; value: number }) {
-  const value = Math.max(0, Math.min(100, props.value))
-  return <span className="fleet-metric-bar"><small>{props.label}</small><span><i style={{ width: `${value}%` }}><b>{Math.round(value)}%</b></i></span></span>
-}
-
-function FleetTiming(props: { device: FleetDevice }) {
-  return <span className="fleet-timing"><strong>{props.device.uptime || '-'}</strong><small>{props.device.updatedAt ? `更新于 ${relativeUpdateTime(props.device.updatedAt)}` : '尚未成功采集'}</small><b>›</b></span>
-}
-
-function FleetIconGrid(props: { devices: FleetDevice[]; onOpenDevice: (deviceID: string) => void }) {
-  return <div className="fleet-icon-grid">{props.devices.length ? props.devices.map((device) => {
-    const online = device.state === 'online'
-    return <button type="button" className={`fleet-icon-card${online ? '' : ' offline'}`} key={device.id} onClick={() => props.onOpenDevice(device.id)} aria-label={`打开 ${device.name} 的系统概览`}><span className="fleet-card-head"><span><strong>{device.name}</strong><small>{[device.routerName || device.boardName, device.version].filter(Boolean).join(' · ') || 'RouterOS 设备'}</small></span><em className={device.alerting ? 'alerting' : online ? 'online' : 'offline'}>{device.alerting && online ? '告警' : online ? '在线' : '离线'}</em></span>{online ? <span className="fleet-card-metrics"><FleetMetricBar label="CPU" value={device.cpuLoadPercent} /><FleetMetricBar label="内存" value={device.memoryUsedPercent} /><span className="fleet-card-pairs"><small><b>实时速率</b><strong>↑ {formatBitRate(device.uploadBps)}<br />↓ {formatBitRate(device.downloadBps)}</strong></small><small><b>终端</b><strong>{device.terminalCount} 台在线</strong></small><small><b>连接</b><strong>{device.connectionCount.toLocaleString()} 个活动</strong></small></span></span> : <span className="fleet-card-error">{device.error || '设备暂不可用'}</span>}<FleetTiming device={device} /></button>
-  }) : <div className="empty-row">没有符合条件的设备</div>}</div>
 }
 
 function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
