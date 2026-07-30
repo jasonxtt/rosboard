@@ -110,7 +110,11 @@ export type CapabilityNote = { area: string; item: string; status: string; detai
 export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean }
 export type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
 export type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
-export type RouteStat = { id: string; kind: string; family: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean; currentMatches: number }
+export type RouteStat = { id: string; kind: string; family: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean; prefSrc: string; scope: string; targetScope: string; immediateGateway: string; protocol: string; comment: string; currentMatches: number }
+export type DHCPServerStat = { name: string; interface: string; addressPool: string; leaseTime: string; disabled: boolean; invalid: boolean }
+export type DHCPPoolStat = { name: string; ranges: string; total: number; used: number; free: number; usedPercent: number; servers: string[] }
+export type DHCPLeaseStat = { id: string; address: string; macAddress: string; hostName: string; comment: string; server: string; status: string; expiresAfter: number; lastSeen: number; dynamic: boolean; blocked: boolean; disabled: boolean }
+export type DHCPStat = { servers: DHCPServerStat[]; pools: DHCPPoolStat[]; leases: DHCPLeaseStat[] }
 
 export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
 export type SettingsDevice = {
@@ -153,6 +157,7 @@ export type DashboardResponse = {
   protocols: ProtocolStat[]
   policies: PolicyStat[]
   routes: RouteStat[]
+  dhcp: DHCPStat
   alerts: AlertEvent[]
   warnings: string[]
 }
@@ -281,7 +286,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'routes' | 'settings'
+export type ActiveView = 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

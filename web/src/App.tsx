@@ -20,6 +20,7 @@ import type {
   ConnectionFamily,
   DashboardResponse,
   DeviceStatus,
+  DHCPStat,
   InterfaceDetail,
   InterfaceStatus,
   LoadSample,
@@ -190,7 +191,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'routes', 'settings']
+const landingViews: ActiveView[] = ['overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -477,7 +478,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [statusExpanded, setStatusExpanded] = useState(true)
   const [settingsExpanded, setSettingsExpanded] = useState(true)
-  const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'runtime' | null>(null)
+  const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'services' | 'runtime' | null>(null)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
@@ -585,7 +586,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     setStatusExpanded(true)
     if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
     if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
-    if (activeView === 'load' || activeView === 'routes') setExpandedMonitorGroup('runtime')
+    if (activeView === 'dhcp' || activeView === 'routes') setExpandedMonitorGroup('services')
+    if (activeView === 'load') setExpandedMonitorGroup('runtime')
   }, [activeView])
 
   useEffect(() => {
@@ -607,6 +609,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         payload.protocols ??= []
         payload.policies ??= []
         payload.routes ??= []
+        payload.dhcp ??= { servers: [], pools: [], leases: [] }
         payload.alerts ??= []
         payload.warnings ??= []
         payload.terminalScopeSummaries ??= {} as DashboardResponse['terminalScopeSummaries']
@@ -828,7 +831,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const currentDevice = devices.find((device) => device.id === selectedDeviceID)
   const globalWarnings = Array.from(new Set((dashboard.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
   const alertCount = Math.max(dashboard.alerts?.length ?? 0, globalWarnings.length)
-  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes'
+  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes' || activeView === 'dhcp'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
@@ -931,10 +934,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="协议统计" /></button>
                 <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="policy" label="策略统计" /></button>
               </> : null}
-              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'runtime'} onClick={() => setExpandedMonitorGroup((value) => value === 'runtime' ? null : 'runtime')}><NavLabel icon="runtime" label="运行监控" /></button>
+              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'services'} onClick={() => setExpandedMonitorGroup((value) => value === 'services' ? null : 'services')}><NavLabel icon="network" label="网络服务" /></button>
+              {expandedMonitorGroup === 'services' ? <>
+                <button type="button" className={activeView === 'dhcp' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="router" label="DHCP" /></button>
+                <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="route" label="路由 / 分流" /></button>
+              </> : null}
+              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'runtime'} onClick={() => setExpandedMonitorGroup((value) => value === 'runtime' ? null : 'runtime')}><NavLabel icon="runtime" label="系统运行" /></button>
               {expandedMonitorGroup === 'runtime' ? <>
                 <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="负载历史" /></button>
-                <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="route" label="路由 / 分流" /></button>
               </> : null}
             </div> : null}
           </div>
@@ -1051,6 +1058,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'load' ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
         {activeView === 'protocols' ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'dhcp' ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [], leases: [] }} /> : null}
         {activeView === 'routes' ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
         {activeView === 'settings' ? (
           <SettingsPage
@@ -2131,11 +2139,131 @@ function PolicyPage(props: { policies: PolicyStat[] }) {
   return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有 RouterOS 策略计数器</strong><span className="result-count">只读展示，不创建或修改规则</span><span className="toolbar-spacer" /><span>共 {props.policies.length} 条</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>来源</th><th>名称</th><th>目标 / 动作</th><th>标记</th><th>当前速率</th><th>累计流量</th><th>包数</th><th>状态</th></tr></thead><tbody>{props.policies.length ? props.policies.map((item, index) => <tr key={`${item.kind}-${item.name}-${index}`}><td>{item.kind}</td><td>{item.name}</td><td>{item.target || '-'}</td><td>{item.mark || '-'}</td><td>{item.rate || '-'}</td><td>{formatBytes(item.bytes)}</td><td>{item.packets}</td><td>{item.disabled ? '已禁用' : '生效中'}</td></tr>) : <tr><td colSpan={8} className="empty-row">当前 RouterOS 没有可展示的队列、队列树或带计数/标记的 mangle 策略</td></tr>}</tbody></table></div></section>
 }
 
+function DHCPPage(props: { dhcp: DHCPStat }) {
+  const [query, setQuery] = useState('')
+  const trimmed = query.trim().toLowerCase()
+  const leases = trimmed ? props.dhcp.leases.filter((item) => [item.address, item.macAddress, item.hostName, item.comment].some((value) => value.toLowerCase().includes(trimmed))) : props.dhcp.leases
+  if (!props.dhcp.servers.length && !props.dhcp.leases.length) {
+    return <section className="panel compact-panel"><div className="empty-row dhcp-empty">该设备未启用 DHCP Server 或接口无权限</div></section>
+  }
+  const leaseStatusText = (item: DHCPStat['leases'][number]) => item.blocked ? '已阻止' : item.disabled ? '已禁用' : item.status === 'bound' ? '已绑定' : item.status === 'waiting' ? '等待中' : item.status || '-'
+  const leaseStatusClass = (item: DHCPStat['leases'][number]) => item.blocked || item.disabled ? 'lease-status blocked' : item.status === 'bound' ? 'lease-status bound' : 'lease-status waiting'
+  return (
+    <div className="page-grid">
+      <section className="dhcp-server-grid">
+        {props.dhcp.servers.length ? props.dhcp.servers.map((item) => (
+          <div key={item.name} className="panel dhcp-server-card">
+            <h4>{item.name}</h4>
+            <span>接口：{item.interface || '-'}</span>
+            <span>地址池：{item.addressPool || '-'}</span>
+            <span>Lease 时长：{item.leaseTime || '-'}</span>
+            <span className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</span>
+          </div>
+        )) : <div className="panel dhcp-server-card"><span>没有 DHCP Server 配置</span></div>}
+      </section>
+      <section className="panel compact-panel">
+        <div className="data-toolbar"><strong>地址池利用率</strong><span className="result-count">按 bound 租约计数</span><span className="toolbar-spacer" /><span>共 {props.dhcp.pools.length} 个</span></div>
+        <div className="pool-list">
+          {props.dhcp.pools.length ? props.dhcp.pools.map((pool) => {
+            const level = pool.usedPercent > 95 ? 'critical' : pool.usedPercent > 85 ? 'warning' : 'normal'
+            return (
+              <div key={pool.name} className="pool-row">
+                <div className="pool-meta"><strong>{pool.name}</strong><span>{pool.ranges}</span><span>{pool.servers.length ? `server：${pool.servers.join('、')}` : '未被 DHCP Server 引用'}</span></div>
+                <div className="pool-bar"><i className={`pool-bar-fill ${level}`} style={{ width: `${Math.min(100, pool.usedPercent)}%` }} /></div>
+                <span className="pool-count">{pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</span>
+              </div>
+            )
+          }) : <div className="empty-row dhcp-empty">没有可解析的地址池（/ip/pool 无数据或不可用）</div>}
+        </div>
+      </section>
+      <section className="panel compact-panel">
+        <div className="data-toolbar">
+          <strong>DHCP 租约</strong>
+          <input className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="地址 / MAC / 主机名 / 备注" />
+          <span className="toolbar-spacer" />
+          <span>显示 {leases.length} / {props.dhcp.leases.length} 条</span>
+        </div>
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>地址</th><th>MAC</th><th>主机名</th><th>备注</th><th>Server</th><th>状态</th><th>剩余到期</th><th>类型</th></tr></thead><tbody>
+          {leases.length ? leases.map((item, index) => (
+            <tr key={item.id || `${item.address}-${index}`}>
+              <td>{item.address || '-'}</td>
+              <td>{item.macAddress || '-'}</td>
+              <td>{item.hostName || '-'}</td>
+              <td>{item.comment || '-'}</td>
+              <td>{item.server || '-'}</td>
+              <td><span className={leaseStatusClass(item)}>{leaseStatusText(item)}</span></td>
+              <td>{item.expiresAfter > 0 ? formatSeconds(item.expiresAfter) : '-'}</td>
+              <td>{item.dynamic ? '动态' : '静态'}</td>
+            </tr>
+          )) : <tr><td colSpan={8} className="empty-row">{props.dhcp.leases.length ? '没有匹配搜索条件的租约' : '当前没有租约'}</td></tr>}
+        </tbody></table></div>
+      </section>
+    </div>
+  )
+}
+
 function RoutesPage(props: { routes: RouteStat[] }) {
   const [hideDisabled, setHideDisabled] = useState(true)
   const disabledCount = props.routes.filter((item) => item.disabled).length
   const visibleRoutes = hideDisabled ? props.routes.filter((item) => !item.disabled) : props.routes
-  return <section className="panel compact-panel"><div className="data-toolbar"><strong>现有路由与分流状态</strong><span className="result-count">匹配数为当前 conntrack 快照推算</span><span className="toolbar-spacer" /><label className="toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label><span>显示 {visibleRoutes.length} / {props.routes.length} 条{disabledCount ? `，已禁用 ${disabledCount}` : ''}</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>类型</th><th>IP</th><th>源地址 / 接口</th><th>目标网段</th><th>网关</th><th>路由表</th><th>动作</th><th>距离</th><th>当前匹配连接</th><th>状态</th></tr></thead><tbody>{visibleRoutes.length ? visibleRoutes.map((item, index) => <tr key={item.id || `${item.kind}-${item.destination}-${item.table}-${index}`}><td>{item.kind}</td><td>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</td><td>{item.source || '-'}</td><td>{item.destination || '-'}</td><td>{item.gateway || '-'}</td><td>{item.table || 'main'}</td><td>{item.action || '-'}</td><td>{item.distance || '-'}</td><td>{item.currentMatches}</td><td>{item.disabled ? '已禁用' : item.kind === 'route' ? (item.active ? '活动' : '非活动') : '生效中'}</td></tr>) : <tr><td colSpan={10} className="empty-row">{props.routes.length ? '已隐藏全部禁用路由与分流规则' : '当前没有可读取的路由或分流状态'}</td></tr>}</tbody></table></div></section>
+  const rules = visibleRoutes.filter((item) => item.kind === 'rule')
+  const routeItems = visibleRoutes.filter((item) => item.kind !== 'rule')
+  const tables = Array.from(new Set(routeItems.map((item) => item.table || 'main'))).sort((left, right) => left === 'main' ? -1 : right === 'main' ? 1 : left.localeCompare(right))
+  const isDefaultRoute = (item: RouteStat) => item.destination === '0.0.0.0/0' || item.destination === '::/0'
+  const protocolText = (value: string) => value === 'static' ? '静态' : value === 'connected' ? '直连' : value === 'dynamic' ? '动态' : value || '-'
+  const routeRow = (item: RouteStat, index: number) => (
+    <tr key={item.id || `${item.kind}-${item.destination}-${item.table}-${index}`} title={item.scope || item.targetScope ? `scope: ${item.scope || '-'} / target-scope: ${item.targetScope || '-'}` : undefined}>
+      <td>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</td>
+      <td>{item.destination || '-'}</td>
+      <td>{item.gateway || '-'}</td>
+      <td>{item.prefSrc || '-'}</td>
+      <td>{protocolText(item.protocol)}</td>
+      <td>{item.distance}</td>
+      <td>{item.currentMatches}</td>
+      <td>{item.comment || '-'}</td>
+      <td>{item.disabled ? '已禁用' : item.active ? '活动' : '非活动'}</td>
+    </tr>
+  )
+  return (
+    <div className="page-grid">
+      <div className="data-toolbar panel">
+        <strong>现有路由与分流状态</strong><span className="result-count">匹配数为当前 conntrack 快照推算</span><span className="toolbar-spacer" />
+        <label className="toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label>
+        <span>显示 {visibleRoutes.length} / {props.routes.length} 条{disabledCount ? `，已禁用 ${disabledCount}` : ''}</span>
+      </div>
+      {rules.length ? (
+        <section className="panel compact-panel">
+          <div className="data-toolbar"><strong>Routing Rules（分流入口）</strong><span className="toolbar-spacer" /><span>{rules.length} 条 · 命中连接 {rules.reduce((sum, item) => sum + item.currentMatches, 0)}</span></div>
+          <div className="table-scroll"><table className="data-table"><thead><tr><th>IP</th><th>源地址 / 接口</th><th>目标网段</th><th>路由表</th><th>动作</th><th>命中连接</th><th>备注</th><th>状态</th></tr></thead><tbody>
+            {rules.map((item, index) => (
+              <tr key={item.id || `rule-${index}`}>
+                <td>{item.family === 'ipv6' ? 'IPv6' : 'IPv4'}</td>
+                <td>{item.source || '-'}</td>
+                <td>{item.destination || '-'}</td>
+                <td>{item.table || 'main'}</td>
+                <td>{item.action || '-'}</td>
+                <td>{item.currentMatches}</td>
+                <td>{item.comment || '-'}</td>
+                <td>{item.disabled ? '已禁用' : '生效中'}</td>
+              </tr>
+            ))}
+          </tbody></table></div>
+        </section>
+      ) : null}
+      {tables.map((table) => {
+        const group = routeItems.filter((item) => (item.table || 'main') === table)
+        const defaultRoute = group.find((item) => isDefaultRoute(item) && !item.disabled)
+        const matchTotal = group.reduce((sum, item) => sum + item.currentMatches, 0)
+        return (
+          <section className="panel compact-panel" key={table}>
+            <div className="data-toolbar"><strong>路由表 {table}</strong><span className="result-count">{group.length} 条 · 命中连接 {matchTotal} · {defaultRoute ? `默认路由 ${defaultRoute.active ? '活动' : '非活动'}（${defaultRoute.gateway || '-'}）` : '无默认路由'}</span></div>
+            <div className="table-scroll"><table className="data-table"><thead><tr><th>IP</th><th>目标网段</th><th>网关</th><th>pref-src</th><th>来源</th><th>距离</th><th>命中连接</th><th>备注</th><th>状态</th></tr></thead><tbody>{group.map(routeRow)}</tbody></table></div>
+          </section>
+        )
+      })}
+      {!rules.length && !routeItems.length ? <section className="panel compact-panel"><div className="empty-row dhcp-empty">{props.routes.length ? '已隐藏全部禁用路由与分流规则' : '当前没有可读取的路由或分流状态'}</div></section> : null}
+    </div>
+  )
 }
 
 function TerminalsPage(props: {

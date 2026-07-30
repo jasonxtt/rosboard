@@ -851,3 +851,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.dhcp-server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.dhcp-server-card { display: grid; gap: 6px; padding: 14px; font-size: 12px; }
+.dhcp-server-card h4 { margin: 0; font-size: 13px; }
+.dhcp-server-card .server-ok { color: #166534; }
+.dhcp-server-card .server-bad { color: #991b1b; }
+.dhcp-empty { padding: 20px; text-align: center; }
+.pool-list { display: grid; gap: 10px; padding: 14px; }
+.pool-row { display: grid; grid-template-columns: minmax(180px, 1fr) 2fr max-content; align-items: center; gap: 12px; font-size: 12px; }
+.pool-meta { display: grid; gap: 2px; min-width: 0; }
+.pool-meta span { color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pool-bar { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+.pool-bar-fill { display: block; height: 100%; background: #16a34a; border-radius: 999px; }
+.pool-bar-fill.warning { background: #d97706; }
+.pool-bar-fill.critical { background: #dc2626; }
+.pool-count { white-space: nowrap; }
+.lease-status { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; color: #334155; background: #e2e8f0; }
+.lease-status.bound { color: #166534; background: #dcfce7; }
+.lease-status.blocked { color: #991b1b; background: #fee2e2; }
+:root[data-theme="dark"] .pool-bar { background: #1e293b; }
+:root[data-theme="dark"] .pool-meta span { color: #94a3b8; }
+:root[data-theme="dark"] .dhcp-server-card .server-ok { color: #86efac; }
+:root[data-theme="dark"] .dhcp-server-card .server-bad { color: #fca5a5; }
+:root[data-theme="dark"] .lease-status { color: #cbd5e1; background: #334155; }
+:root[data-theme="dark"] .lease-status.bound { color: #86efac; background: #14532d; }
+:root[data-theme="dark"] .lease-status.blocked { color: #fca5a5; background: #7f1d1d; }

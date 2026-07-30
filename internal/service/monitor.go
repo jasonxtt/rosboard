@@ -601,6 +601,12 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	snapshot.Protocols = append([]model.ProtocolStat{}, snapshot.Protocols...)
 	snapshot.Policies = append([]model.PolicyStat{}, snapshot.Policies...)
 	snapshot.Routes = append([]model.RouteStat{}, snapshot.Routes...)
+	snapshot.DHCP.Servers = append([]model.DHCPServerStat{}, snapshot.DHCP.Servers...)
+	snapshot.DHCP.Pools = append([]model.DHCPPoolStat{}, snapshot.DHCP.Pools...)
+	for index := range snapshot.DHCP.Pools {
+		snapshot.DHCP.Pools[index].Servers = append([]string{}, snapshot.DHCP.Pools[index].Servers...)
+	}
+	snapshot.DHCP.Leases = append([]model.DHCPLeaseStat{}, snapshot.DHCP.Leases...)
 	snapshot.Alerts = append([]model.AlertEvent{}, snapshot.Alerts...)
 	snapshot.Warnings = append([]string{}, snapshot.Warnings...)
 	snapshot.Overview.TrafficInterfaces = append([]string{}, snapshot.Overview.TrafficInterfaces...)
@@ -946,7 +952,12 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		} else {
 			routingRoutes = make([]routeros.RoutingRoute, 0, len(ipRoutes))
 			for _, route := range ipRoutes {
-				routingRoutes = append(routingRoutes, routeros.RoutingRoute{ID: route.ID, AFI: "ip4", DstAddress: route.DstAddress, Gateway: route.Gateway, RoutingTable: route.RoutingTable, Distance: route.Distance, Active: route.Active, Disabled: route.Disabled})
+				routingRoutes = append(routingRoutes, routeros.RoutingRoute{
+					ID: route.ID, AFI: "ip4", DstAddress: route.DstAddress, Gateway: route.Gateway,
+					RoutingTable: route.RoutingTable, Distance: route.Distance, Active: route.Active,
+					Disabled: route.Disabled, PrefSrc: route.PrefSrc, Static: route.Static,
+					Connect: route.Connect, Comment: route.Comment,
+				})
 			}
 		}
 	}
@@ -965,6 +976,13 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	dhcpClients, dhcpClientErr := m.client.DHCPClients(pollCtx)
 	if dhcpClientErr != nil {
 		addWarning("topology-dhcp-clients", "终端范围", "DHCP Client 拓扑数据不可用。")
+	}
+	ipPools, poolErr := m.client.IPPools(pollCtx)
+	dhcpComplete := dhcpServerErr == nil
+	if poolErr != nil {
+		m.logger.Printf("load ip pools failed: %v", poolErr)
+		addWarning("ip-pools", "DHCP 采集", "IP Pool 数据暂时不可用，保留上次有效 DHCP 数据。")
+		dhcpComplete = false
 	}
 	nds, ndErr := m.client.IPv6NDs(pollCtx)
 	if ndErr != nil {
@@ -1072,6 +1090,10 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if !routesComplete && len(previous.Routes) > 0 {
 		routes = previous.Routes
 	}
+	dhcp := buildDHCP(dhcpServers, leases, ipPools)
+	if !dhcpComplete && (len(previous.DHCP.Servers) > 0 || len(previous.DHCP.Leases) > 0 || len(previous.DHCP.Pools) > 0) {
+		dhcp = previous.DHCP
+	}
 	alerts := make([]model.AlertEvent, 0, len(alertsByID))
 	for _, alert := range alertsByID {
 		alerts = append(alerts, alert)
@@ -1110,10 +1132,11 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		TerminalScopeSummaries: terminalScopeSummaries(terminals, terminalScope),
 		TerminalScope:          terminalScope.projection(),
 		TrafficScope:           trafficScope.projection(),
-		Capabilities:           buildCapabilities(strings.EqualFold(health.State, "enabled")),
+		Capabilities:           buildCapabilities(strings.EqualFold(health.State, "enabled"), dhcpServerErr == nil && poolErr == nil),
 		Protocols:              protocols,
 		Policies:               policies,
 		Routes:                 routes,
+		DHCP:                   dhcp,
 		Alerts:                 alerts,
 		Warnings:               warnings,
 	}
@@ -1270,11 +1293,34 @@ func buildRoutes(rules []routeros.RoutingRule, routes []routeros.RoutingRoute, d
 	result := make([]model.RouteStat, 0, len(rules)+len(routes))
 	for index, item := range rules {
 		id := stableRuleID(item, index)
-		result = append(result, model.RouteStat{ID: id, Kind: "rule", Family: routeFamily(item.DstAddress, item.SrcAddress), Destination: item.DstAddress, Table: item.Table, Action: item.Action, Source: preferredName(item.SrcAddress, item.Interface), Disabled: parseBool(item.Disabled), CurrentMatches: matches[id]})
+		result = append(result, model.RouteStat{ID: id, Kind: "rule", Family: routeFamily(item.DstAddress, item.SrcAddress), Destination: item.DstAddress, Table: item.Table, Action: item.Action, Source: preferredName(item.SrcAddress, item.Interface), Disabled: parseBool(item.Disabled), Comment: item.Comment, CurrentMatches: matches[id]})
 	}
 	for index, item := range routes {
 		id := stableRouteID(item, index)
-		result = append(result, model.RouteStat{ID: id, Kind: "route", Family: routeFamily(item.AFI, item.DstAddress), Destination: item.DstAddress, Gateway: preferredName(item.ImmediateGateway, item.Gateway), Table: item.RoutingTable, Distance: parseInt(item.Distance), Active: parseBool(item.Active), Disabled: parseBool(item.Disabled), CurrentMatches: matches[id]})
+		protocol := "dynamic"
+		if parseBool(item.Static) {
+			protocol = "static"
+		} else if parseBool(item.Connect) {
+			protocol = "connected"
+		}
+		result = append(result, model.RouteStat{
+			ID:               id,
+			Kind:             "route",
+			Family:           routeFamily(item.AFI, item.DstAddress),
+			Destination:      item.DstAddress,
+			Gateway:          preferredName(item.ImmediateGateway, item.Gateway),
+			Table:            item.RoutingTable,
+			Distance:         parseInt(item.Distance),
+			Active:           parseBool(item.Active),
+			Disabled:         parseBool(item.Disabled),
+			PrefSrc:          item.PrefSrc,
+			Scope:            item.Scope,
+			TargetScope:      item.TargetScope,
+			ImmediateGateway: item.ImmediateGateway,
+			Protocol:         protocol,
+			Comment:          item.Comment,
+			CurrentMatches:   matches[id],
+		})
 	}
 	return result
 }
@@ -1853,7 +1899,7 @@ func interfaceCategory(iface routeros.Interface, topology interfaceTopology) str
 	return "logical"
 }
 
-func buildCapabilities(healthEnabled bool) []model.CapabilityNote {
+func buildCapabilities(healthEnabled bool, dhcpPoolsAvailable bool) []model.CapabilityNote {
 	healthStatus := "supported_now"
 	healthDetails := "CPU, memory, interface status, live rates, unified terminals, and locally persisted terminal totals are available now."
 	if !healthEnabled {
@@ -1886,12 +1932,32 @@ func buildCapabilities(healthEnabled bool) []model.CapabilityNote {
 			Details: "Totals are computed and persisted by the panel itself because the live RouterOS REST surface does not present them directly.",
 		},
 		{
+			Area:    "Network services",
+			Item:    "DHCP servers, pools, and leases",
+			Status:  dhcpCapabilityStatus(dhcpPoolsAvailable),
+			Details: dhcpCapabilityDetails(dhcpPoolsAvailable),
+		},
+		{
 			Area:    "Future expansion",
 			Item:    "Protocol / policy / load / split-flow pages",
 			Status:  "deferred",
 			Details: "These are reserved for later only if future RouterOS data and panel logic can make them genuinely complete enough to be useful.",
 		},
 	}
+}
+
+func dhcpCapabilityStatus(poolsAvailable bool) string {
+	if poolsAvailable {
+		return "supported_now"
+	}
+	return "limited"
+}
+
+func dhcpCapabilityDetails(poolsAvailable bool) string {
+	if poolsAvailable {
+		return "DHCP server status, address-pool utilization, and lease details are read directly from RouterOS REST."
+	}
+	return "DHCP lease and server data is available, but `/rest/ip/pool` could not be read, so pool utilization is unavailable."
 }
 
 func selectMonitorableInterfaces(interfaces []routeros.Interface) []string {

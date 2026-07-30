@@ -8,6 +8,7 @@ export function viewTitle(view: ActiveView) {
     load: '负载历史',
     protocols: '协议统计',
     policies: '策略统计',
+    dhcp: 'DHCP',
     routes: '路由 / 分流',
     settings: '面板设置',
   }

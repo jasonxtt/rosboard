@@ -28,6 +28,9 @@ func TestEmptySnapshotUsesJSONArrays(t *testing.T) {
 	if snapshot.TerminalScopeSummaries == nil {
 		t.Fatal("terminal scope summaries must be an empty map, not nil")
 	}
+	if snapshot.DHCP.Servers == nil || snapshot.DHCP.Pools == nil || snapshot.DHCP.Leases == nil {
+		t.Fatal("dhcp collections must be empty slices, not nil")
+	}
 }
 
 func testTerminalScope() terminalScope {
@@ -810,5 +813,32 @@ func TestBuildInterfacesClassifiesAndProjectsRelations(t *testing.T) {
 	fallback := newInterfaceTopology([]routeros.Interface{{Name: "ether-fallback", Type: "ether"}}, nil, nil, nil, nil)
 	if category := interfaceCategory(routeros.Interface{Name: "ether-fallback", Type: "ether"}, fallback); category != "physical" {
 		t.Fatalf("ethernet type fallback category = %q", category)
+	}
+}
+
+func TestBuildRoutesProjectsExtendedFieldsAndProtocol(t *testing.T) {
+	rules := []routeros.RoutingRule{
+		{ID: "*R1", Action: "lookup", Table: "vpn", SrcAddress: "10.0.0.0/24", Comment: "vpn rule"},
+	}
+	routes := []routeros.RoutingRoute{
+		{ID: "*A", DstAddress: "0.0.0.0/0", Gateway: "10.9.9.1", RoutingTable: "main", Distance: "1", Active: "true", Static: "true", PrefSrc: "10.0.0.1", Scope: "30", TargetScope: "10", ImmediateGateway: "10.9.9.1%ether1", Comment: "wan default"},
+		{ID: "*B", DstAddress: "10.0.0.0/24", Gateway: "bridge-lan", RoutingTable: "main", Active: "true", Connect: "true", Dynamic: "true"},
+		{ID: "*C", DstAddress: "10.8.0.0/24", Gateway: "10.9.9.2", RoutingTable: "vpn", Active: "true", Dynamic: "true"},
+	}
+	result := buildRoutes(rules, routes, nil)
+	if len(result) != 4 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result[0].Kind != "rule" || result[0].Comment != "vpn rule" {
+		t.Fatalf("rule comment not projected: %#v", result[0])
+	}
+	if result[1].Protocol != "static" || result[1].PrefSrc != "10.0.0.1" || result[1].Scope != "30" || result[1].TargetScope != "10" || result[1].ImmediateGateway != "10.9.9.1%ether1" || result[1].Comment != "wan default" {
+		t.Fatalf("static route not projected: %#v", result[1])
+	}
+	if result[2].Protocol != "connected" {
+		t.Fatalf("connected route not normalized: %#v", result[2])
+	}
+	if result[3].Protocol != "dynamic" {
+		t.Fatalf("dynamic route not normalized: %#v", result[3])
 	}
 }
