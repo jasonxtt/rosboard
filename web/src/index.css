@@ -1223,9 +1223,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 .dhcp-server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.dhcp-server-card { display: grid; gap: 6px; padding: 14px; font-size: 12px; }
+.dhcp-server-card { display: grid; gap: 10px; min-width: 0; padding: 14px; font-size: 12px; }
 .dhcp-server-card h4 { margin: 0; font-size: 13px; }
-.dhcp-pool-usage { padding-left: 10px; color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dhcp-server-meta, .dhcp-server-pool-stats { display: grid; gap: 8px; }
+.dhcp-server-meta { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-bottom: 10px; border-bottom: 1px solid var(--color-border-soft); }
+.dhcp-server-meta > div, .dhcp-server-pool-stats > div { display: grid; gap: 3px; min-width: 0; }
+.dhcp-server-meta span, .dhcp-server-pool span, .dhcp-server-pool-stats span { color: var(--color-text-muted); font-size: 10px; }
+.dhcp-server-meta strong, .dhcp-server-pool strong { min-width: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
+.dhcp-server-meta strong, .dhcp-server-pool-stats strong { font-variant-numeric: tabular-nums; }
+.dhcp-server-pool { display: grid; gap: 8px; min-width: 0; }
+.dhcp-server-pool-name { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.dhcp-server-pool-stats { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); padding: 8px 10px; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
 .dhcp-server-card .server-ok { color: #166534; }
 .dhcp-server-card .server-bad { color: #991b1b; }
 .dhcp-empty { padding: 20px; text-align: center; }
@@ -1237,3 +1245,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 :root[data-theme="dark"] .lease-status { color: #cbd5e1; background: #334155; }
 :root[data-theme="dark"] .lease-status.bound { color: #86efac; background: #14532d; }
 :root[data-theme="dark"] .lease-status.blocked { color: #fca5a5; background: #7f1d1d; }
+
+@media (max-width: 767px) {
+  .dhcp-server-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dhcp-server-pool-stats { grid-template-columns: 1fr; }
+}
