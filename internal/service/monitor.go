@@ -27,6 +27,7 @@ type Monitor struct {
 	logger *log.Logger
 
 	refreshMu         sync.Mutex
+	metadataMu        sync.Mutex
 	terminalRateMu    sync.Mutex
 	mu                sync.RWMutex
 	snapshot          model.DashboardSnapshot
@@ -234,12 +235,13 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	defer cancel()
 
 	now := time.Now().UTC()
+	previous := m.Snapshot()
 	resource, err := m.client.SystemResource(pollCtx)
 	if err != nil {
 		return fmt.Errorf("load realtime system resource: %w", err)
 	}
+	resourceDetails := m.loadSystemResourceDetails(pollCtx, previous.Overview.SystemResource, false, "realtime")
 
-	previous := m.Snapshot()
 	m.mu.RLock()
 	trafficInterfaces := m.trafficScope.selectedNames()
 	m.mu.RUnlock()
@@ -278,6 +280,7 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	m.snapshot.Overview.MemoryUsedPercent = memoryPercent
 	m.snapshot.Overview.MemoryUsedBytes = parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory)
 	m.snapshot.Overview.MemoryTotalBytes = parseInt(resource.TotalMemory)
+	m.snapshot.Overview.SystemResource = systemResourceSnapshot(resource, resourceDetails)
 	m.snapshot.Overview.UploadBps = uploadBps
 	m.snapshot.Overview.DownloadBps = downloadBps
 	m.snapshot.Overview.TrafficInterfaces = trafficInterfaces
@@ -376,6 +379,7 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 
 	setTerminalRatesUpdatedAt(details, ratesUpdatedAt)
 	m.mu.Lock()
+	mergeLatestTerminalMetadata(terminals, details, m.terminalDetails)
 	m.snapshot.Terminals = terminals
 	m.snapshot.TerminalScopeSummaries = terminalScopeSummaries(terminals, scope)
 	m.snapshot.Protocols = protocols
@@ -429,6 +433,7 @@ func (m *Monitor) refreshTerminalRates(ctx context.Context) error {
 	if m.terminalRatesAt.After(ratesUpdatedAt) {
 		return nil
 	}
+	mergeLatestTerminalMetadata(m.snapshot.Terminals, details, m.terminalDetails)
 	m.terminalDetails = details
 	for index := range m.snapshot.Terminals {
 		if detail, ok := details[m.snapshot.Terminals[index].ID]; ok {
@@ -611,6 +616,7 @@ func (m *Monitor) Snapshot() model.DashboardSnapshot {
 	snapshot.Warnings = append([]string{}, snapshot.Warnings...)
 	snapshot.Overview.TrafficInterfaces = append([]string{}, snapshot.Overview.TrafficInterfaces...)
 	snapshot.Overview.ChartSamples = append([]model.RateSample{}, snapshot.Overview.ChartSamples...)
+	snapshot.Overview.SystemResource = cloneSystemResource(snapshot.Overview.SystemResource)
 	snapshot.TerminalScope.Interfaces = append([]model.TerminalScopeInterface(nil), snapshot.TerminalScope.Interfaces...)
 	for index := range snapshot.TerminalScope.Interfaces {
 		snapshot.TerminalScope.Interfaces[index].Reasons = append([]string(nil), snapshot.TerminalScope.Interfaces[index].Reasons...)
@@ -658,18 +664,9 @@ func (m *Monitor) TerminalDetail(id string) (model.TerminalDetail, bool) {
 	return detail, true
 }
 
-func (m *Monitor) UpdateTerminalRemark(ctx context.Context, id, remark string) error {
-	detail, ok := m.TerminalDetail(id)
-	if !ok {
-		return store.ErrTerminalNotFound
-	}
-	_, err := m.UpdateTerminalMetadata(ctx, id, detail.Terminal.CustomName, remark)
-	return err
-}
-
 func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, remark string) (model.TerminalDetail, error) {
-	m.refreshMu.Lock()
-	defer m.refreshMu.Unlock()
+	m.metadataMu.Lock()
+	defer m.metadataMu.Unlock()
 
 	if _, ok := m.TerminalDetail(id); !ok {
 		return model.TerminalDetail{}, store.ErrTerminalNotFound
@@ -696,6 +693,27 @@ func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, re
 	}
 	m.terminalDetails[id] = detail
 	return detail, nil
+}
+
+func mergeLatestTerminalMetadata(terminals []model.Terminal, details map[string]model.TerminalDetail, currentDetails map[string]model.TerminalDetail) {
+	for id, current := range currentDetails {
+		detail, ok := details[id]
+		if !ok {
+			continue
+		}
+		applyTerminalMetadata(&detail.Terminal, current.Terminal.CustomName, current.Terminal.Remark)
+		for family, summary := range detail.FamilySummaries {
+			applyTerminalMetadata(&summary, current.Terminal.CustomName, current.Terminal.Remark)
+			detail.FamilySummaries[family] = summary
+		}
+		details[id] = detail
+		for index := range terminals {
+			if terminals[index].ID == id {
+				applyTerminalMetadata(&terminals[index], current.Terminal.CustomName, current.Terminal.Remark)
+				break
+			}
+		}
+	}
 }
 
 func applyTerminalMetadata(terminal *model.Terminal, customName, remark string) {
@@ -871,6 +889,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load system resource: %w", err)
 	}
+	resourceDetails := m.loadSystemResourceDetails(pollCtx, previous.Overview.SystemResource, true, "full")
 	health, err := m.client.SystemHealth(pollCtx)
 	if err != nil {
 		m.logger.Printf("load system health failed: %v", err)
@@ -1109,6 +1128,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 			Version:                  resource.Version,
 			BoardName:                resource.BoardName,
 			Uptime:                   formatRouterOSUptime(resource.Uptime),
+			SystemResource:           systemResourceSnapshot(resource, resourceDetails),
 			CPULoadPercent:           parseInt(resource.CPULoad),
 			MemoryUsedPercent:        memoryPercent,
 			MemoryUsedBytes:          parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory),
@@ -1151,6 +1171,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	} else {
 		m.terminalRatesAt = ratesUpdatedAt
 	}
+	mergeLatestTerminalMetadata(snapshot.Terminals, details, m.terminalDetails)
 	m.snapshot = snapshot
 	m.terminalDetails = details
 	m.terminalScope = terminalScope
@@ -1166,11 +1187,142 @@ func copyRealtimeOverview(destination *model.Overview, source model.Overview) {
 	destination.MemoryUsedPercent = source.MemoryUsedPercent
 	destination.MemoryUsedBytes = source.MemoryUsedBytes
 	destination.MemoryTotalBytes = source.MemoryTotalBytes
+	destination.SystemResource = cloneSystemResource(source.SystemResource)
 	destination.UploadBps = source.UploadBps
 	destination.DownloadBps = source.DownloadBps
 	destination.TrafficInterfaces = append([]string(nil), source.TrafficInterfaces...)
 	destination.ChartSamples = append([]model.RateSample(nil), source.ChartSamples...)
 	destination.UpdatedAt = source.UpdatedAt
+}
+
+func cloneSystemResource(resource model.SystemResource) model.SystemResource {
+	resource.CPUCores = append([]model.SystemResourceCPU{}, resource.CPUCores...)
+	resource.IRQs = append([]model.SystemResourceIRQ{}, resource.IRQs...)
+	resource.Hardware = append([]model.SystemResourceHardware{}, resource.Hardware...)
+	if resource.CPUCores == nil {
+		resource.CPUCores = []model.SystemResourceCPU{}
+	}
+	if resource.IRQs == nil {
+		resource.IRQs = []model.SystemResourceIRQ{}
+	}
+	if resource.Hardware == nil {
+		resource.Hardware = []model.SystemResourceHardware{}
+	}
+	return resource
+}
+
+func systemResourceSnapshot(resource routeros.SystemResource, details model.SystemResource) model.SystemResource {
+	details.ArchitectureName = resource.ArchitectureName
+	details.BoardName = resource.BoardName
+	details.BadBlocks = resource.BadBlocks
+	details.BuildTime = resource.BuildTime
+	details.CPU = resource.CPU
+	details.CPUCount = resource.CPUCount
+	details.CPUFrequency = resource.CPUFrequency
+	details.CPULoad = resource.CPULoad
+	details.FactorySoftware = resource.FactorySoftware
+	details.FreeMemory = resource.FreeMemory
+	details.FreeHDD = resource.FreeHDD
+	details.Platform = resource.Platform
+	details.TotalMemory = resource.TotalMemory
+	details.TotalHDD = resource.TotalHDD
+	details.Uptime = resource.Uptime
+	details.Version = resource.Version
+	details.WriteSectSinceReboot = resource.WriteSectSinceReboot
+	details.WriteSectTotal = resource.WriteSectTotal
+	if details.CPUCores == nil {
+		details.CPUCores = []model.SystemResourceCPU{}
+	}
+	if details.IRQs == nil {
+		details.IRQs = []model.SystemResourceIRQ{}
+	}
+	if details.Hardware == nil {
+		details.Hardware = []model.SystemResourceHardware{}
+	}
+	return details
+}
+
+func (m *Monitor) loadSystemResourceDetails(ctx context.Context, previous model.SystemResource, includeStatic bool, phase string) model.SystemResource {
+	details := model.SystemResource{
+		CPUCores: append([]model.SystemResourceCPU{}, previous.CPUCores...),
+		IRQs:     append([]model.SystemResourceIRQ{}, previous.IRQs...),
+		Hardware: append([]model.SystemResourceHardware{}, previous.Hardware...),
+	}
+	var cpuCores []routeros.SystemResourceCPU
+	var irqs []routeros.SystemResourceIRQ
+	var hardware []routeros.SystemResourceHardware
+	var cpuErr, irqErr, hardwareErr error
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(1)
+	go func() {
+		defer waitGroup.Done()
+		cpuCores, cpuErr = m.client.SystemResourceCPU(ctx)
+	}()
+	if includeStatic {
+		waitGroup.Add(2)
+		go func() {
+			defer waitGroup.Done()
+			irqs, irqErr = m.client.SystemResourceIRQs(ctx)
+		}()
+		go func() {
+			defer waitGroup.Done()
+			hardware, hardwareErr = m.client.SystemResourceHardware(ctx)
+		}()
+	}
+	waitGroup.Wait()
+	if cpuErr != nil {
+		m.logOptionalResourceError(phase, "cpu", cpuErr)
+	} else {
+		details.CPUCores = projectSystemResourceCPUs(cpuCores)
+	}
+	if includeStatic {
+		if irqErr != nil {
+			m.logOptionalResourceError(phase, "irq", irqErr)
+		} else {
+			details.IRQs = projectSystemResourceIRQs(irqs)
+		}
+		if hardwareErr != nil {
+			m.logOptionalResourceError(phase, "hardware", hardwareErr)
+		} else {
+			details.Hardware = projectSystemResourceHardware(hardware)
+		}
+	}
+	return details
+}
+
+func (m *Monitor) logOptionalResourceError(phase, detail string, err error) {
+	if phase != "realtime" && m.logger != nil {
+		m.logger.Printf("load %s system resource %s failed, keeping previous data: %v", phase, detail, err)
+	}
+}
+
+func projectSystemResourceCPUs(items []routeros.SystemResourceCPU) []model.SystemResourceCPU {
+	result := make([]model.SystemResourceCPU, 0, len(items))
+	for _, item := range items {
+		result = append(result, model.SystemResourceCPU{CPU: item.CPU, Load: item.Load, IRQ: item.IRQ, Disk: item.Disk})
+	}
+	return result
+}
+
+func projectSystemResourceIRQs(items []routeros.SystemResourceIRQ) []model.SystemResourceIRQ {
+	result := make([]model.SystemResourceIRQ, 0, len(items))
+	for _, item := range items {
+		result = append(result, model.SystemResourceIRQ{CPU: item.CPU, ActiveCPU: item.ActiveCPU, Count: item.Count, IRQ: item.IRQ, Users: item.Users})
+	}
+	return result
+}
+
+func projectSystemResourceHardware(items []routeros.SystemResourceHardware) []model.SystemResourceHardware {
+	result := make([]model.SystemResourceHardware, 0, len(items))
+	for _, item := range items {
+		result = append(result, model.SystemResourceHardware{
+			Location: item.Location, Parent: item.Parent, Type: item.Type, Vendor: item.Vendor, Name: item.Name,
+			SerialNumber: item.SerialNumber, VendorID: item.VendorID, DeviceID: item.DeviceID, Speed: item.Speed,
+			Ports: item.Ports, USBVersion: item.USBVersion, Owner: item.Owner, DevicePath: item.DevicePath,
+			Category: item.Category, IRQ: item.IRQ,
+		})
+	}
+	return result
 }
 
 func preserveTerminalRateProjection(snapshot *model.DashboardSnapshot, details map[string]model.TerminalDetail, scope terminalScope, source model.DashboardSnapshot, sourceDetails map[string]model.TerminalDetail) {

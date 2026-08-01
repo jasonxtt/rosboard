@@ -59,7 +59,7 @@ func TestBuildDHCPComputesPoolUsageAndSortsLeases(t *testing.T) {
 	if len(stat.Servers) != 2 || stat.Servers[0].Name != "dhcp1" || stat.Servers[0].AddressPool != "pool0" || !stat.Servers[1].Disabled {
 		t.Fatalf("unexpected servers: %#v", stat.Servers)
 	}
-	if len(stat.Pools) != 2 {
+	if len(stat.Pools) != 1 {
 		t.Fatalf("unexpected pools: %#v", stat.Pools)
 	}
 	pool0 := stat.Pools[0]
@@ -70,9 +70,8 @@ func TestBuildDHCPComputesPoolUsageAndSortsLeases(t *testing.T) {
 	if pool0.UsedPercent < 0.8 || pool0.UsedPercent > 0.9 {
 		t.Fatalf("unexpected pool0 percent: %f", pool0.UsedPercent)
 	}
-	orphan := stat.Pools[1]
-	if orphan.Used != 0 || orphan.Total != 10 || len(orphan.Servers) != 0 {
-		t.Fatalf("unexpected orphan pool: %#v", orphan)
+	if stat.Pools[0].Name == "orphan" {
+		t.Fatalf("unreferenced pool must not be included: %#v", stat.Pools)
 	}
 	// Sorted numerically by display address: 10.0.0.20(*1) < 10.0.0.30(*2) < 10.0.0.40(*3) < 10.0.0.50(*4).
 	if stat.Leases[0].ID != "*1" || stat.Leases[1].ID != "*2" || stat.Leases[2].ID != "*3" || stat.Leases[3].ID != "*4" {

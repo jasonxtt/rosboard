@@ -140,6 +140,10 @@ func buildDHCP(servers []routeros.DHCPServer, leases []routeros.DHCPLease, pools
 
 	poolStats := make([]model.DHCPPoolStat, 0, len(pools))
 	for _, pool := range pools {
+		servers, referenced := serversByPool[pool.Name]
+		if !referenced {
+			continue
+		}
 		total := poolRangeTotal(pool.Ranges)
 		used := boundByPool[pool.Name]
 		free := total - used
@@ -157,7 +161,7 @@ func buildDHCP(servers []routeros.DHCPServer, leases []routeros.DHCPLease, pools
 			Used:        used,
 			Free:        free,
 			UsedPercent: usedPercent,
-			Servers:     append([]string{}, serversByPool[pool.Name]...),
+			Servers:     append([]string{}, servers...),
 		})
 	}
 

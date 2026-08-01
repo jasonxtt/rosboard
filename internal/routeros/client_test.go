@@ -33,6 +33,37 @@ func TestSystemHealthAcceptsRouterOSObjectAndArrayResponses(t *testing.T) {
 	}
 }
 
+func TestSystemResourceDetailEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/system/resource/cpu":
+			_, _ = writer.Write([]byte(`[{"cpu":"0","load":"12","irq":"2","disk":"1"}]`))
+		case "/rest/system/resource/irq":
+			_, _ = writer.Write([]byte(`[{"cpu":"auto","active-cpu":"0","count":"99","irq":"5","users":"ethernet"}]`))
+		case "/rest/system/resource/hardware":
+			_, _ = writer.Write([]byte(`[{"location":"0:0","type":"pci","vendor":"MikroTik","name":"ethernet","serial-number":"SN1","irq":"5"}]`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "admin", "secret")
+	cpus, err := client.SystemResourceCPU(context.Background())
+	if err != nil || len(cpus) != 1 || cpus[0].CPU != "0" || cpus[0].Load != "12" || cpus[0].IRQ != "2" || cpus[0].Disk != "1" {
+		t.Fatalf("unexpected CPU details: %#v err=%v", cpus, err)
+	}
+	irqs, err := client.SystemResourceIRQs(context.Background())
+	if err != nil || len(irqs) != 1 || irqs[0].ActiveCPU != "0" || irqs[0].Users != "ethernet" {
+		t.Fatalf("unexpected IRQ details: %#v err=%v", irqs, err)
+	}
+	hardware, err := client.SystemResourceHardware(context.Background())
+	if err != nil || len(hardware) != 1 || hardware[0].Name != "ethernet" || hardware[0].SerialNumber != "SN1" {
+		t.Fatalf("unexpected hardware details: %#v err=%v", hardware, err)
+	}
+}
+
 func TestInterfaceTopologyEndpoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

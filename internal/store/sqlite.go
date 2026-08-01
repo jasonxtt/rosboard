@@ -734,17 +734,6 @@ func (s *Store) TerminalHistory(ctx context.Context, terminalID string, limit in
 	return result, nil
 }
 
-func (s *Store) UpdateTerminalRemark(ctx context.Context, terminalID, remark string) error {
-	var customName string
-	if err := s.db.QueryRowContext(ctx, `SELECT custom_name FROM terminals WHERE device_id = ? AND id = ?`, s.deviceID, terminalID).Scan(&customName); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrTerminalNotFound
-		}
-		return fmt.Errorf("load terminal custom name: %w", err)
-	}
-	return s.UpdateTerminalMetadata(ctx, terminalID, customName, remark)
-}
-
 func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customName, remark string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ?, remark = ? WHERE device_id = ? AND id = ?`, customName, remark, s.deviceID, terminalID)
 	if err != nil {
