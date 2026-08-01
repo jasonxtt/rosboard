@@ -1640,3 +1640,37 @@ Reworked the fleet dashboard into a reference-aligned list-only layout, refined 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 50: 新增资源监控子项
+
+**Date**: 2026-08-01
+**Task**: 新增资源监控子项
+**Branch**: `main`
+
+### Summary
+
+完成 RouterOS system resource 顶层、逐核 CPU、IRQ、硬件详情采集与资源监控页面；通过 Go/npm 检查、本地模拟 RouterOS 与 375px/1440px 视觉验证，并部署到 10.0.0.6 经用户手动验收通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b2ce076` | (see git log) |
+| `557320e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

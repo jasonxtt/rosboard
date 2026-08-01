@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 49
-- **Last Active**: 2026-07-31
+- **Total Sessions**: 50
+- **Last Active**: 2026-08-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1642 | Active |
+| `journal-1.md` | ~1676 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 50 | 2026-08-01 | 新增资源监控子项 | `b2ce076`, `557320e` | `main` |
 | 49 | 2026-07-31 | Fleet dashboard list redesign | `e0586b991c3e2c2351e5648c9ba93de322c929c8`, `1391628b31f02abbea9176b11c65de7c89fd5271` | `codex/fleet-dashboard-cards` |
 | 48 | 2026-07-30 | Fleet device overview dashboard | `71264a2` | `codex/fleet-dashboard-cards` |
 | 47 | 2026-07-30 | DHCP monitoring deployment acceptance | `e2aa239` | `main` |
