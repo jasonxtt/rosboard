@@ -50,9 +50,9 @@ import type {
   RouterOSCleanupResponse,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
-type PanelTheme = 'light' | 'dark'
+type PanelTheme = 'light' | 'dark' | 'glass'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
@@ -71,6 +71,11 @@ const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
 const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
+const panelThemeOptions: Array<{ value: PanelTheme; label: string; description: string }> = [
+  { value: 'light', label: '明亮', description: '清爽的蓝白界面' },
+  { value: 'dark', label: '深色', description: '适合夜间使用' },
+  { value: 'glass', label: '玻璃渐变', description: '柔和的毛玻璃拟态' },
+]
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -205,7 +210,7 @@ function loadPanelPreferences(): PanelPreferences {
       refreshMs: [0, 1000, 3000, 5000, 10000].includes(Number(parsed.refreshMs)) ? Number(parsed.refreshMs) : defaultPanelPreferences.refreshMs,
       landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
       terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
-      theme: parsed.theme === 'dark' ? 'dark' : 'light',
+      theme: parsed.theme === 'dark' ? 'dark' : parsed.theme === 'glass' ? 'glass' : 'light',
     }
   } catch {
     return defaultPanelPreferences
@@ -365,6 +370,7 @@ function Icon(props: { name: IconName }) {
     clear: <><path d="m15 3-7.5 11.5"/><path d="M6 13l5 3-3 5H3l-1-2 4-6Z"/><path d="M4 17h5"/></>,
     eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></>,
     eyeOff: <><path d="m3 3 18 18"/><path d="M10.6 6.2A10.8 10.8 0 0 1 12 6c6.5 0 10 6 10 6a18 18 0 0 1-2.1 2.8M6.5 6.5C3.5 8.3 2 12 2 12s3.5 6 10 6c1.8 0 3.3-.5 4.6-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></>,
+    palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h4a5 5 0 0 0 5-5 9 9 0 0 0-9-5Z"/><circle cx="7.5" cy="10" r=".75" fill="currentColor" stroke="none"/><circle cx="10" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="14" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="17" cy="10" r=".75" fill="currentColor" stroke="none"/></>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
 }
@@ -524,6 +530,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [settingsExpanded, setSettingsExpanded] = useState(true)
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'services' | 'runtime' | null>(null)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
     setPanelPreferences(next)
@@ -541,8 +548,24 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
   useEffect(() => {
     document.documentElement.dataset.theme = panelPreferences.theme
-    document.documentElement.style.colorScheme = panelPreferences.theme
+    document.documentElement.style.colorScheme = panelPreferences.theme === 'dark' ? 'dark' : 'light'
   }, [panelPreferences.theme])
+
+  useEffect(() => {
+    if (!themeMenuOpen) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof HTMLElement && !event.target.closest('.theme-control')) setThemeMenuOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThemeMenuOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [themeMenuOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -1125,6 +1148,40 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             ) : null}
             {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
+            <div className="theme-control">
+              <button
+                type="button"
+                className="theme-button"
+                aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
+                aria-haspopup="menu"
+                aria-expanded={themeMenuOpen}
+                onClick={() => setThemeMenuOpen((value) => !value)}
+              >
+                <Icon name="palette" />
+                <span>主题</span>
+              </button>
+              {themeMenuOpen ? (
+                <div className="theme-menu" role="menu" aria-label="主题外观">
+                  <div className="theme-menu-head"><strong>主题外观</strong><small>即时应用并保存到当前浏览器</small></div>
+                  {panelThemeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={panelPreferences.theme === option.value ? 'theme-menu-option active' : 'theme-menu-option'}
+                      role="menuitemradio"
+                      aria-checked={panelPreferences.theme === option.value}
+                      onClick={() => {
+                        updatePanelPreferences({ ...panelPreferences, theme: option.value })
+                        setThemeMenuOpen(false)
+                      }}
+                    >
+                      <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
+                      <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
             <select value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
               <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
@@ -1378,7 +1435,7 @@ function SettingsPage(props: {
   useEffect(() => setPreferenceDraft(props.preferences), [props.preferences])
   useEffect(() => {
     document.documentElement.dataset.theme = preferenceDraft.theme
-    document.documentElement.style.colorScheme = preferenceDraft.theme
+    document.documentElement.style.colorScheme = preferenceDraft.theme === 'dark' ? 'dark' : 'light'
   }, [preferenceDraft.theme])
 
   const exportSettings = () => {
@@ -1456,16 +1513,13 @@ function SettingsPage(props: {
             </label>
             <fieldset className="theme-picker wide">
               <legend>主题</legend>
-              <label className={preferenceDraft.theme === 'light' ? 'theme-option active' : 'theme-option'}>
-                <input type="radio" name="panel-theme" value="light" checked={preferenceDraft.theme === 'light'} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: 'light' }))} />
-                <span className="theme-preview theme-preview-light" aria-hidden="true"><i /><i /><i /></span>
-                <span><strong>明亮</strong><small>适合白天和高亮环境</small></span>
-              </label>
-              <label className={preferenceDraft.theme === 'dark' ? 'theme-option active' : 'theme-option'}>
-                <input type="radio" name="panel-theme" value="dark" checked={preferenceDraft.theme === 'dark'} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: 'dark' }))} />
-                <span className="theme-preview theme-preview-dark" aria-hidden="true"><i /><i /><i /></span>
-                <span><strong>黑暗</strong><small>适合夜间和低亮环境</small></span>
-              </label>
+              {panelThemeOptions.map((option) => (
+                <label key={option.value} className={preferenceDraft.theme === option.value ? 'theme-option active' : 'theme-option'}>
+                  <input type="radio" name="panel-theme" value={option.value} checked={preferenceDraft.theme === option.value} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: option.value }))} />
+                  <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
+                  <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                </label>
+              ))}
             </fieldset>
             <div className="settings-actions wide">
               <button type="submit" className="primary-button">保存界面设置</button>
@@ -2454,9 +2508,6 @@ function ResourcePage(props: { overview: Overview }) {
         />
         <ResourceCPUList items={resource.cpuCores} />
       </ResourceCard>
-      <ResourceCard title="系统信息" description="RouterOS /system/resource" icon="settings" tone="blue" health={resource.version ? 'normal' : 'unavailable'} className="resource-card-system">
-        <ResourceDetails items={[["平台", resource.platform || '-'], ["架构", resource.architectureName || '-'], ["主板", resource.boardName || '-'], ["RouterOS 版本", resource.version || '-'], ["编译时间", resource.buildTime || '-'], ["出厂软件", resource.factorySoftware || '-'], ["运行时间", resource.uptime || '-']]} />
-      </ResourceCard>
       <ResourceCard title="内存" description="RouterOS system resource" icon="memory" tone="green" health={memoryHealth} className="resource-card-memory">
         <ResourceUsageMeter label="内存使用率" percent={memory.percent} health={memoryHealth} />
         <ResourceDetails items={[["总内存", formatResourceBytes(memory.total)], ["已用内存", formatResourceBytes(memory.used)], ["空闲内存", formatResourceBytes(memory.free)]]} />
@@ -2465,11 +2516,14 @@ function ResourcePage(props: { overview: Overview }) {
         <ResourceUsageMeter label="存储使用率" percent={storage.percent} health={storageHealth} />
         <ResourceDetails items={[["总硬盘空间", formatResourceBytes(storage.total)], ["已用硬盘空间", formatResourceBytes(storage.used)], ["空闲硬盘空间", formatResourceBytes(storage.free)], ["坏块", resource.badBlocks || '-'], ["重启后写入", resource.writeSectSinceReboot || '-'], ["累计写入", resource.writeSectTotal || '-']]} />
       </ResourceCard>
-      <ResourceCard title="IRQ" description="系统中断分布" icon="status" tone="orange" health={resourceHealth(resource.irqs.length ? 0 : null)} className="resource-card-irq">
-        <ResourceIRQList items={resource.irqs} />
+      <ResourceCard title="系统信息" description="RouterOS /system/resource" icon="settings" tone="blue" health={resource.version ? 'normal' : 'unavailable'} className="resource-card-system">
+        <ResourceDetails items={[["平台", resource.platform || '-'], ["架构", resource.architectureName || '-'], ["主板", resource.boardName || '-'], ["RouterOS 版本", resource.version || '-'], ["编译时间", resource.buildTime || '-'], ["出厂软件", resource.factorySoftware || '-'], ["运行时间", resource.uptime || '-']]} />
       </ResourceCard>
       <ResourceCard title="硬件" description="RouterOS hardware 只读信息" icon="settings" tone="green" health={resourceHealth(resource.hardware.length ? 0 : null)} className="resource-card-hardware">
         <ResourceHardwareList items={resource.hardware} />
+      </ResourceCard>
+      <ResourceCard title="IRQ" description="系统中断分布" icon="status" tone="orange" health={resourceHealth(resource.irqs.length ? 0 : null)} className="resource-card-irq">
+        <ResourceIRQList items={resource.irqs} />
       </ResourceCard>
     </section>
     <div className="resource-updated">最后更新 {formatDateTime(props.overview.updatedAt)}</div>
@@ -2535,6 +2589,7 @@ function DHCPPage(props: { dhcp: DHCPStat }) {
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
   const leases = trimmed ? props.dhcp.leases.filter((item) => [item.address, item.macAddress, item.hostName, item.comment].some((value) => value.toLowerCase().includes(trimmed))) : props.dhcp.leases
+  const poolsByName = new Map(props.dhcp.pools.map((pool) => [pool.name, pool]))
   if (!props.dhcp.servers.length && !props.dhcp.leases.length) {
     return <section className="panel compact-panel"><div className="empty-row dhcp-empty">该设备未启用 DHCP Server 或接口无权限</div></section>
   }
@@ -2543,30 +2598,17 @@ function DHCPPage(props: { dhcp: DHCPStat }) {
   return (
     <div className="page-grid">
       <section className="dhcp-server-grid">
-        {props.dhcp.servers.length ? props.dhcp.servers.map((item) => (
-          <div key={item.name} className="panel dhcp-server-card">
+        {props.dhcp.servers.length ? props.dhcp.servers.map((item) => {
+          const pool = item.addressPool ? poolsByName.get(item.addressPool) : undefined
+          return <div key={item.name} className="panel dhcp-server-card">
             <h4>{item.name}</h4>
             <span>接口：{item.interface || '-'}</span>
             <span>地址池：{item.addressPool || '-'}</span>
+            {pool ? <span className="dhcp-pool-usage">{pool.ranges || '-'} {pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</span> : null}
             <span>Lease 时长：{item.leaseTime || '-'}</span>
             <span className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</span>
           </div>
-        )) : <div className="panel dhcp-server-card"><span>没有 DHCP Server 配置</span></div>}
-      </section>
-      <section className="panel compact-panel">
-        <div className="data-toolbar"><strong>地址池利用率</strong><span className="result-count">按 bound 租约计数</span><span className="toolbar-spacer" /><span>共 {props.dhcp.pools.length} 个</span></div>
-        <div className="pool-list">
-          {props.dhcp.pools.length ? props.dhcp.pools.map((pool) => {
-            const level = pool.usedPercent > 95 ? 'critical' : pool.usedPercent > 85 ? 'warning' : 'normal'
-            return (
-              <div key={pool.name} className="pool-row">
-                <div className="pool-meta"><strong>{pool.name}</strong><span>{pool.ranges}</span><span>{pool.servers.length ? `server：${pool.servers.join('、')}` : '未被 DHCP Server 引用'}</span></div>
-                <div className="pool-bar"><i className={`pool-bar-fill ${level}`} style={{ width: `${Math.min(100, pool.usedPercent)}%` }} /></div>
-                <span className="pool-count">{pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</span>
-              </div>
-            )
-          }) : <div className="empty-row dhcp-empty">没有可解析的地址池（/ip/pool 无数据或不可用）</div>}
-        </div>
+        }) : <div className="panel dhcp-server-card"><span>没有 DHCP Server 配置</span></div>}
       </section>
       <section className="panel compact-panel">
         <div className="data-toolbar">

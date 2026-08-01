@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -231,5 +233,141 @@ func TestDeviceScopesKeepSameMACTerminalsSeparate(t *testing.T) {
 	}
 	if len(oneTotals) != 0 || len(twoTotals) != 1 {
 		t.Fatalf("device purge crossed scopes: one=%#v two=%#v", oneTotals, twoTotals)
+	}
+}
+
+func TestOpenDeviceMigratesLegacySharedRows(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	ctx := context.Background()
+	if _, err := storage.db.ExecContext(ctx, `INSERT INTO terminals (device_id, id, mac, display_name, tracking_since, last_seen)
+		VALUES ('edge', 'mac:edge', '00:11:22:33:44:55', 'edge terminal', 100, 200)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.ExecContext(ctx, `INSERT INTO terminal_totals (device_id, terminal_id, upload_bytes, download_bytes, tracking_since, updated_at)
+		VALUES ('edge', 'mac:edge', 7, 8, 100, 200)`); err != nil {
+		t.Fatal(err)
+	}
+
+	device, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatalf("open device store: %v", err)
+	}
+	totals, err := device.TerminalTotals(ctx, []string{"mac:edge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totals["mac:edge"].UploadBytes != 7 || totals["mac:edge"].DownloadBytes != 8 {
+		t.Fatalf("legacy row was not migrated: %#v", totals)
+	}
+	other, err := storage.OpenDevice("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTotals, err := other.TerminalTotals(ctx, []string{"mac:edge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(otherTotals) != 0 {
+		t.Fatalf("device migration leaked rows: %#v", otherTotals)
+	}
+}
+
+func TestSafeDeviceFilenameAvoidsSanitizationCollisions(t *testing.T) {
+	if safeDeviceFilename("a/b") == safeDeviceFilename("a_b") {
+		t.Fatal("device filenames must remain unique after sanitization")
+	}
+}
+
+func TestTerminalBatchPreservesConnectionDeltaAndHistory(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	ctx := context.Background()
+	device := storage.ForDevice("edge")
+	at := time.Unix(1_700_000_000, 0).UTC()
+	if _, err := device.ApplyTerminalMetadata(ctx, nil, []TerminalSnapshot{{ID: "mac:edge", MAC: "00:11:22:33:44:55", DisplayName: "edge", IPv4: []string{"192.0.2.10"}, SeenAt: at}}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := device.ApplyTerminalRuntime(ctx, []TerminalPresence{{ID: "mac:edge", State: "online", SeenAt: at}}, []ConnectionSnapshot{{Key: "conn-1", TerminalID: "mac:edge", UploadBytes: 100, DownloadBytes: 200, SeenAt: at}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["mac:edge"].UploadBytes != 0 || first["mac:edge"].DownloadBytes != 0 {
+		t.Fatalf("first connection snapshot invented a delta: %#v", first)
+	}
+	second, err := device.ApplyTerminalRuntime(ctx, []TerminalPresence{{ID: "mac:edge", State: "online", SeenAt: at.Add(time.Minute)}}, []ConnectionSnapshot{{Key: "conn-1", TerminalID: "mac:edge", UploadBytes: 140, DownloadBytes: 260, SeenAt: at.Add(time.Minute)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second["mac:edge"].UploadBytes != 40 || second["mac:edge"].DownloadBytes != 60 {
+		t.Fatalf("connection delta was not preserved: %#v", second)
+	}
+	if err := device.SaveTerminalHistories(ctx, []TerminalHistorySnapshot{{TerminalID: "mac:edge", At: at, UploadBytes: 0, DownloadBytes: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := device.TerminalHistories(ctx, []string{"mac:edge"}, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history["mac:edge"]) != 1 || history["mac:edge"][0].Timestamp.Unix() != at.Unix()-at.Unix()%60 {
+		t.Fatalf("unexpected terminal history: %#v", history)
+	}
+}
+
+func TestThirtyDeviceStoresBatchWritesIndependently(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	devices := make([]*Store, 30)
+	for index := range devices {
+		device, err := storage.OpenDevice(fmt.Sprintf("device-%02d", index))
+		if err != nil {
+			t.Fatalf("open device %d: %v", index, err)
+		}
+		devices[index] = device
+	}
+
+	ctx := context.Background()
+	at := time.Unix(1_700_000_000, 0).UTC()
+	errorsCh := make(chan error, len(devices))
+	var waitGroup sync.WaitGroup
+	for index, device := range devices {
+		waitGroup.Add(1)
+		go func(index int, device *Store) {
+			defer waitGroup.Done()
+			metadata := make([]TerminalSnapshot, 0, 20)
+			presence := make([]TerminalPresence, 0, 20)
+			connections := make([]ConnectionSnapshot, 0, 40)
+			for terminalIndex := 0; terminalIndex < 20; terminalIndex++ {
+				id := fmt.Sprintf("mac:%02d:%02d", index, terminalIndex)
+				metadata = append(metadata, TerminalSnapshot{ID: id, MAC: fmt.Sprintf("00:11:22:%02x:%02x:%02x", index, terminalIndex, terminalIndex), DisplayName: id, IPv4: []string{fmt.Sprintf("10.%d.0.%d", index+1, terminalIndex+1)}, SeenAt: at})
+				presence = append(presence, TerminalPresence{ID: id, State: "online", SeenAt: at})
+				connections = append(connections, ConnectionSnapshot{Key: fmt.Sprintf("conn-%d", terminalIndex*2), TerminalID: id, UploadBytes: 100, DownloadBytes: 200, SeenAt: at})
+				connections = append(connections, ConnectionSnapshot{Key: fmt.Sprintf("conn-%d", terminalIndex*2+1), TerminalID: id, UploadBytes: 300, DownloadBytes: 400, SeenAt: at})
+			}
+			if _, err := device.ApplyTerminalMetadata(ctx, nil, metadata); err != nil {
+				errorsCh <- fmt.Errorf("device %d metadata: %w", index, err)
+				return
+			}
+			if _, err := device.ApplyTerminalRuntime(ctx, presence, connections); err != nil {
+				errorsCh <- fmt.Errorf("device %d runtime: %w", index, err)
+			}
+		}(index, device)
+	}
+	waitGroup.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		t.Fatal(err)
 	}
 }
