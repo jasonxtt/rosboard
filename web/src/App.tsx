@@ -2602,11 +2602,18 @@ function DHCPPage(props: { dhcp: DHCPStat }) {
           const pool = item.addressPool ? poolsByName.get(item.addressPool) : undefined
           return <div key={item.name} className="panel dhcp-server-card">
             <h4>{item.name}</h4>
-            <span>接口：{item.interface || '-'}</span>
-            <span>地址池：{item.addressPool || '-'}</span>
-            {pool ? <span className="dhcp-pool-usage">{pool.ranges || '-'} {pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</span> : null}
-            <span>Lease 时长：{item.leaseTime || '-'}</span>
-            <span className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</span>
+            <div className="dhcp-server-meta">
+              <div><span>接口</span><strong>{item.interface || '-'}</strong></div>
+              <div><span>Lease 时长</span><strong>{item.leaseTime || '-'}</strong></div>
+              <div><span>状态</span><strong className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</strong></div>
+            </div>
+            <div className="dhcp-server-pool">
+              <div className="dhcp-server-pool-name"><span>地址池</span><strong>{item.addressPool || '-'}</strong></div>
+              {pool ? <div className="dhcp-server-pool-stats">
+                <div><span>IP 地址范围</span><strong>{pool.ranges || '-'}</strong></div>
+                <div><span>使用情况</span><strong>{pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</strong></div>
+              </div> : null}
+            </div>
           </div>
         }) : <div className="panel dhcp-server-card"><span>没有 DHCP Server 配置</span></div>}
       </section>
