@@ -5,11 +5,12 @@
 ### Contracts
 
 - Every monitoring table includes `device_id` in its primary or unique ownership key.
-- `Store.ForDevice(id)` shares the SQLite connection but every read, write, prune, merge, and metadata update remains inside that device ID.
+- `Store.OpenDevice(id)` owns an isolated SQLite database for each non-default device; every read, write, prune, merge, and metadata update remains inside that device ID. `Store.ForDevice(id)` preserves the helper API and routes non-default IDs through the same owner-managed store.
 - The versioned migration rebuilds legacy tables in one transaction and assigns every old row to `default`.
 - The unique terminal MAC key is `(device_id, mac)`; identical MAC addresses on different routers are valid and never merge.
 - Archive performs no database deletion. Permanent purge deletes all tables for one device in one transaction.
 - Migration failure rolls back, and an old binary must be restored together with the pre-migration database.
+- Per-device files use a collision-resistant filename derived from the device ID; sanitization must never make two IDs share a database.
 - `load_samples.connection_count` stores the RouterOS IPv4+IPv6 conntrack total in the same minute bucket as CPU, memory, terminal count, and traffic. Legacy rows migrate with `-1` to mean unavailable; never present an invented zero as historical evidence.
 
 ### Tests Required

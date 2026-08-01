@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/url"
 	"sort"
@@ -82,7 +83,7 @@ type MonitorManager struct {
 	logger *log.Logger
 }
 
-func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) *MonitorManager {
+func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) (*MonitorManager, error) {
 	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger}
 	for _, device := range cfg.Devices {
 		if device.Archived {
@@ -93,12 +94,16 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 			deviceConfig := cfg
 			deviceConfig.RouterOS = device.RouterOS
 			client := routeros.NewClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password)
-			item.monitor = NewMonitor(deviceConfig, client, storage.ForDevice(device.ID), logger)
+			deviceStore, err := storage.OpenDevice(device.ID)
+			if err != nil {
+				return nil, fmt.Errorf("open store for device %s: %w", device.ID, err)
+			}
+			item.monitor = NewMonitor(deviceConfig, client, deviceStore, logger)
 		}
 		manager.items[device.ID] = item
 		manager.order = append(manager.order, device.ID)
 	}
-	return manager
+	return manager, nil
 }
 
 func (m *MonitorManager) Start(ctx context.Context) {
@@ -124,6 +129,9 @@ func (m *MonitorManager) Start(ctx context.Context) {
 }
 
 func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor) error {
+	if err := waitForDevicePhase(ctx, item.device.ID); err != nil {
+		return err
+	}
 	err := item.monitor.Start(ctx)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -135,6 +143,29 @@ func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor)
 	item.started = true
 	item.err = ""
 	return nil
+}
+
+func waitForDevicePhase(ctx context.Context, deviceID string) error {
+	delay := deviceSchedulePhase(deviceID)
+	if delay == 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func deviceSchedulePhase(deviceID string) time.Duration {
+	var phase uint32
+	for _, character := range deviceID {
+		phase = phase*33 + uint32(character)
+	}
+	return time.Duration(phase%20) * time.Second
 }
 
 func (m *MonitorManager) retryMonitor(ctx context.Context, item *managedMonitor) {

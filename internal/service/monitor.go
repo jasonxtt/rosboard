@@ -25,6 +25,7 @@ type Monitor struct {
 	client *routeros.Client
 	store  *store.Store
 	logger *log.Logger
+	phase  time.Duration
 
 	refreshMu         sync.Mutex
 	metadataMu        sync.Mutex
@@ -53,11 +54,16 @@ const (
 )
 
 func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, logger *log.Logger) *Monitor {
+	phase := time.Duration(0)
+	if store != nil {
+		phase = deviceSchedulePhase(store.DeviceID())
+	}
 	return &Monitor{
 		cfg:              cfg,
 		client:           client,
 		store:            store,
 		logger:           logger,
+		phase:            phase,
 		realtimeWake:     make(chan struct{}, 1),
 		backgroundWake:   make(chan struct{}, 1),
 		terminalRateWake: make(chan struct{}, 1),
@@ -67,8 +73,8 @@ func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, 
 func (m *Monitor) ViewerHeartbeat() time.Time {
 	activeUntil, becameActive := m.markViewerActive(time.Now())
 	if becameActive {
-		notifyWake(m.realtimeWake)
-		notifyWake(m.backgroundWake)
+		notifyWakeAfter(m.realtimeWake, m.phase)
+		notifyWakeAfter(m.backgroundWake, m.phase)
 	}
 	return activeUntil
 }
@@ -76,7 +82,7 @@ func (m *Monitor) ViewerHeartbeat() time.Time {
 func (m *Monitor) TerminalViewerHeartbeat() time.Time {
 	activeUntil, becameActive := m.markTerminalViewerActive(time.Now())
 	if becameActive {
-		notifyWake(m.terminalRateWake)
+		notifyWakeAfter(m.terminalRateWake, m.phase)
 	}
 	return activeUntil
 }
@@ -116,6 +122,14 @@ func notifyWake(channel chan struct{}) {
 	}
 }
 
+func notifyWakeAfter(channel chan struct{}, delay time.Duration) {
+	if delay <= 0 {
+		notifyWake(channel)
+		return
+	}
+	time.AfterFunc(delay, func() { notifyWake(channel) })
+}
+
 func (m *Monitor) Start(ctx context.Context) error {
 	if err := m.refresh(ctx); err != nil {
 		return err
@@ -141,7 +155,7 @@ func (m *Monitor) Start(ctx context.Context) error {
 				}
 			}
 			if err := m.refreshRealtime(ctx); err != nil {
-				m.logger.Printf("realtime refresh failed: %v", err)
+				m.logger.Printf("device %s realtime refresh failed: %v", m.store.DeviceID(), err)
 				m.recordRefreshError(err)
 			}
 		}
@@ -201,7 +215,7 @@ func (m *Monitor) Start(ctx context.Context) error {
 				nextTerminal = time.Now().Add(terminalInterval)
 			}
 			if err != nil {
-				m.logger.Printf("background refresh failed: %v", err)
+				m.logger.Printf("device %s background refresh failed: %v", m.store.DeviceID(), err)
 				m.recordRefreshError(err)
 			}
 		}
@@ -221,7 +235,7 @@ func (m *Monitor) Start(ctx context.Context) error {
 				continue
 			}
 			if err := m.refreshTerminalRates(ctx); err != nil {
-				m.logger.Printf("terminal rate refresh failed: %v", err)
+				m.logger.Printf("device %s terminal rate refresh failed: %v", m.store.DeviceID(), err)
 				m.recordRefreshError(err)
 			}
 		}
@@ -253,11 +267,21 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 			continue
 		}
 		trafficRates[name] = entry
-		if err := m.store.SaveInterfaceSample(pollCtx, now, name, parseFloat(entry.RXBitsPerSecond), parseFloat(entry.TXBitsPerSecond)); err != nil {
-			return err
-		}
 	}
-	chartSamples, err := m.store.LoadInterfaceSamples(pollCtx, trafficInterfaces, now.Add(-5*time.Minute))
+	storeCtx, storeCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer storeCancel()
+	interfaceSamples := make([]store.InterfaceSample, 0, len(trafficInterfaces))
+	for _, name := range trafficInterfaces {
+		entry, ok := trafficRates[name]
+		if !ok {
+			continue
+		}
+		interfaceSamples = append(interfaceSamples, store.InterfaceSample{Name: name, DownloadBps: parseFloat(entry.RXBitsPerSecond), UploadBps: parseFloat(entry.TXBitsPerSecond)})
+	}
+	if err := m.store.SaveInterfaceSamples(storeCtx, now, interfaceSamples); err != nil {
+		return err
+	}
+	chartSamples, err := m.store.LoadInterfaceSamples(storeCtx, trafficInterfaces, now.Add(-5*time.Minute))
 	if err != nil {
 		return err
 	}
@@ -266,7 +290,7 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	memoryPercent := memoryUsedPercent(parseInt(resource.TotalMemory), parseInt(resource.FreeMemory))
 	uploadBps := totalSelectedTXBps(trafficRates, trafficInterfaces)
 	downloadBps := totalSelectedRXBps(trafficRates, trafficInterfaces)
-	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{
+	if err := m.store.SaveLoadSample(storeCtx, model.LoadSample{
 		Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent,
 		StorageUsedPercent: previous.Overview.StorageUsedPercent, OnlineTerminalCount: previous.Overview.ConnectedDeviceCount,
 		ConnectionCount: previous.Overview.ConnectionCount,
@@ -362,18 +386,20 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 		return err
 	}
 	ratesUpdatedAt := time.Now().UTC()
+	storeCtx, storeCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer storeCancel()
 
 	routerAddresses := deriveRouterAddresses(addresses, ipv6Addresses)
 	m.mu.RLock()
 	scope := m.terminalScope
 	m.mu.RUnlock()
 	localCIDRs := scopeNetworks(scope)
-	terminals, details, err := m.buildTerminals(pollCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6, m.currentRouteMatcher())
+	terminals, details, err := m.buildTerminals(storeCtx, now, localCIDRs, routerAddresses, leases, arpEntries, ipv6Neighbors, connectionsV4, connectionsV6, m.currentRouteMatcher())
 	if err != nil {
 		return err
 	}
 	protocols := aggregateProtocols(details)
-	if err := m.store.SaveProtocolSamples(pollCtx, now, protocols); err != nil {
+	if err := m.store.SaveProtocolSamples(storeCtx, now, protocols); err != nil {
 		return err
 	}
 
@@ -1039,14 +1065,24 @@ func (m *Monitor) refresh(ctx context.Context) error {
 			continue
 		}
 		trafficRates[name] = entry
-		if err := m.store.SaveInterfaceSample(pollCtx, now, name, parseFloat(entry.RXBitsPerSecond), parseFloat(entry.TXBitsPerSecond)); err != nil {
-			return err
-		}
 	}
-	if err := m.store.PruneInterfaceSamples(pollCtx, now.Add(-time.Duration(m.cfg.SampleRetentionHours)*time.Hour)); err != nil {
+	storeCtx, storeCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer storeCancel()
+	interfaceSamples := make([]store.InterfaceSample, 0, len(monitorInterfaces))
+	for _, name := range monitorInterfaces {
+		entry, ok := trafficRates[name]
+		if !ok {
+			continue
+		}
+		interfaceSamples = append(interfaceSamples, store.InterfaceSample{Name: name, DownloadBps: parseFloat(entry.RXBitsPerSecond), UploadBps: parseFloat(entry.TXBitsPerSecond)})
+	}
+	if err := m.store.SaveInterfaceSamples(storeCtx, now, interfaceSamples); err != nil {
 		return err
 	}
-	if err := m.store.PruneRuntimeState(pollCtx, now.Add(-2*time.Hour), now.Add(-35*24*time.Hour)); err != nil {
+	if err := m.store.PruneInterfaceSamples(storeCtx, now.Add(-time.Duration(m.cfg.SampleRetentionHours)*time.Hour)); err != nil {
+		return err
+	}
+	if err := m.store.PruneRuntimeState(storeCtx, now.Add(-2*time.Hour), now.Add(-35*24*time.Hour)); err != nil {
 		return err
 	}
 
@@ -1063,7 +1099,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	localCIDRs := scopeNetworks(terminalScope)
 	interfaceStatuses := buildInterfaces(interfaces, ethernet, addresses, trafficRates, interfaceTopology)
 	terminals, details, err := m.buildTerminals(
-		pollCtx,
+		storeCtx,
 		now,
 		localCIDRs,
 		routerAddresses,
@@ -1079,7 +1115,7 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	}
 	setTerminalRatesUpdatedAt(details, ratesUpdatedAt)
 
-	chartSamples, err := m.store.LoadInterfaceSamples(pollCtx, trafficInterfaces, now.Add(-5*time.Minute))
+	chartSamples, err := m.store.LoadInterfaceSamples(storeCtx, trafficInterfaces, now.Add(-5*time.Minute))
 	if err != nil {
 		return err
 	}
@@ -1093,12 +1129,12 @@ func (m *Monitor) refresh(ctx context.Context) error {
 	connectionCount := len(connectionsV4) + len(connectionsV6)
 	terminalStates := terminalStateCounts(terminals, terminalScope)
 	connectionProtocols := connectionProtocolCounts(connectionsV4, connectionsV6)
-	if err := m.store.SaveLoadSample(pollCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, ConnectionCount: connectionCount, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
+	if err := m.store.SaveLoadSample(storeCtx, model.LoadSample{Timestamp: now, CPULoadPercent: float64(parseInt(resource.CPULoad)), MemoryUsedPercent: memoryPercent, StorageUsedPercent: storagePercent, OnlineTerminalCount: connectedDevices, ConnectionCount: connectionCount, UploadBps: uploadBps, DownloadBps: downloadBps}); err != nil {
 		return err
 	}
 
 	protocols := aggregateProtocols(details)
-	if err := m.store.SaveProtocolSamples(pollCtx, now, protocols); err != nil {
+	if err := m.store.SaveProtocolSamples(storeCtx, now, protocols); err != nil {
 		return err
 	}
 	policies := buildPolicies(simpleQueues, queueTrees, mangleRules)
@@ -1575,6 +1611,16 @@ func (m *Monitor) buildTerminals(
 	connectionMap := map[string][]model.TerminalConnection{}
 	flowMap := map[string]map[string]*model.TerminalFlowCategory{}
 	connectionSnapshots := make([]store.ConnectionSnapshot, 0, len(connectionsV4)+len(connectionsV6))
+	merges := make([]store.TerminalMerge, 0)
+	mergeSeen := make(map[string]struct{})
+	addMerge := func(fromID, toID string) {
+		key := fromID + "\x00" + toID
+		if _, exists := mergeSeen[key]; exists {
+			return
+		}
+		mergeSeen[key] = struct{}{}
+		merges = append(merges, store.TerminalMerge{FromID: fromID, ToID: toID})
+	}
 	ensureBuilder := func(address, family, mac string) *terminalBuilder {
 		mac = normalizeMAC(mac)
 		id := terminalIdentity(mac, address, routerAddresses)
@@ -1620,9 +1666,7 @@ func (m *Monitor) buildTerminals(
 	}
 
 	for address, assigned := range routerAddresses {
-		if err := m.store.MergeTerminal(ctx, terminalID("", address), routerTerminalID); err != nil {
-			return nil, nil, err
-		}
+		addMerge(terminalID("", address), routerTerminalID)
 		builder := ensureBuilder(address, assigned.Family, "")
 		if builder.PrimaryInterface == "" || assigned.Interface == "lan" {
 			builder.PrimaryInterface = assigned.Interface
@@ -1675,9 +1719,7 @@ func (m *Monitor) buildTerminals(
 				mac = ""
 			}
 			if mac != "" {
-				if err := m.store.MergeTerminal(ctx, terminalID("", view.LocalAddress), terminalID(mac, view.LocalAddress)); err != nil {
-					return err
-				}
+				addMerge(terminalID("", view.LocalAddress), terminalID(mac, view.LocalAddress))
 			}
 
 			builder := ensureBuilder(view.LocalAddress, family, mac)
@@ -1720,17 +1762,16 @@ func (m *Monitor) buildTerminals(
 		return nil, nil, err
 	}
 
-	ids := make([]string, 0, len(builders))
+	metadata := make([]store.TerminalSnapshot, 0, len(builders))
+	builderIDs := make([]string, 0, len(builders))
 	for _, builder := range builders {
-		if err := m.store.UpsertTerminal(ctx, builder.ID, builder.MACAddress, builder.DisplayName, builder.LastSeen); err != nil {
-			return nil, nil, err
-		}
-		if err := m.store.ReplaceTerminalAddresses(ctx, builder.ID, mapKeys(builder.IPv4), mapKeys(builder.IPv6), now); err != nil {
-			return nil, nil, err
-		}
-		ids = append(ids, builder.ID)
+		metadata = append(metadata, store.TerminalSnapshot{
+			ID: builder.ID, MAC: builder.MACAddress, DisplayName: builder.DisplayName,
+			IPv4: mapKeys(builder.IPv4), IPv6: mapKeys(builder.IPv6), LastSeen: builder.LastSeen, SeenAt: now,
+		})
+		builderIDs = append(builderIDs, builder.ID)
 	}
-	previousTotals, err := m.store.TerminalTotals(ctx, ids)
+	previousTotals, err := m.store.ApplyTerminalMetadata(ctx, merges, metadata)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1744,15 +1785,28 @@ func (m *Monitor) buildTerminals(
 			}
 			builder.LastSeen = time.Time{}
 		}
-		if _, _, err := m.store.UpdateTerminalPresence(ctx, builder.ID, builder.State, builder.LastSeen); err != nil {
-			return nil, nil, err
-		}
 	}
-	if err := m.store.ApplyConnectionSnapshots(ctx, connectionSnapshots); err != nil {
+	presence := make([]store.TerminalPresence, 0, len(builders))
+	for _, builder := range builders {
+		presence = append(presence, store.TerminalPresence{ID: builder.ID, State: builder.State, SeenAt: builder.LastSeen})
+	}
+	totalsByID, err := m.store.ApplyTerminalRuntime(ctx, presence, connectionSnapshots)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	totalsByID, err := m.store.TerminalTotals(ctx, ids)
+	historySnapshots := make([]store.TerminalHistorySnapshot, 0, len(builders))
+	for _, builder := range builders {
+		total := totalsByID[builder.ID]
+		onlineSeconds := int64(0)
+		if !total.OnlineSince.IsZero() {
+			onlineSeconds = int64(now.Sub(total.OnlineSince).Seconds())
+		}
+		historySnapshots = append(historySnapshots, store.TerminalHistorySnapshot{TerminalID: builder.ID, At: now, OnlineSeconds: onlineSeconds, UploadBytes: total.UploadBytes, DownloadBytes: total.DownloadBytes})
+	}
+	if err := m.store.SaveTerminalHistories(ctx, historySnapshots); err != nil {
+		return nil, nil, err
+	}
+	historiesByID, err := m.store.TerminalHistories(ctx, builderIDs, 30)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1761,17 +1815,7 @@ func (m *Monitor) buildTerminals(
 	details := make(map[string]model.TerminalDetail, len(builders))
 	for _, builder := range builders {
 		total := totalsByID[builder.ID]
-		onlineSeconds := int64(0)
-		if !total.OnlineSince.IsZero() {
-			onlineSeconds = int64(now.Sub(total.OnlineSince).Seconds())
-		}
-		if err := m.store.SaveTerminalHistory(ctx, builder.ID, now, onlineSeconds, total.UploadBytes, total.DownloadBytes); err != nil {
-			return nil, nil, err
-		}
-		history, err := m.store.TerminalHistory(ctx, builder.ID, 30)
-		if err != nil {
-			return nil, nil, err
-		}
+		history := historiesByID[builder.ID]
 
 		terminal := model.Terminal{
 			ID:                 builder.ID,
@@ -1851,7 +1895,6 @@ func (m *Monitor) buildTerminals(
 			},
 		}
 	}
-
 	sort.Slice(terminals, func(left, right int) bool {
 		return compareTerminalAddress(terminals[left], terminals[right]) < 0
 	})

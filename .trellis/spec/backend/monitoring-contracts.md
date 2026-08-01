@@ -5,7 +5,9 @@
 ### Contracts
 
 - `MonitorManager` owns one independent Monitor, RouterOS client, scheduler locks, snapshot, and retry state for each enabled non-archived device.
+- Each Monitor owns a device-scoped Store; one slow device's SQLite work cannot consume another device's database connection wait.
 - One viewer heartbeat activates every enabled Monitor; existing no-viewer idle cadence remains.
+- Startup and viewer-activation wake signals use a deterministic per-device phase so a fleet heartbeat does not start every RouterOS workload simultaneously.
 - Device-scoped APIs accept `?device=<id>` and fall back to the first enabled device only when omitted. Unknown IDs return 404; disabled/archived IDs return 503.
 - `/api/traffic-history` accepts only `5m`, `1h`, `6h`, and `24h`, averages deterministic buckets, and returns at most 360 chronological points.
 - Route attribution covers IPv4 and IPv6. RouterOS routing marks are source facts; rule and route selection are inferred from ordered rules, lookup fallback, active routes, longest prefix, distance, and ECMP.
