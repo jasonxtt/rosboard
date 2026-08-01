@@ -1674,3 +1674,41 @@ Reworked the fleet dashboard into a reference-aligned list-only layout, refined 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 51: 多设备监控与 DHCP 卡片排版发布
+
+**Date**: 2026-08-02
+**Task**: 多设备监控与 DHCP 卡片排版发布
+**Branch**: `main`
+
+### Summary
+
+完成面向 10/20/30 台 RouterOS 的监控架构与紧凑面板调整；将 DHCP Server 卡片重排为基本信息、地址池、IP 地址范围和使用情况分组，并经 10.0.0.6 手动验收后发布 v0.0.6。
+
+### Main Changes
+
+- DHCP Server 卡片增加“IP 地址范围”和“使用情况”标题，地址池利用率保留在已有 Server 卡片内。
+- 完成前端嵌入资源重建、远端部署备份和 systemd、health、静态资源验证。
+- 更新发布版本为 `0.0.6`，GitHub Actions 自动生成多架构 Release 包。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `364aea8` | Scale multi-device monitoring and compact dashboard layout |
+| `0fa8769` | chore(task): archive 08-01-scale-monitoring-to-30-devices |
+| `a48b91c` | release: v0.0.6 |
+
+### Testing
+
+- `go test ./...`、`npm run lint`、`npm run build` 和 `git diff --check` 均通过。
+- 远端服务 active，`/api/health` 返回 200，嵌入式 JS/CSS 返回 200；用户已完成人工验收。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
