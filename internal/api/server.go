@@ -1026,31 +1026,6 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "remark" && request.Method == http.MethodPost {
-		var payload struct {
-			Remark string `json:"remark"`
-		}
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil && !errors.Is(err, http.ErrBodyNotAllowed) {
-			writeError(writer, http.StatusBadRequest, "invalid json body")
-			return
-		}
-		if err := monitor.UpdateTerminalRemark(request.Context(), terminalID, strings.TrimSpace(payload.Remark)); err != nil {
-			if errors.Is(err, store.ErrTerminalNotFound) {
-				writeError(writer, http.StatusNotFound, "terminal not found")
-				return
-			}
-			writeError(writer, http.StatusInternalServerError, "failed to update remark")
-			return
-		}
-		detail, ok := monitor.TerminalDetail(terminalID)
-		if !ok {
-			writeError(writer, http.StatusNotFound, "terminal not found")
-			return
-		}
-		writeJSON(writer, http.StatusOK, detail)
-		return
-	}
-
 	if len(parts) == 2 && parts[1] == "metadata" && request.Method == http.MethodPost {
 		var payload struct {
 			CustomName string `json:"customName"`

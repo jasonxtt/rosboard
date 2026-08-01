@@ -11,12 +11,53 @@ export type LoadSample = {
   downloadBps: number
 }
 
+export type SystemResource = {
+  architectureName: string
+  boardName: string
+  badBlocks: string
+  buildTime: string
+  cpu: string
+  cpuCount: string
+  cpuFrequency: string
+  cpuLoad: string
+  factorySoftware: string
+  freeMemory: string
+  freeHddSpace: string
+  platform: string
+  totalMemory: string
+  totalHddSpace: string
+  uptime: string
+  version: string
+  writeSectSinceReboot: string
+  writeSectTotal: string
+  cpuCores: Array<{ cpu: string; load: string; irq: string; disk: string }>
+  irqs: Array<{ cpu: string; activeCpu: string; count: string; irq: string; users: string }>
+  hardware: Array<{
+    location: string
+    parent: string
+    type: string
+    vendor: string
+    name: string
+    serialNumber: string
+    vendorId: string
+    deviceId: string
+    speed: string
+    ports: string
+    usbVersion: string
+    owner: string
+    devicePath: string
+    category: string
+    irq: string
+  }>
+}
+
 export type Overview = {
   routerName: string
   platform: string
   version: string
   boardName: string
   uptime: string
+  systemResource?: SystemResource
   cpuLoadPercent: number
   memoryUsedPercent: number
   memoryUsedBytes: number
@@ -321,7 +362,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings'
+export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

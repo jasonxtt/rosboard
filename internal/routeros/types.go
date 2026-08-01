@@ -1,19 +1,57 @@
 package routeros
 
 type SystemResource struct {
-	ArchitectureName string `json:"architecture-name"`
-	BoardName        string `json:"board-name"`
-	CPU              string `json:"cpu"`
-	CPUCount         string `json:"cpu-count"`
-	CPUFrequency     string `json:"cpu-frequency"`
-	CPULoad          string `json:"cpu-load"`
-	FreeMemory       string `json:"free-memory"`
-	FreeHDD          string `json:"free-hdd-space"`
-	Platform         string `json:"platform"`
-	TotalMemory      string `json:"total-memory"`
-	TotalHDD         string `json:"total-hdd-space"`
-	Uptime           string `json:"uptime"`
-	Version          string `json:"version"`
+	ArchitectureName     string `json:"architecture-name"`
+	BoardName            string `json:"board-name"`
+	BadBlocks            string `json:"bad-blocks"`
+	BuildTime            string `json:"build-time"`
+	CPU                  string `json:"cpu"`
+	CPUCount             string `json:"cpu-count"`
+	CPUFrequency         string `json:"cpu-frequency"`
+	CPULoad              string `json:"cpu-load"`
+	FactorySoftware      string `json:"factory-software"`
+	FreeMemory           string `json:"free-memory"`
+	FreeHDD              string `json:"free-hdd-space"`
+	Platform             string `json:"platform"`
+	TotalMemory          string `json:"total-memory"`
+	TotalHDD             string `json:"total-hdd-space"`
+	Uptime               string `json:"uptime"`
+	Version              string `json:"version"`
+	WriteSectSinceReboot string `json:"write-sect-since-reboot"`
+	WriteSectTotal       string `json:"write-sect-total"`
+}
+
+type SystemResourceCPU struct {
+	CPU  string `json:"cpu"`
+	Load string `json:"load"`
+	IRQ  string `json:"irq"`
+	Disk string `json:"disk"`
+}
+
+type SystemResourceIRQ struct {
+	CPU       string `json:"cpu"`
+	ActiveCPU string `json:"active-cpu"`
+	Count     string `json:"count"`
+	IRQ       string `json:"irq"`
+	Users     string `json:"users"`
+}
+
+type SystemResourceHardware struct {
+	Location     string `json:"location"`
+	Parent       string `json:"parent"`
+	Type         string `json:"type"`
+	Vendor       string `json:"vendor"`
+	Name         string `json:"name"`
+	SerialNumber string `json:"serial-number"`
+	VendorID     string `json:"vendor-id"`
+	DeviceID     string `json:"device-id"`
+	Speed        string `json:"speed"`
+	Ports        string `json:"ports"`
+	USBVersion   string `json:"usb-version"`
+	Owner        string `json:"owner"`
+	DevicePath   string `json:"device-path"`
+	Category     string `json:"category"`
+	IRQ          string `json:"irq"`
 }
 
 type SystemHealth struct {

@@ -8,6 +8,7 @@ type Overview struct {
 	Version                  string                   `json:"version"`
 	BoardName                string                   `json:"boardName"`
 	Uptime                   string                   `json:"uptime"`
+	SystemResource           SystemResource           `json:"systemResource"`
 	CPULoadPercent           int64                    `json:"cpuLoadPercent"`
 	MemoryUsedPercent        float64                  `json:"memoryUsedPercent"`
 	MemoryUsedBytes          int64                    `json:"memoryUsedBytes"`
@@ -25,6 +26,63 @@ type Overview struct {
 	HealthEnabled            bool                     `json:"healthEnabled"`
 	UpdatedAt                time.Time                `json:"updatedAt"`
 	ChartSamples             []RateSample             `json:"chartSamples"`
+}
+
+type SystemResource struct {
+	ArchitectureName     string                   `json:"architectureName"`
+	BoardName            string                   `json:"boardName"`
+	BadBlocks            string                   `json:"badBlocks"`
+	BuildTime            string                   `json:"buildTime"`
+	CPU                  string                   `json:"cpu"`
+	CPUCount             string                   `json:"cpuCount"`
+	CPUFrequency         string                   `json:"cpuFrequency"`
+	CPULoad              string                   `json:"cpuLoad"`
+	FactorySoftware      string                   `json:"factorySoftware"`
+	FreeMemory           string                   `json:"freeMemory"`
+	FreeHDD              string                   `json:"freeHddSpace"`
+	Platform             string                   `json:"platform"`
+	TotalMemory          string                   `json:"totalMemory"`
+	TotalHDD             string                   `json:"totalHddSpace"`
+	Uptime               string                   `json:"uptime"`
+	Version              string                   `json:"version"`
+	WriteSectSinceReboot string                   `json:"writeSectSinceReboot"`
+	WriteSectTotal       string                   `json:"writeSectTotal"`
+	CPUCores             []SystemResourceCPU      `json:"cpuCores"`
+	IRQs                 []SystemResourceIRQ      `json:"irqs"`
+	Hardware             []SystemResourceHardware `json:"hardware"`
+}
+
+type SystemResourceCPU struct {
+	CPU  string `json:"cpu"`
+	Load string `json:"load"`
+	IRQ  string `json:"irq"`
+	Disk string `json:"disk"`
+}
+
+type SystemResourceIRQ struct {
+	CPU       string `json:"cpu"`
+	ActiveCPU string `json:"activeCpu"`
+	Count     string `json:"count"`
+	IRQ       string `json:"irq"`
+	Users     string `json:"users"`
+}
+
+type SystemResourceHardware struct {
+	Location     string `json:"location"`
+	Parent       string `json:"parent"`
+	Type         string `json:"type"`
+	Vendor       string `json:"vendor"`
+	Name         string `json:"name"`
+	SerialNumber string `json:"serialNumber"`
+	VendorID     string `json:"vendorId"`
+	DeviceID     string `json:"deviceId"`
+	Speed        string `json:"speed"`
+	Ports        string `json:"ports"`
+	USBVersion   string `json:"usbVersion"`
+	Owner        string `json:"owner"`
+	DevicePath   string `json:"devicePath"`
+	Category     string `json:"category"`
+	IRQ          string `json:"irq"`
 }
 
 type TerminalStateCounts struct {

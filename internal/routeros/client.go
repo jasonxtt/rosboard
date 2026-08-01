@@ -80,6 +80,24 @@ func (c *Client) SystemResource(ctx context.Context) (SystemResource, error) {
 	return resource, err
 }
 
+func (c *Client) SystemResourceCPU(ctx context.Context) ([]SystemResourceCPU, error) {
+	var payload []SystemResourceCPU
+	err := c.getJSON(ctx, "/rest/system/resource/cpu", &payload)
+	return payload, err
+}
+
+func (c *Client) SystemResourceIRQs(ctx context.Context) ([]SystemResourceIRQ, error) {
+	var payload []SystemResourceIRQ
+	err := c.getJSON(ctx, "/rest/system/resource/irq", &payload)
+	return payload, err
+}
+
+func (c *Client) SystemResourceHardware(ctx context.Context) ([]SystemResourceHardware, error) {
+	var payload []SystemResourceHardware
+	err := c.getJSON(ctx, "/rest/system/resource/hardware", &payload)
+	return payload, err
+}
+
 func (c *Client) SystemHealth(ctx context.Context) (SystemHealth, error) {
 	var payload json.RawMessage
 	if err := c.getJSON(ctx, "/rest/system/health", &payload); err != nil {

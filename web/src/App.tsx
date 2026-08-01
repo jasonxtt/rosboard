@@ -34,6 +34,7 @@ import type {
   RateSample,
   SettingsResponse,
   SettingsDevice,
+  SystemResource,
   Terminal,
   TerminalConnection,
   TerminalDetail,
@@ -193,7 +194,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
+const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -241,6 +242,46 @@ const emptyTerminalScopeSummary: TerminalScopeSummary = {
   currentDownloadBps: 0,
   activeUploadBytes: 0,
   activeDownloadBytes: 0,
+}
+
+const emptySystemResource: SystemResource = {
+  architectureName: '',
+  boardName: '',
+  badBlocks: '',
+  buildTime: '',
+  cpu: '',
+  cpuCount: '',
+  cpuFrequency: '',
+  cpuLoad: '',
+  factorySoftware: '',
+  freeMemory: '',
+  freeHddSpace: '',
+  platform: '',
+  totalMemory: '',
+  totalHddSpace: '',
+  uptime: '',
+  version: '',
+  writeSectSinceReboot: '',
+  writeSectTotal: '',
+  cpuCores: [],
+  irqs: [],
+  hardware: [],
+}
+
+function normalizeOverview(overview: Overview): Overview {
+  const systemResource = overview.systemResource ?? emptySystemResource
+  return {
+    ...overview,
+    systemResource: {
+      ...emptySystemResource,
+      ...systemResource,
+      cpuCores: systemResource.cpuCores ?? [],
+      irqs: systemResource.irqs ?? [],
+      hardware: systemResource.hardware ?? [],
+    },
+    trafficInterfaces: overview.trafficInterfaces ?? [],
+    chartSamples: overview.chartSamples ?? [],
+  }
 }
 
 function normalizeTerminal(terminal: Terminal): Terminal {
@@ -620,7 +661,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
     if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
     if (activeView === 'dhcp' || activeView === 'routes') setExpandedMonitorGroup('services')
-    if (activeView === 'load') setExpandedMonitorGroup('runtime')
+    if (activeView === 'load' || activeView === 'resource') setExpandedMonitorGroup('runtime')
   }, [activeView])
 
   useEffect(() => {
@@ -637,6 +678,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           throw new Error(`HTTP ${response.status}`)
         }
         const payload = (await response.json()) as DashboardResponse
+        payload.overview = normalizeOverview(payload.overview)
         payload.interfaces = (payload.interfaces ?? []).map(normalizeInterface)
         payload.terminals = (payload.terminals ?? []).map(normalizeTerminal)
         payload.capabilities ??= []
@@ -681,7 +723,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
-    if (activeView !== 'overview' || dashboardRefreshMs <= 0) return
+    if (activeView !== 'overview' && activeView !== 'resource' || dashboardRefreshMs <= 0) return
     let cancelled = false
     let refreshing = false
 
@@ -691,7 +733,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       try {
         const response = await fetch(scopedURL('/api/realtime', selectedDeviceID))
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const overview = (await response.json()) as Overview
+        const overview = normalizeOverview((await response.json()) as Overview)
         if (!cancelled) {
           setDashboard((current) => current ? { ...current, overview } : current)
           setError(null)
@@ -871,7 +913,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
-  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'routes' || activeView === 'dhcp'
+  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
@@ -992,6 +1034,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               </> : null}
               <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'runtime'} onClick={() => setExpandedMonitorGroup((value) => value === 'runtime' ? null : 'runtime')}><NavLabel icon="runtime" label="系统运行" /></button>
               {expandedMonitorGroup === 'runtime' ? <>
+                <button type="button" className={activeView === 'resource' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="cpu" label="资源监控" /></button>
                 <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="负载历史" /></button>
               </> : null}
             </div> : null}
@@ -1120,6 +1163,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
 
         {activeView === 'load' && dashboard ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
+        {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
         {activeView === 'protocols' && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
@@ -1243,7 +1287,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               setEditingTerminalID(null)
               setError(null)
             } catch (saveError) {
-              setError(saveError instanceof Error ? saveError.message : '备注保存失败')
+              setError(saveError instanceof Error ? saveError.message : '设备信息保存失败')
             } finally {
               setSavingRemark(false)
             }
@@ -2296,6 +2340,140 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
     {system.length ? <details className="panel compact-panel interface-system-section"><summary>系统接口 <span>{system.length} 个</span></summary>{table(system)}</details> : null}
     </div>
   )
+}
+
+type ResourceUsage = { total: number | null; free: number | null; used: number | null; percent: number | null }
+type ResourceHealth = 'normal' | 'warning' | 'critical' | 'unavailable'
+
+function parseResourceNumber(value: string) {
+  const parsed = Number.parseInt(value, 10)
+  return value.trim() && Number.isFinite(parsed) ? parsed : null
+}
+
+function resourceUsage(totalValue: string, freeValue: string): ResourceUsage {
+  const total = parseResourceNumber(totalValue)
+  const free = parseResourceNumber(freeValue)
+  if (total === null || free === null || total <= 0 || free < 0 || free > total) return { total, free, used: null, percent: null }
+  const used = total - free
+  return { total, free, used, percent: used / total * 100 }
+}
+
+function formatResourceBytes(value: number | null) {
+  return value === null || value < 0 ? '-' : formatBytes(value)
+}
+
+function formatResourcePercent(value: string) {
+  const parsed = parseResourceNumber(value)
+  return parsed === null ? '-' : `${parsed}%`
+}
+
+function formatResourceCount(value: string) {
+  const parsed = parseResourceNumber(value)
+  return parsed === null ? '-' : parsed.toLocaleString('zh-CN')
+}
+
+function resourceHealth(percent: number | null): ResourceHealth {
+  if (percent === null) return 'unavailable'
+  if (percent >= 95) return 'critical'
+  if (percent >= 85) return 'warning'
+  return 'normal'
+}
+
+function resourceHealthText(value: ResourceHealth) {
+  if (value === 'critical') return '严重'
+  if (value === 'warning') return '注意'
+  if (value === 'normal') return '正常'
+  return '不可用'
+}
+
+function ResourceDetails(props: { items: Array<[string, string]> }) {
+  return <div className="resource-details">{props.items.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+}
+
+function ResourceCard(props: { title: string; description: string; icon: IconName; tone: string; health: ResourceHealth; className?: string; children: React.ReactNode }) {
+  return <section className={`panel resource-card resource-${props.tone}${props.className ? ` ${props.className}` : ''}`}>
+    <div className="panel-head resource-card-head"><div><h3><Icon name={props.icon} />{props.title}</h3><span>{props.description}</span></div><span className={`resource-health resource-health-${props.health}`}>{resourceHealthText(props.health)}</span></div>
+    {props.children}
+  </section>
+}
+
+function ResourceUsageMeter(props: { label: string; percent: number | null; health: ResourceHealth }) {
+  const width = props.percent === null ? 0 : Math.min(100, Math.max(0, props.percent))
+  return <div className="resource-usage">
+    <div><span>{props.label}</span><strong>{props.percent === null ? '-' : `${props.percent.toFixed(1)}%`}</strong></div>
+    <div className={`resource-meter resource-meter-${props.health}`} aria-label={`${props.label} ${props.percent === null ? '不可用' : `${props.percent.toFixed(1)}%`}`}><i style={{ width: `${width}%` }} /></div>
+  </div>
+}
+
+function ResourceCPUList(props: { items: SystemResource['cpuCores'] }) {
+  return <div className="resource-table-wrap">
+    <table className="resource-table">
+      <thead><tr><th>核心</th><th>总占用</th><th>IRQ</th><th>磁盘</th></tr></thead>
+      <tbody>{props.items.length ? props.items.map((item, index) => <tr key={`${item.cpu}-${index}`}><td>CPU {item.cpu || index}</td><td>{formatResourcePercent(item.load)}</td><td>{formatResourcePercent(item.irq)}</td><td>{formatResourcePercent(item.disk)}</td></tr>) : <tr><td colSpan={4} className="resource-empty">暂无逐核数据</td></tr>}</tbody>
+    </table>
+  </div>
+}
+
+function ResourceIRQList(props: { items: SystemResource['irqs'] }) {
+  return <div className="resource-table-wrap">
+    <table className="resource-table">
+      <thead><tr><th>IRQ</th><th>CPU</th><th>活动 CPU</th><th>次数</th><th>用户</th></tr></thead>
+      <tbody>{props.items.length ? props.items.map((item, index) => <tr key={`${item.irq}-${index}`}><td>{item.irq || '-'}</td><td>{item.cpu || '-'}</td><td>{item.activeCpu || '-'}</td><td>{formatResourceCount(item.count)}</td><td title={item.users || undefined}>{item.users || '-'}</td></tr>) : <tr><td colSpan={5} className="resource-empty">暂无 IRQ 数据</td></tr>}</tbody>
+    </table>
+  </div>
+}
+
+function ResourceHardwareList(props: { items: SystemResource['hardware'] }) {
+  return <div className="resource-table-wrap resource-hardware-table-wrap">
+    <table className="resource-table resource-hardware-table">
+      <thead><tr><th>名称</th><th>类型</th><th>厂商</th><th>位置</th><th>父设备</th><th>速度</th><th>端口</th><th>USB</th><th>序列号</th><th>厂商 ID</th><th>设备 ID</th><th>所有者</th><th>类别</th><th>IRQ</th><th>设备路径</th></tr></thead>
+      <tbody>{props.items.length ? props.items.map((item, index) => <tr key={`${item.name}-${item.devicePath}-${index}`}><td>{item.name || '-'}</td><td>{item.type || '-'}</td><td>{item.vendor || '-'}</td><td>{item.location || '-'}</td><td>{item.parent || '-'}</td><td>{item.speed || '-'}</td><td>{item.ports || '-'}</td><td>{item.usbVersion || '-'}</td><td>{item.serialNumber || '-'}</td><td>{item.vendorId || '-'}</td><td>{item.deviceId || '-'}</td><td>{item.owner || '-'}</td><td>{item.category || '-'}</td><td>{item.irq || '-'}</td><td title={item.devicePath || undefined}>{item.devicePath || '-'}</td></tr>) : <tr><td colSpan={15} className="resource-empty">暂无硬件数据</td></tr>}</tbody>
+    </table>
+  </div>
+}
+
+function ResourcePage(props: { overview: Overview }) {
+  const resource = props.overview.systemResource ?? emptySystemResource
+  const cpuLoad = parseResourceNumber(resource.cpuLoad)
+  const memory = resourceUsage(resource.totalMemory, resource.freeMemory)
+  const storage = resourceUsage(resource.totalHddSpace, resource.freeHddSpace)
+  const cpuHealth = resourceHealth(cpuLoad)
+  const memoryHealth = resourceHealth(memory.percent)
+  const storageHealth = resourceHealth(storage.percent)
+
+  return <div className="resource-page">
+    <section className="resource-grid">
+      <ResourceCard title="CPU" description="总负载与逐核占用" icon="cpu" tone="blue" health={cpuHealth} className="resource-card-cpu">
+        <div className="resource-primary"><strong>{cpuLoad === null ? '-' : `${cpuLoad}%`}</strong><span>当前总负载</span></div>
+        <ResourceDetails
+          items={[
+            ["CPU 型号", resource.cpu || '-'],
+            ["CPU 核心数", resource.cpuCount || '-'],
+            ["CPU 频率", resource.cpuFrequency || '-'],
+          ]}
+        />
+        <ResourceCPUList items={resource.cpuCores} />
+      </ResourceCard>
+      <ResourceCard title="系统信息" description="RouterOS /system/resource" icon="settings" tone="blue" health={resource.version ? 'normal' : 'unavailable'} className="resource-card-system">
+        <ResourceDetails items={[["平台", resource.platform || '-'], ["架构", resource.architectureName || '-'], ["主板", resource.boardName || '-'], ["RouterOS 版本", resource.version || '-'], ["编译时间", resource.buildTime || '-'], ["出厂软件", resource.factorySoftware || '-'], ["运行时间", resource.uptime || '-']]} />
+      </ResourceCard>
+      <ResourceCard title="内存" description="RouterOS system resource" icon="memory" tone="green" health={memoryHealth} className="resource-card-memory">
+        <ResourceUsageMeter label="内存使用率" percent={memory.percent} health={memoryHealth} />
+        <ResourceDetails items={[["总内存", formatResourceBytes(memory.total)], ["已用内存", formatResourceBytes(memory.used)], ["空闲内存", formatResourceBytes(memory.free)]]} />
+      </ResourceCard>
+      <ResourceCard title="存储" description="RouterOS system resource" icon="storage" tone="orange" health={storageHealth} className="resource-card-storage">
+        <ResourceUsageMeter label="存储使用率" percent={storage.percent} health={storageHealth} />
+        <ResourceDetails items={[["总硬盘空间", formatResourceBytes(storage.total)], ["已用硬盘空间", formatResourceBytes(storage.used)], ["空闲硬盘空间", formatResourceBytes(storage.free)], ["坏块", resource.badBlocks || '-'], ["重启后写入", resource.writeSectSinceReboot || '-'], ["累计写入", resource.writeSectTotal || '-']]} />
+      </ResourceCard>
+      <ResourceCard title="IRQ" description="系统中断分布" icon="status" tone="orange" health={resourceHealth(resource.irqs.length ? 0 : null)} className="resource-card-irq">
+        <ResourceIRQList items={resource.irqs} />
+      </ResourceCard>
+      <ResourceCard title="硬件" description="RouterOS hardware 只读信息" icon="settings" tone="green" health={resourceHealth(resource.hardware.length ? 0 : null)} className="resource-card-hardware">
+        <ResourceHardwareList items={resource.hardware} />
+      </ResourceCard>
+    </section>
+    <div className="resource-updated">最后更新 {formatDateTime(props.overview.updatedAt)}</div>
+  </div>
 }
 
 function LoadPage(props: { samples: LoadSample[]; window: string; onWindowChange: (value: string) => void }) {

@@ -7,6 +7,7 @@ export function viewTitle(view: ActiveView) {
     interfaces: '接口监控',
     terminals: '终端监控',
     load: '负载历史',
+    resource: '资源监控',
     protocols: '协议统计',
     policies: '策略统计',
     dhcp: 'DHCP',

@@ -31,6 +31,36 @@ func TestEmptySnapshotUsesJSONArrays(t *testing.T) {
 	if snapshot.DHCP.Servers == nil || snapshot.DHCP.Pools == nil || snapshot.DHCP.Leases == nil {
 		t.Fatal("dhcp collections must be empty slices, not nil")
 	}
+	if snapshot.Overview.SystemResource.CPUCores == nil || snapshot.Overview.SystemResource.IRQs == nil || snapshot.Overview.SystemResource.Hardware == nil {
+		t.Fatal("system resource collections must be empty slices, not nil")
+	}
+}
+
+func TestSystemResourceSnapshotPreservesRouterOSFields(t *testing.T) {
+	resource := routeros.SystemResource{
+		ArchitectureName: "arm64", BoardName: "RB5009", CPU: "ARM64", CPUCount: "4",
+		CPUFrequency: "1400MHz", CPULoad: "27", FreeMemory: "512000000", FreeHDD: "1024000000",
+		Platform: "RouterOS", TotalMemory: "1024000000", TotalHDD: "2048000000", Uptime: "1w2d",
+		Version: "7.16.2", BadBlocks: "0", BuildTime: "Jan/01/2026", FactorySoftware: "7.10",
+		WriteSectSinceReboot: "12", WriteSectTotal: "3456",
+	}
+
+	got := systemResourceSnapshot(resource, model.SystemResource{})
+	if got.ArchitectureName != resource.ArchitectureName || got.BoardName != resource.BoardName || got.CPU != resource.CPU || got.CPUCount != resource.CPUCount ||
+		got.CPUFrequency != resource.CPUFrequency || got.CPULoad != resource.CPULoad || got.FreeMemory != resource.FreeMemory || got.FreeHDD != resource.FreeHDD ||
+		got.Platform != resource.Platform || got.TotalMemory != resource.TotalMemory || got.TotalHDD != resource.TotalHDD || got.Uptime != resource.Uptime || got.Version != resource.Version || got.BadBlocks != resource.BadBlocks || got.BuildTime != resource.BuildTime || got.FactorySoftware != resource.FactorySoftware || got.WriteSectSinceReboot != resource.WriteSectSinceReboot || got.WriteSectTotal != resource.WriteSectTotal {
+		t.Fatalf("system resource fields were not preserved: got %#v want %#v", got, resource)
+	}
+}
+
+func TestCopyRealtimeOverviewPreservesSystemResource(t *testing.T) {
+	resource := model.SystemResource{CPU: "ARM64", CPULoad: "12", TotalMemory: "1024", Uptime: "2d", CPUCores: []model.SystemResourceCPU{{CPU: "0", Load: "12"}}, IRQs: []model.SystemResourceIRQ{}, Hardware: []model.SystemResourceHardware{}}
+	destination := model.Overview{SystemResource: model.SystemResource{CPU: "old"}}
+	copyRealtimeOverview(&destination, model.Overview{SystemResource: resource})
+
+	if !reflect.DeepEqual(destination.SystemResource, resource) {
+		t.Fatalf("realtime system resource was not copied: got %#v want %#v", destination.SystemResource, resource)
+	}
 }
 
 func testTerminalScope() terminalScope {
@@ -385,16 +415,65 @@ func TestUpdateTerminalMetadataUpdatesSnapshotAndDetailsWithoutRefresh(t *testin
 	terminal := model.Terminal{ID: id, AutoName: "iphone", DisplayName: "iphone", PrimaryIPv4: "10.0.0.8"}
 	monitor := &Monitor{store: storage, snapshot: model.DashboardSnapshot{Terminals: []model.Terminal{terminal}}, terminalDetails: map[string]model.TerminalDetail{id: {Terminal: terminal, FamilySummaries: map[string]model.Terminal{"ipv4": terminal}}}}
 
-	detail, err := monitor.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机")
-	if err != nil {
-		t.Fatalf("update metadata: %v", err)
+	monitor.refreshMu.Lock()
+	resultCh := make(chan struct {
+		detail model.TerminalDetail
+		err    error
+	}, 1)
+	go func() {
+		detail, err := monitor.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机")
+		resultCh <- struct {
+			detail model.TerminalDetail
+			err    error
+		}{detail: detail, err: err}
+	}()
+	var result struct {
+		detail model.TerminalDetail
+		err    error
 	}
+	select {
+	case result = <-resultCh:
+		monitor.refreshMu.Unlock()
+	case <-time.After(time.Second):
+		monitor.refreshMu.Unlock()
+		t.Fatal("metadata update waited for the RouterOS refresh lock")
+	}
+	if result.err != nil {
+		t.Fatalf("update metadata: %v", result.err)
+	}
+	detail := result.detail
 	if detail.Terminal.DisplayName != "iPhone 13 PM" || detail.Terminal.Remark != "Tom 的手机" || detail.FamilySummaries["ipv4"].CustomName != "iPhone 13 PM" {
 		t.Fatalf("detail not updated: %#v", detail)
 	}
 	snapshot := monitor.Snapshot()
 	if snapshot.Terminals[0].DisplayName != "iPhone 13 PM" || snapshot.Terminals[0].Remark != "Tom 的手机" {
 		t.Fatalf("snapshot not updated: %#v", snapshot.Terminals[0])
+	}
+}
+
+func TestMergeLatestTerminalMetadataKeepsSavedValuesAcrossRefreshCommit(t *testing.T) {
+	terminals := []model.Terminal{{ID: "mac:test", AutoName: "iphone", DisplayName: "旧名称", CustomName: "旧名称", Remark: "旧备注"}}
+	details := map[string]model.TerminalDetail{
+		"mac:test": {
+			Terminal: terminals[0],
+			FamilySummaries: map[string]model.Terminal{
+				"ipv4": terminals[0],
+			},
+		},
+	}
+	currentDetails := map[string]model.TerminalDetail{
+		"mac:test": {
+			Terminal: model.Terminal{ID: "mac:test", AutoName: "iphone", CustomName: "新名称", Remark: "新备注"},
+		},
+	}
+
+	mergeLatestTerminalMetadata(terminals, details, currentDetails)
+
+	if terminals[0].DisplayName != "新名称" || terminals[0].CustomName != "新名称" || terminals[0].Remark != "新备注" {
+		t.Fatalf("terminal metadata was not preserved: %#v", terminals[0])
+	}
+	if got := details["mac:test"].FamilySummaries["ipv4"]; got.DisplayName != "新名称" || got.Remark != "新备注" {
+		t.Fatalf("family metadata was not preserved: %#v", got)
 	}
 }
 
