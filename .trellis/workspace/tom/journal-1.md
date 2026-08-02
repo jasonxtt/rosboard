@@ -1712,3 +1712,36 @@ Reworked the fleet dashboard into a reference-aligned list-only layout, refined 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 51: 远程 RouterOS 采集容错与 v0.0.7 发布
+
+**Date**: 2026-08-02
+**Task**: 远程 RouterOS 采集容错与 v0.0.7 发布
+**Branch**: `main`
+
+### Summary
+
+修复远程 RouterOS 7.10 资源响应兼容和详情采集并发问题：主资源兼容对象/数组，低频详情改为可选、串行轮询并保留旧数据，启动重试采用退避，修复无更新时间显示。前端嵌入资源重建，设备区域导航一并纳入发布；通过 go test ./...、race、npm lint/build、本地运行验证，并部署到 10.0.0.6 完成 systemd、health、资产检查和用户手动验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f451018` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
