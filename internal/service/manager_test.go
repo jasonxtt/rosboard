@@ -49,3 +49,15 @@ func TestFleetOverviewUsesCachedSnapshotsAndClassifiesDevices(t *testing.T) {
 		t.Fatalf("stale snapshots must be offline alerting entries: %+v", got.Devices[2])
 	}
 }
+
+func TestMonitorRetryDelayBacksOffAndCaps(t *testing.T) {
+	if got := nextMonitorRetryDelay(initialMonitorRetryDelay); got != 60*time.Second {
+		t.Fatalf("first retry delay = %s, want 1m", got)
+	}
+	if got := nextMonitorRetryDelay(4 * time.Minute); got != maxMonitorRetryDelay {
+		t.Fatalf("capped retry delay = %s, want 5m", got)
+	}
+	if got := nextMonitorRetryDelay(maxMonitorRetryDelay); got != maxMonitorRetryDelay {
+		t.Fatalf("max retry delay = %s, want 5m", got)
+	}
+}

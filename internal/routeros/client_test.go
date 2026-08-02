@@ -33,6 +33,35 @@ func TestSystemHealthAcceptsRouterOSObjectAndArrayResponses(t *testing.T) {
 	}
 }
 
+func TestSystemResourceAcceptsRouterOSObjectAndArrayResponses(t *testing.T) {
+	for name, body := range map[string]string{
+		"object": `{"board-name":"RB5009","version":"7.16.2"}`,
+		"array":  `[{"board-name":"RB5009","version":"7.10"}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != "/rest/system/resource" {
+					t.Fatalf("path = %q", request.URL.Path)
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			resource, err := NewClient(server.URL, "admin", "secret").SystemResource(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resource.BoardName != "RB5009" {
+				t.Fatalf("unexpected board name: %#v", resource)
+			}
+			if name == "array" && resource.Version != "7.10" {
+				t.Fatalf("unexpected array resource: %#v", resource)
+			}
+		})
+	}
+}
+
 func TestSystemResourceDetailEndpoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

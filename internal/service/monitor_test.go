@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"io"
+	"log"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"testing"
@@ -60,6 +64,52 @@ func TestCopyRealtimeOverviewPreservesSystemResource(t *testing.T) {
 
 	if !reflect.DeepEqual(destination.SystemResource, resource) {
 		t.Fatalf("realtime system resource was not copied: got %#v want %#v", destination.SystemResource, resource)
+	}
+}
+
+func TestSystemResourceDetailsRefreshOneEndpointAndPreserveFailures(t *testing.T) {
+	paths := make([]string, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		paths = append(paths, request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/system/resource/cpu":
+			_, _ = writer.Write([]byte(`[{"cpu":"0","load":"12"}]`))
+		case "/rest/system/resource/irq":
+			http.Error(writer, "temporarily unavailable", http.StatusGatewayTimeout)
+		case "/rest/system/resource/hardware":
+			_, _ = writer.Write([]byte(`[{"name":"ethernet"}]`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	monitor := &Monitor{
+		client: routeros.NewClient(server.URL, "admin", "secret"),
+		logger: log.New(io.Discard, "", 0),
+	}
+	previous := model.SystemResource{
+		CPUCores: []model.SystemResourceCPU{{CPU: "old"}},
+		IRQs:     []model.SystemResourceIRQ{{IRQ: "old"}},
+		Hardware: []model.SystemResourceHardware{{Name: "old"}},
+	}
+
+	first := monitor.loadSystemResourceDetails(context.Background(), previous, true, "full")
+	second := monitor.loadSystemResourceDetails(context.Background(), first, true, "full")
+	third := monitor.loadSystemResourceDetails(context.Background(), second, true, "full")
+
+	if !reflect.DeepEqual(paths, []string{"/rest/system/resource/cpu", "/rest/system/resource/irq", "/rest/system/resource/hardware"}) {
+		t.Fatalf("resource detail requests were not serialized and rotated: %v", paths)
+	}
+	if len(first.CPUCores) != 1 || first.CPUCores[0].Load != "12" {
+		t.Fatalf("CPU details were not projected: %#v", first.CPUCores)
+	}
+	if len(second.IRQs) != 1 || second.IRQs[0].IRQ != "old" {
+		t.Fatalf("failed IRQ detail did not preserve previous data: %#v", second.IRQs)
+	}
+	if len(third.Hardware) != 1 || third.Hardware[0].Name != "ethernet" {
+		t.Fatalf("hardware details were not projected: %#v", third.Hardware)
 	}
 }
 

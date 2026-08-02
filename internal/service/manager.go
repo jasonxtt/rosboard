@@ -34,6 +34,11 @@ type DeviceStatus struct {
 
 const fleetSnapshotStaleAfter = 90 * time.Second
 
+const (
+	initialMonitorRetryDelay = 30 * time.Second
+	maxMonitorRetryDelay     = 5 * time.Minute
+)
+
 type FleetOverview struct {
 	TotalDevices   int           `json:"totalDevices"`
 	OnlineDevices  int           `json:"onlineDevices"`
@@ -120,7 +125,7 @@ func (m *MonitorManager) Start(ctx context.Context) {
 		wait.Add(1)
 		go func(item *managedMonitor) {
 			defer wait.Done()
-			if err := m.startMonitor(ctx, item); err != nil {
+			if err := m.startMonitor(ctx, item, true); err != nil {
 				go m.retryMonitor(ctx, item)
 			}
 		}(item)
@@ -128,9 +133,11 @@ func (m *MonitorManager) Start(ctx context.Context) {
 	wait.Wait()
 }
 
-func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor) error {
-	if err := waitForDevicePhase(ctx, item.device.ID); err != nil {
-		return err
+func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor, waitPhase bool) error {
+	if waitPhase {
+		if err := waitForDevicePhase(ctx, item.device.ID); err != nil {
+			return err
+		}
 	}
 	err := item.monitor.Start(ctx)
 	m.mu.Lock()
@@ -169,18 +176,31 @@ func deviceSchedulePhase(deviceID string) time.Duration {
 }
 
 func (m *MonitorManager) retryMonitor(ctx context.Context, item *managedMonitor) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	delay := initialMonitorRetryDelay
 	for {
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			if err := m.startMonitor(ctx, item); err == nil {
+		case <-timer.C:
+			if err := m.startMonitor(ctx, item, false); err == nil {
 				return
 			}
+			delay = nextMonitorRetryDelay(delay)
 		}
 	}
+}
+
+func nextMonitorRetryDelay(delay time.Duration) time.Duration {
+	if delay >= maxMonitorRetryDelay {
+		return maxMonitorRetryDelay
+	}
+	next := delay * 2
+	if next > maxMonitorRetryDelay {
+		return maxMonitorRetryDelay
+	}
+	return next
 }
 
 func (m *MonitorManager) Monitor(deviceID string) (*Monitor, error) {
