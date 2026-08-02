@@ -1,5 +1,11 @@
 package routeros
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
 type SystemResource struct {
 	ArchitectureName     string `json:"architecture-name"`
 	BoardName            string `json:"board-name"`
@@ -19,6 +25,31 @@ type SystemResource struct {
 	Version              string `json:"version"`
 	WriteSectSinceReboot string `json:"write-sect-since-reboot"`
 	WriteSectTotal       string `json:"write-sect-total"`
+}
+
+// UnmarshalJSON accepts both the object response used by newer RouterOS
+// versions and the one-element array returned by some older REST handlers.
+func (resource *SystemResource) UnmarshalJSON(data []byte) error {
+	type systemResource SystemResource
+	data = bytes.TrimSpace(data)
+	if len(data) > 0 && data[0] == '[' {
+		var resources []systemResource
+		if err := json.Unmarshal(data, &resources); err != nil {
+			return err
+		}
+		if len(resources) == 0 {
+			return fmt.Errorf("system resource: empty array response")
+		}
+		*resource = SystemResource(resources[0])
+		return nil
+	}
+
+	var value systemResource
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*resource = SystemResource(value)
+	return nil
 }
 
 type SystemResourceCPU struct {

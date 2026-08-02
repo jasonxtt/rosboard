@@ -223,12 +223,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .fleet-list-head span { min-width: 0; }
 .fleet-list-head span:nth-child(2), .fleet-list-head span:nth-child(3) { text-align: center; }
 
-.device-overview-row { width: 100%; min-height: 96px; padding: 10px 16px; color: var(--color-text); text-align: left; background: var(--color-surface); border: 0; border-bottom: 1px solid var(--color-border); cursor: pointer; transition: background-color .16s ease, box-shadow .16s ease; }
+.device-overview-row { width: 100%; min-height: 96px; padding: 10px 16px; color: var(--color-text); text-align: left; background: var(--color-surface); border: 0; border-bottom: 1px solid var(--color-border); transition: background-color .16s ease, box-shadow .16s ease; }
 .device-overview-row:last-child { border-bottom: 0; }
 .device-overview-row:hover { position: relative; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-primary) 4%); box-shadow: inset 3px 0 0 var(--color-primary); }
 .device-overview-row.alerting { box-shadow: inset 3px 0 0 var(--color-warning); }
 .device-overview-row.offline { box-shadow: inset 3px 0 0 var(--color-danger); }
-.device-overview-row:focus-visible { position: relative; z-index: 1; outline-offset: -3px; }
+.device-overview-action { box-sizing: border-box; min-width: 0; padding: 0; color: inherit; font: inherit; text-align: left; background: transparent; border: 0; cursor: pointer; appearance: none; }
+.device-overview-action:hover { outline: 1px solid color-mix(in srgb, var(--color-primary) 36%, transparent); outline-offset: 2px; }
+.device-overview-action:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 .device-overview-identity { display: grid; min-width: 0; gap: 4px; }
 .device-overview-identity > strong { overflow: hidden; color: #0f172a; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -240,7 +242,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .device-overview-identity em.alerting { color: #b45309; background: #fef3c7; }
 .device-overview-identity em.offline { color: #b91c1c; background: #fee2e2; }
 
-.fleet-percent { position: relative; display: grid; width: 60px; height: 60px; place-items: center; justify-self: center; background: conic-gradient(#16a34a var(--fleet-percent), #e7edf4 0); border-radius: 50%; }
+.fleet-percent { position: relative; display: grid; width: 60px; height: 60px; place-items: center; justify-self: center; color: inherit; text-align: center; background: conic-gradient(#16a34a var(--fleet-percent), #e7edf4 0); border-radius: 50%; }
 .fleet-percent::before { position: absolute; width: 52px; height: 52px; content: ""; background: var(--color-surface); border-radius: 50%; }
 .fleet-percent i, .fleet-percent small { position: relative; z-index: 1; font-style: normal; }
 .fleet-percent i { color: #0f172a; font-size: 13px; font-weight: 750; line-height: 1; }

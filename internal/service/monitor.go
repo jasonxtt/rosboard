@@ -29,6 +29,7 @@ type Monitor struct {
 
 	refreshMu         sync.Mutex
 	metadataMu        sync.Mutex
+	resourceDetailMu  sync.Mutex
 	terminalRateMu    sync.Mutex
 	mu                sync.RWMutex
 	snapshot          model.DashboardSnapshot
@@ -44,13 +45,15 @@ type Monitor struct {
 	terminalViewMu    sync.RWMutex
 	terminalViewUntil time.Time
 	terminalRateWake  chan struct{}
+	resourceDetailAt  int
 	routeMu           sync.RWMutex
 	routeLookup       routeMatcher
 }
 
 const (
-	viewerHeartbeatTTL = 30 * time.Second
-	idlePollInterval   = 60 * time.Second
+	viewerHeartbeatTTL           = 30 * time.Second
+	idlePollInterval             = 60 * time.Second
+	resourceDetailRequestTimeout = 2 * time.Second
 )
 
 func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, logger *log.Logger) *Monitor {
@@ -254,7 +257,6 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load realtime system resource: %w", err)
 	}
-	resourceDetails := m.loadSystemResourceDetails(pollCtx, previous.Overview.SystemResource, false, "realtime")
 
 	m.mu.RLock()
 	trafficInterfaces := m.trafficScope.selectedNames()
@@ -304,7 +306,7 @@ func (m *Monitor) refreshRealtime(ctx context.Context) error {
 	m.snapshot.Overview.MemoryUsedPercent = memoryPercent
 	m.snapshot.Overview.MemoryUsedBytes = parseInt(resource.TotalMemory) - parseInt(resource.FreeMemory)
 	m.snapshot.Overview.MemoryTotalBytes = parseInt(resource.TotalMemory)
-	m.snapshot.Overview.SystemResource = systemResourceSnapshot(resource, resourceDetails)
+	m.snapshot.Overview.SystemResource = systemResourceSnapshot(resource, previous.Overview.SystemResource)
 	m.snapshot.Overview.UploadBps = uploadBps
 	m.snapshot.Overview.DownloadBps = downloadBps
 	m.snapshot.Overview.TrafficInterfaces = trafficInterfaces
@@ -1284,43 +1286,38 @@ func (m *Monitor) loadSystemResourceDetails(ctx context.Context, previous model.
 		IRQs:     append([]model.SystemResourceIRQ{}, previous.IRQs...),
 		Hardware: append([]model.SystemResourceHardware{}, previous.Hardware...),
 	}
-	var cpuCores []routeros.SystemResourceCPU
-	var irqs []routeros.SystemResourceIRQ
-	var hardware []routeros.SystemResourceHardware
-	var cpuErr, irqErr, hardwareErr error
-	var waitGroup sync.WaitGroup
-	waitGroup.Add(1)
-	go func() {
-		defer waitGroup.Done()
-		cpuCores, cpuErr = m.client.SystemResourceCPU(ctx)
-	}()
-	if includeStatic {
-		waitGroup.Add(2)
-		go func() {
-			defer waitGroup.Done()
-			irqs, irqErr = m.client.SystemResourceIRQs(ctx)
-		}()
-		go func() {
-			defer waitGroup.Done()
-			hardware, hardwareErr = m.client.SystemResourceHardware(ctx)
-		}()
+	if !includeStatic {
+		return details
 	}
-	waitGroup.Wait()
-	if cpuErr != nil {
-		m.logOptionalResourceError(phase, "cpu", cpuErr)
-	} else {
-		details.CPUCores = projectSystemResourceCPUs(cpuCores)
-	}
-	if includeStatic {
-		if irqErr != nil {
-			m.logOptionalResourceError(phase, "irq", irqErr)
+
+	m.resourceDetailMu.Lock()
+	detail := []string{"cpu", "irq", "hardware"}[m.resourceDetailAt%3]
+	m.resourceDetailAt++
+	m.resourceDetailMu.Unlock()
+
+	detailCtx, cancel := context.WithTimeout(ctx, resourceDetailRequestTimeout)
+	defer cancel()
+	switch detail {
+	case "cpu":
+		items, err := m.client.SystemResourceCPU(detailCtx)
+		if err != nil {
+			m.logOptionalResourceError(phase, detail, err)
 		} else {
-			details.IRQs = projectSystemResourceIRQs(irqs)
+			details.CPUCores = projectSystemResourceCPUs(items)
 		}
-		if hardwareErr != nil {
-			m.logOptionalResourceError(phase, "hardware", hardwareErr)
+	case "irq":
+		items, err := m.client.SystemResourceIRQs(detailCtx)
+		if err != nil {
+			m.logOptionalResourceError(phase, detail, err)
 		} else {
-			details.Hardware = projectSystemResourceHardware(hardware)
+			details.IRQs = projectSystemResourceIRQs(items)
+		}
+	case "hardware":
+		items, err := m.client.SystemResourceHardware(detailCtx)
+		if err != nil {
+			m.logOptionalResourceError(phase, detail, err)
+		} else {
+			details.Hardware = projectSystemResourceHardware(items)
 		}
 	}
 	return details
