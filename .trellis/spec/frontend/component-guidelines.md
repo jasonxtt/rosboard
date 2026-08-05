@@ -2,38 +2,52 @@
 
 ## Interface monitoring categories
 
-- Render physical, logical, and system interfaces as separate sections from
-  `InterfaceStatus.category`; keep the system section collapsed initially.
+- Render physical and logical interfaces through the shared topbar tab row;
+  show one selected category at a time from `InterfaceStatus.category`.
+  Keep the system section collapsed initially below the selected category.
 - Physical state labels distinguish enabled/running `在线`, enabled/not-running
   `Down`, and administratively disabled `已禁用`. Sort Down physical rows first.
 - Render semantic interface relations from `relations[]`; do not invent a
   carrier for WireGuard or another topology without a fixed parent.
-- Section headings own their local counts and the physical Down count. Do not
-  add a separate page-summary toolbar or relocate an all-interface total.
+- The selected category uses the same compact `data-toolbar` + table block
+  rhythm as the terminal monitor. Its local count and active count stay in
+  that toolbar; the monitor topbar may show total, physical, logical, active,
+  and current upload/download summary values.
 - Every category retains the same interface-detail/history action.
+
+## Fleet dashboard search and headings
+
+- The fleet dashboard exposes one controlled device search in the shared
+  topbar, immediately before the theme control. On desktop the search and
+  theme remain on one row; on mobile the search may use a full-width row. Its
+  matching fields are
+  device name, RouterOS/router name, board name, version, and address.
+- The fleet dashboard does not render status-filter or sort selects. Keep
+  free-text matching, pagination, and device-row navigation available.
+- `接口监控` and `面板设置` child pages hide only the redundant shared
+  topbar heading/subtitle, and the headingless topbar uses compact spacing so
+  content moves upward. Interface category headings and settings child panel
+  headings remain visible so the content context is preserved.
 
 ## Terminal monitor filter controls
 
 The terminal monitor uses component-local state for table presentation. Its initial state is the product default, while server data remains unchanged.
 
-- Default `stateFilter` to `online` so the first list shows only currently online terminals.
-- Keep the explicit status select for precise filtering.
-- The nearby non-online-device toggle maps `online -> all -> online`; its label and `aria-pressed` state must follow the current filter. It covers both `inactive` and `offline` states.
+- Default `visibilityFilter` to `online` so the first list shows only currently online terminals.
+- Do not render separate online-state or interface filter controls in the table toolbar.
+- Place a visible downward-arrow filter button beside `在线状态` in the table header; its popover offers online devices, all devices, and non-online devices. Remove the separate `终端列表` / `在线设备` toolbar title block. The non-online option covers both `inactive` and `offline` states and is labeled accordingly.
+- Add an explicit `在线状态` table column immediately before `在线时长`; online rows show their duration and non-online rows show `-` in the duration column.
 - Any filter change resets pagination to page 1.
 - Default terminal sorting is numeric address ascending (`sortKey = "address"`), not device-name sorting.
 - The terminal identity column renders display name first and MAC as muted second-line metadata. The separate IP column renders primary IPv4 first and primary IPv6 second in `all` scope; family-specific scopes render only their selected family.
 
 ```tsx
-const [stateFilter, setStateFilter] = useState('online')
-const showingInactive = stateFilter !== 'online'
+const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'offline'>('online')
 
-<button
-  type="button"
-  aria-pressed={showingInactive}
-  onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
->
-  {showingInactive ? '隐藏非在线设备' : '显示非在线设备'}
+<button type="button" aria-label="筛选在线状态" aria-expanded={filterOpen}>
+  <span aria-hidden="true">▾</span>
 </button>
+{filterOpen ? <FilterOptions value={visibilityFilter} onChange={setVisibilityFilter} /> : null}
 ```
 
 ## Scenario: Terminal connection column filters
@@ -52,11 +66,11 @@ const showingInactive = stateFilter !== 'online'
 
 ### 3. Contracts
 
-- Terminal mobile controls form a five-column, two-row grid. State,
-  interface, non-online, and result controls occupy the first row; refresh
-  period and manual refresh occupy the second row. The terminal search lives
-  in the topbar and may occupy its own 44px row. Every interactive control is
-  at least 44px high, and mobile-only short text keeps narrow controls readable.
+- Terminal mobile controls form one 44px row for result count, refresh period,
+  and manual refresh. The online-state filter lives beside the table header and
+  opens its popover from a 44px filter target. The terminal search lives in the
+  topbar and may occupy its own 44px row. Every interactive control is at least
+  44px high.
 - The `状态监控` group has five direct second-level items: `接口监控`,
   `终端监控`, `流量监控`, `网络服务`, and `系统运行`; it does not render
   third-level entries in the sidebar. The grouped monitor choices render as
@@ -85,8 +99,23 @@ const showingInactive = stateFilter !== 'online'
   not render on desktop or mobile. Column-local reset options are the only
   filter-clearing controls.
 - The connection table scrolls on both axes inside a viewport-bounded region;
-  its horizontal scrollbar stays at the bottom of that visible region and its
-  header cells remain sticky during internal vertical scrolling.
+  in terminal detail `连接详情`, the detail page fills the available
+  viewport below the shell padding and the table viewport takes the remaining
+  height below the summary and tabs. Lock only this mode's shell/content to
+  the viewport, keep an 8px bottom gap, and do not let the outer document grow
+  past the browser window. Its horizontal scrollbar stays at the bottom of
+  that visible region and its header cells remain sticky during internal
+  vertical scrolling. Do not cap this detail viewport with a fixed `dvh`
+  maximum.
+- The connection table's sticky header row, including `IP版本`, must sit above
+  scrolled rows and use a theme-adaptive pseudo-element mask. Keep header
+  controls above the mask; light/dark use the theme surface color, while glass
+  uses its fixed `--glass-page-background` through
+  `--connection-header-mask`, so the theme background remains visible without
+  content bleeding into the header.
+- The terminal list table uses the same sticky-header mask and remains inside a
+  viewport-bounded panel. Its vertical and horizontal overflow belong to the
+  `.terminal-table-scroll` area rather than the document.
 - The user-facing connection columns omit `publicAddress`; the field may remain
   in the API for compatibility.
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
@@ -122,7 +151,9 @@ const showingInactive = stateFilter !== 'online'
 ### 6. Tests Required
 
 - Build/lint/audit: production TypeScript build, oxlint, and dependency audit pass.
-- Browser 375px: terminal toolbar has exactly two 44px control rows, refresh value is `1000`, back target is 44px, and document width does not exceed viewport.
+- Browser 375px: terminal toolbar has one 44px control row, the online-state
+  header filter target is 44px, refresh value is `1000`, back target is 44px,
+  and document width does not exceed viewport.
 - Browser sort: first addresses demonstrate numeric ascending order including `.8` before `.10`.
 - Browser all scope: both badge families appear and the family filter removes the opposite family.
 - Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
@@ -135,9 +166,10 @@ const showingInactive = stateFilter !== 'online'
 - Browser geometry: unsorted filterable headers have a zero-width visual gap
   between sort and filter buttons; sticky headers and the native horizontal
   scrollbar remain reachable inside the bounded viewport.
-- Browser mobile: terminal toolbar has two rows; every interactive control is
-  44px high; all detail tabs fit without horizontal scrolling; no duplicate
-  connection search/clear actions render.
+- Browser mobile: terminal toolbar has one row; every interactive control is
+  44px high; the status filter opens from the table header; all detail tabs fit
+  without horizontal scrolling; no duplicate connection search/clear actions
+  render.
 
 ### 7. Wrong vs Correct
 

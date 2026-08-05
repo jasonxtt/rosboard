@@ -344,18 +344,12 @@ function normalizeInterface(item: InterfaceStatus): InterfaceStatus {
   return { ...item, category: item.category || (type === 'loopback' ? 'system' : type === 'ether' ? 'physical' : 'logical'), relations: item.relations ?? [] }
 }
 
-function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
-  const items = [
-    ['设备', summary.deviceCount],
-    ['连接', summary.connectionCount],
-    ['↑', formatBits(summary.currentUploadBps)],
-    ['↓', formatBits(summary.currentDownloadBps)],
-    ['活动累计↑', formatBytes(summary.activeUploadBytes)],
-    ['活动累计↓', formatBytes(summary.activeDownloadBytes)],
-  ]
+type MonitorSummaryItem = [string, string | number]
+
+function MonitorSummaryBar(props: { items: MonitorSummaryItem[]; ariaLabel: string }) {
   return (
-    <div className="terminal-scope-summary" aria-label="终端概览">
-      {items.map(([label, value]) => (
+    <div className="monitor-scope-summary" aria-label={props.ariaLabel}>
+      {props.items.map(([label, value]) => (
         <span key={label}>
           <small>{label}</small>
           <strong>{value}</strong>
@@ -365,8 +359,38 @@ function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary })
   )
 }
 
+function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary }) {
+  const items: MonitorSummaryItem[] = [
+    ['设备', summary.deviceCount],
+    ['连接', summary.connectionCount],
+    ['↑', formatBits(summary.currentUploadBps)],
+    ['↓', formatBits(summary.currentDownloadBps)],
+    ['活动累计↑', formatBytes(summary.activeUploadBytes)],
+    ['活动累计↓', formatBytes(summary.activeDownloadBytes)],
+  ]
+  return <MonitorSummaryBar items={items} ariaLabel="终端概览" />
+}
+
+function InterfaceScopeSummaryBar({ interfaces }: { interfaces: InterfaceStatus[] }) {
+  const physical = interfaces.filter((item) => item.category === 'physical')
+  const logical = interfaces.filter((item) => item.category === 'logical')
+  const active = interfaces.filter((item) => item.running && !item.disabled).length
+  const currentTxBps = interfaces.reduce((sum, item) => sum + item.currentTxBps, 0)
+  const currentRxBps = interfaces.reduce((sum, item) => sum + item.currentRxBps, 0)
+  const items: MonitorSummaryItem[] = [
+    ['接口', interfaces.length],
+    ['物理', physical.length],
+    ['逻辑', logical.length],
+    ['活动', `${active}/${interfaces.length}`],
+    ['↑', formatBits(currentTxBps)],
+    ['↓', formatBits(currentRxBps)],
+  ]
+  return <MonitorSummaryBar items={items} ariaLabel="接口概览" />
+}
+
 type MonitorTabOption = { value: string; label: string }
 type MonitorTabConfig = { value: string; options: MonitorTabOption[]; ariaLabel: string; onChange: (value: string) => void }
+type InterfaceCategory = 'physical' | 'logical'
 
 function MonitorPageTabs(props: MonitorTabConfig) {
   return (
@@ -540,6 +564,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() ? 'settings' : panelPreferences.landingView)
   const initialActiveView = useRef(activeView)
   const [query, setQuery] = useState('')
+  const [fleetQuery, setFleetQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [settingsError, setSettingsError] = useState<string | null>(null)
@@ -562,6 +587,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [remarkDraft, setRemarkDraft] = useState('')
   const [savingRemark, setSavingRemark] = useState(false)
   const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>(() => panelPreferences.terminalFamily)
+  const [interfaceCategory, setInterfaceCategory] = useState<InterfaceCategory>('physical')
   const [dashboardRefreshMs, setDashboardRefreshMs] = useState(() => panelPreferences.refreshMs)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [loadWindow, setLoadWindow] = useState('1h')
@@ -995,36 +1021,55 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
+  const connectionDetailMode = Boolean(detailMode && terminalTab === 'connections')
+  const terminalListMode = Boolean(activeView === 'terminals' && !detailMode)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
-  const monitorTabs: MonitorTabConfig | null = activeView === 'terminals'
+  const hideTopbarHeading = activeView === 'interfaces' || activeView === 'settings'
+  const monitorTabs: MonitorTabConfig | null = activeView === 'interfaces'
     ? {
-        value: terminalFamily,
-        ariaLabel: '终端地址族群',
-        options: [{ value: 'all', label: '全部' }, { value: 'ipv4', label: 'IPv4' }, { value: 'ipv6', label: 'IPv6' }],
-        onChange: (value) => setTerminalFamily(value as TerminalFamily),
+        value: interfaceCategory,
+        ariaLabel: '接口类型',
+        options: [{ value: 'physical', label: '物理接口' }, { value: 'logical', label: '逻辑接口' }],
+        onChange: (value) => setInterfaceCategory(value as InterfaceCategory),
       }
-    : activeView === 'protocols' || activeView === 'policies'
+    : activeView === 'terminals'
       ? {
-          value: activeView,
-          ariaLabel: '流量监控页面',
-          options: [{ value: 'protocols', label: '协议统计' }, { value: 'policies', label: '策略统计' }],
-          onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
+          value: terminalFamily,
+          ariaLabel: '终端地址族群',
+          options: [{ value: 'all', label: '全部' }, { value: 'ipv4', label: 'IPv4' }, { value: 'ipv6', label: 'IPv6' }],
+          onChange: (value) => setTerminalFamily(value as TerminalFamily),
         }
-      : activeView === 'dhcp' || activeView === 'routes'
+      : activeView === 'protocols' || activeView === 'policies'
         ? {
             value: activeView,
-            ariaLabel: '网络服务页面',
-            options: [{ value: 'dhcp', label: 'DHCP' }, { value: 'routes', label: '路由 / 分流' }],
+            ariaLabel: '流量监控页面',
+            options: [{ value: 'protocols', label: '协议统计' }, { value: 'policies', label: '策略统计' }],
             onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
           }
-        : activeView === 'resource' || activeView === 'load'
+        : activeView === 'dhcp' || activeView === 'routes'
           ? {
               value: activeView,
-              ariaLabel: '系统运行页面',
-              options: [{ value: 'resource', label: '资源监控' }, { value: 'load', label: '负载历史' }],
+              ariaLabel: '网络服务页面',
+              options: [{ value: 'dhcp', label: 'DHCP' }, { value: 'routes', label: '路由 / 分流' }],
               onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
             }
-          : null
+          : activeView === 'resource' || activeView === 'load'
+            ? {
+                value: activeView,
+                ariaLabel: '系统运行页面',
+                options: [{ value: 'resource', label: '资源监控' }, { value: 'load', label: '负载历史' }],
+                onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
+              }
+            : null
+  const topbarClassName = detailMode
+    ? 'topbar detail-topbar'
+    : activeView === 'overview'
+      ? 'topbar overview-topbar'
+      : activeView === 'fleet'
+        ? 'topbar fleet-topbar'
+        : monitorTabs
+          ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
+          : hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
@@ -1035,7 +1080,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   ]
 
   return (
-    <main className={sidebarOpen ? 'shell sidebar-open' : 'shell'}>
+    <main className={`${sidebarOpen ? 'shell sidebar-open' : 'shell'}${connectionDetailMode ? ' connection-detail-shell' : ''}`}>
       <button
         type="button"
         className="sidebar-backdrop"
@@ -1095,6 +1140,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 className={activeView === 'interfaces' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
                   setActiveView('interfaces')
+                  setInterfaceCategory('physical')
                   setSelectedTerminalID(null)
                   setSidebarOpen(false)
                 }}
@@ -1168,8 +1214,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         </div>
       </aside>
 
-      <section className="content">
-        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : monitorTabs ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar' : 'topbar'}>
+      <section className={connectionDetailMode ? 'content connection-detail-content' : terminalListMode ? 'content terminal-list-content' : 'content'}>
+        <header className={topbarClassName}>
           <div className="topbar-title">
             <button
               type="button"
@@ -1182,7 +1228,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             </button>
             {monitorTabs && !detailMode ? (
               <MonitorPageTabs {...monitorTabs} />
-            ) : (
+            ) : hideTopbarHeading ? null : (
               <div>
                 <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
                 <p className="topbar-subtitle">
@@ -1196,6 +1242,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             )}
           </div>
           <div className="topbar-controls">
+            {activeView === 'interfaces' && !detailMode && dashboard ? <InterfaceScopeSummaryBar interfaces={dashboard.interfaces ?? []} /> : null}
             {activeView === 'terminals' && !detailMode && dashboard ? (
               <TerminalScopeSummaryBar summary={dashboard.terminalScopeSummaries?.[terminalFamily] ?? emptyTerminalScopeSummary} />
             ) : null}
@@ -1209,6 +1256,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             ) : null}
             {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
             {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
+            {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
             <div className="theme-control">
               <button
                 type="button"
@@ -1264,6 +1312,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'fleet' && fleetOverview ? (
           <FleetDashboardPage
             overview={fleetOverview}
+            query={fleetQuery}
             onOpenDevice={(deviceID, view) => {
               setSelectedDeviceID(deviceID)
               if (view === 'terminals') setTerminalFamily('all')
@@ -1279,7 +1328,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
 
         {activeView === 'interfaces' && dashboard ? (
-          <InterfacesPage interfaces={dashboard.interfaces} deviceID={selectedDeviceID} />
+          <InterfacesPage interfaces={dashboard.interfaces} deviceID={selectedDeviceID} category={interfaceCategory} />
         ) : null}
 
         {activeView === 'load' && dashboard ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
@@ -1424,6 +1473,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; username: string;
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
+	const hideTopbarHeading = section === 'interfaces'
 	const choose = (value: typeof section) => { setSection(value); setSidebarOpen(false) }
 	return <main className={sidebarOpen ? 'shell empty-device-shell sidebar-open' : 'shell empty-device-shell'}>
 		<button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
@@ -1439,7 +1489,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; username: string;
 			</nav>
 			<div className="sidebar-device-card"><label>当前设备</label><p>尚未添加 RouterOS</p></div>
 		</aside>
-		<section className="content"><header className="topbar"><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button><div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div></div></header>
+		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
 			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><div className="panel-head"><h3>维护设置</h3></div><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
@@ -2168,34 +2218,18 @@ function OverviewRangePills(props: { value: string; onChange: (value: string) =>
   return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'active' : ''} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
 }
 
-type FleetStatusFilter = 'all' | 'online' | 'offline' | 'alerting'
-type FleetSort = 'name-asc' | 'name-desc'
-
-function FleetDashboardPage(props: { overview: FleetOverview; onOpenDevice: (deviceID: string, view: ActiveView) => void }) {
-  const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all')
-  const [sort, setSort] = useState<FleetSort>('name-asc')
+function FleetDashboardPage(props: { overview: FleetOverview; query: string; onOpenDevice: (deviceID: string, view: ActiveView) => void }) {
   const [page, setPage] = useState(1)
   const pageSize = 10
   const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase()
-    return props.overview.devices
-      .filter((device) => {
-        if (statusFilter === 'online' && device.state !== 'online') return false
-        if (statusFilter === 'offline' && device.state !== 'offline') return false
-        if (statusFilter === 'alerting' && !device.alerting) return false
-        return !keyword || [device.name, device.routerName, device.boardName, device.version, device.address].join(' ').toLowerCase().includes(keyword)
-      })
-      .sort((left, right) => {
-        const comparison = left.name.localeCompare(right.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
-        return sort === 'name-asc' ? comparison : -comparison
-      })
-  }, [props.overview.devices, query, sort, statusFilter])
+    const keyword = props.query.trim().toLowerCase()
+    return props.overview.devices.filter((device) => !keyword || [device.name, device.routerName, device.boardName, device.version, device.address].join(' ').toLowerCase().includes(keyword))
+  }, [props.overview.devices, props.query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const currentPage = Math.min(page, pageCount)
   const devices = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-  useEffect(() => setPage(1), [query, sort, statusFilter])
+  useEffect(() => setPage(1), [props.query])
 
   const summaries: Array<{ label: string; value: number; tone: string; icon: IconName }> = [
     { label: '全部设备', value: props.overview.totalDevices, tone: 'blue', icon: 'router' },
@@ -2207,13 +2241,6 @@ function FleetDashboardPage(props: { overview: FleetOverview; onOpenDevice: (dev
   return <div className="fleet-dashboard">
     <section className="fleet-summary-grid">
       {summaries.map((summary) => <article className={`fleet-summary fleet-summary-${summary.tone}`} key={summary.label}><span><Icon name={summary.icon} /></span><div><small>{summary.label}</small><strong>{summary.value}<em>台</em></strong></div></article>)}
-    </section>
-
-    <section className="fleet-toolbar">
-      <label className="fleet-search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /></label>
-      <span className="toolbar-spacer" />
-      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as FleetStatusFilter)} aria-label="设备状态筛选"><option value="all">全部状态</option><option value="online">在线设备</option><option value="offline">离线设备</option><option value="alerting">告警设备</option></select>
-      <select value={sort} onChange={(event) => setSort(event.target.value as FleetSort)} aria-label="设备排序"><option value="name-asc">按名称排序</option><option value="name-desc">按名称倒序</option></select>
     </section>
 
     <FleetOverviewList devices={devices} onOpenDevice={props.onOpenDevice} />
@@ -2457,7 +2484,7 @@ function StatusText(props: { ok: boolean; trueText: string; falseText: string })
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0 }
 function maximum(values: number[]) { return values.length ? Math.max(...values) : 0 }
 
-function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string }) {
+function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string; category: InterfaceCategory }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<InterfaceDetail | null>(null)
   useEffect(() => {
@@ -2474,12 +2501,16 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
     const timer = window.setInterval(() => load().catch(() => undefined), 5000)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [selected, props.deviceID])
+  useEffect(() => setSelected(null), [props.category])
   const physical = props.interfaces.filter((item) => item.category === 'physical').sort((left, right) => {
     const rank = (item: InterfaceStatus) => item.disabled ? 2 : item.running ? 1 : 0
     return rank(left) - rank(right) || left.name.localeCompare(right.name, 'zh-CN', { numeric: true })
   })
   const logical = props.interfaces.filter((item) => item.category === 'logical').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
   const system = props.interfaces.filter((item) => item.category === 'system').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
+  const selectedItems = props.category === 'physical' ? physical : logical
+  const selectedLabel = props.category === 'physical' ? '物理接口' : '逻辑接口'
+  const selectedActiveCount = selectedItems.filter((item) => item.running && !item.disabled).length
   const interfaceState = (item: InterfaceStatus) => item.disabled ? '已禁用' : item.running ? (item.category === 'physical' ? '在线' : '运行中') : 'Down'
   const relationLabel = (kind: InterfaceStatus['relations'][number]['kind']) => ({ carrier: '承载接口', parent: '父接口', bridge: '所属 Bridge', member: '成员接口' })[kind] ?? kind
   const table = (items: InterfaceStatus[]) => <div className="table-scroll">
@@ -2497,10 +2528,9 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
     </table>
   </div>
   return (
-    <div className="page-grid">
+    <div className="page-grid monitor-page">
     {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={interfaceState(detail.interface)} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
-    <section className="panel compact-panel interface-section"><div className="panel-head"><h3>物理接口</h3><span>{physical.length} 个 · Down {physical.filter((item) => !item.disabled && !item.running).length}</span></div>{table(physical)}</section>
-    <section className="panel compact-panel interface-section"><div className="panel-head"><h3>逻辑接口</h3><span>{logical.length} 个</span></div>{table(logical)}</section>
+    <section className="panel compact-panel interface-section"><div className="data-toolbar interface-toolbar"><strong>{selectedLabel}</strong><span className="result-count">{selectedItems.length} 个 · 活动 {selectedActiveCount}</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>{table(selectedItems)}</section>
     {system.length ? <details className="panel compact-panel interface-system-section"><summary>系统接口 <span>{system.length} 个</span></summary>{table(system)}</details> : null}
     </div>
   )
@@ -2707,25 +2737,23 @@ function DHCPPage(props: { dhcp: DHCPStat }) {
   const leaseStatusClass = (item: DHCPStat['leases'][number]) => item.blocked || item.disabled ? 'lease-status blocked' : item.status === 'bound' ? 'lease-status bound' : 'lease-status waiting'
   return (
     <div className="page-grid">
-      <section className="dhcp-server-grid">
-        {props.dhcp.servers.length ? props.dhcp.servers.map((item) => {
-          const pool = item.addressPool ? poolsByName.get(item.addressPool) : undefined
-          return <div key={item.name} className="panel dhcp-server-card">
-            <h4>{item.name}</h4>
-            <div className="dhcp-server-meta">
-              <div><span>接口</span><strong>{item.interface || '-'}</strong></div>
-              <div><span>Lease 时长</span><strong>{item.leaseTime || '-'}</strong></div>
-              <div><span>状态</span><strong className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</strong></div>
-            </div>
-            <div className="dhcp-server-pool">
-              <div className="dhcp-server-pool-name"><span>地址池</span><strong>{item.addressPool || '-'}</strong></div>
-              {pool ? <div className="dhcp-server-pool-stats">
-                <div><span>IP 地址范围</span><strong>{pool.ranges || '-'}</strong></div>
-                <div><span>使用情况</span><strong>{pool.used} / {pool.total || '-'}{pool.total ? `（${pool.usedPercent.toFixed(1)}%）` : ''}</strong></div>
-              </div> : null}
-            </div>
-          </div>
-        }) : <div className="panel dhcp-server-card"><span>没有 DHCP Server 配置</span></div>}
+      <section className="panel compact-panel dhcp-server-list">
+        <div className="data-toolbar"><strong>DHCP Server</strong><span className="toolbar-spacer" /><span>{props.dhcp.servers.length} 个</span></div>
+        <div className="dhcp-server-grid" role="list" aria-label="DHCP Server 列表">
+          {props.dhcp.servers.length ? props.dhcp.servers.map((item) => {
+            const pool = item.addressPool ? poolsByName.get(item.addressPool) : undefined
+            const usagePercent = pool && Number.isFinite(pool.usedPercent) ? Math.max(0, Math.min(100, pool.usedPercent)) : 0
+            return <article key={item.name} className="dhcp-server-card" role="listitem">
+              <div className="dhcp-server-name"><span>Server</span><strong>{item.name}</strong></div>
+              <div className="dhcp-server-field dhcp-server-interface"><span>接口</span><strong>{item.interface || '-'}</strong></div>
+              <div className="dhcp-server-field dhcp-server-pool"><span>地址池</span><strong>{item.addressPool || '-'}</strong></div>
+              <div className="dhcp-server-field dhcp-server-range"><span>IP 地址范围</span><strong>{pool?.ranges || '-'}</strong></div>
+              <div className="dhcp-server-field dhcp-server-lease"><span>Lease 时长</span><strong>{item.leaseTime || '-'}</strong></div>
+              <div className="dhcp-server-usage"><span>地址使用</span><strong>{pool ? `${pool.used} / ${pool.total || '-'}` : '-'}</strong>{pool?.total ? <><div className="dhcp-usage-bar" aria-label={`地址池已使用 ${pool.usedPercent.toFixed(1)}%`}><i style={{ width: `${usagePercent}%` }} /></div><small>{pool.usedPercent.toFixed(1)}% 已用</small></> : null}</div>
+              <div className="dhcp-server-field dhcp-server-status"><span>状态</span><strong className={item.disabled || item.invalid ? 'server-bad' : 'server-ok'}>{item.disabled ? '已禁用' : item.invalid ? '配置无效' : '运行中'}</strong></div>
+            </article>
+          }) : <div className="dhcp-server-card dhcp-server-empty"><span>没有 DHCP Server 配置</span></div>}
+        </div>
       </section>
       <section className="panel compact-panel">
         <div className="data-toolbar">
@@ -2817,6 +2845,8 @@ function RoutesPage(props: { routes: RouteStat[] }) {
   )
 }
 
+type TerminalVisibilityFilter = 'online' | 'all' | 'offline'
+
 function TerminalsPage(props: {
   terminals: Terminal[]
   family: TerminalFamily
@@ -2829,27 +2859,61 @@ function TerminalsPage(props: {
 }) {
   const [sortKey, setSortKey] = useState<TerminalSortKey>('address')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [stateFilter, setStateFilter] = useState('online')
-  const [interfaceFilter, setInterfaceFilter] = useState('all')
+  const [visibilityFilter, setVisibilityFilter] = useState<TerminalVisibilityFilter>('online')
+  const [visibilityFilterOpen, setVisibilityFilterOpen] = useState(false)
+  const [visibilityFilterPosition, setVisibilityFilterPosition] = useState({ left: 8, top: 64 })
+  const visibilityFilterButtonRef = useRef<HTMLButtonElement>(null)
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
-  const interfaces = useMemo(() => Array.from(new Set(props.terminals.map((item) => item.primaryInterface).filter(Boolean))).sort(), [props.terminals])
   const sorted = useMemo(() => {
-    const visible = props.terminals.filter((terminal) =>
-      (stateFilter === 'all' || terminal.state === stateFilter) &&
-      (interfaceFilter === 'all' || terminal.primaryInterface === interfaceFilter),
-    )
+    const visible = props.terminals.filter((terminal) => visibilityFilter === 'all' || (visibilityFilter === 'online' ? terminal.state === 'online' : terminal.state !== 'online'))
     return [...visible].sort((left, right) => {
       const comparison = compareTerminal(left, right, sortKey, props.family)
       return sortDirection === 'asc' ? comparison : -comparison
     })
-  }, [props.terminals, props.family, stateFilter, interfaceFilter, sortKey, sortDirection])
+  }, [props.terminals, props.family, visibilityFilter, sortKey, sortDirection])
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const rows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const showingInactive = stateFilter !== 'online'
 
-  useEffect(() => setPage(1), [props.query, stateFilter, interfaceFilter, pageSize])
+  useEffect(() => setPage(1), [props.query, visibilityFilter, pageSize])
+
+  useEffect(() => {
+    if (!visibilityFilterOpen) return undefined
+    const closeOnOutsidePointer = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.terminal-visibility-filter, .terminal-visibility-filter-panel')) return
+      setVisibilityFilterOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setVisibilityFilterOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [visibilityFilterOpen])
+
+  const openVisibilityFilter = (anchor: HTMLElement) => {
+    const shell = anchor.closest<HTMLElement>('.terminal-list-panel')
+    if (shell) {
+      const shellRect = shell.getBoundingClientRect()
+      const anchorRect = anchor.getBoundingClientRect()
+      const panelWidth = 220
+      setVisibilityFilterPosition({
+        left: Math.max(8, Math.min(anchorRect.left - shellRect.left, shellRect.width - panelWidth - 8)),
+        top: anchorRect.bottom - shellRect.top + 4,
+      })
+    }
+    setVisibilityFilterOpen((value) => !value)
+  }
+
+  const chooseVisibilityFilter = (value: string) => {
+    setVisibilityFilter(value as TerminalVisibilityFilter)
+    setVisibilityFilterOpen(false)
+  }
 
   const changeSort = (key: TerminalSortKey) => {
     if (sortKey === key) setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')
@@ -2860,23 +2924,8 @@ function TerminalsPage(props: {
   }
 
   return (
-    <section className="panel compact-panel">
+    <section className="panel compact-panel terminal-list-panel">
       <div className="data-toolbar terminal-toolbar">
-        <select className="terminal-state-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="终端状态">
-          <option value="all">全部状态</option><option value="online">在线</option><option value="inactive">近期未活跃</option><option value="offline">离线</option>
-        </select>
-        <select className="terminal-interface-filter" value={interfaceFilter} onChange={(event) => setInterfaceFilter(event.target.value)} aria-label="接入接口">
-          <option value="all">全部接口</option>{interfaces.map((name) => <option key={name} value={name}>{name}</option>)}
-        </select>
-        <button
-          type="button"
-          className={showingInactive ? 'toolbar-button terminal-presence-toggle active' : 'toolbar-button terminal-presence-toggle'}
-          aria-pressed={showingInactive}
-          onClick={() => setStateFilter(showingInactive ? 'online' : 'all')}
-        >
-          <span className="presence-label-full">{showingInactive ? '隐藏非在线设备' : '显示非在线设备'}</span>
-          <span className="presence-label-mobile">{showingInactive ? '只看在线' : '非在线'}</span>
-        </button>
         <span className="toolbar-spacer" />
         <span className="result-count">共 {sorted.length} 台</span>
         <select className="terminal-refresh-select" value={props.refreshMs} onChange={(event) => props.onRefreshMsChange(Number(event.target.value))} aria-label="自动刷新">
@@ -2885,7 +2934,7 @@ function TerminalsPage(props: {
         <button type="button" className="toolbar-button terminal-refresh-button" onClick={props.onRefresh}>刷新</button>
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll terminal-table-scroll">
         <table className="data-table terminal-table">
           <thead><tr>
             <SortHeader label="设备名称" sortKey="device" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
@@ -2895,9 +2944,28 @@ function TerminalsPage(props: {
             <SortHeader label="下行速率" sortKey="download" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label={props.family === 'all' ? '累计上行' : '活动累计上行'} sortKey="totalUpload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label={props.family === 'all' ? '累计下行' : '活动累计下行'} sortKey="totalDownload" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+            <th>
+              <div className="connection-header-controls terminal-status-header">
+                <span>在线状态</span>
+                <span className="terminal-visibility-filter">
+                  <button
+                    ref={visibilityFilterButtonRef}
+                    type="button"
+                    className={visibilityFilter !== 'online' ? 'column-filter-button active' : 'column-filter-button'}
+                    aria-label="筛选在线状态"
+                    aria-pressed={visibilityFilter !== 'online'}
+                    aria-expanded={visibilityFilterOpen}
+                    aria-controls={visibilityFilterOpen ? 'terminal-visibility-filter' : undefined}
+                    onClick={(event) => openVisibilityFilter(event.currentTarget)}
+                  >
+                    <span aria-hidden="true">▾</span>
+                  </button>
+                </span>
+              </div>
+            </th>
             <SortHeader label="在线时长" sortKey="online" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <SortHeader label="备注" sortKey="remark" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <th>操作</th>
+            <th><span>操作</span></th>
           </tr></thead>
           <tbody>
             {rows.map((terminal) => {
@@ -2912,7 +2980,8 @@ function TerminalsPage(props: {
                 </button></td>
                 <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
-                <td><span className={`state-dot state-${terminal.state}`} />{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : terminalStateText(terminal.state)}</td>
+                <td><span className={`terminal-state-badge ${terminal.state}`}><span className={`state-dot state-${terminal.state}`} />{terminalStateText(terminal.state)}</span></td>
+                <td>{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : '-'}</td>
                 <td>{terminal.remark || '-'}</td>
                 <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>编辑</button></div></td>
               </tr>
@@ -2920,6 +2989,16 @@ function TerminalsPage(props: {
           </tbody>
         </table>
       </div>
+      {visibilityFilterOpen ? (
+        <div id="terminal-visibility-filter" className="connection-filter-panel terminal-visibility-filter-panel" role="dialog" aria-label="终端显示范围" style={{ left: visibilityFilterPosition.left, top: visibilityFilterPosition.top }}>
+          <div className="connection-filter-panel-head"><strong>终端显示范围</strong><button type="button" className="link-button" onClick={() => setVisibilityFilterOpen(false)}>关闭</button></div>
+          <ConnectionFilterOptions
+            value={visibilityFilter}
+            options={[{ value: 'online', label: '在线设备' }, { value: 'all', label: '全部设备' }, { value: 'offline', label: '显示离线设备（含未活跃）' }]}
+            onChange={chooseVisibilityFilter}
+          />
+        </div>
+      ) : null}
       <div className="pagination">
         <span>每页</span><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
         <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
@@ -3162,7 +3241,7 @@ function TerminalDetailPage(props: {
   const connectionTable = useConnectionTableState({ connections: props.detail.connections, scope: props.scope, family: props.connectionFamily, onFamilyChange: props.onConnectionFamilyChange, showStatus: isRouterConntrack })
 
   return (
-    <section className="detail-page">
+    <section className={props.activeTab === 'connections' ? 'detail-page detail-page-connections' : 'detail-page'}>
       <div className="detail-page-head">
         <div className="detail-identity">
           <h3>{summary.displayName}</h3>
@@ -3191,7 +3270,7 @@ function TerminalDetailPage(props: {
         {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
       </div>
 
-      <section className="panel detail-panel">
+      <section className={props.activeTab === 'connections' ? 'panel detail-panel detail-panel-connections' : 'panel detail-panel'}>
         {props.activeTab === 'basic' ? (
           <div className="detail-grid">
             <DetailItem label="设备名称" value={summary.displayName} />
