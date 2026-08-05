@@ -1745,3 +1745,36 @@ Reworked the fleet dashboard into a reference-aligned list-only layout, refined 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 52: Add MosDNS DNS application recognition
+
+**Date**: 2026-08-05
+**Task**: Add MosDNS DNS application recognition
+**Branch**: `main`
+
+### Summary
+
+完成 MosDNS 只读 DNS 日志同步、长期 IP 域名特征库、公开域名规则加载、协议与终端连接应用识别、可配置设置，并完成部署与人工验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4dc7a08` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
