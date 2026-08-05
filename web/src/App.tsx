@@ -365,6 +365,28 @@ function TerminalScopeSummaryBar({ summary }: { summary: TerminalScopeSummary })
   )
 }
 
+type MonitorTabOption = { value: string; label: string }
+type MonitorTabConfig = { value: string; options: MonitorTabOption[]; ariaLabel: string; onChange: (value: string) => void }
+
+function MonitorPageTabs(props: MonitorTabConfig) {
+  return (
+    <div className="monitor-page-tabs" role="tablist" aria-label={props.ariaLabel}>
+      {props.options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="tab"
+          aria-selected={props.value === option.value}
+          className={props.value === option.value ? 'active' : ''}
+          onClick={() => props.onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function Icon(props: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
     overview: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
@@ -553,7 +575,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [statusExpanded, setStatusExpanded] = useState(false)
   const [settingsExpanded, setSettingsExpanded] = useState(false)
-  const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'services' | 'runtime' | null>(null)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
 
@@ -723,10 +744,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   useEffect(() => {
     if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings') return
     setStatusExpanded(true)
-    if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
-    if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
-    if (activeView === 'dhcp' || activeView === 'routes') setExpandedMonitorGroup('services')
-    if (activeView === 'load' || activeView === 'resource') setExpandedMonitorGroup('runtime')
   }, [activeView])
 
   useEffect(() => {
@@ -979,6 +996,35 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
+  const monitorTabs: MonitorTabConfig | null = activeView === 'terminals'
+    ? {
+        value: terminalFamily,
+        ariaLabel: '终端地址族群',
+        options: [{ value: 'all', label: '全部' }, { value: 'ipv4', label: 'IPv4' }, { value: 'ipv6', label: 'IPv6' }],
+        onChange: (value) => setTerminalFamily(value as TerminalFamily),
+      }
+    : activeView === 'protocols' || activeView === 'policies'
+      ? {
+          value: activeView,
+          ariaLabel: '流量监控页面',
+          options: [{ value: 'protocols', label: '协议统计' }, { value: 'policies', label: '策略统计' }],
+          onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
+        }
+      : activeView === 'dhcp' || activeView === 'routes'
+        ? {
+            value: activeView,
+            ariaLabel: '网络服务页面',
+            options: [{ value: 'dhcp', label: 'DHCP' }, { value: 'routes', label: '路由 / 分流' }],
+            onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
+          }
+        : activeView === 'resource' || activeView === 'load'
+          ? {
+              value: activeView,
+              ariaLabel: '系统运行页面',
+              options: [{ value: 'resource', label: '资源监控' }, { value: 'load', label: '负载历史' }],
+              onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
+            }
+          : null
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
@@ -1057,14 +1103,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               </button>
               <button
                 type="button"
-                className="submenu-section submenu-toggle"
-                aria-expanded={expandedMonitorGroup === 'terminals'}
+                className={activeView === 'terminals' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
-                  if (expandedMonitorGroup === 'terminals') {
-                    setExpandedMonitorGroup(null)
-                    return
-                  }
-                  setExpandedMonitorGroup('terminals')
                   setActiveView('terminals')
                   setTerminalFamily('all')
                   setSelectedTerminalID(null)
@@ -1073,36 +1113,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               >
                 <NavLabel icon="terminal" label="终端监控" />
               </button>
-              {expandedMonitorGroup === 'terminals' ? (['all', 'ipv4', 'ipv6'] as TerminalFamily[]).map((family) => (
-                <button
-                  key={family}
-                  type="button"
-                  className={activeView === 'terminals' && terminalFamily === family ? 'submenu-item nested active' : 'submenu-item nested'}
-                  onClick={() => {
-                    setActiveView('terminals')
-                    setTerminalFamily(family)
-                    setSelectedTerminalID(null)
-                    setSidebarOpen(false)
-                  }}
-                >
-                  <NavLabel icon="terminal" label={family === 'all' ? '全部终端' : family.toUpperCase()} />
-                </button>
-              )) : null}
-              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'traffic'} onClick={() => setExpandedMonitorGroup((value) => value === 'traffic' ? null : 'traffic')}><NavLabel icon="traffic" label="流量监控" /></button>
-              {expandedMonitorGroup === 'traffic' ? <>
-                <button type="button" className={activeView === 'protocols' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="协议统计" /></button>
-                <button type="button" className={activeView === 'policies' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="policy" label="策略统计" /></button>
-              </> : null}
-              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'services'} onClick={() => setExpandedMonitorGroup((value) => value === 'services' ? null : 'services')}><NavLabel icon="network" label="网络服务" /></button>
-              {expandedMonitorGroup === 'services' ? <>
-                <button type="button" className={activeView === 'dhcp' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="router" label="DHCP" /></button>
-                <button type="button" className={activeView === 'routes' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('routes'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="route" label="路由 / 分流" /></button>
-              </> : null}
-              <button type="button" className="submenu-section submenu-toggle" aria-expanded={expandedMonitorGroup === 'runtime'} onClick={() => setExpandedMonitorGroup((value) => value === 'runtime' ? null : 'runtime')}><NavLabel icon="runtime" label="系统运行" /></button>
-              {expandedMonitorGroup === 'runtime' ? <>
-                <button type="button" className={activeView === 'resource' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="cpu" label="资源监控" /></button>
-                <button type="button" className={activeView === 'load' ? 'submenu-item nested active' : 'submenu-item nested'} onClick={() => { setActiveView('load'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="负载历史" /></button>
-              </> : null}
+              <button type="button" className={activeView === 'protocols' || activeView === 'policies' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
+              <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
+              <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
             </div> : null}
           </div>
 
@@ -1156,7 +1169,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       </aside>
 
       <section className="content">
-        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : activeView === 'terminals' ? 'topbar terminal-topbar' : 'topbar'}>
+        <header className={detailMode ? 'topbar detail-topbar' : activeView === 'overview' ? 'topbar overview-topbar' : monitorTabs ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar' : 'topbar'}>
           <div className="topbar-title">
             <button
               type="button"
@@ -1167,16 +1180,20 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             >
               <span />
             </button>
-            <div>
-              <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
-              <p className="topbar-subtitle">
-                {detailMode
-                  ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
-                  : activeView === 'fleet'
-                    ? '多设备运行概览'
-                    : `系统正常 · 更新于 ${formatDateTime(dashboard?.overview.updatedAt ?? '')}`}
-              </p>
-            </div>
+            {monitorTabs && !detailMode ? (
+              <MonitorPageTabs {...monitorTabs} />
+            ) : (
+              <div>
+                <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
+                <p className="topbar-subtitle">
+                  {detailMode
+                    ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
+                    : activeView === 'fleet'
+                      ? '多设备运行概览'
+                      : `系统正常 · 更新于 ${formatDateTime(dashboard?.overview.updatedAt ?? '')}`}
+                </p>
+              </div>
+            )}
           </div>
           <div className="topbar-controls">
             {activeView === 'terminals' && !detailMode && dashboard ? (
@@ -1191,6 +1208,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i />{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span>
             ) : null}
             {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
+            {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
             <div className="theme-control">
               <button
                 type="button"
@@ -1319,7 +1337,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             terminals={filteredTerminals}
             family={terminalFamily}
             query={query}
-            onQueryChange={setQuery}
             refreshMs={dashboardRefreshMs}
             onRefreshMsChange={setDashboardRefreshMs}
             onRefresh={() => setRefreshNonce((value) => value + 1)}
@@ -2804,7 +2821,6 @@ function TerminalsPage(props: {
   terminals: Terminal[]
   family: TerminalFamily
   query: string
-  onQueryChange: (value: string) => void
   refreshMs: number
   onRefreshMsChange: (value: number) => void
   onRefresh: () => void
@@ -2846,7 +2862,6 @@ function TerminalsPage(props: {
   return (
     <section className="panel compact-panel">
       <div className="data-toolbar terminal-toolbar">
-        <input className="search-input" value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="备注 / 名称 / IP / MAC" />
         <select className="terminal-state-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="终端状态">
           <option value="all">全部状态</option><option value="online">在线</option><option value="inactive">近期未活跃</option><option value="offline">离线</option>
         </select>

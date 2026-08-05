@@ -52,11 +52,19 @@ const showingInactive = stateFilter !== 'online'
 
 ### 3. Contracts
 
-- Terminal mobile controls form a five-column, two-row grid. Search spans the first four columns and the result count occupies the fifth; state, interface, non-online, refresh-period, and manual-refresh controls occupy the second row. Every interactive control is exactly 44px high, and mobile-only short text keeps narrow controls readable.
-- Clicking the collapsed second-level `终端监控` sidebar item opens the
-  all-terminal list and exposes `全部终端` / `IPv4` / `IPv6`. Clicking it again
-  collapses only the disclosure; it must preserve the active family and any
-  selected terminal detail.
+- Terminal mobile controls form a five-column, two-row grid. State,
+  interface, non-online, and result controls occupy the first row; refresh
+  period and manual refresh occupy the second row. The terminal search lives
+  in the topbar and may occupy its own 44px row. Every interactive control is
+  at least 44px high, and mobile-only short text keeps narrow controls readable.
+- The `状态监控` group has five direct second-level items: `接口监控`,
+  `终端监控`, `流量监控`, `网络服务`, and `系统运行`; it does not render
+  third-level entries in the sidebar. The grouped monitor choices render as
+  topbar page tabs: `全部` / `IPv4` / `IPv6`, `协议统计` / `策略统计`,
+  `DHCP` / `路由 / 分流`, and `资源监控` / `负载历史` respectively.
+- Clicking `终端监控` opens the all-terminal list with `全部` selected;
+  clicking the other group items opens their first page tab. Tab buttons use
+  native controls with `role="tab"` and `aria-selected`.
 - Detail scope is applied before any user filter. `all` may show IPv4 and IPv6; `ipv4` can only produce IPv4 rows; `ipv6` can only produce IPv6 rows.
 - Connection table column 1 is an explicit textual IPv4/IPv6 badge. Only `all` scope exposes an IP-version filter control.
 - Family, application, protocol, source IP, source port, destination endpoint,
@@ -84,7 +92,8 @@ const showingInactive = stateFilter !== 'online'
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
 - Mobile detail tabs use a fixed three- or four-column grid with no extra
   connection-action column and no horizontal scrolling.
-- Second-level monitor group toggles use the same 12px typography and visual weight as the line-monitor item.
+- Second-level monitor items use the same 12px typography and visual weight as
+  the interface-monitor item.
 
 ### 4. Validation & Error Matrix
 
