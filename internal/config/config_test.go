@@ -21,6 +21,12 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if cfg.RealtimePollIntervalSeconds != 1 || cfg.TerminalPollIntervalSeconds != 5 || cfg.PollIntervalSeconds != 10 {
 		t.Fatalf("unexpected polling defaults: realtime=%d terminal=%d full=%d", cfg.RealtimePollIntervalSeconds, cfg.TerminalPollIntervalSeconds, cfg.PollIntervalSeconds)
 	}
+	if !cfg.MosDNS.Enabled || cfg.MosDNS.BaseURL != "http://10.0.0.3" || cfg.MosDNS.SyncIntervalMinutes != 30 {
+		t.Fatalf("unexpected MosDNS defaults: %#v", cfg.MosDNS)
+	}
+	if !cfg.FeatureLibrary.Enabled || cfg.FeatureLibrary.SourceURL == "" || cfg.FeatureLibrary.RefreshIntervalHours != 168 || cfg.FeatureLibrary.MatchWindowMinutes != 30 {
+		t.Fatalf("unexpected feature library defaults: %#v", cfg.FeatureLibrary)
+	}
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
 		t.Fatalf("legacy routeros config was not normalized: %#v", cfg.Devices)
 	}
@@ -132,5 +138,28 @@ func TestValidateRejectsNonPositiveTieredPollingIntervals(t *testing.T) {
 	cfg.TerminalPollIntervalSeconds = 0
 	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "terminal_poll_interval_seconds") {
 		t.Fatalf("expected terminal interval validation error, got %v", err)
+	}
+}
+
+func TestLoadCanDisableMosDNSAndRejectsInvalidEnabledInterval(t *testing.T) {
+	directory := t.TempDir()
+	disabledPath := filepath.Join(directory, "disabled.yaml")
+	if err := os.WriteFile(disabledPath, []byte("mosdns:\n  enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(disabledPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MosDNS.Configured() {
+		t.Fatalf("MosDNS should be disabled: %#v", cfg.MosDNS)
+	}
+
+	invalidPath := filepath.Join(directory, "invalid.yaml")
+	if err := os.WriteFile(invalidPath, []byte("mosdns:\n  sync_interval_minutes: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(invalidPath); err == nil || !strings.Contains(err.Error(), "mosdns.sync_interval_minutes") {
+		t.Fatalf("expected invalid MosDNS interval error, got %v", err)
 	}
 }

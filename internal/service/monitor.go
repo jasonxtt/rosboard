@@ -21,11 +21,12 @@ import (
 )
 
 type Monitor struct {
-	cfg    config.Config
-	client *routeros.Client
-	store  *store.Store
-	logger *log.Logger
-	phase  time.Duration
+	cfg                 config.Config
+	client              *routeros.Client
+	store               *store.Store
+	logger              *log.Logger
+	phase               time.Duration
+	applicationResolver *ApplicationResolver
 
 	refreshMu         sync.Mutex
 	metadataMu        sync.Mutex
@@ -71,6 +72,10 @@ func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, 
 		backgroundWake:   make(chan struct{}, 1),
 		terminalRateWake: make(chan struct{}, 1),
 	}
+}
+
+func (m *Monitor) SetApplicationResolver(resolver *ApplicationResolver) {
+	m.applicationResolver = resolver
 }
 
 func (m *Monitor) ViewerHeartbeat() time.Time {
@@ -454,7 +459,7 @@ func (m *Monitor) refreshTerminalRates(ctx context.Context) error {
 	}
 
 	ratesUpdatedAt := time.Now().UTC()
-	refreshTerminalRateProjection(details, scopeNetworks(scope), routerAddresses, m.currentRouteMatcher(), connectionsV4, connectionsV6, ratesUpdatedAt)
+	refreshTerminalRateProjection(pollCtx, details, scopeNetworks(scope), routerAddresses, m.currentRouteMatcher(), connectionsV4, connectionsV6, ratesUpdatedAt, m.applicationResolver)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -522,7 +527,7 @@ func cloneFamilyFlows(flows map[string][]model.TerminalFlowCategory) map[string]
 	return result
 }
 
-func refreshTerminalRateProjection(details map[string]model.TerminalDetail, localCIDRs []*net.IPNet, routerAddresses map[string]routerAssignedAddress, routeLookup routeMatcher, connectionsV4, connectionsV6 []routeros.FirewallConnection, ratesUpdatedAt time.Time) {
+func refreshTerminalRateProjection(ctx context.Context, details map[string]model.TerminalDetail, localCIDRs []*net.IPNet, routerAddresses map[string]routerAssignedAddress, routeLookup routeMatcher, connectionsV4, connectionsV6 []routeros.FirewallConnection, ratesUpdatedAt time.Time, resolver *ApplicationResolver) {
 	terminalByAddress := map[string]string{}
 	for id, detail := range details {
 		for _, address := range detail.Terminal.IPv4 {
@@ -546,7 +551,7 @@ func refreshTerminalRateProjection(details map[string]model.TerminalDetail, loca
 			if _, ok := details[terminalID]; !ok {
 				continue
 			}
-			connectionsByTerminal[terminalID] = append(connectionsByTerminal[terminalID], terminalConnectionRow(family, connection, view, routeLookup, details[terminalID].Terminal.PrimaryInterface))
+			connectionsByTerminal[terminalID] = append(connectionsByTerminal[terminalID], terminalConnectionRow(ctx, resolver, ratesUpdatedAt, family, connection, view, routeLookup, details[terminalID].Terminal.PrimaryInterface))
 		}
 	}
 	applyConnections("ipv4", connectionsV4)
@@ -582,12 +587,13 @@ func refreshTerminalRateProjection(details map[string]model.TerminalDetail, loca
 	}
 }
 
-func terminalConnectionRow(family string, connection routeros.FirewallConnection, view connectionView, routeLookup routeMatcher, primaryInterface string) model.TerminalConnection {
+func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, at time.Time, family string, connection routeros.FirewallConnection, view connectionView, routeLookup routeMatcher, primaryInterface string) model.TerminalConnection {
 	attribution := routeLookup.match(family, view.LocalAddress, remoteAddress(connection, view.LocalAddress), primaryInterface, connection.RoutingMark)
-	return model.TerminalConnection{
+	row := model.TerminalConnection{
 		Key: firewallConnectionKey(family, connection), Family: family,
-		Application: classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort),
-		Protocol:    strings.ToLower(connection.Protocol), Line: "未知",
+		Application:       classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort),
+		ApplicationSource: "port",
+		Protocol:          strings.ToLower(connection.Protocol), Line: "未知",
 		SourceAddress: connection.SrcAddress, SourcePort: connection.SrcPort,
 		DestinationAddress: connection.DstAddress, DestinationPort: connection.DstPort,
 		UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes,
@@ -599,6 +605,15 @@ func terminalConnectionRow(family string, connection routeros.FirewallConnection
 		RouteGateways: attribution.Gateways, RouteInterfaces: attribution.RouteInterfaces, EgressInterfaces: attribution.EgressInterfaces,
 		RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State, Estimated: true,
 	}
+	if application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
+		row.MatchedDomain = domain
+		if ok {
+			row.Application = application
+			row.ApplicationSource = "dns"
+			row.Estimated = false
+		}
+	}
+	return row
 }
 
 func setTerminalRatesUpdatedAt(details map[string]model.TerminalDetail, ratesUpdatedAt time.Time) {
@@ -1425,8 +1440,14 @@ func aggregateProtocols(details map[string]model.TerminalDetail) []model.Protoco
 			name := connection.Application
 			stat := byName[name]
 			if stat == nil {
-				stat = &model.ProtocolStat{Name: name, Kind: connection.Protocol, Estimated: true}
+				source := connection.ApplicationSource
+				if source == "" {
+					source = "port"
+				}
+				stat = &model.ProtocolStat{Name: name, Kind: connection.Protocol, Estimated: connection.Estimated, Source: source}
 				byName[name] = stat
+			} else if stat.Source != connection.ApplicationSource && connection.ApplicationSource != "" {
+				stat.Source = "mixed"
 			}
 			stat.Connections++
 			stat.UploadBps += connection.UploadBps
@@ -1730,7 +1751,7 @@ func (m *Monitor) buildTerminals(
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
-			row := terminalConnectionRow(family, connection, view, routeLookup, builder.PrimaryInterface)
+			row := terminalConnectionRow(ctx, m.applicationResolver, now, family, connection, view, routeLookup, builder.PrimaryInterface)
 			connectionMap[builder.ID] = append(connectionMap[builder.ID], row)
 
 			if flowMap[builder.ID] == nil {
@@ -1740,7 +1761,7 @@ func (m *Monitor) buildTerminals(
 			if flow == nil {
 				flow = &model.TerminalFlowCategory{
 					Name:      row.Application,
-					Estimated: true,
+					Estimated: row.Estimated,
 				}
 				flowMap[builder.ID][row.Application] = flow
 			}
@@ -1944,8 +1965,10 @@ func terminalFlowCategories(connections []model.TerminalConnection, family strin
 		}
 		flow := flows[connection.Application]
 		if flow == nil {
-			flow = &model.TerminalFlowCategory{Name: connection.Application, Estimated: true}
+			flow = &model.TerminalFlowCategory{Name: connection.Application, Estimated: connection.Estimated}
 			flows[connection.Application] = flow
+		} else if !connection.Estimated {
+			flow.Estimated = false
 		}
 		flow.CurrentUploadBps += connection.UploadBps
 		flow.CurrentDownloadBps += connection.DownloadBps

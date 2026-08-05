@@ -851,7 +851,7 @@ func TestRefreshTerminalRateProjectionUpdatesOnlyCurrentConnectionData(t *testin
 		OrigBytes: "3000", ReplBytes: "4000", OrigRate: "300", ReplRate: "400", SeenReply: "true",
 	}}
 
-	refreshTerminalRateProjection(details, parseCIDRs([]string{"10.0.0.0/24", "fd00::/64"}), nil, routeMatcher{}, connectionsV4, connectionsV6, ratesUpdatedAt)
+	refreshTerminalRateProjection(context.Background(), details, parseCIDRs([]string{"10.0.0.0/24", "fd00::/64"}), nil, routeMatcher{}, connectionsV4, connectionsV6, ratesUpdatedAt, nil)
 
 	detail := details[terminal.ID]
 	if !detail.RatesUpdatedAt.Equal(ratesUpdatedAt) {
@@ -865,6 +865,9 @@ func TestRefreshTerminalRateProjectionUpdatesOnlyCurrentConnectionData(t *testin
 	}
 	if len(detail.Connections) != 2 || detail.FamilySummaries["ipv4"].CurrentDownloadBps != 200 || detail.FamilySummaries["ipv6"].CurrentUploadBps != 300 {
 		t.Fatalf("connection and family rate projection is incomplete: %#v", detail)
+	}
+	if !detail.Connections[0].Estimated || detail.Connections[0].ApplicationSource != "port" {
+		t.Fatalf("unmatched connection should retain port fallback: %#v", detail.Connections[0])
 	}
 	if len(detail.History) != 1 || detail.History[0].TotalUploadBytes != 8000 {
 		t.Fatalf("rate refresh must not alter history: %#v", detail.History)
