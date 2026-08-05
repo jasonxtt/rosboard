@@ -183,7 +183,7 @@ export type Terminal = {
 }
 
 export type CapabilityNote = { area: string; item: string; status: string; details: string }
-export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean }
+export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean; source?: string }
 export type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
 export type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
 export type RouteStat = { id: string; kind: string; family: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean; prefSrc: string; scope: string; targetScope: string; immediateGateway: string; protocol: string; comment: string; currentMatches: number }
@@ -257,6 +257,30 @@ export type SettingsResponse = {
     terminalPollIntervalSeconds: number
     sampleRetentionHours: number
   }
+  mosdns: {
+    enabled: boolean
+    baseUrl: string
+    syncIntervalMinutes: number
+    lastAttempt?: string
+    lastSuccess?: string
+    lastImported: number
+    lastDuplicates: number
+    lastSkipped: number
+    watermark?: string
+    learnedFeatureCount: number
+    learnedFeatureLastSeen?: string
+    lastError?: string
+  }
+  featureLibrary: {
+    enabled: boolean
+    sourceUrl: string
+    refreshIntervalHours: number
+    matchWindowMinutes: number
+    ruleCount: number
+    lastAttempt?: string
+    lastSuccess?: string
+    lastError?: string
+  }
   diagnostics: {
     routerName: string
     version: string
@@ -307,6 +331,8 @@ export type TerminalConnection = {
   key: string
   family: string
   application: string
+  matchedDomain?: string
+  applicationSource?: string
   protocol: string
   line: string
   sourceAddress: string

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
   compareTerminal,
@@ -51,7 +51,7 @@ import type {
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
-type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
+type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark' | 'glass'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
@@ -60,6 +60,10 @@ type CollectionDraft = {
   realtimePollIntervalSeconds: number
   terminalPollIntervalSeconds: number
   sampleRetentionHours: number
+}
+type RecognitionDraft = {
+  mosdns: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
+  featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
 }
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
@@ -233,6 +237,22 @@ function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraf
     realtimePollIntervalSeconds: settings.collection.realtimePollIntervalSeconds,
     terminalPollIntervalSeconds: settings.collection.terminalPollIntervalSeconds,
     sampleRetentionHours: settings.collection.sampleRetentionHours,
+  }
+}
+
+function recognitionDraftFromSettings(settings: SettingsResponse): RecognitionDraft {
+  return {
+    mosdns: {
+      enabled: settings.mosdns.enabled,
+      baseUrl: settings.mosdns.baseUrl,
+      syncIntervalMinutes: settings.mosdns.syncIntervalMinutes,
+    },
+    featureLibrary: {
+      enabled: settings.featureLibrary.enabled,
+      sourceUrl: settings.featureLibrary.sourceUrl,
+      refreshIntervalHours: settings.featureLibrary.refreshIntervalHours,
+      matchWindowMinutes: settings.featureLibrary.matchWindowMinutes,
+    },
   }
 }
 
@@ -496,6 +516,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() ? 'settings' : panelPreferences.landingView)
+  const initialActiveView = useRef(activeView)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
@@ -504,6 +525,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
   const [collectionSaving, setCollectionSaving] = useState(false)
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
+  const [recognitionSaving, setRecognitionSaving] = useState(false)
+  const [recognitionMessage, setRecognitionMessage] = useState<string | null>(null)
   const [restartSaving, setRestartSaving] = useState(false)
   const [restartMessage, setRestartMessage] = useState<string | null>(null)
   const [restartPending, setRestartPending] = useState(false)
@@ -528,8 +551,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [trafficWindow, setTrafficWindow] = useState(() => window.sessionStorage.getItem(trafficWindowKey) ?? '5m')
   const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [statusExpanded, setStatusExpanded] = useState(true)
-  const [settingsExpanded, setSettingsExpanded] = useState(true)
+  const [statusExpanded, setStatusExpanded] = useState(false)
+  const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [expandedMonitorGroup, setExpandedMonitorGroup] = useState<'terminals' | 'traffic' | 'services' | 'runtime' | null>(null)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
@@ -648,6 +671,23 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     }
   }
 
+  const saveRecognitionSettings = async (draft: RecognitionDraft) => {
+    setRecognitionSaving(true)
+    setRecognitionMessage(null)
+    setRestartPending(false)
+    try {
+      await postJSON('/api/settings/recognition', draft)
+      setRecognitionMessage('已保存，面板正在重启并应用识别设置，请保持此页面打开...')
+      setRestartPending(true)
+      await waitForPanelRestart(() => setRecognitionMessage('面板正在启动，恢复后将自动刷新...'))
+    } catch (saveError) {
+      setRestartPending(false)
+      setRecognitionMessage(saveError instanceof Error ? saveError.message : '识别设置保存失败')
+    } finally {
+      setRecognitionSaving(false)
+    }
+  }
+
   const restartPanel = async () => {
     setRestartSaving(true)
     setRestartMessage(null)
@@ -681,7 +721,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === 'overview' || activeView === 'settings') return
+    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings') return
     setStatusExpanded(true)
     if (activeView === 'terminals') setExpandedMonitorGroup('terminals')
     if (activeView === 'protocols' || activeView === 'policies') setExpandedMonitorGroup('traffic')
@@ -942,6 +982,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
+    { key: 'recognition', label: '识别设置', icon: 'shield' },
     { key: 'ui', label: '界面设置', icon: 'overview' },
     { key: 'account', label: '账号安全', icon: 'shield' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
@@ -1108,7 +1149,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </select>
           <dl>
             <div><dt>连接状态</dt><dd>{currentDevice?.healthy ? '采集正常' : currentDevice?.error ? '连接异常' : '等待采集'}</dd></div>
-            <div><dt>RouterOS 版本</dt><dd>{dashboard?.overview.version || currentDevice?.version || '-'}</dd></div>
+            <div><dt>ROS版本</dt><dd>{dashboard?.overview.version || currentDevice?.version || '-'}</dd></div>
             <div><dt>运行时间</dt><dd>{dashboard?.overview.uptime || '-'}</dd></div>
           </dl>
         </div>
@@ -1239,9 +1280,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             selectedDeviceID={selectedDeviceID}
             collectionSaving={collectionSaving}
             collectionMessage={collectionMessage}
+            recognitionSaving={recognitionSaving}
+            recognitionMessage={recognitionMessage}
             restartSaving={restartSaving}
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
+            onSaveRecognition={saveRecognitionSettings}
 			onDeviceSaved={refreshSettingsAfterDeviceSave}
 			username={props.username}
 			onAuthenticationChanged={props.onAuthenticationChanged}
@@ -1421,9 +1465,12 @@ function SettingsPage(props: {
   selectedDeviceID: string
   collectionSaving: boolean
   collectionMessage: string | null
+  recognitionSaving: boolean
+  recognitionMessage: string | null
   restartSaving: boolean
   restartMessage: string | null
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
+  onSaveRecognition: (draft: RecognitionDraft) => Promise<void>
   onDeviceSaved: (deviceID: string) => Promise<void>
   onSavePreferences: (preferences: PanelPreferences) => void
   onResetPreferences: () => void
@@ -1477,6 +1524,13 @@ function SettingsPage(props: {
         <section className="panel settings-panel">
           <div className="panel-head"><h3>采集设置</h3></div>
           <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
+        </section>
+      ) : null}
+
+      {props.settings && props.activeSection === 'recognition' ? (
+        <section className="panel settings-panel">
+          <div className="panel-head"><h3>识别设置</h3><span>只读读取 MosDNS，不修改 RouterOS 或 MosDNS</span></div>
+          <RecognitionSettingsForm settings={props.settings} saving={props.recognitionSaving} message={props.recognitionMessage} onSave={props.onSaveRecognition} />
         </section>
       ) : null}
 
@@ -2054,6 +2108,41 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
   </form>
 }
 
+function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: RecognitionDraft) => Promise<void> }) {
+  const [draft, setDraft] = useState<RecognitionDraft>(() => recognitionDraftFromSettings(props.settings))
+  useEffect(() => setDraft(recognitionDraftFromSettings(props.settings)), [props.settings])
+  return <form className="settings-form recognition-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
+    <fieldset className="settings-fieldset wide">
+      <legend>MosDNS DNS 日志对接</legend>
+      <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
+      <label><span>MosDNS 地址</span><input type="url" required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="http://10.0.0.3" /></label>
+      <label><span>同步周期</span><span className="number-input"><input type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <div className="settings-grid connection-runtime-grid">
+        <SettingItem label="最近导入" value={`${props.settings.mosdns.lastImported} 条`} />
+        <SettingItem label="最近去重" value={`${props.settings.mosdns.lastDuplicates} 条`} />
+        <SettingItem label="长期 IP 特征" value={`${props.settings.mosdns.learnedFeatureCount} 条`} />
+        <SettingItem label="最近学习" value={props.settings.mosdns.learnedFeatureLastSeen ? formatDateTime(props.settings.mosdns.learnedFeatureLastSeen) : '-'} />
+        <SettingItem label="当前水位" value={props.settings.mosdns.watermark ? formatDateTime(props.settings.mosdns.watermark) : '-'} />
+        <SettingItem label="运行状态" value={props.settings.mosdns.lastError ? `异常：${props.settings.mosdns.lastError}` : props.settings.mosdns.enabled ? '已启用' : '已关闭'} wide />
+      </div>
+    </fieldset>
+    <fieldset className="settings-fieldset wide">
+      <legend>协议特征库</legend>
+      <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
+      <label><span>特征库地址</span><input type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
+      <label><span>刷新周期</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
+      <label><span>DNS 匹配窗口</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <div className="settings-grid connection-runtime-grid">
+        <SettingItem label="已加载规则" value={`${props.settings.featureLibrary.ruleCount} 条`} />
+        <SettingItem label="最近成功" value={props.settings.featureLibrary.lastSuccess ? formatDateTime(props.settings.featureLibrary.lastSuccess) : '-'} />
+        <SettingItem label="运行状态" value={props.settings.featureLibrary.lastError ? `异常：${props.settings.featureLibrary.lastError}` : props.settings.featureLibrary.enabled ? '已启用' : '已关闭'} wide />
+      </div>
+    </fieldset>
+    <div className="settings-actions wide"><button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启识别服务'}</button></div>
+    {props.message ? <div className="settings-message wide" role="status">{props.message}</div> : null}
+  </form>
+}
+
 function formatSettingList(values: string[]) {
   return values.length ? values.join(' / ') : '-'
 }
@@ -2582,7 +2671,7 @@ function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
   const historyBytes = new Map<string, number>()
   history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
   const historyTotal = Array.from(historyBytes.values()).reduce((sum, value) => sum + value, 0)
-  return <section className="panel compact-panel"><div className="data-toolbar"><strong>当前连接协议分布</strong><span className="result-count">基于 RouterOS 连接跟踪与端口估算，不是 DPI</span><span className="toolbar-spacer" /><span>近 30 分钟 {history.length} 条采样</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
+  return <section className="panel compact-panel"><div className="data-toolbar"><strong>当前连接协议分布</strong><span className="result-count">基于 RouterOS 连接跟踪、DNS 和域名特征库，不是 DPI</span><span className="toolbar-spacer" /><span>近 30 分钟 {history.length} 条采样</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'dns' ? 'MosDNS + 特征库' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
 }
 
 function PolicyPage(props: { policies: PolicyStat[] }) {
@@ -3029,7 +3118,7 @@ function ConnectionTable(props: { state: ConnectionTableState; showStatus: boole
     </tr></thead><tbody>{state.visibleConnections.length ? state.visibleConnections.map((connection) => (
       <tr key={connection.key}>
         <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
-        <td>{connection.application}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
+        <td title={connection.matchedDomain || undefined}>{connection.application}{connection.matchedDomain ? <small className="connection-domain">{connection.matchedDomain}</small> : null}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
         <td>{connection.destinationAddress || '-'}</td><td>{connection.destinationPort || '-'}</td>
         <td>{formatBits(connection.uploadBps)}</td><td>{formatBits(connection.downloadBps)}</td>
         <td>{formatBytes(connection.uploadBytes)}</td><td>{formatBytes(connection.downloadBytes)}</td>

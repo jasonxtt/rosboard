@@ -82,14 +82,45 @@ type managedMonitor struct {
 }
 
 type MonitorManager struct {
-	mu     sync.RWMutex
-	items  map[string]*managedMonitor
-	order  []string
-	logger *log.Logger
+	mu             sync.RWMutex
+	items          map[string]*managedMonitor
+	order          []string
+	logger         *log.Logger
+	storage        *store.Store
+	mosdns         *MosDNSSynchronizer
+	mosdnsConfig   config.MosDNSConfig
+	mosdnsInitErr  string
+	feature        *FeatureLibrarySynchronizer
+	featureConfig  config.FeatureLibraryConfig
+	featureInitErr string
+	resolver       *ApplicationResolver
 }
 
 func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) (*MonitorManager, error) {
-	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger}
+	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage, mosdnsConfig: cfg.MosDNS, featureConfig: cfg.FeatureLibrary}
+	if cfg.MosDNS.Configured() {
+		mosdns, err := NewMosDNSSynchronizer(cfg.MosDNS, storage, logger, cfg.SampleRetentionHours)
+		if err != nil {
+			manager.mosdnsInitErr = err.Error()
+			if logger != nil {
+				logger.Printf("MosDNS sync disabled: %v", err)
+			}
+		} else {
+			manager.mosdns = mosdns
+		}
+	}
+	if cfg.FeatureLibrary.Configured() {
+		feature, err := NewFeatureLibrarySynchronizer(cfg.FeatureLibrary, cfg.DataDir, logger)
+		if err != nil {
+			manager.featureInitErr = err.Error()
+			if logger != nil {
+				logger.Printf("feature library disabled: %v", err)
+			}
+		} else {
+			manager.feature = feature
+		}
+	}
+	manager.resolver = NewApplicationResolver(storage, manager.feature, cfg.MosDNS.Configured(), cfg.FeatureLibrary.MatchWindowMinutes)
 	for _, device := range cfg.Devices {
 		if device.Archived {
 			continue
@@ -104,6 +135,7 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 				return nil, fmt.Errorf("open store for device %s: %w", device.ID, err)
 			}
 			item.monitor = NewMonitor(deviceConfig, client, deviceStore, logger)
+			item.monitor.SetApplicationResolver(manager.resolver)
 		}
 		manager.items[device.ID] = item
 		manager.order = append(manager.order, device.ID)
@@ -112,6 +144,12 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 }
 
 func (m *MonitorManager) Start(ctx context.Context) {
+	if m.mosdns != nil {
+		go m.mosdns.Start(ctx)
+	}
+	if m.feature != nil {
+		go m.feature.Start(ctx)
+	}
 	var wait sync.WaitGroup
 	m.mu.RLock()
 	items := make([]*managedMonitor, 0, len(m.items))
@@ -131,6 +169,47 @@ func (m *MonitorManager) Start(ctx context.Context) {
 		}(item)
 	}
 	wait.Wait()
+}
+
+func (m *MonitorManager) MosDNSStatus() MosDNSStatus {
+	if m == nil {
+		return MosDNSStatus{}
+	}
+	if m.mosdns != nil {
+		return m.mosdns.Status()
+	}
+	status := MosDNSStatus{
+		Enabled:             m.mosdnsConfig.Configured(),
+		BaseURL:             m.mosdnsConfig.BaseURL,
+		SyncIntervalMinutes: m.mosdnsConfig.SyncIntervalMinutes,
+		LastError:           m.mosdnsInitErr,
+	}
+	return status
+}
+
+type RecognitionStatus struct {
+	MosDNS         MosDNSStatus         `json:"mosdns"`
+	FeatureLibrary FeatureLibraryStatus `json:"featureLibrary"`
+}
+
+func (m *MonitorManager) RecognitionStatus() RecognitionStatus {
+	if m == nil {
+		return RecognitionStatus{}
+	}
+	mosStatus := m.MosDNSStatus()
+	if m.feature != nil {
+		return RecognitionStatus{MosDNS: mosStatus, FeatureLibrary: m.feature.Status()}
+	}
+	return RecognitionStatus{
+		MosDNS: mosStatus,
+		FeatureLibrary: FeatureLibraryStatus{
+			Enabled:              m.featureConfig.Configured(),
+			SourceURL:            m.featureConfig.SourceURL,
+			RefreshIntervalHours: m.featureConfig.RefreshIntervalHours,
+			MatchWindowMinutes:   m.featureConfig.MatchWindowMinutes,
+			LastError:            m.featureInitErr,
+		},
+	}
 }
 
 func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor, waitPhase bool) error {

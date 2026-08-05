@@ -140,6 +140,10 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		s.serveCollectionSettings(writer, request)
 		return
 	}
+	if request.URL.Path == "/api/settings/recognition" {
+		s.serveRecognitionSettings(writer, request)
+		return
+	}
 	if request.URL.Path == "/api/settings/restart" {
 		s.serveRestart(writer, request)
 		return
@@ -183,6 +187,68 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, s.manager.FleetOverview(time.Now()))
+		return
+	}
+	if request.URL.Path == "/api/mosdns" {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		cfg := s.configSnapshot()
+		status := service.MosDNSStatus{
+			Enabled:             cfg.MosDNS.Configured(),
+			BaseURL:             cfg.MosDNS.BaseURL,
+			SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes,
+		}
+		if s.manager != nil {
+			status = s.manager.MosDNSStatus()
+		}
+		writeJSON(writer, http.StatusOK, status)
+		return
+	}
+	if request.URL.Path == "/api/mosdns/observations" {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.store == nil {
+			writeJSON(writer, http.StatusOK, map[string]any{"observations": []any{}})
+			return
+		}
+		limit := 100
+		if raw := strings.TrimSpace(request.URL.Query().Get("limit")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed <= 0 || parsed > 500 {
+				writeError(writer, http.StatusBadRequest, "limit must be between 1 and 500")
+				return
+			}
+			limit = parsed
+		}
+		observations, err := s.store.DNSObservations(request.Context(), limit)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "failed to load MosDNS observations")
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"observations": observations})
+		return
+	}
+	if request.URL.Path == "/api/recognition" {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.manager == nil {
+			cfg := s.configSnapshot()
+			writeJSON(writer, http.StatusOK, service.RecognitionStatus{
+				MosDNS:         service.MosDNSStatus{Enabled: cfg.MosDNS.Configured(), BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes},
+				FeatureLibrary: service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Configured(), SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes},
+			})
+			return
+		}
+		writeJSON(writer, http.StatusOK, s.manager.RecognitionStatus())
 		return
 	}
 	monitor, monitorErr := s.monitorFor(request)
@@ -293,10 +359,12 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 }
 
 type settingsResponse struct {
-	Connection  settingsConnection  `json:"connection"`
-	Collection  settingsCollection  `json:"collection"`
-	Diagnostics settingsDiagnostics `json:"diagnostics"`
-	Devices     []settingsDevice    `json:"devices"`
+	Connection     settingsConnection     `json:"connection"`
+	Collection     settingsCollection     `json:"collection"`
+	MosDNS         settingsMosDNS         `json:"mosdns"`
+	FeatureLibrary settingsFeatureLibrary `json:"featureLibrary"`
+	Diagnostics    settingsDiagnostics    `json:"diagnostics"`
+	Devices        []settingsDevice       `json:"devices"`
 }
 
 type settingsDevice struct {
@@ -336,6 +404,32 @@ type settingsCollection struct {
 	SampleRetentionHours        int `json:"sampleRetentionHours"`
 }
 
+type settingsMosDNS struct {
+	Enabled                bool      `json:"enabled"`
+	BaseURL                string    `json:"baseUrl"`
+	SyncIntervalMinutes    int       `json:"syncIntervalMinutes"`
+	LastAttempt            time.Time `json:"lastAttempt,omitempty"`
+	LastSuccess            time.Time `json:"lastSuccess,omitempty"`
+	LastImported           int       `json:"lastImported"`
+	LastDuplicates         int       `json:"lastDuplicates"`
+	LastSkipped            int       `json:"lastSkipped"`
+	Watermark              time.Time `json:"watermark,omitempty"`
+	LearnedFeatureCount    int       `json:"learnedFeatureCount"`
+	LearnedFeatureLastSeen time.Time `json:"learnedFeatureLastSeen,omitempty"`
+	LastError              string    `json:"lastError,omitempty"`
+}
+
+type settingsFeatureLibrary struct {
+	Enabled              bool      `json:"enabled"`
+	SourceURL            string    `json:"sourceUrl"`
+	RefreshIntervalHours int       `json:"refreshIntervalHours"`
+	MatchWindowMinutes   int       `json:"matchWindowMinutes"`
+	RuleCount            int       `json:"ruleCount"`
+	LastAttempt          time.Time `json:"lastAttempt,omitempty"`
+	LastSuccess          time.Time `json:"lastSuccess,omitempty"`
+	LastError            string    `json:"lastError,omitempty"`
+}
+
 type settingsDiagnostics struct {
 	RouterName string    `json:"routerName"`
 	Version    string    `json:"version"`
@@ -344,6 +438,13 @@ type settingsDiagnostics struct {
 
 func (s *Server) settingsResponse() settingsResponse {
 	cfg := s.configSnapshot()
+	mosStatus := service.MosDNSStatus{Enabled: cfg.MosDNS.Configured(), BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes}
+	featureStatus := service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Configured(), SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes}
+	if s.manager != nil {
+		recognitionStatus := s.manager.RecognitionStatus()
+		mosStatus = recognitionStatus.MosDNS
+		featureStatus = recognitionStatus.FeatureLibrary
+	}
 
 	var overview serviceOverview
 	monitor := s.monitor
@@ -389,6 +490,30 @@ func (s *Server) settingsResponse() settingsResponse {
 			RealtimePollIntervalSeconds: cfg.RealtimePollIntervalSeconds,
 			TerminalPollIntervalSeconds: cfg.TerminalPollIntervalSeconds,
 			SampleRetentionHours:        cfg.SampleRetentionHours,
+		},
+		MosDNS: settingsMosDNS{
+			Enabled:                mosStatus.Enabled,
+			BaseURL:                mosStatus.BaseURL,
+			SyncIntervalMinutes:    mosStatus.SyncIntervalMinutes,
+			LastAttempt:            mosStatus.LastAttempt,
+			LastSuccess:            mosStatus.LastSuccess,
+			LastImported:           mosStatus.LastImported,
+			LastDuplicates:         mosStatus.LastDuplicates,
+			LastSkipped:            mosStatus.LastSkipped,
+			Watermark:              mosStatus.Watermark,
+			LearnedFeatureCount:    mosStatus.LearnedFeatureCount,
+			LearnedFeatureLastSeen: mosStatus.LearnedFeatureLastSeen,
+			LastError:              mosStatus.LastError,
+		},
+		FeatureLibrary: settingsFeatureLibrary{
+			Enabled:              featureStatus.Enabled,
+			SourceURL:            featureStatus.SourceURL,
+			RefreshIntervalHours: featureStatus.RefreshIntervalHours,
+			MatchWindowMinutes:   featureStatus.MatchWindowMinutes,
+			RuleCount:            featureStatus.RuleCount,
+			LastAttempt:          featureStatus.LastAttempt,
+			LastSuccess:          featureStatus.LastSuccess,
+			LastError:            featureStatus.LastError,
 		},
 		Diagnostics: settingsDiagnostics{
 			RouterName: overview.RouterName,
@@ -459,6 +584,20 @@ type collectionSettingsRequest struct {
 	RealtimePollIntervalSeconds int `json:"realtimePollIntervalSeconds"`
 	TerminalPollIntervalSeconds int `json:"terminalPollIntervalSeconds"`
 	SampleRetentionHours        int `json:"sampleRetentionHours"`
+}
+
+type recognitionSettingsRequest struct {
+	MosDNS struct {
+		Enabled             bool   `json:"enabled"`
+		BaseURL             string `json:"baseUrl"`
+		SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
+	} `json:"mosdns"`
+	FeatureLibrary struct {
+		Enabled              bool   `json:"enabled"`
+		SourceURL            string `json:"sourceUrl"`
+		RefreshIntervalHours int    `json:"refreshIntervalHours"`
+		MatchWindowMinutes   int    `json:"matchWindowMinutes"`
+	} `json:"featureLibrary"`
 }
 
 type deviceSettingsRequest struct {
@@ -729,6 +868,54 @@ func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *ht
 		next.RealtimePollIntervalSeconds = payload.RealtimePollIntervalSeconds
 		next.TerminalPollIntervalSeconds = payload.TerminalPollIntervalSeconds
 		next.SampleRetentionHours = payload.SampleRetentionHours
+	}); err != nil {
+		writeError(writer, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+
+	s.scheduleRestart()
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
+}
+
+func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if strings.TrimSpace(s.configSnapshot().Path) == "" {
+		writeError(writer, http.StatusBadRequest, "config path is required to save settings")
+		return
+	}
+
+	var payload recognitionSettingsRequest
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	payload.MosDNS.BaseURL = strings.TrimSpace(payload.MosDNS.BaseURL)
+	payload.FeatureLibrary.SourceURL = strings.TrimSpace(payload.FeatureLibrary.SourceURL)
+	if payload.MosDNS.Enabled && payload.MosDNS.BaseURL == "" {
+		writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
+		return
+	}
+	if payload.MosDNS.SyncIntervalMinutes <= 0 || payload.FeatureLibrary.RefreshIntervalHours <= 0 || payload.FeatureLibrary.MatchWindowMinutes <= 0 {
+		writeError(writer, http.StatusBadRequest, "识别设置中的周期和窗口必须为正数")
+		return
+	}
+	if payload.FeatureLibrary.Enabled && payload.FeatureLibrary.SourceURL == "" {
+		writeError(writer, http.StatusBadRequest, "特征库地址不能为空")
+		return
+	}
+
+	if err := s.saveSettings(func(next *config.Config) {
+		next.MosDNS.Enabled = payload.MosDNS.Enabled
+		next.MosDNS.BaseURL = payload.MosDNS.BaseURL
+		next.MosDNS.SyncIntervalMinutes = payload.MosDNS.SyncIntervalMinutes
+		next.FeatureLibrary.Enabled = payload.FeatureLibrary.Enabled
+		next.FeatureLibrary.SourceURL = payload.FeatureLibrary.SourceURL
+		next.FeatureLibrary.RefreshIntervalHours = payload.FeatureLibrary.RefreshIntervalHours
+		next.FeatureLibrary.MatchWindowMinutes = payload.FeatureLibrary.MatchWindowMinutes
 	}); err != nil {
 		writeError(writer, http.StatusInternalServerError, "failed to save settings")
 		return
