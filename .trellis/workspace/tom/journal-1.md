@@ -1812,3 +1812,36 @@ Moved the terminal, traffic, network-service, and system-runtime third-level nav
 ### Next Steps
 
 - None - task complete
+
+
+## Session 54: Archive dashboard and monitor header cleanup
+
+**Date**: 2026-08-05
+**Task**: Archive dashboard and monitor header cleanup
+**Branch**: `main`
+
+### Summary
+
+User confirmed the deployed Rosboard UI. Terminal status filtering now lives beside the 在线状态 header, the redundant 终端列表/在线设备 toolbar title was removed, tests and remote verification passed, and the Trellis task was archived.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6336944` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
