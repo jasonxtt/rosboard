@@ -3224,16 +3224,18 @@ function TerminalDetailPage(props: {
     <section className={props.activeTab === 'connections' ? 'detail-page detail-page-connections' : 'detail-page'}>
       <div className="detail-page-head">
         <div className="detail-identity">
-          <h3>{summary.displayName}</h3>
-          <div className="detail-identity-meta">
-            <span>IP {terminalPrimaryAddress(summary, props.scope) || '-'}</span>
-            <span>MAC {summary.macAddress || '-'}</span>
-            <span className={`identity-state ${summary.state}`}>{terminalStateText(summary.state)}</span>
-            <span>{isRouterConntrack ? '跟踪条目' : '连接'} {summary.connectionCount}</span>
-            {isRouterConntrack ? <span>已回包 {repliedConnections} / 未回包 {unrepliedConnections}</span> : null}
-            <span>↑ {formatBits(summary.currentUploadBps)}</span>
-            <span>↓ {formatBits(summary.currentDownloadBps)}</span>
-            {props.detail.ratesUpdatedAt ? <span>速率更新 {relativeUpdateTime(props.detail.ratesUpdatedAt)}</span> : null}
+          <div className="detail-identity-line">
+            <h3>{summary.displayName}</h3>
+            <div className="detail-identity-meta">
+              <span>IP {terminalPrimaryAddress(summary, props.scope) || '-'}</span>
+              <span>MAC {summary.macAddress || '-'}</span>
+              <span className={`identity-state ${summary.state}`}>{terminalStateText(summary.state)}</span>
+              <span>{isRouterConntrack ? '跟踪条目' : '连接'} {summary.connectionCount}</span>
+              {isRouterConntrack ? <span>已回包 {repliedConnections} / 未回包 {unrepliedConnections}</span> : null}
+              <span>↑ {formatBits(summary.currentUploadBps)}</span>
+              <span>↓ {formatBits(summary.currentDownloadBps)}</span>
+              {props.detail.ratesUpdatedAt ? <span>速率更新 {relativeUpdateTime(props.detail.ratesUpdatedAt)}</span> : null}
+            </div>
           </div>
         </div>
         <div className="detail-head-actions">
