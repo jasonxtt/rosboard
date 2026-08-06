@@ -60,6 +60,23 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 	}
 }
 
+func TestMosDNSRoutesAreAvailableWithoutRouterOSMonitor(t *testing.T) {
+	cfg := config.Config{MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30}}
+	server := NewServer(cfg, nil, nil)
+
+	statusResponse := httptest.NewRecorder()
+	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns", nil))
+	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"enabled":true`) {
+		t.Fatalf("MosDNS status route failed: status=%d body=%s", statusResponse.Code, statusResponse.Body.String())
+	}
+
+	observationsResponse := httptest.NewRecorder()
+	server.ServeHTTP(observationsResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations", nil))
+	if observationsResponse.Code != http.StatusOK || !strings.Contains(observationsResponse.Body.String(), `"observations":[]`) {
+		t.Fatalf("MosDNS observations route failed: status=%d body=%s", observationsResponse.Code, observationsResponse.Body.String())
+	}
+}
+
 func TestTerminalViewerHeartbeatRequiresPostAndReturnsDeadline(t *testing.T) {
 	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
 	server := NewServer(config.Config{}, monitor, nil)
@@ -270,6 +287,35 @@ func TestCollectionSettingsRejectsNonPositiveValues(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		MosDNS:         config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+		FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+	}
+	server := NewServer(cfg, nil, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
+		"mosdns":{"enabled":false,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":60},
+		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}
+	}`))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.MosDNS.Enabled || loaded.MosDNS.SyncIntervalMinutes != 60 {
+		t.Fatalf("MosDNS settings were not saved: %#v", loaded.MosDNS)
+	}
+	if !loaded.FeatureLibrary.Enabled || loaded.FeatureLibrary.SourceURL != "https://example.test/updated.yml" || loaded.FeatureLibrary.RefreshIntervalHours != 24 || loaded.FeatureLibrary.MatchWindowMinutes != 45 {
+		t.Fatalf("feature library settings were not saved: %#v", loaded.FeatureLibrary)
 	}
 }
 

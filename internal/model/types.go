@@ -2,6 +2,31 @@ package model
 
 import "time"
 
+type DNSObservation struct {
+	DedupeKey    string    `json:"-"`
+	TraceID      string    `json:"traceId"`
+	ClientIP     string    `json:"clientIp"`
+	Domain       string    `json:"domain"`
+	AnswerIP     string    `json:"answerIp"`
+	QueryType    string    `json:"queryType"`
+	QueryTime    time.Time `json:"queryTime"`
+	TTL          int64     `json:"ttl"`
+	EffectiveTag string    `json:"effectiveTag,omitempty"`
+	IngestedAt   time.Time `json:"ingestedAt"`
+}
+
+type DNSFeature struct {
+	ClientIP     string    `json:"clientIp"`
+	Domain       string    `json:"domain"`
+	AnswerIP     string    `json:"answerIp"`
+	QueryType    string    `json:"queryType"`
+	FirstSeen    time.Time `json:"firstSeen"`
+	LastSeen     time.Time `json:"lastSeen"`
+	HitCount     int64     `json:"hitCount"`
+	LastTTL      int64     `json:"lastTtl"`
+	EffectiveTag string    `json:"effectiveTag,omitempty"`
+}
+
 type Overview struct {
 	RouterName               string                   `json:"routerName"`
 	Platform                 string                   `json:"platform"`
@@ -196,6 +221,8 @@ type TerminalConnection struct {
 	Key                string   `json:"key"`
 	Family             string   `json:"family"`
 	Application        string   `json:"application"`
+	MatchedDomain      string   `json:"matchedDomain,omitempty"`
+	ApplicationSource  string   `json:"applicationSource,omitempty"`
 	Protocol           string   `json:"protocol"`
 	Line               string   `json:"line"`
 	SourceAddress      string   `json:"sourceAddress"`
@@ -277,6 +304,7 @@ type ProtocolStat struct {
 	UploadBytes   int64   `json:"uploadBytes"`
 	DownloadBytes int64   `json:"downloadBytes"`
 	Estimated     bool    `json:"estimated"`
+	Source        string  `json:"source,omitempty"`
 }
 
 type ProtocolHistorySample struct {

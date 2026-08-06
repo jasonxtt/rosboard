@@ -5,6 +5,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { formatBitRate } from '../lib/format'
+import { useThemeTokens, withAlpha, type ThemeTokens } from '../lib/themeTokens'
 import type { RateSample } from '../lib/types'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
@@ -19,43 +20,67 @@ function formatTime(value: string) {
     : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function tooltipHTML(params: unknown) {
-  const items = (Array.isArray(params) ? params : [params]) as Array<{
-    axisValueLabel?: string
-    axisValue?: string
-    marker?: string
-    seriesName?: string
-    value?: number
-  }>
-  if (!items.length) return ''
-  const lines = [`<div style="margin-bottom:4px;color:#b9cfee">时间：${items[0]?.axisValueLabel || items[0]?.axisValue || '-'}</div>`]
-  for (const item of items) {
-    lines.push(`<div>${item.marker || ''}${item.seriesName || ''}：${formatBitRate(Number(item.value) || 0)}</div>`)
+function tooltipHTML(labelColor: string) {
+  return (params: unknown) => {
+    const items = (Array.isArray(params) ? params : [params]) as Array<{
+      axisValueLabel?: string
+      axisValue?: string
+      marker?: string
+      seriesName?: string
+      value?: number
+    }>
+    if (!items.length) return ''
+    const lines = [`<div style="margin-bottom:4px;color:${labelColor}">时间：${items[0]?.axisValueLabel || items[0]?.axisValue || '-'}</div>`]
+    for (const item of items) {
+      lines.push(`<div>${item.marker || ''}${item.seriesName || ''}：${formatBitRate(Number(item.value) || 0)}</div>`)
+    }
+    return lines.join('')
   }
-  return lines.join('')
 }
 
-function baseOption(reducedMotion: boolean): EChartsCoreOption {
+function seriesOption(id: string, name: string, color: string, areaAlpha: number) {
+  return {
+    id,
+    name,
+    type: 'line' as const,
+    smooth: 0.26,
+    showSymbol: false,
+    symbol: 'circle',
+    symbolSize: 5,
+    lineStyle: { width: 2, color },
+    itemStyle: { color },
+    areaStyle: {
+      color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: withAlpha(color, areaAlpha) },
+        { offset: 1, color: withAlpha(color, 0.02) },
+      ]),
+    },
+    emphasis: { focus: 'series' as const, scale: false },
+    data: [] as number[],
+  }
+}
+
+function baseOption(tokens: ThemeTokens, reducedMotion: boolean): EChartsCoreOption {
+  const label = tokens['--stone']
+  const axis = tokens['--hairline']
+  const grid = withAlpha(tokens['--stone'], 0.2)
   return {
     animation: !reducedMotion,
     animationDuration: 520,
     animationEasing: 'cubicOut',
     animationDurationUpdate: 700,
     animationEasingUpdate: 'cubicOut',
-    textStyle: {
-      color: '#64748b',
-      fontFamily: 'PingFang SC, Microsoft YaHei, Inter, system-ui, sans-serif',
-    },
+    textStyle: { color: label, fontFamily: tokens['--font-sans'] },
     tooltip: {
       trigger: 'axis',
       borderWidth: 1,
-      borderColor: 'rgba(148, 163, 184, .32)',
-      backgroundColor: 'rgba(15, 23, 42, .94)',
-      textStyle: { color: '#f8fafc', fontSize: 13 },
-      formatter: tooltipHTML,
+      borderColor: withAlpha(tokens['--on-code'], 0.14),
+      backgroundColor: tokens['--surface-code'],
+      textStyle: { color: tokens['--on-code'], fontSize: 13, fontFamily: tokens['--font-sans'] },
+      formatter: tooltipHTML(tokens['--muted']),
       axisPointer: {
         type: 'line',
-        lineStyle: { type: 'dashed', color: 'rgba(100, 116, 139, .62)', width: 1 },
+        lineStyle: { type: 'dashed', color: withAlpha(tokens['--stone'], 0.62), width: 1 },
       },
     },
     grid: { top: 18, left: 78, right: 18, bottom: 38 },
@@ -64,8 +89,8 @@ function baseOption(reducedMotion: boolean): EChartsCoreOption {
       boundaryGap: false,
       data: [],
       axisTick: { show: false },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, .32)' } },
-      axisLabel: { color: '#7b8798', fontSize: 12 },
+      axisLine: { lineStyle: { color: axis } },
+      axisLabel: { color: label, fontSize: 12, fontFamily: tokens['--font-mono'] },
       splitLine: { show: false },
     },
     yAxis: {
@@ -73,97 +98,60 @@ function baseOption(reducedMotion: boolean): EChartsCoreOption {
       min: 0,
       axisTick: { show: false },
       axisLine: { show: false },
-      axisLabel: { color: '#7b8798', fontSize: 12, formatter: (value: number) => formatBitRate(value) },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, .18)', type: 'dashed' } },
+      axisLabel: { color: label, fontSize: 12, fontFamily: tokens['--font-mono'], formatter: (value: number) => formatBitRate(value) },
+      splitLine: { lineStyle: { color: grid, type: 'dashed' } },
     },
     series: [
-      {
-        id: 'download-series',
-        name: DOWNLOAD_SERIES,
-        type: 'line',
-        smooth: 0.26,
-        showSymbol: false,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2, color: '#2563eb' },
-        itemStyle: { color: '#2563eb' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(37, 99, 235, .24)' },
-            { offset: 1, color: 'rgba(37, 99, 235, .02)' },
-          ]),
-        },
-        emphasis: { focus: 'series', scale: false },
-        data: [],
-      },
-      {
-        id: 'upload-series',
-        name: UPLOAD_SERIES,
-        type: 'line',
-        smooth: 0.26,
-        showSymbol: false,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2, color: '#16a34a' },
-        itemStyle: { color: '#16a34a' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(22, 163, 74, .20)' },
-            { offset: 1, color: 'rgba(22, 163, 74, .02)' },
-          ]),
-        },
-        emphasis: { focus: 'series', scale: false },
-        data: [],
-      },
+      seriesOption('upload-series', UPLOAD_SERIES, tokens['--mint-deep'], 0.2),
+      seriesOption('download-series', DOWNLOAD_SERIES, tokens['--status-info'], 0.24),
     ],
-  }
-}
-
-function chartThemeOption(dark: boolean): EChartsCoreOption {
-  const label = dark ? '#94a3b8' : '#7b8798'
-  const axis = dark ? 'rgba(148, 163, 184, .24)' : 'rgba(148, 163, 184, .32)'
-  const grid = dark ? 'rgba(148, 163, 184, .14)' : 'rgba(148, 163, 184, .18)'
-  return {
-    textStyle: { color: label },
-    xAxis: { axisLine: { lineStyle: { color: axis } }, axisLabel: { color: label } },
-    yAxis: { axisLabel: { color: label }, splitLine: { lineStyle: { color: grid, type: 'dashed' } } },
   }
 }
 
 export function RealtimeTrafficChart(props: { samples: RateSample[]; ariaLabel?: string }) {
   const chartElement = useRef<HTMLDivElement | null>(null)
   const chart = useRef<ECharts | null>(null)
+  const samples = useRef(props.samples)
+  const tokens = useThemeTokens()
+  samples.current = props.samples
 
   useEffect(() => {
     if (!chartElement.current) return
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const instance = echarts.init(chartElement.current, undefined, { renderer: 'canvas' })
     chart.current = instance
-    instance.setOption(baseOption(reducedMotion))
-    const applyTheme = () => instance.setOption(chartThemeOption(document.documentElement.dataset.theme === 'dark'))
-    applyTheme()
-    const themeObserver = new MutationObserver(applyTheme)
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-
     const resizeObserver = new ResizeObserver(() => instance.resize())
     resizeObserver.observe(chartElement.current)
     const resize = () => instance.resize()
     window.addEventListener('resize', resize)
     return () => {
       window.removeEventListener('resize', resize)
-      themeObserver.disconnect()
       resizeObserver.disconnect()
       instance.dispose()
       chart.current = null
     }
   }, [])
 
+  // Re-applies the whole palette whenever the theme tokens change.
+  useEffect(() => {
+    const instance = chart.current
+    if (!instance) return
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    instance.setOption(baseOption(tokens, reducedMotion))
+    instance.setOption({
+      xAxis: { data: samples.current.map((sample) => formatTime(sample.timestamp)) },
+      series: [
+        { id: 'upload-series', name: UPLOAD_SERIES, data: samples.current.map((sample) => sample.uploadBps) },
+        { id: 'download-series', name: DOWNLOAD_SERIES, data: samples.current.map((sample) => sample.downloadBps) },
+      ],
+    }, { notMerge: false, lazyUpdate: true, silent: true })
+  }, [tokens])
+
   useEffect(() => {
     chart.current?.setOption({
       xAxis: { data: props.samples.map((sample) => formatTime(sample.timestamp)) },
       series: [
-        { id: 'download-series', name: DOWNLOAD_SERIES, data: props.samples.map((sample) => sample.downloadBps) },
         { id: 'upload-series', name: UPLOAD_SERIES, data: props.samples.map((sample) => sample.uploadBps) },
+        { id: 'download-series', name: DOWNLOAD_SERIES, data: props.samples.map((sample) => sample.downloadBps) },
       ],
     }, { notMerge: false, lazyUpdate: true, silent: true })
   }, [props.samples])

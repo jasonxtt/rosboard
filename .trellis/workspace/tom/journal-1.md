@@ -1745,3 +1745,202 @@ Reworked the fleet dashboard into a reference-aligned list-only layout, refined 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 52: Add MosDNS DNS application recognition
+
+**Date**: 2026-08-05
+**Task**: Add MosDNS DNS application recognition
+**Branch**: `main`
+
+### Summary
+
+完成 MosDNS 只读 DNS 日志同步、长期 IP 域名特征库、公开域名规则加载、协议与终端连接应用识别、可配置设置，并完成部署与人工验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4dc7a08` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 53: Status monitor page tabs and terminal header redesign
+
+**Date**: 2026-08-05
+**Task**: Status monitor page tabs and terminal header redesign
+**Branch**: `main`
+
+### Summary
+
+Moved the terminal, traffic, network-service, and system-runtime third-level navigation into reusable topbar tabs; moved terminal search beside last-updated; updated responsive styles and frontend guidance; deployed, verified, manually accepted, committed, and archived.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e15ff88` | (see git log) |
+| `89b0b18` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 54: Archive dashboard and monitor header cleanup
+
+**Date**: 2026-08-05
+**Task**: Archive dashboard and monitor header cleanup
+**Branch**: `main`
+
+### Summary
+
+User confirmed the deployed Rosboard UI. Terminal status filtering now lives beside the 在线状态 header, the redundant 终端列表/在线设备 toolbar title was removed, tests and remote verification passed, and the Trellis task was archived.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6336944` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 55: Mintlify UI design system refresh
+
+**Date**: 2026-08-07
+**Task**: Mintlify UI design system refresh
+**Branch**: `codex/2026-08-07-ui-design-system-refresh`
+
+### Summary
+
+完成 Mintlify 视觉层刷新：引入 Inter/Geist Mono 字体与 token 化主题，移除 glass 主题，统一卡片/按钮/状态色/图表主题；实时流量改为上传在上、下载在下。通过前端 lint/build、go test ./...、本地与远端验收，部署至 10.0.0.6 并推送分支。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37b4a08` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 56: Simplify monitor panel data headers
+
+**Date**: 2026-08-07
+**Task**: Simplify monitor panel data headers
+**Branch**: `codex/2026-08-07-ui-design-system-refresh`
+
+### Summary
+
+Moved system interfaces into the third interface-monitor tab and removed redundant internal summary/toolbars from interface, terminal, and protocol data panels. Verified frontend lint/build, Go tests, Linux amd64 build, local desktop preview, remote service health/assets, and manual deployment acceptance.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7f8ec65` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 57: Terminal detail header spacing refinement
+
+**Date**: 2026-08-07
+**Task**: Terminal detail header spacing refinement
+**Branch**: `codex/2026-08-07-ui-design-system-refresh`
+
+### Summary
+
+Adjusted the terminal detail identity row to move down slightly without shifting the basic-information tabs; verified build, tests, local rendering, and approved deployment on 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3b8640e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

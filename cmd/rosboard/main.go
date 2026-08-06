@@ -62,13 +62,14 @@ func main() {
 	defer cancel()
 
 	var manager *service.MonitorManager
-	if cfg.RouterOSConfigured() {
+	if cfg.RouterOSConfigured() || cfg.MosDNS.Configured() {
 		manager, err = service.NewMonitorManager(cfg, storage, logger)
 		if err != nil {
 			log.Fatalf("open monitor stores: %v", err)
 		}
 		go manager.Start(ctx)
-	} else {
+	}
+	if !cfg.RouterOSConfigured() {
 		logger.Print("routeros is not configured, serving setup UI")
 	}
 
