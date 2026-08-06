@@ -634,9 +634,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .interface-state-down { color: var(--status-error); }
 .interface-state-disabled { color: var(--status-idle); }
 .interface-row-down { background: color-mix(in srgb, var(--status-error) 6%, var(--surface)); }
-.interface-system-section > summary { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; color: var(--slate); cursor: pointer; font-size: var(--fs-body-sm); font-weight: 600; }
-.interface-system-section > summary span { color: var(--stone); font-size: var(--fs-micro); font-weight: 400; }
-
 /* ---------------------------------------------------------------------------
    Detail pages
    --------------------------------------------------------------------------- */
@@ -1076,11 +1073,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .tab-button, .detail-tabs .tab-button { min-width: 0; min-height: 44px; padding-inline: 3px; overflow: hidden; font-size: var(--fs-micro); text-overflow: clip; white-space: nowrap; }
   .detail-tabs .tab-button + .tab-button { margin-left: 0; }
   .terminal-list-content { padding-bottom: 8px; }
-  .terminal-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(116px, auto) 44px; grid-template-rows: 44px; gap: 6px 4px; padding: 8px; }
-  .terminal-toolbar .toolbar-spacer { display: none; }
-  .terminal-toolbar .result-count { grid-column: 1; grid-row: 1; margin: 0; align-self: center; justify-self: start; font-size: var(--fs-micro); white-space: nowrap; }
-  .terminal-toolbar .terminal-refresh-select { grid-column: 2; grid-row: 1; width: 100%; min-width: 0; height: 44px; min-height: 44px; padding-inline: 6px; font-size: var(--fs-caption); }
-  .terminal-toolbar .terminal-refresh-button { grid-column: 3; grid-row: 1; width: 100%; min-width: 0; height: 44px; min-height: 44px; padding-inline: 6px; font-size: var(--fs-caption); }
   .connection-table-viewport { max-height: clamp(240px, calc(100dvh - 340px), 520px); }
   .connection-filter-panel input, .connection-filter-panel select { min-height: 44px; font-size: var(--fs-h3); }
   .connection-filter-options button { min-height: 44px; font-size: var(--fs-h3); }

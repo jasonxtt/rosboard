@@ -390,7 +390,7 @@ function InterfaceScopeSummaryBar({ interfaces }: { interfaces: InterfaceStatus[
 
 type MonitorTabOption = { value: string; label: string }
 type MonitorTabConfig = { value: string; options: MonitorTabOption[]; ariaLabel: string; onChange: (value: string) => void }
-type InterfaceCategory = 'physical' | 'logical'
+type InterfaceCategory = 'physical' | 'logical' | 'system'
 
 function MonitorPageTabs(props: MonitorTabConfig) {
   return (
@@ -1028,7 +1028,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     ? {
         value: interfaceCategory,
         ariaLabel: '接口类型',
-        options: [{ value: 'physical', label: '物理接口' }, { value: 'logical', label: '逻辑接口' }],
+        options: [{ value: 'physical', label: '物理接口' }, { value: 'logical', label: '逻辑接口' }, { value: 'system', label: '系统接口' }],
         onChange: (value) => setInterfaceCategory(value as InterfaceCategory),
       }
     : activeView === 'terminals'
@@ -1388,9 +1388,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             terminals={filteredTerminals}
             family={terminalFamily}
             query={query}
-            refreshMs={dashboardRefreshMs}
-            onRefreshMsChange={setDashboardRefreshMs}
-            onRefresh={() => setRefreshNonce((value) => value + 1)}
             onOpenDetail={(terminalID) => {
               setSelectedTerminalID(terminalID)
               setTerminalTab('basic')
@@ -2506,9 +2503,7 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
   })
   const logical = props.interfaces.filter((item) => item.category === 'logical').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
   const system = props.interfaces.filter((item) => item.category === 'system').sort((left, right) => left.name.localeCompare(right.name, 'zh-CN', { numeric: true }))
-  const selectedItems = props.category === 'physical' ? physical : logical
-  const selectedLabel = props.category === 'physical' ? '物理接口' : '逻辑接口'
-  const selectedActiveCount = selectedItems.filter((item) => item.running && !item.disabled).length
+  const selectedItems = props.category === 'physical' ? physical : props.category === 'logical' ? logical : system
   const interfaceState = (item: InterfaceStatus) => item.disabled ? '已禁用' : item.running ? (item.category === 'physical' ? '在线' : '运行中') : 'Down'
   const relationLabel = (kind: InterfaceStatus['relations'][number]['kind']) => ({ carrier: '承载接口', parent: '父接口', bridge: '所属 Bridge', member: '成员接口' })[kind] ?? kind
   const table = (items: InterfaceStatus[]) => <div className="table-scroll">
@@ -2528,8 +2523,7 @@ function InterfacesPage(props: { interfaces: InterfaceStatus[]; deviceID: string
   return (
     <div className="page-grid monitor-page">
     {detail ? <section className="panel interface-detail"><div className="panel-head"><h3>{detail.interface.name} 接口详情</h3><button type="button" className="close-button" onClick={() => setSelected(null)}>关闭</button></div><div className="detail-summary"><DetailSummary label="状态" value={interfaceState(detail.interface)} /><DetailSummary label="地址" value={detail.interface.addresses?.join(' / ') || '-'} /><DetailSummary label="MAC" value={detail.interface.macAddress || '-'} /><DetailSummary label="协商速率" value={detail.interface.linkRate ? `${detail.interface.linkRate}${detail.interface.fullDuplex ? ' / 全双工' : ''}` : '-'} /><DetailSummary label="当前上行" value={formatBits(detail.interface.currentTxBps)} /><DetailSummary label="当前下行" value={formatBits(detail.interface.currentRxBps)} /><DetailSummary label="收 / 发包" value={`${detail.interface.rxPackets} / ${detail.interface.txPackets}`} /><DetailSummary label="错误 / 丢包" value={`${detail.interface.rxErrors + detail.interface.txErrors} / ${detail.interface.rxDrops + detail.interface.txDrops}`} /></div>{detail.samples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={detail.samples} ariaLabel={`${detail.interface.name} 接口上传和下载速率趋势`} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}</section> : null}
-    <section className="panel compact-panel interface-section"><div className="data-toolbar interface-toolbar"><strong>{selectedLabel}</strong><span className="result-count">{selectedItems.length} 个 · 活动 {selectedActiveCount}</span><span className="toolbar-spacer" /><span>共 {props.interfaces.length} 个接口</span></div>{table(selectedItems)}</section>
-    {system.length ? <details className="panel compact-panel interface-system-section"><summary>系统接口 <span>{system.length} 个</span></summary>{table(system)}</details> : null}
+    <section className="panel compact-panel interface-section">{table(selectedItems)}</section>
     </div>
   )
 }
@@ -2716,7 +2710,7 @@ function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
   const historyBytes = new Map<string, number>()
   history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
   const historyTotal = Array.from(historyBytes.values()).reduce((sum, value) => sum + value, 0)
-  return <section className="panel compact-panel"><div className="data-toolbar"><strong>当前连接协议分布</strong><span className="result-count">基于 RouterOS 连接跟踪、DNS 和域名特征库，不是 DPI</span><span className="toolbar-spacer" /><span>近 30 分钟 {history.length} 条采样</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'dns' ? 'MosDNS + 特征库' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
+  return <section className="panel compact-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'dns' ? 'MosDNS + 特征库' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
 }
 
 function PolicyPage(props: { policies: PolicyStat[] }) {
@@ -2849,9 +2843,6 @@ function TerminalsPage(props: {
   terminals: Terminal[]
   family: TerminalFamily
   query: string
-  refreshMs: number
-  onRefreshMsChange: (value: number) => void
-  onRefresh: () => void
   onOpenDetail: (terminalID: string) => void
   onOpenRemark: (terminal: Terminal) => void
 }) {
@@ -2923,15 +2914,6 @@ function TerminalsPage(props: {
 
   return (
     <section className="panel compact-panel terminal-list-panel">
-      <div className="data-toolbar terminal-toolbar">
-        <span className="toolbar-spacer" />
-        <span className="result-count">共 {sorted.length} 台</span>
-        <select className="terminal-refresh-select" value={props.refreshMs} onChange={(event) => props.onRefreshMsChange(Number(event.target.value))} aria-label="自动刷新">
-          <option value={0}>停止刷新</option><option value={1000}>1 秒刷新</option><option value={3000}>3 秒刷新</option><option value={5000}>5 秒刷新</option><option value={10000}>10 秒刷新</option>
-        </select>
-        <button type="button" className="toolbar-button terminal-refresh-button" onClick={props.onRefresh}>刷新</button>
-      </div>
-
       <div className="table-scroll terminal-table-scroll">
         <table className="data-table terminal-table">
           <thead><tr>

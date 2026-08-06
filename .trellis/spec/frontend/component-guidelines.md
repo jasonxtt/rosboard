@@ -2,17 +2,16 @@
 
 ## Interface monitoring categories
 
-- Render physical and logical interfaces through the shared topbar tab row;
-  show one selected category at a time from `InterfaceStatus.category`.
-  Keep the system section collapsed initially below the selected category.
+- Render physical, logical, and system interfaces through the shared topbar tab
+  row; show one selected category at a time from `InterfaceStatus.category`.
 - Physical state labels distinguish enabled/running `在线`, enabled/not-running
   `Down`, and administratively disabled `已禁用`. Sort Down physical rows first.
 - Render semantic interface relations from `relations[]`; do not invent a
   carrier for WireGuard or another topology without a fixed parent.
-- The selected category uses the same compact `data-toolbar` + table block
-  rhythm as the terminal monitor. Its local count and active count stay in
-  that toolbar; the monitor topbar may show total, physical, logical, active,
-  and current upload/download summary values.
+- The selected category renders its table directly at the top of the compact
+  panel. Do not add a local category/count toolbar; the monitor topbar may
+  show total, physical, logical, active, and current upload/download summary
+  values.
 - Every category retains the same interface-detail/history action.
 
 ## Fleet dashboard search and headings
@@ -71,11 +70,11 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 
 ### 3. Contracts
 
-- Terminal mobile controls form one 44px row for result count, refresh period,
-  and manual refresh. The online-state filter lives beside the table header and
-  opens its popover from a 44px filter target. The terminal search lives in the
-  topbar and may occupy its own 44px row. Every interactive control is at least
-  44px high.
+- The terminal list panel starts directly with the table and does not render a
+  local result-count, refresh-period, or manual-refresh toolbar. Refresh and
+  terminal search controls remain in the shared topbar. The online-state filter
+  lives beside the table header and opens its popover from a 44px filter target.
+  Every interactive control is at least 44px high.
 - The `状态监控` group has five direct second-level items: `接口监控`,
   `终端监控`, `流量监控`, `网络服务`, and `系统运行`; it does not render
   third-level entries in the sidebar. The grouped monitor choices render as
@@ -156,9 +155,9 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 ### 6. Tests Required
 
 - Build/lint/audit: production TypeScript build, oxlint, and dependency audit pass.
-- Browser 375px: terminal toolbar has one 44px control row, the online-state
-  header filter target is 44px, refresh value is `1000`, back target is 44px,
-  and document width does not exceed viewport.
+- Browser 375px: the terminal list starts with its table, the online-state
+  header filter target is 44px, the shared topbar refresh controls remain
+  usable, the back target is 44px, and document width does not exceed viewport.
 - Browser sort: first addresses demonstrate numeric ascending order including `.8` before `.10`.
 - Browser all scope: both badge families appear and the family filter removes the opposite family.
 - Browser IPv6 scope: all badges are IPv6 and no IP-version filter button renders.
@@ -171,10 +170,10 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 - Browser geometry: unsorted filterable headers have a zero-width visual gap
   between sort and filter buttons; sticky headers and the native horizontal
   scrollbar remain reachable inside the bounded viewport.
-- Browser mobile: terminal toolbar has one row; every interactive control is
-  44px high; the status filter opens from the table header; all detail tabs fit
-  without horizontal scrolling; no duplicate connection search/clear actions
-  render.
+- Browser mobile: the terminal list starts with the table; every interactive
+  control is 44px high; the status filter opens from the table header; all
+  detail tabs fit without horizontal scrolling; no duplicate connection
+  search/clear actions render.
 
 ### 7. Wrong vs Correct
 
@@ -201,7 +200,8 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 - Desktop uses the topbar controls' muted 11px inline typography and tabular numerals so device/connection/rate/cumulative values do not look louder than `系统正常` or `最后更新`. Mobile uses a full-width controls row with a two-row, three-column grid.
 - The six labels are device count, connection count, upload, download, active cumulative upload, and active cumulative download. Use `formatBits` for current bit/s values and `formatBytes` for active bytes.
 - Unexpectedly missing summary data renders zero values; never fall back to persisted combined terminal totals.
-- Verify 375px layout has no document-level overflow and the existing two-row, 44px terminal toolbar remains unchanged.
+- Verify 375px layout has no document-level overflow and the shared topbar
+  controls remain usable without adding a terminal-panel toolbar row.
 
 ## Scenario: Panel settings forms
 
