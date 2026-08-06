@@ -24,10 +24,15 @@
   device name, RouterOS/router name, board name, version, and address.
 - The fleet dashboard does not render status-filter or sort selects. Keep
   free-text matching, pagination, and device-row navigation available.
-- `接口监控` and `面板设置` child pages hide only the redundant shared
-  topbar heading/subtitle, and the headingless topbar uses compact spacing so
-  content moves upward. Interface category headings and settings child panel
-  headings remain visible so the content context is preserved.
+- `接口监控` hides only the redundant shared topbar heading/subtitle. Its
+  headingless topbar keeps the standard desktop topbar row height, so the first
+  content block sits at the same vertical offset as on the monitor pages; only
+  the narrow-viewport rule collapses it. Interface category headings remain
+  visible so the content context is preserved.
+- `面板设置` child pages render the active section name in the shared topbar,
+  in the slot and style the monitor pages use for their third-level tabs
+  (static text, not a control). The matching panel heading is not repeated
+  inside the card, so each settings card starts directly with its data.
 
 ## Terminal monitor filter controls
 

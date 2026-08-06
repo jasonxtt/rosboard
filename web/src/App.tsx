@@ -14,6 +14,7 @@ import {
   terminalStateText,
   viewTitle,
 } from './lib/format'
+import { statusColor, useThemeTokens } from './lib/themeTokens'
 import type {
   ActiveView,
   BootstrapResponse,
@@ -52,7 +53,7 @@ import type {
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
-type PanelTheme = 'light' | 'dark' | 'glass'
+type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
@@ -76,9 +77,8 @@ const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
 const panelThemeOptions: Array<{ value: PanelTheme; label: string; description: string }> = [
-  { value: 'light', label: '明亮', description: '清爽的蓝白界面' },
-  { value: 'dark', label: '深色', description: '适合夜间使用' },
-  { value: 'glass', label: '玻璃渐变', description: '柔和的毛玻璃拟态' },
+  { value: 'light', label: '明亮', description: '浅色纸面与薄荷强调' },
+  { value: 'dark', label: '深色', description: '近黑底色，适合夜间' },
 ]
 
 function delay(milliseconds: number) {
@@ -214,7 +214,7 @@ function loadPanelPreferences(): PanelPreferences {
       refreshMs: [0, 1000, 3000, 5000, 10000].includes(Number(parsed.refreshMs)) ? Number(parsed.refreshMs) : defaultPanelPreferences.refreshMs,
       landingView: parsed.landingView && landingViews.includes(parsed.landingView) ? parsed.landingView : defaultPanelPreferences.landingView,
       terminalFamily: parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all' ? parsed.terminalFamily : defaultPanelPreferences.terminalFamily,
-      theme: parsed.theme === 'dark' ? 'dark' : parsed.theme === 'glass' ? 'glass' : 'light',
+      theme: parsed.theme === 'dark' ? 'dark' : 'light',
     }
   } catch {
     return defaultPanelPreferences
@@ -1024,7 +1024,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const connectionDetailMode = Boolean(detailMode && terminalTab === 'connections')
   const terminalListMode = Boolean(activeView === 'terminals' && !detailMode)
   const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
-  const hideTopbarHeading = activeView === 'interfaces' || activeView === 'settings'
   const monitorTabs: MonitorTabConfig | null = activeView === 'interfaces'
     ? {
         value: interfaceCategory,
@@ -1069,7 +1068,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ? 'topbar fleet-topbar'
         : monitorTabs
           ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
-          : hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'
+          : 'topbar'
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
@@ -1078,6 +1077,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     { key: 'account', label: '账号安全', icon: 'shield' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
   ]
+  const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
 
   return (
     <main className={`${sidebarOpen ? 'shell sidebar-open' : 'shell'}${connectionDetailMode ? ' connection-detail-shell' : ''}`}>
@@ -1228,7 +1228,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             </button>
             {monitorTabs && !detailMode ? (
               <MonitorPageTabs {...monitorTabs} />
-            ) : hideTopbarHeading ? null : (
+            ) : activeView === 'settings' ? (
+              <h2 className="page-section-title">{settingsSectionLabel}</h2>
+            ) : (
               <div>
                 <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
                 <p className="topbar-subtitle">
@@ -1490,7 +1492,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; username: string;
 			<div className="sidebar-device-card"><label>当前设备</label><p>尚未添加 RouterOS</p></div>
 		</aside>
 		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><div className="panel-head"><h3>维护设置</h3></div><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }
@@ -1577,7 +1579,6 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>设备管理</h3></div>
           <DeviceSettingsPanel settings={props.settings} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onSaved={props.onDeviceSaved} onRestartingAction={props.onRestartingAction} />
           <div className="settings-grid connection-runtime-grid">
             <SettingItem label="当前面板 API 路径" value={props.settings.connection.apiBasePath || '/api'} />
@@ -1589,21 +1590,18 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'collection' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>采集设置</h3></div>
           <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
         </section>
       ) : null}
 
       {props.settings && props.activeSection === 'recognition' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>识别设置</h3><span>只读读取 MosDNS，不修改 RouterOS 或 MosDNS</span></div>
           <RecognitionSettingsForm settings={props.settings} saving={props.recognitionSaving} message={props.recognitionMessage} onSave={props.onSaveRecognition} />
         </section>
       ) : null}
 
       {props.activeSection === 'ui' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>界面设置</h3><span>仅保存在当前浏览器</span></div>
           <form className="settings-form interface-settings-form" onSubmit={(event) => {
             event.preventDefault()
             props.onSavePreferences(preferenceDraft)
@@ -1656,7 +1654,6 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'maintenance' ? (
         <section className="panel settings-panel">
-          <div className="panel-head"><h3>维护设置</h3></div>
           <div className="settings-actions">
             <button type="button" className="toolbar-button" onClick={exportSettings}><Icon name="storage" />导出全部设备脱敏设置</button>
             <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
@@ -1685,7 +1682,6 @@ function AccountSettings(props: { username: string; onAuthenticationChanged: () 
 		catch (error) { setMessage(error instanceof Error ? error.message : '账号保存失败'); setSaving(false) }
 	}
 	return <section className="panel settings-panel">
-		<div className="panel-head"><h3>账号安全</h3></div>
 		<form className="settings-form account-credentials-form" onSubmit={updateCredentials}>
 			<label><span>管理员用户名</span><input required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
 			<label><span>密码（至少 4 个字符）</span><input required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
@@ -2327,22 +2323,24 @@ function DeviceOverviewRow(props: { device: FleetDevice; onOpen: (view: ActiveVi
 type FleetDistributionEntry = [label: string, value: number, tone: string]
 
 function FleetDistribution(props: { label: string; total: number; entries: FleetDistributionEntry[]; onClick: () => void; ariaLabel: string }) {
+  const tokens = useThemeTokens()
   const total = Math.max(props.total, props.entries.reduce((sum, entry) => sum + entry[1], 0))
-  const colors: Record<string, string> = { online: '#16a34a', inactive: '#f59e0b', offline: '#94a3b8', tcp: '#2563eb', udp: '#16a34a', other: '#f59e0b' }
   let offset = 0
   const segments = props.entries.map((entry) => {
     const next = total ? offset + entry[1] / total * 100 : offset
-    const segment = `${colors[entry[2]]} ${offset}% ${next}%`
+    const segment = `${statusColor(tokens, entry[2])} ${offset}% ${next}%`
     offset = next
     return segment
   })
-  const ring = total ? `conic-gradient(${segments.join(', ')})` : '#e7edf4'
+  const ring = total ? `conic-gradient(${segments.join(', ')})` : 'var(--hairline)'
   return <button type="button" className="fleet-distribution device-overview-action" onClick={props.onClick} aria-label={props.ariaLabel}><small>{props.label}</small><span className="fleet-distribution-body"><i style={{ '--fleet-ring': ring } as React.CSSProperties}><b>{total}</b></i><span>{props.entries.map(([label, value, tone]) => <small key={label} className={tone}>● {label}<b>{value}</b></small>)}</span></span></button>
 }
 
 function FleetPercent(props: { label: string; value: number; onClick: () => void; ariaLabel: string }) {
   const value = Math.max(0, Math.min(100, props.value))
-  return <button type="button" className="fleet-percent device-overview-action" style={{ '--fleet-percent': `${value}%` } as React.CSSProperties} onClick={props.onClick} aria-label={props.ariaLabel}><i>{Math.round(value)}%</i><small>{props.label}</small></button>
+  return <button type="button" className="fleet-percent-cell device-overview-action" onClick={props.onClick} aria-label={props.ariaLabel}>
+    <span className="fleet-percent" style={{ '--fleet-percent': `${value}%` } as React.CSSProperties}><i>{Math.round(value)}%</i><small>{props.label}</small></span>
+  </button>
 }
 
 function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
@@ -2377,7 +2375,7 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
       <section className="overview-main-grid">
         <section className="panel reference-panel traffic-panel">
           <div className="panel-head reference-panel-head">
-            <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span></div></div>
+            <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span></div></div>
           </div>
           {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
         </section>
