@@ -5,22 +5,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Path                        string         `yaml:"-"`
-	ListenAddress               string         `yaml:"listen_address"`
-	DataDir                     string         `yaml:"data_dir"`
-	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
-	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
+	Path                        string               `yaml:"-"`
+	ListenAddress               string               `yaml:"listen_address"`
+	DataDir                     string               `yaml:"data_dir"`
+	PollIntervalSeconds         int                  `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int                  `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int                  `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int                  `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string             `yaml:"allowed_cidrs"`
+	MosDNS                      MosDNSConfig         `yaml:"mosdns,omitempty"`
+	FeatureLibrary              FeatureLibraryConfig `yaml:"feature_library,omitempty"`
+	RouterOS                    RouterOSConfig       `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig       `yaml:"devices,omitempty"`
+}
+
+type MosDNSConfig struct {
+	Enabled             bool   `yaml:"enabled" json:"enabled"`
+	BaseURL             string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	SyncIntervalMinutes int    `yaml:"sync_interval_minutes,omitempty" json:"sync_interval_minutes,omitempty"`
+}
+
+type FeatureLibraryConfig struct {
+	Enabled              bool   `yaml:"enabled" json:"enabled"`
+	SourceURL            string `yaml:"source_url,omitempty" json:"source_url,omitempty"`
+	RefreshIntervalHours int    `yaml:"refresh_interval_hours,omitempty" json:"refresh_interval_hours,omitempty"`
+	MatchWindowMinutes   int    `yaml:"match_window_minutes,omitempty" json:"match_window_minutes,omitempty"`
 }
 
 const DefaultDeviceID = "default"
@@ -75,6 +91,17 @@ func Load(path string) (Config, error) {
 		RealtimePollIntervalSeconds: 1,
 		TerminalPollIntervalSeconds: 5,
 		SampleRetentionHours:        48,
+		MosDNS: MosDNSConfig{
+			Enabled:             true,
+			BaseURL:             "http://10.0.0.3",
+			SyncIntervalMinutes: 30,
+		},
+		FeatureLibrary: FeatureLibraryConfig{
+			Enabled:              true,
+			SourceURL:            "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml",
+			RefreshIntervalHours: 168,
+			MatchWindowMinutes:   30,
+		},
 		RouterOS: RouterOSConfig{
 			BaseURL: "http://10.0.0.1",
 		},
@@ -92,6 +119,8 @@ func Load(path string) (Config, error) {
 	}
 
 	overrideFromEnv(&cfg)
+	cfg.normalizeMosDNS()
+	cfg.normalizeFeatureLibrary()
 	cfg.normalizeDevices()
 
 	if err := cfg.validate(); err != nil {
@@ -176,6 +205,32 @@ func overrideFromEnv(cfg *Config) {
 		target.Password = value
 		cfg.RouterOS.Password = value
 	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_MOSDNS_BASE_URL")); value != "" {
+		cfg.MosDNS.BaseURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_MOSDNS_SYNC_INTERVAL_MINUTES")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.MosDNS.SyncIntervalMinutes = parsed
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_ENABLED")); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			cfg.FeatureLibrary.Enabled = parsed
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_SOURCE_URL")); value != "" {
+		cfg.FeatureLibrary.SourceURL = value
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_REFRESH_INTERVAL_HOURS")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.FeatureLibrary.RefreshIntervalHours = parsed
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_MATCH_WINDOW_MINUTES")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.FeatureLibrary.MatchWindowMinutes = parsed
+		}
+	}
 }
 
 func (c Config) validate() error {
@@ -190,6 +245,17 @@ func (c Config) validate() error {
 	}
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
+	}
+	if c.MosDNS.Configured() && c.MosDNS.SyncIntervalMinutes <= 0 {
+		return errors.New("mosdns.sync_interval_minutes must be positive")
+	}
+	if c.FeatureLibrary.Configured() {
+		if c.FeatureLibrary.RefreshIntervalHours <= 0 {
+			return errors.New("feature_library.refresh_interval_hours must be positive")
+		}
+		if c.FeatureLibrary.MatchWindowMinutes <= 0 {
+			return errors.New("feature_library.match_window_minutes must be positive")
+		}
 	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {
@@ -219,6 +285,35 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) normalizeMosDNS() {
+	if c.MosDNS.Enabled && strings.TrimSpace(c.MosDNS.BaseURL) == "" {
+		c.MosDNS.BaseURL = "http://10.0.0.3"
+	}
+	if c.MosDNS.SyncIntervalMinutes == 0 {
+		c.MosDNS.SyncIntervalMinutes = 30
+	}
+}
+
+func (c MosDNSConfig) Configured() bool {
+	return c.Enabled && strings.TrimSpace(c.BaseURL) != ""
+}
+
+func (c *Config) normalizeFeatureLibrary() {
+	if c.FeatureLibrary.Enabled && strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" {
+		c.FeatureLibrary.SourceURL = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
+	}
+	if c.FeatureLibrary.RefreshIntervalHours == 0 {
+		c.FeatureLibrary.RefreshIntervalHours = 168
+	}
+	if c.FeatureLibrary.MatchWindowMinutes == 0 {
+		c.FeatureLibrary.MatchWindowMinutes = 30
+	}
+}
+
+func (c FeatureLibraryConfig) Configured() bool {
+	return c.Enabled && strings.TrimSpace(c.SourceURL) != ""
 }
 
 func (scope TrafficScopeConfig) validate() error {

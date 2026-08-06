@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +86,11 @@ type TerminalHistorySnapshot struct {
 	OnlineSeconds int64
 	UploadBytes   int64
 	DownloadBytes int64
+}
+
+type DNSWatermark struct {
+	QueryTime time.Time
+	TraceID   string
 }
 
 func Open(dataDir string) (*Store, error) {
@@ -283,6 +289,36 @@ func (s *Store) initSchema() error {
 			download_bps REAL NOT NULL,
 			PRIMARY KEY (ts, name, kind)
 		);`,
+		`CREATE TABLE IF NOT EXISTS dns_observations (
+			dedupe_key TEXT PRIMARY KEY,
+			trace_id TEXT NOT NULL,
+			client_ip TEXT NOT NULL,
+			domain TEXT NOT NULL,
+			answer_ip TEXT NOT NULL,
+			query_type TEXT NOT NULL,
+			query_time_ns INTEGER NOT NULL,
+			ttl INTEGER NOT NULL,
+			effective_tag TEXT NOT NULL DEFAULT '',
+			ingested_at_ns INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_observations_query_time ON dns_observations(query_time_ns DESC);`,
+		`CREATE TABLE IF NOT EXISTS dns_features (
+			client_ip TEXT NOT NULL,
+			domain TEXT NOT NULL,
+			answer_ip TEXT NOT NULL,
+			query_type TEXT NOT NULL,
+			first_seen_ns INTEGER NOT NULL,
+			last_seen_ns INTEGER NOT NULL,
+			hit_count INTEGER NOT NULL,
+			last_ttl INTEGER NOT NULL,
+			effective_tag TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (client_ip, domain, answer_ip)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_features_client_answer ON dns_features(client_ip, answer_ip, hit_count DESC, last_seen_ns DESC);`,
+		`CREATE TABLE IF NOT EXISTS mosdns_state (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);`,
 	}
 
 	for _, statement := range schema {
@@ -309,6 +345,9 @@ func (s *Store) initSchema() error {
 		return fmt.Errorf("add load_samples.connection_count: %w", err)
 	}
 	if err := s.migrateDeviceScope(); err != nil {
+		return err
+	}
+	if err := s.backfillDNSFeatures(); err != nil {
 		return err
 	}
 	return s.initAuthSchema()
@@ -613,6 +652,243 @@ func (s *Store) PruneInterfaceSamples(ctx context.Context, before time.Time) err
 	_, err := s.db.ExecContext(ctx, `DELETE FROM interface_samples WHERE device_id = ? AND ts < ?`, s.deviceID, before.Unix())
 	if err != nil {
 		return fmt.Errorf("prune interface samples: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) backfillDNSFeatures() error {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM dns_features`).Scan(&count); err != nil {
+		return fmt.Errorf("count DNS features: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO dns_features
+		(client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl, effective_tag)
+		SELECT client_ip, domain, answer_ip, MAX(query_type), MIN(query_time_ns), MAX(query_time_ns), COUNT(*), MAX(ttl), MAX(effective_tag)
+		FROM dns_observations
+		WHERE client_ip <> '' AND domain <> '' AND answer_ip <> ''
+		GROUP BY client_ip, domain, answer_ip`); err != nil {
+		return fmt.Errorf("backfill DNS features: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SaveDNSObservations(ctx context.Context, observations []model.DNSObservation, watermark DNSWatermark) (int, error) {
+	if !s.owner {
+		return 0, errors.New("MosDNS observations require the owner store")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin MosDNS observation batch: %w", err)
+	}
+	defer tx.Rollback()
+	inserted := 0
+	for _, observation := range observations {
+		if observation.DedupeKey == "" || observation.QueryTime.IsZero() || observation.IngestedAt.IsZero() {
+			continue
+		}
+		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO dns_observations
+			(dedupe_key, trace_id, client_ip, domain, answer_ip, query_type, query_time_ns, ttl, effective_tag, ingested_at_ns)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			observation.DedupeKey,
+			observation.TraceID,
+			observation.ClientIP,
+			observation.Domain,
+			observation.AnswerIP,
+			observation.QueryType,
+			observation.QueryTime.UnixNano(),
+			observation.TTL,
+			observation.EffectiveTag,
+			observation.IngestedAt.UnixNano(),
+		)
+		if err != nil {
+			return 0, fmt.Errorf("save MosDNS observation: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("read MosDNS observation result: %w", err)
+		}
+		inserted += int(rows)
+		if rows == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO dns_features
+			(client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl, effective_tag)
+			VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+			ON CONFLICT(client_ip, domain, answer_ip) DO UPDATE SET
+				query_type = excluded.query_type,
+				first_seen_ns = MIN(dns_features.first_seen_ns, excluded.first_seen_ns),
+				last_seen_ns = MAX(dns_features.last_seen_ns, excluded.last_seen_ns),
+				hit_count = dns_features.hit_count + 1,
+				last_ttl = excluded.last_ttl,
+				effective_tag = excluded.effective_tag`,
+			observation.ClientIP,
+			observation.Domain,
+			observation.AnswerIP,
+			observation.QueryType,
+			observation.QueryTime.UnixNano(),
+			observation.QueryTime.UnixNano(),
+			observation.TTL,
+			observation.EffectiveTag,
+		); err != nil {
+			return 0, fmt.Errorf("save DNS feature: %w", err)
+		}
+	}
+	if !watermark.QueryTime.IsZero() {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mosdns_state (key, value) VALUES ('watermark_query_time_ns', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, watermark.QueryTime.UTC().UnixNano()); err != nil {
+			return 0, fmt.Errorf("save MosDNS watermark time: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mosdns_state (key, value) VALUES ('watermark_trace_id', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, watermark.TraceID); err != nil {
+			return 0, fmt.Errorf("save MosDNS watermark trace: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit MosDNS observation batch: %w", err)
+	}
+	return inserted, nil
+}
+
+func (s *Store) LoadDNSWatermark(ctx context.Context) (DNSWatermark, bool, error) {
+	if !s.owner {
+		return DNSWatermark{}, false, errors.New("MosDNS watermark requires the owner store")
+	}
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM mosdns_state WHERE key = 'watermark_query_time_ns'`).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return DNSWatermark{}, false, nil
+		}
+		return DNSWatermark{}, false, fmt.Errorf("load MosDNS watermark time: %w", err)
+	}
+	nanoseconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return DNSWatermark{}, false, fmt.Errorf("parse MosDNS watermark time: %w", err)
+	}
+	var traceID string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM mosdns_state WHERE key = 'watermark_trace_id'`).Scan(&traceID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return DNSWatermark{}, false, fmt.Errorf("load MosDNS watermark trace: %w", err)
+	}
+	return DNSWatermark{QueryTime: time.Unix(0, nanoseconds).UTC(), TraceID: traceID}, true, nil
+}
+
+func (s *Store) DNSObservations(ctx context.Context, limit int) ([]model.DNSObservation, error) {
+	if !s.owner {
+		return nil, errors.New("MosDNS observations require the owner store")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT dedupe_key, trace_id, client_ip, domain, answer_ip, query_type, query_time_ns, ttl, effective_tag, ingested_at_ns
+		FROM dns_observations ORDER BY query_time_ns DESC, dedupe_key DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query MosDNS observations: %w", err)
+	}
+	defer rows.Close()
+	result := make([]model.DNSObservation, 0, limit)
+	for rows.Next() {
+		var observation model.DNSObservation
+		var queryTime, ingestedAt int64
+		if err := rows.Scan(&observation.DedupeKey, &observation.TraceID, &observation.ClientIP, &observation.Domain, &observation.AnswerIP, &observation.QueryType, &queryTime, &observation.TTL, &observation.EffectiveTag, &ingestedAt); err != nil {
+			return nil, fmt.Errorf("scan MosDNS observation: %w", err)
+		}
+		observation.QueryTime = time.Unix(0, queryTime).UTC()
+		observation.IngestedAt = time.Unix(0, ingestedAt).UTC()
+		result = append(result, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate MosDNS observations: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Store) DNSObservationsForMatch(ctx context.Context, since, until time.Time) ([]model.DNSObservation, error) {
+	if !s.owner {
+		return nil, errors.New("MosDNS observations require the owner store")
+	}
+	if since.IsZero() {
+		since = time.Unix(0, 0).UTC()
+	}
+	if until.IsZero() {
+		until = time.Now().UTC()
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT dedupe_key, trace_id, client_ip, domain, answer_ip, query_type, query_time_ns, ttl, effective_tag, ingested_at_ns
+		FROM dns_observations WHERE query_time_ns >= ? AND query_time_ns <= ?
+		ORDER BY query_time_ns DESC LIMIT 50000`, since.UTC().UnixNano(), until.UTC().UnixNano())
+	if err != nil {
+		return nil, fmt.Errorf("query MosDNS match observations: %w", err)
+	}
+	defer rows.Close()
+	result := make([]model.DNSObservation, 0)
+	for rows.Next() {
+		var observation model.DNSObservation
+		var queryTime, ingestedAt int64
+		if err := rows.Scan(&observation.DedupeKey, &observation.TraceID, &observation.ClientIP, &observation.Domain, &observation.AnswerIP, &observation.QueryType, &queryTime, &observation.TTL, &observation.EffectiveTag, &ingestedAt); err != nil {
+			return nil, fmt.Errorf("scan MosDNS match observation: %w", err)
+		}
+		observation.QueryTime = time.Unix(0, queryTime).UTC()
+		observation.IngestedAt = time.Unix(0, ingestedAt).UTC()
+		result = append(result, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate MosDNS match observations: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Store) DNSFeaturesForMatch(ctx context.Context) ([]model.DNSFeature, error) {
+	if !s.owner {
+		return nil, errors.New("DNS features require the owner store")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl, effective_tag
+		FROM dns_features ORDER BY hit_count DESC, last_seen_ns DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("query DNS features: %w", err)
+	}
+	defer rows.Close()
+	features := make([]model.DNSFeature, 0)
+	for rows.Next() {
+		var feature model.DNSFeature
+		var firstSeen, lastSeen int64
+		if err := rows.Scan(&feature.ClientIP, &feature.Domain, &feature.AnswerIP, &feature.QueryType, &firstSeen, &lastSeen, &feature.HitCount, &feature.LastTTL, &feature.EffectiveTag); err != nil {
+			return nil, fmt.Errorf("scan DNS feature: %w", err)
+		}
+		feature.FirstSeen = time.Unix(0, firstSeen).UTC()
+		feature.LastSeen = time.Unix(0, lastSeen).UTC()
+		features = append(features, feature)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate DNS features: %w", err)
+	}
+	return features, nil
+}
+
+func (s *Store) DNSFeatureSummary(ctx context.Context) (int, time.Time, error) {
+	if !s.owner {
+		return 0, time.Time{}, errors.New("DNS feature summary requires the owner store")
+	}
+	var count int
+	var lastSeen int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(last_seen_ns), 0) FROM dns_features`).Scan(&count, &lastSeen); err != nil {
+		return 0, time.Time{}, fmt.Errorf("query DNS feature summary: %w", err)
+	}
+	if lastSeen == 0 {
+		return count, time.Time{}, nil
+	}
+	return count, time.Unix(0, lastSeen).UTC(), nil
+}
+
+func (s *Store) PruneDNSObservations(ctx context.Context, before time.Time) error {
+	if !s.owner {
+		return errors.New("MosDNS observations require the owner store")
+	}
+	if before.IsZero() {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM dns_observations WHERE query_time_ns < ?`, before.UTC().UnixNano()); err != nil {
+		return fmt.Errorf("prune MosDNS observations: %w", err)
 	}
 	return nil
 }
@@ -1263,6 +1539,7 @@ func (s *Store) ResetAll(ctx context.Context) error {
 		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
 		"auth_sessions", "admin_account", "app_state",
+		"dns_observations", "dns_features", "mosdns_state",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
 			return fmt.Errorf("reset %s: %w", table, err)
