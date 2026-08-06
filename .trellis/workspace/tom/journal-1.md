@@ -1845,3 +1845,36 @@ User confirmed the deployed Rosboard UI. Terminal status filtering now lives bes
 ### Next Steps
 
 - None - task complete
+
+
+## Session 55: Mintlify UI design system refresh
+
+**Date**: 2026-08-07
+**Task**: Mintlify UI design system refresh
+**Branch**: `codex/2026-08-07-ui-design-system-refresh`
+
+### Summary
+
+完成 Mintlify 视觉层刷新：引入 Inter/Geist Mono 字体与 token 化主题，移除 glass 主题，统一卡片/按钮/状态色/图表主题；实时流量改为上传在上、下载在下。通过前端 lint/build、go test ./...、本地与远端验收，部署至 10.0.0.6 并推送分支。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37b4a08` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
