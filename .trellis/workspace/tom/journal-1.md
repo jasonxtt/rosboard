@@ -1911,3 +1911,36 @@ Moved system interfaces into the third interface-monitor tab and removed redunda
 ### Next Steps
 
 - None - task complete
+
+
+## Session 57: Terminal detail header spacing refinement
+
+**Date**: 2026-08-07
+**Task**: Terminal detail header spacing refinement
+**Branch**: `codex/2026-08-07-ui-design-system-refresh`
+
+### Summary
+
+Adjusted the terminal detail identity row to move down slightly without shifting the basic-information tabs; verified build, tests, local rendering, and approved deployment on 10.0.0.6.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3b8640e` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
