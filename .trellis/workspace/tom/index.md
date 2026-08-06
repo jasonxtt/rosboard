@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 57
+- **Total Sessions**: 58
 - **Last Active**: 2026-08-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1946 | Active |
+| `journal-1.md` | ~1980 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 58 | 2026-08-07 | Merge monitoring UI branch and publish v0.1.0 | `7303811`, `2bdf8f1` | `main` |
 | 57 | 2026-08-07 | Terminal detail header spacing refinement | `3b8640e` | `codex/2026-08-07-ui-design-system-refresh` |
 | 56 | 2026-08-07 | Simplify monitor panel data headers | `7f8ec65` | `codex/2026-08-07-ui-design-system-refresh` |
 | 55 | 2026-08-07 | Mintlify UI design system refresh | `37b4a08` | `codex/2026-08-07-ui-design-system-refresh` |

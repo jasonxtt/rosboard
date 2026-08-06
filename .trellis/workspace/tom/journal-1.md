@@ -1944,3 +1944,37 @@ Adjusted the terminal detail identity row to move down slightly without shifting
 ### Next Steps
 
 - None - task complete
+
+
+## Session 58: Merge monitoring UI branch and publish v0.1.0
+
+**Date**: 2026-08-07
+**Task**: Merge monitoring UI branch and publish v0.1.0
+**Branch**: `main`
+
+### Summary
+
+Merged PR #2 into main, bumped VERSION and README to 0.1.0, validated go tests plus frontend lint/build, and published the v0.1.0 GitHub release with Linux amd64, amd64-v3, arm64, armv7 archives and checksums.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7303811` | (see git log) |
+| `2bdf8f1` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
