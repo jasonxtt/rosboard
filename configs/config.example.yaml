@@ -5,11 +5,11 @@ realtime_poll_interval_seconds: 1
 terminal_poll_interval_seconds: 5
 sample_retention_hours: 48
 mosdns:
-  enabled: true
-  base_url: "http://10.0.0.3"
+  enabled: false
+  base_url: ""
   sync_interval_minutes: 30
 feature_library:
-  enabled: true
+  enabled: false
   source_url: "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
   refresh_interval_hours: 168
   match_window_minutes: 30

@@ -893,7 +893,7 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	payload.MosDNS.BaseURL = strings.TrimSpace(payload.MosDNS.BaseURL)
+	payload.MosDNS.BaseURL = config.NormalizeMosDNSBaseURL(payload.MosDNS.BaseURL)
 	payload.FeatureLibrary.SourceURL = strings.TrimSpace(payload.FeatureLibrary.SourceURL)
 	if payload.MosDNS.Enabled && payload.MosDNS.BaseURL == "" {
 		writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
@@ -1018,6 +1018,7 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)
 		next.Devices[index].RouterOS.TerminalScope = cloneTerminalScope(s.cfg.Devices[index].RouterOS.TerminalScope)
 	}
+	next.RecognitionDefaultsMigrated = true
 	update(&next)
 	if err := config.Save(next.Path, next); err != nil {
 		return err

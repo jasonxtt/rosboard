@@ -21,14 +21,60 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if cfg.RealtimePollIntervalSeconds != 1 || cfg.TerminalPollIntervalSeconds != 5 || cfg.PollIntervalSeconds != 10 {
 		t.Fatalf("unexpected polling defaults: realtime=%d terminal=%d full=%d", cfg.RealtimePollIntervalSeconds, cfg.TerminalPollIntervalSeconds, cfg.PollIntervalSeconds)
 	}
-	if !cfg.MosDNS.Enabled || cfg.MosDNS.BaseURL != "http://10.0.0.3" || cfg.MosDNS.SyncIntervalMinutes != 30 {
+	if cfg.MosDNS.Enabled || cfg.MosDNS.BaseURL != "" || cfg.MosDNS.SyncIntervalMinutes != 30 {
 		t.Fatalf("unexpected MosDNS defaults: %#v", cfg.MosDNS)
 	}
-	if !cfg.FeatureLibrary.Enabled || cfg.FeatureLibrary.SourceURL == "" || cfg.FeatureLibrary.RefreshIntervalHours != 168 || cfg.FeatureLibrary.MatchWindowMinutes != 30 {
+	if cfg.FeatureLibrary.Enabled || cfg.FeatureLibrary.SourceURL == "" || cfg.FeatureLibrary.RefreshIntervalHours != 168 || cfg.FeatureLibrary.MatchWindowMinutes != 30 {
 		t.Fatalf("unexpected feature library defaults: %#v", cfg.FeatureLibrary)
 	}
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
 		t.Fatalf("legacy routeros config was not normalized: %#v", cfg.Devices)
+	}
+}
+
+func TestLoadNormalizesPlainMosDNSAddress(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	payload := []byte("recognition_defaults_migrated: true\nmosdns:\n  enabled: true\n  base_url: 10.0.0.3\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MosDNS.BaseURL != "http://10.0.0.3" || !cfg.MosDNS.Configured() {
+		t.Fatalf("plain MosDNS address was not normalized: %#v", cfg.MosDNS)
+	}
+}
+
+func TestLoadMigratesLegacyRecognitionDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	payload := []byte("mosdns:\n  enabled: true\n  base_url: http://10.0.0.3\n  sync_interval_minutes: 30\nfeature_library:\n  enabled: true\n  source_url: https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml\n  refresh_interval_hours: 168\n  match_window_minutes: 30\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MosDNS.Enabled || cfg.MosDNS.BaseURL != "" || cfg.FeatureLibrary.Enabled || !cfg.RecognitionDefaultsMigrated || !cfg.MigrationPending {
+		t.Fatalf("legacy recognition defaults were not migrated: %#v", cfg)
+	}
+	if cfg.FeatureLibrary.SourceURL == "" {
+		t.Fatal("feature library source URL should remain configured")
+	}
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.MosDNS.Enabled || reloaded.MosDNS.BaseURL != "" || reloaded.FeatureLibrary.Enabled || reloaded.MigrationPending {
+		t.Fatalf("migrated recognition defaults were not persisted: %#v", reloaded)
 	}
 }
 
@@ -156,10 +202,18 @@ func TestLoadCanDisableMosDNSAndRejectsInvalidEnabledInterval(t *testing.T) {
 	}
 
 	invalidPath := filepath.Join(directory, "invalid.yaml")
-	if err := os.WriteFile(invalidPath, []byte("mosdns:\n  sync_interval_minutes: -1\n"), 0o600); err != nil {
+	if err := os.WriteFile(invalidPath, []byte("recognition_defaults_migrated: true\nmosdns:\n  enabled: true\n  base_url: 10.0.0.3\n  sync_interval_minutes: -1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(invalidPath); err == nil || !strings.Contains(err.Error(), "mosdns.sync_interval_minutes") {
 		t.Fatalf("expected invalid MosDNS interval error, got %v", err)
+	}
+
+	missingAddressPath := filepath.Join(directory, "missing-address.yaml")
+	if err := os.WriteFile(missingAddressPath, []byte("recognition_defaults_migrated: true\nmosdns:\n  enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(missingAddressPath); err == nil || !strings.Contains(err.Error(), "mosdns.base_url") {
+		t.Fatalf("expected missing MosDNS address error, got %v", err)
 	}
 }

@@ -319,6 +319,32 @@ func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
 	}
 }
 
+func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		MosDNS:         config.MosDNSConfig{Enabled: false, SyncIntervalMinutes: 30},
+		FeatureLibrary: config.FeatureLibraryConfig{Enabled: false, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+	}
+	server := NewServer(cfg, nil, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
+		"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},
+		"featureLibrary":{"enabled":false,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
+	}`))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.MosDNS.Enabled || loaded.MosDNS.BaseURL != "http://10.0.0.3" {
+		t.Fatalf("plain MosDNS address was not saved as a URL: %#v", loaded.MosDNS)
+	}
+}
+
 func TestParseWindowSupportsOverviewRanges(t *testing.T) {
 	tests := map[string]time.Duration{
 		"5m":  5 * time.Minute,

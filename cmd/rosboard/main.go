@@ -40,6 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	if cfg.MigrationPending && cfg.Path != "" {
+		if err := config.Save(cfg.Path, cfg); err != nil {
+			log.Fatalf("save migrated config: %v", err)
+		}
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		log.Fatalf("create data dir: %v", err)

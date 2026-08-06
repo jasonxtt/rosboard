@@ -244,7 +244,7 @@ function recognitionDraftFromSettings(settings: SettingsResponse): RecognitionDr
   return {
     mosdns: {
       enabled: settings.mosdns.enabled,
-      baseUrl: settings.mosdns.baseUrl,
+      baseUrl: mosDNSAddressFromBaseURL(settings.mosdns.baseUrl),
       syncIntervalMinutes: settings.mosdns.syncIntervalMinutes,
     },
     featureLibrary: {
@@ -253,6 +253,17 @@ function recognitionDraftFromSettings(settings: SettingsResponse): RecognitionDr
       refreshIntervalHours: settings.featureLibrary.refreshIntervalHours,
       matchWindowMinutes: settings.featureLibrary.matchWindowMinutes,
     },
+  }
+}
+
+function mosDNSAddressFromBaseURL(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`)
+    return `${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`
+  } catch {
+    return trimmed.replace(/^https?:\/\//i, '')
   }
 }
 
@@ -2175,7 +2186,7 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
     <fieldset className="settings-fieldset wide">
       <legend>MosDNS DNS 日志对接</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
-      <label><span>MosDNS 地址</span><input type="url" required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="http://10.0.0.3" /></label>
+      <label><span>MosDNS 地址</span><input type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
       <label><span>同步周期</span><span className="number-input"><input type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       <div className="settings-grid connection-runtime-grid">
         <SettingItem label="最近导入" value={`${props.settings.mosdns.lastImported} 条`} />
