@@ -123,6 +123,7 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 - The user-facing connection columns omit `publicAddress`; the field may remain
   in the API for compatibility.
 - On mobile, the back button remains in the detail-card upper-right with a 44px target and never takes a separate full-width row.
+- The terminal detail header follows the flat monitor-tab treatment: identity, primary IP, MAC, status, connection count, and live rates share one inline information row; the row may wrap naturally when space is limited, while the back target remains 44px.
 - Mobile detail tabs use a fixed three- or four-column grid with no extra
   connection-action column and no horizontal scrolling.
 - Second-level monitor items use the same 12px typography and visual weight as
