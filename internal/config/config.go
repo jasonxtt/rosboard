@@ -13,6 +13,8 @@ import (
 
 type Config struct {
 	Path                        string               `yaml:"-"`
+	MigrationPending            bool                 `yaml:"-"`
+	RecognitionDefaultsMigrated bool                 `yaml:"recognition_defaults_migrated,omitempty"`
 	ListenAddress               string               `yaml:"listen_address"`
 	DataDir                     string               `yaml:"data_dir"`
 	PollIntervalSeconds         int                  `yaml:"poll_interval_seconds"`
@@ -40,6 +42,8 @@ type FeatureLibraryConfig struct {
 }
 
 const DefaultDeviceID = "default"
+
+const defaultFeatureLibrarySourceURL = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
 
 type DeviceConfig struct {
 	ID             string                  `yaml:"id"`
@@ -92,12 +96,12 @@ func Load(path string) (Config, error) {
 		TerminalPollIntervalSeconds: 5,
 		SampleRetentionHours:        48,
 		MosDNS: MosDNSConfig{
-			Enabled:             true,
-			BaseURL:             "http://10.0.0.3",
+			Enabled:             false,
+			BaseURL:             "",
 			SyncIntervalMinutes: 30,
 		},
 		FeatureLibrary: FeatureLibraryConfig{
-			Enabled:              true,
+			Enabled:              false,
 			SourceURL:            "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml",
 			RefreshIntervalHours: 168,
 			MatchWindowMinutes:   30,
@@ -118,6 +122,7 @@ func Load(path string) (Config, error) {
 		}
 	}
 
+	cfg.migrateRecognitionDefaults()
 	overrideFromEnv(&cfg)
 	cfg.normalizeMosDNS()
 	cfg.normalizeFeatureLibrary()
@@ -246,6 +251,9 @@ func (c Config) validate() error {
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
 	}
+	if c.MosDNS.Enabled && strings.TrimSpace(c.MosDNS.BaseURL) == "" {
+		return errors.New("mosdns.base_url is required when enabled")
+	}
 	if c.MosDNS.Configured() && c.MosDNS.SyncIntervalMinutes <= 0 {
 		return errors.New("mosdns.sync_interval_minutes must be positive")
 	}
@@ -288,12 +296,20 @@ func (c Config) validate() error {
 }
 
 func (c *Config) normalizeMosDNS() {
-	if c.MosDNS.Enabled && strings.TrimSpace(c.MosDNS.BaseURL) == "" {
-		c.MosDNS.BaseURL = "http://10.0.0.3"
-	}
+	c.MosDNS.BaseURL = NormalizeMosDNSBaseURL(c.MosDNS.BaseURL)
 	if c.MosDNS.SyncIntervalMinutes == 0 {
 		c.MosDNS.SyncIntervalMinutes = 30
 	}
+}
+
+// NormalizeMosDNSBaseURL keeps the config/client contract URL-shaped while
+// allowing the settings UI to accept a plain address such as 10.0.0.3.
+func NormalizeMosDNSBaseURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "://") {
+		return value
+	}
+	return "http://" + value
 }
 
 func (c MosDNSConfig) Configured() bool {
@@ -301,8 +317,8 @@ func (c MosDNSConfig) Configured() bool {
 }
 
 func (c *Config) normalizeFeatureLibrary() {
-	if c.FeatureLibrary.Enabled && strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" {
-		c.FeatureLibrary.SourceURL = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
+	if strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" {
+		c.FeatureLibrary.SourceURL = defaultFeatureLibrarySourceURL
 	}
 	if c.FeatureLibrary.RefreshIntervalHours == 0 {
 		c.FeatureLibrary.RefreshIntervalHours = 168
@@ -310,6 +326,24 @@ func (c *Config) normalizeFeatureLibrary() {
 	if c.FeatureLibrary.MatchWindowMinutes == 0 {
 		c.FeatureLibrary.MatchWindowMinutes = 30
 	}
+}
+
+func (c *Config) migrateRecognitionDefaults() {
+	if c.RecognitionDefaultsMigrated {
+		return
+	}
+
+	legacyMosDNSAddress := NormalizeMosDNSBaseURL(c.MosDNS.BaseURL)
+	if c.MosDNS.Enabled && (strings.TrimSpace(c.MosDNS.BaseURL) == "" || (legacyMosDNSAddress == "http://10.0.0.3" && c.MosDNS.SyncIntervalMinutes == 30)) {
+		c.MosDNS.Enabled = false
+		c.MosDNS.BaseURL = ""
+		c.MigrationPending = true
+	}
+	if c.FeatureLibrary.Enabled && (strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" || (c.FeatureLibrary.SourceURL == defaultFeatureLibrarySourceURL && c.FeatureLibrary.RefreshIntervalHours == 168 && c.FeatureLibrary.MatchWindowMinutes == 30)) {
+		c.FeatureLibrary.Enabled = false
+		c.MigrationPending = true
+	}
+	c.RecognitionDefaultsMigrated = true
 }
 
 func (c FeatureLibraryConfig) Configured() bool {

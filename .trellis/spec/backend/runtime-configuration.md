@@ -98,7 +98,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - Recognition settings are written through `POST /api/settings/recognition`; `mosdns.enabled` and `feature_library.enabled` independently control DNS log ingestion and domain feature matching. The source URL, refresh interval, sync interval, and DNS match window are persisted in the config file and applied after restart.
 - Connection fields: `apiBasePath`, `configured`, `listenAddress`, `allowedCidrs`, `routerosBaseUrl`, `routerosScheme`, `routerosHost`, `routerosPort`, `routerosUsername`, and `routerosPasswordSet`; no password plaintext is returned.
 - Collection fields: `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`.
-- MosDNS fields: `enabled`, `baseUrl`, `syncIntervalMinutes`, `learnedFeatureCount`, and `learnedFeatureLastSeen`; synchronization is read-only and defaults to the local `http://10.0.0.3` endpoint at a 30-minute interval. Learned IP features are durable and are not removed by DNS TTL expiry or raw observation retention.
+- MosDNS fields: `enabled`, `baseUrl`, `syncIntervalMinutes`, `learnedFeatureCount`, and `learnedFeatureLastSeen`; synchronization is disabled by default, leaves `baseUrl` empty until the operator enters an address such as `10.0.0.3`, and then uses the normalized local HTTP endpoint at a 30-minute interval. Learned IP features are durable and are not removed by DNS TTL expiry or raw observation retention.
 - Diagnostics fields: `routerName`, `version`, `updatedAt`.
 - Browser preference storage key: `rosboard:panel-preferences`.
 
