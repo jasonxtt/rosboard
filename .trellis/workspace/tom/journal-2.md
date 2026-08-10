@@ -108,3 +108,102 @@ Prefer `task.py archive --no-commit` whenever the working tree has staged code.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 61: 协议分析总开关：配置迁移、分析层门控与部署验收
+
+**Date**: 2026-08-11
+**Task**: 协议分析总开关：配置迁移、分析层门控与部署验收
+**Branch**: `main`
+
+### Summary
+
+新增 protocol_analysis 总开关，关闭后跳过端口分类、域名反查、协议聚合与样本落库，连接抓取与终端速率不受影响；新装默认关、老配置迁移为开。
+
+### Main Changes
+
+### Main Changes
+
+- Added a `protocol_analysis.enabled` master switch that gates the whole analysis
+  layer: port-based `classifyApplication`, the MosDNS + feature-library reverse
+  lookup, `aggregateProtocols`, `terminalFlowCategories`, and the per-poll
+  `SaveProtocolSamples` write. The synchronizers and `ApplicationResolver` are not
+  even constructed when it is off.
+- Deliberately left connection fetching untouched. `FirewallConnectionsV4/V6` is
+  load-bearing for per-terminal `CurrentUploadBps`/`CurrentDownloadBps`,
+  `ConnectionCount`, `FamilyStats`/`FamilySummaries`, `ConnectionProtocolCounts`
+  and the connection detail table, so the switch saves analysis work, not fetch
+  work. The core regression test asserts the exact rate numbers with analysis off.
+- Fresh installs default to off; an existing config file with no
+  `protocol_analysis` section migrates to on so upgrades keep current behavior.
+  Migration uses a **key-existence** probe (`map[string]yaml.Node`) rather than a
+  pointer probe, so `protocol_analysis: null` counts as present and an explicit
+  user choice is never overwritten.
+- Frontend hides the protocol view, its tab and the terminal flow-distribution
+  panel when off, with redirects for stale `localStorage` views and detail tabs.
+
+### Testing
+
+- `go build ./...`, `go vet ./...`, `go test -count=1 ./...` — all packages ok
+- `npm --prefix web run lint` (oxlint, no output) and `npm --prefix web run build`
+  (`tsc -b` clean; rebuild reproduced the committed asset hashes byte-for-byte)
+- Deployed to `10.0.0.6`; backup at
+  `/opt/rosboard/backups/rosboard-protocol-switch-20260810-235125/` (binary,
+  config, systemd unit, plus `rosboard.db` copied while stopped so the wal was
+  already checkpointed). systemd active, health 200, asset hashes and byte sizes
+  matched the local build. Migration verified live: the remote config had no
+  `protocol_analysis` section and gained `enabled: true` plus
+  `protocol_analysis_migrated: true` on restart. User approved in the browser.
+
+### Notes
+
+Two-agent split worked well here: Claude wrote the PRD and gated, codex wrote
+design.md and implemented. codex's design listed 6 conflicts with the PRD; five
+were correct and four of those were genuine PRD errors — most usefully that the
+"protocol stats sidebar button" the PRD told it to hide does not exist (line 1175
+is the single 流量监控 parent; the protocols/policies choice lives only in the top
+`monitorTabs`). Worth remembering: **a design review that finds my own spec wrong
+four times is the review earning its cost**, so keep writing PRDs precise enough
+to be falsifiable.
+
+Conflict #3 was wrong — it claimed `terminalConnectionRow` lacked a resolver nil
+guard, but `ApplicationResolver.Resolve` guards `r == nil` at
+`application_resolver.go:38-41` and calling a pointer method on a nil pointer is
+legal Go. Rejected it explicitly so it would not restructure code to fix a
+non-bug. Verifying each claim against source rather than accepting the summary is
+what caught this.
+
+Reviewing codex's output also caught one out-of-scope change I reverted myself:
+it had changed the `/api/mosdns` **status** endpoint's `Enabled` from
+`cfg.MosDNS.Configured()` to the bare stored flag. The settings endpoint should
+report stored values (so a form round-trip cannot silently drop them) while the
+status endpoint reports effective state; that divergence is intentional.
+
+Archive used `task.py archive --no-commit` per the convention recorded last
+session, then committed the archive separately — the pathspec-less auto-commit at
+`.trellis/scripts/common/task_store.py:603` did not get a chance to sweep staged
+code this time.
+
+Not verified: "no new `protocol_samples` rows after disabling" has unit-test
+evidence only. `sqlite3` is not installed on `10.0.0.6` and installing packages on
+the user's box was out of scope, so there is no live row-count comparison.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8128c5d` | (see git log) |
+| `6e87fc2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
