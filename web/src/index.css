@@ -991,11 +991,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .topbar-action-controls { width: 100%; min-width: 0; flex-wrap: nowrap; gap: 8px; overflow: visible; }
   .topbar-action-controls > .system-ok { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-full); text-overflow: ellipsis; }
   .topbar-action-controls > .global-warning-toggle { color: var(--status-warn); background: color-mix(in srgb, var(--status-warn) 10%, var(--surface)); border-color: color-mix(in srgb, var(--status-warn) 26%, var(--surface)); }
-  .theme-button, .topbar-action-controls > .icon-button, .refresh-period-select-mobile { width: 44px; min-width: 44px; height: 44px; padding: 0; }
+  .theme-button, .topbar-action-controls > .icon-button { width: 44px; min-width: 44px; height: 44px; padding: 0; }
   .theme-button > span { display: none; }
   .theme-button .ui-icon, .topbar-action-controls > .icon-button .ui-icon { width: 18px; height: 18px; font-size: 18px; }
   .refresh-period-select-desktop { display: none; }
-  .topbar-controls .refresh-period-select-mobile { display: block; flex: 0 0 44px; width: 44px; padding: 0 2px; font-size: var(--fs-micro); font-weight: 600; text-align: center; }
+  .topbar-controls .refresh-period-select-mobile { display: block; flex: 0 0 44px; width: 44px; min-width: 44px; height: 44px; padding: 0; appearance: none; font-size: var(--fs-micro); font-weight: 600; text-align: center; text-align-last: center; }
   .theme-menu { right: 0; }
   .monitor-topbar .topbar-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .monitor-topbar .topbar-controls .system-ok, .settings-topbar .topbar-controls .system-ok { display: inline-flex; }
