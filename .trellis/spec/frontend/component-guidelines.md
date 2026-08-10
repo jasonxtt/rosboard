@@ -198,7 +198,8 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 ## Terminal scope summary layout
 
 - Render the selected `terminalScopeSummaries` entry only in the terminal-list topbar, inside the right-side global control cluster next to system status, last-updated, refresh, and auto-refresh controls. Do not place it between the title and controls, and do not place it in the terminal filter toolbar.
-- Desktop uses the topbar controls' muted 11px inline typography and tabular numerals so device/connection/rate/cumulative values do not look louder than `系统正常` or `最后更新`. Mobile uses a full-width controls row with a two-row, three-column grid.
+- Desktop uses the topbar controls' muted 11px inline typography and tabular numerals so device/connection/rate/cumulative values do not look louder than `系统正常` or `最后更新`. Mobile uses a full-width controls row with a single six-column grid whose cells stack the compact label above the value.
+- The mobile summary must stay fully visible on every scope tab (`全部` / `IPv4` / `IPv6`) regardless of how many terminal rows the page renders. Verify by layout measurement — the summary values' bottom edge must not exceed the topbar's bottom edge or reach the list panel's top edge — not by eyeballing a screenshot.
 - The six labels are device count, connection count, upload, download, active cumulative upload, and active cumulative download. Use `formatBits` for current bit/s values and `formatBytes` for active bytes.
 - Unexpectedly missing summary data renders zero values; never fall back to persisted combined terminal totals.
 - Verify 375px layout has no document-level overflow and the shared topbar
@@ -381,6 +382,12 @@ The monitoring console is desktop/tablet-first but must remain fully usable on m
 - At widths below 768px, use one-column cards and 44px minimum touch targets.
 - Dense terminal and interface tables show only key columns on mobile. Keep the terminal detail/interface detail action available so hidden fields remain reachable.
 - Exceptionally wide connection-detail tables may scroll inside `.table-scroll`; the document itself must not scroll horizontally.
+- In a fixed-height scroll shell (`.terminal-list-content`, `.connection-detail-content`: viewport-or-parent height plus `overflow: hidden`), only the scrolling panel may shrink. Every other direct child — the topbar above all — must be `flex: 0 0 auto`, because the panel's flex-basis is its full content height and would otherwise squeeze the header until its rows are clipped by the shell and painted under the `position: relative` panel. Removing a mobile `min-height` from such a header is only safe with this rule in place.
+
+```css
+.terminal-list-content > *:not(.terminal-list-panel),
+.connection-detail-content > *:not(.detail-page-connections) { flex: 0 0 auto; }
+```
 
 ```css
 @media (max-width: 767px) {
