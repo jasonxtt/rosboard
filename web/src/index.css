@@ -235,6 +235,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .content { min-width: 0; padding: 0 18px 22px; }
 .connection-detail-content { display: flex; height: 100%; min-height: 0; flex-direction: column; padding-bottom: 8px; overflow: hidden; }
 .terminal-list-content { display: flex; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding-bottom: 8px; overflow: hidden; }
+.terminal-list-content > *:not(.terminal-list-panel), .connection-detail-content > *:not(.detail-page-connections) { flex: 0 0 auto; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-width: 0; min-height: 62px; }
 .topbar-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .mobile-menu-button {
