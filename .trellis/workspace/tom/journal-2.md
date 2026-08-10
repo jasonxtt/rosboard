@@ -207,3 +207,66 @@ the user's box was out of scope, so there is no live row-count comparison.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 62: 修复移动端终端监控概览遮挡与自动刷新圆钮规格
+
+**Date**: 2026-08-11
+**Task**: 修复移动端终端监控概览遮挡与自动刷新圆钮规格
+**Branch**: `main`
+
+### Summary
+
+移动端顶部栏在固定高度 flex 壳里被列表面板压缩导致概览被裁切/遮挡；自动刷新控件 44px 尺寸被更高优先级选择器压掉。两处均为 CSS 修复，已部署 10.0.0.6 并人工验收，发布 v0.1.1。
+
+### Main Changes
+
+## 背景
+
+移动端 `终端监控` 顶部六项概览（设备 / 连接 / ↑ / ↓ / 累↑ / 累↓）在 `全部`、`IPv4` 完全看不到，`IPv6` 只剩标签行、数值被 `设备名称` 表头遮住。随后又发现刷新按钮旁的自动刷新时间控件与刷新圆钮大小不一致。
+
+## 成因（两处都靠几何测量定位，不靠猜）
+
+1. **概览被遮挡**：`.terminal-list-content` 是 `100dvh` + `overflow: hidden` 的纵向 flex 壳，`.terminal-list-panel` 是 `flex: 1 1 auto` 且 flex-basis 取整表内容高度。commit `eb893ed` 把移动端 `.topbar:not(.detail-topbar)` 的 `min-height` 归零后，顶部栏成了唯一可收缩项：列表行越多，顶部栏被压得越扁，溢出的概览行既被壳 `overflow: hidden` 裁掉，又被 `position: relative` 的列表面板盖住。所以行多的 `全部` / `IPv4` 整条概览消失，行少的 `IPv6` 只丢数值行。测量：改前 390px 下 `header.h 85 / scrollHeight 157`，概览数值底边 95 落在 `panelTop 85` 之下。
+2. **自动刷新控件尺寸不符**：`.refresh-period-select-mobile`（0-1-0）里的 `height: 44px` 被 `.topbar-controls select`（0-1-1，一个类 + 一个标签）的 `height: 32px` 压掉——那条 44px 一直是死代码。实测改前刷新按钮 44×44 y113、自动刷新 44×32 y119，且 `appearance: auto`（iOS 会走原生 select 外观）。
+
+## 改动（均为 `web/src/index.css`）
+
+1. `.terminal-list-content > *:not(.terminal-list-panel), .connection-detail-content > *:not(.detail-page-connections) { flex: 0 0 auto; }` —— 固定高度滚动壳里只有滚动面板可收缩。
+2. 把 44px 尺寸挪进本来就够优先级的 `.topbar-controls .refresh-period-select-mobile`，并从共享分组里摘掉那条死代码；加 `appearance: none` 去原生外观、`text-align-last: center` 保证 WebKit 文字居中（构建按 `cssTarget: safari12` 自动补 `-webkit-appearance`）。
+
+## 验证
+
+复现用 `/tmp/rosboard-mobile-repro/` 与 `/tmp/rb-measure/` 静态 harness（复制真实 `index.css` + 真实 DOM 结构 + headless Chrome 几何测量）。改后：390px `header.h == scrollHeight == 165`、概览数值底边 95 ≤ `panelTop 165`；内容宽 351 / 366 下 `docOverflow False`、六项数值均未裁切；两个圆钮同为 44×44 且 y 一致，操作行 `scrollWidth == clientWidth == 327`；1440px `h == scrollHeight == 96`（桌面端为空操作）。lint / build / `go test ./...` / `go vet ./...` / `git diff --check` 全过；本地起服务确认 `/healthz` 200 且嵌入资源含新规则。两次均按门禁部署 `10.0.0.6`（时间戳备份二进制 + config + systemd 单元 + 停服后的 `rosboard.db`），远程二进制与 CSS 哈希对齐本地构建，由 tom 在手机上人工验收通过后才提交。
+
+## 经验
+
+- headless Chrome 在 macOS 有 ~500px 最小窗口宽度，`--window-size=390,844` 实际 `innerWidth 500`；测窄屏要强制 `.content` 宽度而不是靠窗口尺寸。本机没有 `timeout` 命令，且 Chrome 进程会驻留，需显式 `pkill`。
+- 移动端“看不见”的布局问题优先怀疑固定高度 flex 壳的收缩分配，其次才是组件本身；“尺寸没生效”优先算选择器优先级，两者都能用一次几何测量证实或推翻。
+- 已把两条结论写进 `.trellis/spec/frontend/component-guidelines.md`（新增“固定高度滚动壳里只有滚动面板可收缩”不变量，并订正移动端概览“两行三列”的过期描述）。
+
+## 发布
+
+`VERSION` 0.1.0 → 0.1.1，README 当前版本号同步，推送 `main` 由 GitHub Actions 出 `v0.1.1` Release。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8605a89` | (see git log) |
+| `7a61b15` | (see git log) |
+| `c097d37` | (see git log) |
+| `191cf94` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
