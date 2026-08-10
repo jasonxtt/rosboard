@@ -94,8 +94,9 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - API: `POST /api/settings/collection` with positive numeric `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`.
 - API: `/api/devices` and `/api/devices/{id}` own per-device RouterOS REST fields, `trafficInterfaces`, and `terminalCidrs`.
 - API: `POST /api/settings/restart` with no request body.
-- Response root fields: `connection`, `collection`, `mosdns`, `featureLibrary`, and `diagnostics`.
-- Recognition settings are written through `POST /api/settings/recognition`; `mosdns.enabled` and `feature_library.enabled` independently control DNS log ingestion and domain feature matching. The source URL, refresh interval, sync interval, and DNS match window are persisted in the config file and applied after restart.
+- Response root fields: `connection`, `collection`, `protocolAnalysis`, `mosdns`, `featureLibrary`, and `diagnostics`.
+- Recognition settings are written through `POST /api/settings/recognition`; `protocolAnalysis.enabled` gates protocol analysis, while `mosdns.enabled` and `feature_library.enabled` independently control DNS log ingestion and domain feature matching when the gate is open. The source URL, refresh interval, sync interval, and DNS match window are persisted in the config file and applied after restart.
+- `protocol_analysis.enabled` defaults to `false` for a missing configuration file. A successfully parsed existing file without a `protocol_analysis` key is migrated to `true` once, preserving behavior for existing installations; `protocol_analysis_migrated` records that migration.
 - Connection fields: `apiBasePath`, `configured`, `listenAddress`, `allowedCidrs`, `routerosBaseUrl`, `routerosScheme`, `routerosHost`, `routerosPort`, `routerosUsername`, and `routerosPasswordSet`; no password plaintext is returned.
 - Collection fields: `pollIntervalSeconds`, `realtimePollIntervalSeconds`, `terminalPollIntervalSeconds`, and `sampleRetentionHours`.
 - MosDNS fields: `enabled`, `baseUrl`, `syncIntervalMinutes`, `learnedFeatureCount`, and `learnedFeatureLastSeen`; synchronization is disabled by default, leaves `baseUrl` empty until the operator enters an address such as `10.0.0.3`, and then uses the normalized local HTTP endpoint at a 30-minute interval. Learned IP features are durable and are not removed by DNS TTL expiry or raw observation retention.
@@ -105,13 +106,17 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 ### 3. Contracts
 
 - Missing config files at the `-config` path start with defaults and retain the path so setup can write the first YAML file.
+- The protocol analysis migration distinguishes a missing `protocol_analysis` key from an explicitly present value, including `protocol_analysis: null`; an explicit section is never enabled by migration.
 - RouterOS REST defaults to `http://10.0.0.1:80`. HTTPS uses default REST port `443`. The panel does not use classic RouterOS API ports `8728` / `8729`.
 - `/api/settings` is a projection of the effective `config.Config` plus current snapshot diagnostics.
+- `/api/settings.protocolAnalysis.enabled` reports the stored master switch. The `mosdns.enabled` and `featureLibrary.enabled` projection fields report their stored child values even when protocol analysis is disabled; the UI disables their fieldsets while the master switch is closed.
 - `connection.apiBasePath` is `/api` while the frontend uses same-origin requests.
 - Do not JSON-encode the full config or return `routerosPassword`. Existing-device editors start with an empty password input and use `passwordSet` to explain that empty means preserve.
 - Slice fields such as `allowedCidrs`, `trafficInterfaces`, and `terminalCidrs` serialize as arrays. Empty values serialize as `[]`, not `null`.
 - Verified device APIs atomically replace `Config.Path`. Normal ready-phase device writes schedule process exit; onboarding save-only writes intentionally defer restart until the operator completes setup.
 - `POST /api/settings/collection` writes only process-global collection intervals and retention to `Config.Path`, then schedules the same restart. It must not mutate any `devices[].routeros.traffic_interfaces` or `devices[].routeros.terminal_cidrs` values; those fields are saved only through device APIs. Serialize writes under `cfgMu` so simultaneous settings saves cannot overwrite one another.
+- `POST /api/settings/recognition` persists `protocolAnalysis.enabled` and the two child recognition settings. When the request closes the master switch, it must persist both child `enabled` values as `false`.
+- Closing protocol analysis must not stop RouterOS firewall connection collection, terminal rate calculation, connection counts, raw connection protocol fields, or TCP/UDP/other overview counts. It skips application classification, protocol aggregation, and new `protocol_samples` writes; existing protocol samples remain available for natural retention expiry.
 - `POST /api/settings/restart` schedules the injected restart callback without changing YAML. It is available only when the runtime provides that callback.
 - Start the HTTP server without waiting for the first RouterOS full refresh. The monitor manager initializes in the background so restart downtime is limited to the process supervisor delay.
 - Dashboard snapshots serialize empty collections and terminal scope summaries as `[]` and `{}`, never `null`, including the interval before the first successful refresh.
@@ -153,6 +158,9 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - API: `POST /api/settings/restart` invokes the injected callback after returning HTTP 200.
 - Concurrency: `go test -race ./internal/api` passes for the settings server.
 - Config: missing config path loads setup defaults and keeps `Config.Path` for the first save.
+- Config: a missing configuration file defaults protocol analysis to off, an existing file without the section migrates it on, and an explicit section or completed migration marker is preserved.
+- API: disabled protocol endpoints return empty arrays without querying protocol history; settings preserve stored child toggles while reporting the master switch.
+- Service: disabling protocol analysis preserves connection counts, raw protocols, and terminal rates while omitting application classification, flow categories, protocol aggregation, and protocol sample writes.
 - JSON shape: empty string slices serialize as arrays, not `null`.
 - Frontend: production TypeScript build and oxlint pass.
 - Live: local service serves `/`, `/api/dashboard` when configured, and `/api/settings`; saving a connection restarts the process under systemd.

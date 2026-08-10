@@ -82,23 +82,24 @@ type managedMonitor struct {
 }
 
 type MonitorManager struct {
-	mu             sync.RWMutex
-	items          map[string]*managedMonitor
-	order          []string
-	logger         *log.Logger
-	storage        *store.Store
-	mosdns         *MosDNSSynchronizer
-	mosdnsConfig   config.MosDNSConfig
-	mosdnsInitErr  string
-	feature        *FeatureLibrarySynchronizer
-	featureConfig  config.FeatureLibraryConfig
-	featureInitErr string
-	resolver       *ApplicationResolver
+	mu               sync.RWMutex
+	items            map[string]*managedMonitor
+	order            []string
+	logger           *log.Logger
+	storage          *store.Store
+	mosdns           *MosDNSSynchronizer
+	mosdnsConfig     config.MosDNSConfig
+	mosdnsInitErr    string
+	feature          *FeatureLibrarySynchronizer
+	featureConfig    config.FeatureLibraryConfig
+	featureInitErr   string
+	resolver         *ApplicationResolver
+	protocolAnalysis bool
 }
 
 func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) (*MonitorManager, error) {
-	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage, mosdnsConfig: cfg.MosDNS, featureConfig: cfg.FeatureLibrary}
-	if cfg.MosDNS.Configured() {
+	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage, mosdnsConfig: cfg.MosDNS, featureConfig: cfg.FeatureLibrary, protocolAnalysis: cfg.ProtocolAnalysis.Enabled}
+	if manager.protocolAnalysis && cfg.MosDNS.Configured() {
 		mosdns, err := NewMosDNSSynchronizer(cfg.MosDNS, storage, logger, cfg.SampleRetentionHours)
 		if err != nil {
 			manager.mosdnsInitErr = err.Error()
@@ -109,7 +110,7 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 			manager.mosdns = mosdns
 		}
 	}
-	if cfg.FeatureLibrary.Configured() {
+	if manager.protocolAnalysis && cfg.FeatureLibrary.Configured() {
 		feature, err := NewFeatureLibrarySynchronizer(cfg.FeatureLibrary, cfg.DataDir, logger)
 		if err != nil {
 			manager.featureInitErr = err.Error()
@@ -120,7 +121,9 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 			manager.feature = feature
 		}
 	}
-	manager.resolver = NewApplicationResolver(storage, manager.feature, cfg.MosDNS.Configured(), cfg.FeatureLibrary.MatchWindowMinutes)
+	if manager.protocolAnalysis {
+		manager.resolver = NewApplicationResolver(storage, manager.feature, cfg.MosDNS.Configured(), cfg.FeatureLibrary.MatchWindowMinutes)
+	}
 	for _, device := range cfg.Devices {
 		if device.Archived {
 			continue
@@ -172,7 +175,7 @@ func (m *MonitorManager) Start(ctx context.Context) {
 }
 
 func (m *MonitorManager) MosDNSStatus() MosDNSStatus {
-	if m == nil {
+	if m == nil || !m.protocolAnalysis {
 		return MosDNSStatus{}
 	}
 	if m.mosdns != nil {
@@ -193,7 +196,7 @@ type RecognitionStatus struct {
 }
 
 func (m *MonitorManager) RecognitionStatus() RecognitionStatus {
-	if m == nil {
+	if m == nil || !m.protocolAnalysis {
 		return RecognitionStatus{}
 	}
 	mosStatus := m.MosDNSStatus()

@@ -61,7 +61,7 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 }
 
 func TestMosDNSRoutesAreAvailableWithoutRouterOSMonitor(t *testing.T) {
-	cfg := config.Config{MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30}}
+	cfg := config.Config{ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true}, MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30}}
 	server := NewServer(cfg, nil, nil)
 
 	statusResponse := httptest.NewRecorder()
@@ -112,6 +112,8 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
 		AllowedCIDRs:                []string{"127.0.0.0/8", "::1/128"},
+		MosDNS:                      config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
+		FeatureLibrary:              config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
 		RouterOS: config.RouterOSConfig{
 			BaseURL:           "http://router.test",
 			Username:          "admin",
@@ -148,6 +150,9 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 			TerminalPollIntervalSeconds int `json:"terminalPollIntervalSeconds"`
 			SampleRetentionHours        int `json:"sampleRetentionHours"`
 		} `json:"collection"`
+		ProtocolAnalysis struct {
+			Enabled bool `json:"enabled"`
+		} `json:"protocolAnalysis"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -174,6 +179,12 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		payload.Collection.TerminalPollIntervalSeconds != cfg.TerminalPollIntervalSeconds ||
 		payload.Collection.SampleRetentionHours != cfg.SampleRetentionHours {
 		t.Fatalf("unexpected collection settings: %+v", payload.Collection)
+	}
+	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":{"enabled":false}`) {
+		t.Fatalf("unexpected protocol analysis setting: %+v", payload.ProtocolAnalysis)
+	}
+	if !strings.Contains(response.Body.String(), `"mosdns":{"enabled":true`) || !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":true`) {
+		t.Fatalf("settings projection must preserve stored child toggles: %s", response.Body.String())
 	}
 }
 
@@ -294,11 +305,13 @@ func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		MosDNS:         config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
+		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
+		"protocolAnalysis":{"enabled":true},
 		"mosdns":{"enabled":false,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":60},
 		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}
 	}`))
@@ -323,11 +336,13 @@ func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		MosDNS:         config.MosDNSConfig{Enabled: false, SyncIntervalMinutes: 30},
-		FeatureLibrary: config.FeatureLibraryConfig{Enabled: false, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
+		MosDNS:           config.MosDNSConfig{Enabled: false, SyncIntervalMinutes: 30},
+		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: false, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
+		"protocolAnalysis":{"enabled":true},
 		"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},
 		"featureLibrary":{"enabled":false,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
 	}`))
@@ -342,6 +357,71 @@ func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
 	}
 	if !loaded.MosDNS.Enabled || loaded.MosDNS.BaseURL != "http://10.0.0.3" {
 		t.Fatalf("plain MosDNS address was not saved as a URL: %#v", loaded.MosDNS)
+	}
+}
+
+func TestProtocolAnalysisDisabledShortCircuitsProtocolAPIAndRecognitionStatus(t *testing.T) {
+	server := NewServer(config.Config{
+		MosDNS:         config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
+		FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
+	}, nil, nil)
+
+	protocolsResponse := httptest.NewRecorder()
+	server.ServeHTTP(protocolsResponse, httptest.NewRequest(http.MethodGet, "/api/protocols", nil))
+	if protocolsResponse.Code != http.StatusOK {
+		t.Fatalf("protocol API status=%d body=%s", protocolsResponse.Code, protocolsResponse.Body.String())
+	}
+	var protocols struct {
+		Protocols []any `json:"protocols"`
+		History   []any `json:"history"`
+		Enabled   bool  `json:"enabled"`
+	}
+	if err := json.Unmarshal(protocolsResponse.Body.Bytes(), &protocols); err != nil {
+		t.Fatal(err)
+	}
+	if protocols.Enabled || protocols.Protocols == nil || protocols.History == nil || len(protocols.Protocols) != 0 || len(protocols.History) != 0 {
+		t.Fatalf("disabled protocol API must return empty arrays and enabled=false: %#v", protocols)
+	}
+
+	recognitionResponse := httptest.NewRecorder()
+	server.ServeHTTP(recognitionResponse, httptest.NewRequest(http.MethodGet, "/api/recognition", nil))
+	if recognitionResponse.Code != http.StatusOK {
+		t.Fatalf("recognition status=%d body=%s", recognitionResponse.Code, recognitionResponse.Body.String())
+	}
+	var recognition service.RecognitionStatus
+	if err := json.Unmarshal(recognitionResponse.Body.Bytes(), &recognition); err != nil {
+		t.Fatal(err)
+	}
+	if recognition != (service.RecognitionStatus{}) {
+		t.Fatalf("disabled recognition status must be zero: %#v", recognition)
+	}
+}
+
+func TestRecognitionSettingsDisablingProtocolAnalysisDisablesChildren(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
+		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+	}
+	server := NewServer(cfg, nil, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
+		"protocolAnalysis":{"enabled":false},
+		"mosdns":{"enabled":true,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":30},
+		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
+	}`))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ProtocolAnalysis.Enabled || loaded.MosDNS.Enabled || loaded.FeatureLibrary.Enabled {
+		t.Fatalf("protocol analysis disable must force child toggles off: %#v", loaded)
 	}
 }
 

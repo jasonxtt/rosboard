@@ -4,6 +4,8 @@ poll_interval_seconds: 10
 realtime_poll_interval_seconds: 1
 terminal_poll_interval_seconds: 5
 sample_retention_hours: 48
+protocol_analysis:
+  enabled: false
 mosdns:
   enabled: false
   base_url: ""

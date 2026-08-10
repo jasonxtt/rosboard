@@ -32,6 +32,42 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	}
 }
 
+func TestLoadProtocolAnalysisDefaultsAndMigration(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		createFile   bool
+		wantEnabled  bool
+		wantPending  bool
+		wantMigrated bool
+	}{
+		{name: "missing file defaults disabled", wantMigrated: true},
+		{name: "legacy file migrates enabled", createFile: true, content: "routeros:\n  base_url: http://router.test\n", wantEnabled: true, wantPending: true, wantMigrated: true},
+		{name: "explicit disabled is preserved", createFile: true, content: "protocol_analysis:\n  enabled: false\n", wantMigrated: true},
+		{name: "null section is present", createFile: true, content: "protocol_analysis: null\n", wantMigrated: true},
+		{name: "migration marker stops migration", createFile: true, content: "protocol_analysis_migrated: true\n", wantMigrated: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if test.createFile {
+				if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ProtocolAnalysis.Enabled != test.wantEnabled || cfg.MigrationPending != test.wantPending || cfg.ProtocolAnalysisMigrated != test.wantMigrated {
+				t.Fatalf("unexpected protocol analysis migration: enabled=%v pending=%v migrated=%v", cfg.ProtocolAnalysis.Enabled, cfg.MigrationPending, cfg.ProtocolAnalysisMigrated)
+			}
+		})
+	}
+}
+
 func TestLoadNormalizesPlainMosDNSAddress(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	payload := []byte("recognition_defaults_migrated: true\nmosdns:\n  enabled: true\n  base_url: 10.0.0.3\n")
