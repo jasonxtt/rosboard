@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 59
-- **Last Active**: 2026-08-07
+- **Total Sessions**: 60
+- **Last Active**: 2026-08-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~40 | Active |
+| `journal-2.md` | ~110 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 60 | 2026-08-10 | Mobile dashboard topbar layout fix | `eb893ed`, `de13b21` | `main` |
 | 59 | 2026-08-07 | Disable recognition defaults for v0.1.0 | `1d5df0c` | `main` |
 | 58 | 2026-08-07 | Merge monitoring UI branch and publish v0.1.0 | `7303811`, `2bdf8f1` | `main` |
 | 57 | 2026-08-07 | Terminal detail header spacing refinement | `3b8640e` | `codex/2026-08-07-ui-design-system-refresh` |
