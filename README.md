@@ -172,7 +172,7 @@ go build -o ./rosboard ./cmd/rosboard
 
 ## 发布版本
 
-根目录的 [`VERSION`](VERSION) 是唯一的发布开关，当前版本为 `0.1.0`。普通代码提交不会创建 Release。准备下一版时，在同一个提交中完成需要发布的代码，并将 `VERSION` 改为新的语义化版本（例如 `0.0.4`），然后推送到 `main`：
+根目录的 [`VERSION`](VERSION) 是唯一的发布开关，当前版本为 `0.1.1`。普通代码提交不会创建 Release。准备下一版时，在同一个提交中完成需要发布的代码，并将 `VERSION` 改为新的语义化版本（例如 `0.0.4`），然后推送到 `main`：
 
 ```bash
 printf '0.0.4\n' > VERSION
