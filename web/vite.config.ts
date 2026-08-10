@@ -7,6 +7,7 @@ export default defineConfig({
   build: {
     outDir: '../internal/ui/dist',
     emptyOutDir: true,
+    cssTarget: 'safari12',
   },
   server: {
     proxy: {

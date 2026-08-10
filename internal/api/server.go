@@ -1256,6 +1256,9 @@ func (s *Server) serveApp(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if _, err := fs.Stat(s.assets, cleanPath); err == nil {
+		if cleanPath == "index.html" {
+			writer.Header().Set("Cache-Control", "no-cache")
+		}
 		s.fileServer.ServeHTTP(writer, request)
 		return
 	}
@@ -1265,6 +1268,7 @@ func (s *Server) serveApp(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusInternalServerError, "frontend assets unavailable")
 		return
 	}
+	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
 	_, _ = writer.Write(index)
