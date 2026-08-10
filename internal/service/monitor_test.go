@@ -372,6 +372,72 @@ func TestBuildTerminalsKeepsRawTupleAndTerminalTrafficDirection(t *testing.T) {
 	}
 }
 
+func TestProtocolAnalysisDisabledPreservesConnectionStatsWithoutClassification(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage, protocolAnalysis: false}
+	connections := []routeros.FirewallConnection{{
+		Protocol: "tcp", SrcAddress: "198.51.100.20", SrcPort: "443", DstAddress: "203.0.113.10", DstPort: "51000",
+		ReplySrcAddress: "10.0.0.8", ReplySrcPort: "51000", ReplyDstAddress: "198.51.100.20", ReplyDstPort: "443",
+		OrigBytes: "900", ReplBytes: "100", OrigRate: "7200", ReplRate: "800", SeenReply: "true",
+	}}
+	_, details, err := monitor.buildTerminals(
+		context.Background(), time.Unix(1600, 0).UTC(), parseCIDRs([]string{"10.0.0.0/24"}), nil, nil,
+		[]routeros.ARPEntry{{Address: "10.0.0.8", MACAddress: "00:11:22:33:44:08", Interface: "lan", Status: "reachable"}},
+		nil, connections, nil, routeMatcher{},
+	)
+	if err != nil {
+		t.Fatalf("build terminals: %v", err)
+	}
+	if len(details) != 1 {
+		t.Fatalf("expected one terminal detail, got %#v", details)
+	}
+	var detail model.TerminalDetail
+	for _, candidate := range details {
+		detail = candidate
+	}
+	if detail.Terminal.ConnectionCount != 1 || detail.Terminal.CurrentUploadBps != 800 || detail.Terminal.CurrentDownloadBps != 7200 {
+		t.Fatalf("connection counts and rates must remain available: %#v", detail.Terminal)
+	}
+	if len(detail.Connections) != 1 {
+		t.Fatalf("expected one raw connection, got %#v", detail.Connections)
+	}
+	connection := detail.Connections[0]
+	if connection.Protocol != "tcp" || connection.Application != "" || connection.ApplicationSource != "" || connection.Estimated {
+		t.Fatalf("disabled analysis must retain only raw protocol data: %#v", connection)
+	}
+	if len(detail.FlowCategories) != 0 || len(detail.FamilyFlows["ipv4"]) != 0 {
+		t.Fatalf("disabled analysis must omit flow categories: %#v", detail)
+	}
+	if got := connectionProtocolCounts(connections, nil); got != (model.ConnectionProtocolCounts{TCP: 1}) {
+		t.Fatalf("raw connection protocol counts changed: %#v", got)
+	}
+}
+
+func TestProtocolSamplesAreNotSavedWhenAnalysisDisabled(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	monitor := &Monitor{store: storage, protocolAnalysis: false}
+	if err := monitor.saveProtocolSamples(context.Background(), time.Unix(1700, 0).UTC(), []model.ProtocolStat{{Name: "HTTPS", Kind: "tcp", Connections: 1}}); err != nil {
+		t.Fatalf("disabled protocol sample save returned an error: %v", err)
+	}
+	samples, err := storage.ProtocolSamples(context.Background(), time.Unix(0, 0).UTC())
+	if err != nil {
+		t.Fatalf("load protocol samples: %v", err)
+	}
+	if len(samples) != 0 {
+		t.Fatalf("disabled analysis must not add protocol samples: %#v", samples)
+	}
+}
+
 func TestBuildTerminalsUsesInactiveGracePeriodWithoutAdvancingLastSeen(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
@@ -851,7 +917,7 @@ func TestRefreshTerminalRateProjectionUpdatesOnlyCurrentConnectionData(t *testin
 		OrigBytes: "3000", ReplBytes: "4000", OrigRate: "300", ReplRate: "400", SeenReply: "true",
 	}}
 
-	refreshTerminalRateProjection(context.Background(), details, parseCIDRs([]string{"10.0.0.0/24", "fd00::/64"}), nil, routeMatcher{}, connectionsV4, connectionsV6, ratesUpdatedAt, nil)
+	refreshTerminalRateProjection(context.Background(), details, parseCIDRs([]string{"10.0.0.0/24", "fd00::/64"}), nil, routeMatcher{}, connectionsV4, connectionsV6, ratesUpdatedAt, nil, true)
 
 	detail := details[terminal.ID]
 	if !detail.RatesUpdatedAt.Equal(ratesUpdatedAt) {

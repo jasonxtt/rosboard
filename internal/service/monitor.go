@@ -27,6 +27,7 @@ type Monitor struct {
 	logger              *log.Logger
 	phase               time.Duration
 	applicationResolver *ApplicationResolver
+	protocolAnalysis    bool
 
 	refreshMu         sync.Mutex
 	metadataMu        sync.Mutex
@@ -68,6 +69,7 @@ func NewMonitor(cfg config.Config, client *routeros.Client, store *store.Store, 
 		store:            store,
 		logger:           logger,
 		phase:            phase,
+		protocolAnalysis: cfg.ProtocolAnalysis.Enabled,
 		realtimeWake:     make(chan struct{}, 1),
 		backgroundWake:   make(chan struct{}, 1),
 		terminalRateWake: make(chan struct{}, 1),
@@ -405,8 +407,11 @@ func (m *Monitor) refreshTerminals(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	protocols := aggregateProtocols(details)
-	if err := m.store.SaveProtocolSamples(storeCtx, now, protocols); err != nil {
+	protocols := make([]model.ProtocolStat, 0)
+	if m.protocolAnalysis {
+		protocols = aggregateProtocols(details)
+	}
+	if err := m.saveProtocolSamples(storeCtx, now, protocols); err != nil {
 		return err
 	}
 
@@ -459,7 +464,7 @@ func (m *Monitor) refreshTerminalRates(ctx context.Context) error {
 	}
 
 	ratesUpdatedAt := time.Now().UTC()
-	refreshTerminalRateProjection(pollCtx, details, scopeNetworks(scope), routerAddresses, m.currentRouteMatcher(), connectionsV4, connectionsV6, ratesUpdatedAt, m.applicationResolver)
+	refreshTerminalRateProjection(pollCtx, details, scopeNetworks(scope), routerAddresses, m.currentRouteMatcher(), connectionsV4, connectionsV6, ratesUpdatedAt, m.applicationResolver, m.protocolAnalysis)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -474,7 +479,11 @@ func (m *Monitor) refreshTerminalRates(ctx context.Context) error {
 		}
 	}
 	m.snapshot.TerminalScopeSummaries = terminalScopeSummaries(m.snapshot.Terminals, m.terminalScope)
-	m.snapshot.Protocols = aggregateProtocols(details)
+	if m.protocolAnalysis {
+		m.snapshot.Protocols = aggregateProtocols(details)
+	} else {
+		m.snapshot.Protocols = []model.ProtocolStat{}
+	}
 	m.snapshot.Overview.ConnectionCount = len(connectionsV4) + len(connectionsV6)
 	m.snapshot.Overview.ConnectionProtocolCounts = connectionProtocolCounts(connectionsV4, connectionsV6)
 	m.terminalRatesAt = ratesUpdatedAt
@@ -527,7 +536,7 @@ func cloneFamilyFlows(flows map[string][]model.TerminalFlowCategory) map[string]
 	return result
 }
 
-func refreshTerminalRateProjection(ctx context.Context, details map[string]model.TerminalDetail, localCIDRs []*net.IPNet, routerAddresses map[string]routerAssignedAddress, routeLookup routeMatcher, connectionsV4, connectionsV6 []routeros.FirewallConnection, ratesUpdatedAt time.Time, resolver *ApplicationResolver) {
+func refreshTerminalRateProjection(ctx context.Context, details map[string]model.TerminalDetail, localCIDRs []*net.IPNet, routerAddresses map[string]routerAssignedAddress, routeLookup routeMatcher, connectionsV4, connectionsV6 []routeros.FirewallConnection, ratesUpdatedAt time.Time, resolver *ApplicationResolver, protocolAnalysis bool) {
 	terminalByAddress := map[string]string{}
 	for id, detail := range details {
 		for _, address := range detail.Terminal.IPv4 {
@@ -551,7 +560,7 @@ func refreshTerminalRateProjection(ctx context.Context, details map[string]model
 			if _, ok := details[terminalID]; !ok {
 				continue
 			}
-			connectionsByTerminal[terminalID] = append(connectionsByTerminal[terminalID], terminalConnectionRow(ctx, resolver, ratesUpdatedAt, family, connection, view, routeLookup, details[terminalID].Terminal.PrimaryInterface))
+			connectionsByTerminal[terminalID] = append(connectionsByTerminal[terminalID], terminalConnectionRow(ctx, resolver, ratesUpdatedAt, family, connection, view, routeLookup, details[terminalID].Terminal.PrimaryInterface, protocolAnalysis))
 		}
 	}
 	applyConnections("ipv4", connectionsV4)
@@ -573,27 +582,30 @@ func refreshTerminalRateProjection(ctx context.Context, details map[string]model
 		}
 		detail.Terminal = terminal
 		detail.Connections = connections
-		detail.FlowCategories = terminalFlowCategories(connections, "")
+		detail.FlowCategories = []model.TerminalFlowCategory{}
 		detail.FamilySummaries = map[string]model.Terminal{
 			"ipv4": terminalFamilySummary(terminal, connections, "ipv4"),
 			"ipv6": terminalFamilySummary(terminal, connections, "ipv6"),
 		}
 		detail.FamilyFlows = map[string][]model.TerminalFlowCategory{
-			"ipv4": terminalFlowCategories(connections, "ipv4"),
-			"ipv6": terminalFlowCategories(connections, "ipv6"),
+			"ipv4": []model.TerminalFlowCategory{},
+			"ipv6": []model.TerminalFlowCategory{},
+		}
+		if protocolAnalysis {
+			detail.FlowCategories = terminalFlowCategories(connections, "")
+			detail.FamilyFlows["ipv4"] = terminalFlowCategories(connections, "ipv4")
+			detail.FamilyFlows["ipv6"] = terminalFlowCategories(connections, "ipv6")
 		}
 		detail.RatesUpdatedAt = ratesUpdatedAt
 		details[id] = detail
 	}
 }
 
-func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, at time.Time, family string, connection routeros.FirewallConnection, view connectionView, routeLookup routeMatcher, primaryInterface string) model.TerminalConnection {
+func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, at time.Time, family string, connection routeros.FirewallConnection, view connectionView, routeLookup routeMatcher, primaryInterface string, protocolAnalysis bool) model.TerminalConnection {
 	attribution := routeLookup.match(family, view.LocalAddress, remoteAddress(connection, view.LocalAddress), primaryInterface, connection.RoutingMark)
 	row := model.TerminalConnection{
 		Key: firewallConnectionKey(family, connection), Family: family,
-		Application:       classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort),
-		ApplicationSource: "port",
-		Protocol:          strings.ToLower(connection.Protocol), Line: "未知",
+		Protocol: strings.ToLower(connection.Protocol), Line: "未知",
 		SourceAddress: connection.SrcAddress, SourcePort: connection.SrcPort,
 		DestinationAddress: connection.DstAddress, DestinationPort: connection.DstPort,
 		UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes,
@@ -603,14 +615,19 @@ func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, a
 		RouteTable: attribution.Table, MatchedRule: attribution.Rule, MatchedRuleID: attribution.RuleID,
 		RouteDestination: attribution.Destination, RouteID: attribution.RouteID, RouteIDs: attribution.RouteIDs,
 		RouteGateways: attribution.Gateways, RouteInterfaces: attribution.RouteInterfaces, EgressInterfaces: attribution.EgressInterfaces,
-		RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State, Estimated: true,
+		RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State,
 	}
-	if application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
-		row.MatchedDomain = domain
-		if ok {
-			row.Application = application
-			row.ApplicationSource = "dns"
-			row.Estimated = false
+	if protocolAnalysis {
+		row.Application = classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
+		row.ApplicationSource = "port"
+		row.Estimated = true
+		if application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
+			row.MatchedDomain = domain
+			if ok {
+				row.Application = application
+				row.ApplicationSource = "dns"
+				row.Estimated = false
+			}
 		}
 	}
 	return row
@@ -894,7 +911,17 @@ func latestRateSamples(samples []model.RateSample, limit int) []model.RateSample
 }
 
 func (m *Monitor) ProtocolHistory(ctx context.Context, since time.Time) ([]model.ProtocolHistorySample, error) {
+	if m == nil || !m.protocolAnalysis {
+		return []model.ProtocolHistorySample{}, nil
+	}
 	return m.store.ProtocolSamples(ctx, since)
+}
+
+func (m *Monitor) saveProtocolSamples(ctx context.Context, at time.Time, stats []model.ProtocolStat) error {
+	if m == nil || !m.protocolAnalysis {
+		return nil
+	}
+	return m.store.SaveProtocolSamples(ctx, at, stats)
 }
 
 func (m *Monitor) InterfaceDetail(ctx context.Context, name string, since time.Time) (model.InterfaceDetail, bool, error) {
@@ -1150,8 +1177,11 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		return err
 	}
 
-	protocols := aggregateProtocols(details)
-	if err := m.store.SaveProtocolSamples(storeCtx, now, protocols); err != nil {
+	protocols := make([]model.ProtocolStat, 0)
+	if m.protocolAnalysis {
+		protocols = aggregateProtocols(details)
+	}
+	if err := m.saveProtocolSamples(storeCtx, now, protocols); err != nil {
 		return err
 	}
 	policies := buildPolicies(simpleQueues, queueTrees, mangleRules)
@@ -1223,6 +1253,9 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		details = m.terminalDetails
 	} else {
 		m.terminalRatesAt = ratesUpdatedAt
+	}
+	if !m.protocolAnalysis {
+		snapshot.Protocols = []model.ProtocolStat{}
 	}
 	mergeLatestTerminalMetadata(snapshot.Terminals, details, m.terminalDetails)
 	m.snapshot = snapshot
@@ -1751,24 +1784,26 @@ func (m *Monitor) buildTerminals(
 
 			connectionSnapshots = append(connectionSnapshots, store.ConnectionSnapshot{Key: view.ConnectionKey, TerminalID: builder.ID, UploadBytes: view.CurrentUploadBytes, DownloadBytes: view.CurrentDownloadBytes, SeenAt: now})
 
-			row := terminalConnectionRow(ctx, m.applicationResolver, now, family, connection, view, routeLookup, builder.PrimaryInterface)
+			row := terminalConnectionRow(ctx, m.applicationResolver, now, family, connection, view, routeLookup, builder.PrimaryInterface, m.protocolAnalysis)
 			connectionMap[builder.ID] = append(connectionMap[builder.ID], row)
 
-			if flowMap[builder.ID] == nil {
-				flowMap[builder.ID] = map[string]*model.TerminalFlowCategory{}
-			}
-			flow := flowMap[builder.ID][row.Application]
-			if flow == nil {
-				flow = &model.TerminalFlowCategory{
-					Name:      row.Application,
-					Estimated: row.Estimated,
+			if m.protocolAnalysis {
+				if flowMap[builder.ID] == nil {
+					flowMap[builder.ID] = map[string]*model.TerminalFlowCategory{}
 				}
-				flowMap[builder.ID][row.Application] = flow
+				flow := flowMap[builder.ID][row.Application]
+				if flow == nil {
+					flow = &model.TerminalFlowCategory{
+						Name:      row.Application,
+						Estimated: row.Estimated,
+					}
+					flowMap[builder.ID][row.Application] = flow
+				}
+				flow.CurrentUploadBps += view.UploadBps
+				flow.CurrentDownloadBps += view.DownloadBps
+				flow.TotalUploadBytes += view.CurrentUploadBytes
+				flow.TotalDownloadBytes += view.CurrentDownloadBytes
 			}
-			flow.CurrentUploadBps += view.UploadBps
-			flow.CurrentDownloadBps += view.DownloadBps
-			flow.TotalUploadBytes += view.CurrentUploadBytes
-			flow.TotalDownloadBytes += view.CurrentDownloadBytes
 		}
 		return nil
 	}
@@ -1896,7 +1931,16 @@ func (m *Monitor) buildTerminals(
 			FamilyStats:        terminal.FamilyStats,
 		})
 
-		flows := flattenFlows(flowMap[builder.ID])
+		flows := []model.TerminalFlowCategory{}
+		familyFlows := map[string][]model.TerminalFlowCategory{
+			"ipv4": []model.TerminalFlowCategory{},
+			"ipv6": []model.TerminalFlowCategory{},
+		}
+		if m.protocolAnalysis {
+			flows = flattenFlows(flowMap[builder.ID])
+			familyFlows["ipv4"] = terminalFamilyFlows(connectionMap[builder.ID], "ipv4")
+			familyFlows["ipv6"] = terminalFamilyFlows(connectionMap[builder.ID], "ipv6")
+		}
 		details[builder.ID] = model.TerminalDetail{
 			Terminal:       terminal,
 			Connections:    sortConnections(connectionMap[builder.ID]),
@@ -1907,10 +1951,7 @@ func (m *Monitor) buildTerminals(
 				"ipv4": terminalFamilySummary(terminal, connectionMap[builder.ID], "ipv4"),
 				"ipv6": terminalFamilySummary(terminal, connectionMap[builder.ID], "ipv6"),
 			},
-			FamilyFlows: map[string][]model.TerminalFlowCategory{
-				"ipv4": terminalFamilyFlows(connectionMap[builder.ID], "ipv4"),
-				"ipv6": terminalFamilyFlows(connectionMap[builder.ID], "ipv6"),
-			},
+			FamilyFlows: familyFlows,
 		}
 	}
 	sort.Slice(terminals, func(left, right int) bool {

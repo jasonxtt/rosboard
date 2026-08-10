@@ -12,20 +12,22 @@ import (
 )
 
 type Config struct {
-	Path                        string               `yaml:"-"`
-	MigrationPending            bool                 `yaml:"-"`
-	RecognitionDefaultsMigrated bool                 `yaml:"recognition_defaults_migrated,omitempty"`
-	ListenAddress               string               `yaml:"listen_address"`
-	DataDir                     string               `yaml:"data_dir"`
-	PollIntervalSeconds         int                  `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int                  `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int                  `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int                  `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string             `yaml:"allowed_cidrs"`
-	MosDNS                      MosDNSConfig         `yaml:"mosdns,omitempty"`
-	FeatureLibrary              FeatureLibraryConfig `yaml:"feature_library,omitempty"`
-	RouterOS                    RouterOSConfig       `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig       `yaml:"devices,omitempty"`
+	Path                        string                 `yaml:"-"`
+	MigrationPending            bool                   `yaml:"-"`
+	RecognitionDefaultsMigrated bool                   `yaml:"recognition_defaults_migrated,omitempty"`
+	ProtocolAnalysisMigrated    bool                   `yaml:"protocol_analysis_migrated,omitempty"`
+	ListenAddress               string                 `yaml:"listen_address"`
+	DataDir                     string                 `yaml:"data_dir"`
+	PollIntervalSeconds         int                    `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int                    `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int                    `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int                    `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string               `yaml:"allowed_cidrs"`
+	MosDNS                      MosDNSConfig           `yaml:"mosdns,omitempty"`
+	FeatureLibrary              FeatureLibraryConfig   `yaml:"feature_library,omitempty"`
+	ProtocolAnalysis            ProtocolAnalysisConfig `yaml:"protocol_analysis,omitempty"`
+	RouterOS                    RouterOSConfig         `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig         `yaml:"devices,omitempty"`
 }
 
 type MosDNSConfig struct {
@@ -39,6 +41,10 @@ type FeatureLibraryConfig struct {
 	SourceURL            string `yaml:"source_url,omitempty" json:"source_url,omitempty"`
 	RefreshIntervalHours int    `yaml:"refresh_interval_hours,omitempty" json:"refresh_interval_hours,omitempty"`
 	MatchWindowMinutes   int    `yaml:"match_window_minutes,omitempty" json:"match_window_minutes,omitempty"`
+}
+
+type ProtocolAnalysisConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 const DefaultDeviceID = "default"
@@ -106,23 +112,36 @@ func Load(path string) (Config, error) {
 			RefreshIntervalHours: 168,
 			MatchWindowMinutes:   30,
 		},
+		ProtocolAnalysis: ProtocolAnalysisConfig{
+			Enabled: false,
+		},
 		RouterOS: RouterOSConfig{
 			BaseURL: "http://10.0.0.1",
 		},
 	}
 
+	fileExisted := false
+	sectionPresent := false
 	if path != "" {
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return Config{}, fmt.Errorf("read config: %w", err)
 			}
-		} else if err := yaml.Unmarshal(payload, &cfg); err != nil {
-			return Config{}, fmt.Errorf("parse config: %w", err)
+		} else {
+			if err := yaml.Unmarshal(payload, &cfg); err != nil {
+				return Config{}, fmt.Errorf("parse config: %w", err)
+			}
+			fileExisted = true
+			var probe map[string]yaml.Node
+			if err := yaml.Unmarshal(payload, &probe); err == nil {
+				_, sectionPresent = probe["protocol_analysis"]
+			}
 		}
 	}
 
 	cfg.migrateRecognitionDefaults()
+	cfg.migrateProtocolAnalysisDefault(fileExisted, sectionPresent)
 	overrideFromEnv(&cfg)
 	cfg.normalizeMosDNS()
 	cfg.normalizeFeatureLibrary()
@@ -344,6 +363,17 @@ func (c *Config) migrateRecognitionDefaults() {
 		c.MigrationPending = true
 	}
 	c.RecognitionDefaultsMigrated = true
+}
+
+func (c *Config) migrateProtocolAnalysisDefault(fileExisted, sectionPresent bool) {
+	if c.ProtocolAnalysisMigrated {
+		return
+	}
+	if fileExisted && !sectionPresent {
+		c.ProtocolAnalysis.Enabled = true
+		c.MigrationPending = true
+	}
+	c.ProtocolAnalysisMigrated = true
 }
 
 func (c FeatureLibraryConfig) Configured() bool {

@@ -201,8 +201,10 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			BaseURL:             cfg.MosDNS.BaseURL,
 			SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes,
 		}
-		if s.manager != nil {
+		if cfg.ProtocolAnalysis.Enabled && s.manager != nil {
 			status = s.manager.MosDNSStatus()
+		} else if !cfg.ProtocolAnalysis.Enabled {
+			status = service.MosDNSStatus{}
 		}
 		writeJSON(writer, http.StatusOK, status)
 		return
@@ -242,6 +244,10 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		}
 		if s.manager == nil {
 			cfg := s.configSnapshot()
+			if !cfg.ProtocolAnalysis.Enabled {
+				writeJSON(writer, http.StatusOK, service.RecognitionStatus{})
+				return
+			}
 			writeJSON(writer, http.StatusOK, service.RecognitionStatus{
 				MosDNS:         service.MosDNSStatus{Enabled: cfg.MosDNS.Configured(), BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes},
 				FeatureLibrary: service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Configured(), SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes},
@@ -249,6 +255,10 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, s.manager.RecognitionStatus())
+		return
+	}
+	if request.URL.Path == "/api/protocols" && !s.configSnapshot().ProtocolAnalysis.Enabled {
+		writeJSON(writer, http.StatusOK, map[string]any{"protocols": []any{}, "history": []any{}, "enabled": false})
 		return
 	}
 	monitor, monitorErr := s.monitorFor(request)
@@ -324,7 +334,7 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			writeError(writer, http.StatusInternalServerError, "failed to load protocol history")
 			return
 		}
-		writeJSON(writer, http.StatusOK, map[string]any{"protocols": monitor.Snapshot().Protocols, "history": history})
+		writeJSON(writer, http.StatusOK, map[string]any{"protocols": monitor.Snapshot().Protocols, "history": history, "enabled": true})
 	case "/api/policies":
 		writeJSON(writer, http.StatusOK, map[string]any{"policies": monitor.Snapshot().Policies})
 	case "/api/routes":
@@ -359,12 +369,17 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 }
 
 type settingsResponse struct {
-	Connection     settingsConnection     `json:"connection"`
-	Collection     settingsCollection     `json:"collection"`
-	MosDNS         settingsMosDNS         `json:"mosdns"`
-	FeatureLibrary settingsFeatureLibrary `json:"featureLibrary"`
-	Diagnostics    settingsDiagnostics    `json:"diagnostics"`
-	Devices        []settingsDevice       `json:"devices"`
+	Connection       settingsConnection       `json:"connection"`
+	Collection       settingsCollection       `json:"collection"`
+	ProtocolAnalysis settingsProtocolAnalysis `json:"protocolAnalysis"`
+	MosDNS           settingsMosDNS           `json:"mosdns"`
+	FeatureLibrary   settingsFeatureLibrary   `json:"featureLibrary"`
+	Diagnostics      settingsDiagnostics      `json:"diagnostics"`
+	Devices          []settingsDevice         `json:"devices"`
+}
+
+type settingsProtocolAnalysis struct {
+	Enabled bool `json:"enabled"`
 }
 
 type settingsDevice struct {
@@ -438,13 +453,15 @@ type settingsDiagnostics struct {
 
 func (s *Server) settingsResponse() settingsResponse {
 	cfg := s.configSnapshot()
-	mosStatus := service.MosDNSStatus{Enabled: cfg.MosDNS.Configured(), BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes}
-	featureStatus := service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Configured(), SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes}
-	if s.manager != nil {
+	mosStatus := service.MosDNSStatus{Enabled: cfg.MosDNS.Enabled, BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes}
+	featureStatus := service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Enabled, SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes}
+	if cfg.ProtocolAnalysis.Enabled && s.manager != nil {
 		recognitionStatus := s.manager.RecognitionStatus()
 		mosStatus = recognitionStatus.MosDNS
 		featureStatus = recognitionStatus.FeatureLibrary
 	}
+	mosStatus.Enabled = cfg.MosDNS.Enabled
+	featureStatus.Enabled = cfg.FeatureLibrary.Enabled
 
 	var overview serviceOverview
 	monitor := s.monitor
@@ -491,6 +508,7 @@ func (s *Server) settingsResponse() settingsResponse {
 			TerminalPollIntervalSeconds: cfg.TerminalPollIntervalSeconds,
 			SampleRetentionHours:        cfg.SampleRetentionHours,
 		},
+		ProtocolAnalysis: settingsProtocolAnalysis{Enabled: cfg.ProtocolAnalysis.Enabled},
 		MosDNS: settingsMosDNS{
 			Enabled:                mosStatus.Enabled,
 			BaseURL:                mosStatus.BaseURL,
@@ -587,7 +605,8 @@ type collectionSettingsRequest struct {
 }
 
 type recognitionSettingsRequest struct {
-	MosDNS struct {
+	ProtocolAnalysis *config.ProtocolAnalysisConfig `json:"protocolAnalysis"`
+	MosDNS           struct {
 		Enabled             bool   `json:"enabled"`
 		BaseURL             string `json:"baseUrl"`
 		SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
@@ -893,8 +912,16 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	protocolAnalysisEnabled := s.configSnapshot().ProtocolAnalysis.Enabled
+	if payload.ProtocolAnalysis != nil {
+		protocolAnalysisEnabled = payload.ProtocolAnalysis.Enabled
+	}
 	payload.MosDNS.BaseURL = config.NormalizeMosDNSBaseURL(payload.MosDNS.BaseURL)
 	payload.FeatureLibrary.SourceURL = strings.TrimSpace(payload.FeatureLibrary.SourceURL)
+	if !protocolAnalysisEnabled {
+		payload.MosDNS.Enabled = false
+		payload.FeatureLibrary.Enabled = false
+	}
 	if payload.MosDNS.Enabled && payload.MosDNS.BaseURL == "" {
 		writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
 		return
@@ -909,6 +936,7 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 	}
 
 	if err := s.saveSettings(func(next *config.Config) {
+		next.ProtocolAnalysis.Enabled = protocolAnalysisEnabled
 		next.MosDNS.Enabled = payload.MosDNS.Enabled
 		next.MosDNS.BaseURL = payload.MosDNS.BaseURL
 		next.MosDNS.SyncIntervalMinutes = payload.MosDNS.SyncIntervalMinutes
@@ -1019,6 +1047,7 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 		next.Devices[index].RouterOS.TerminalScope = cloneTerminalScope(s.cfg.Devices[index].RouterOS.TerminalScope)
 	}
 	next.RecognitionDefaultsMigrated = true
+	next.ProtocolAnalysisMigrated = true
 	update(&next)
 	if err := config.Save(next.Path, next); err != nil {
 		return err

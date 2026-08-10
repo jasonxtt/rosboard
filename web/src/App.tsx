@@ -30,6 +30,7 @@ import type {
   Overview,
   PolicyStat,
   ProtocolHistorySample,
+  ProtocolResponse,
   ProtocolStat,
   RouteStat,
   RateSample,
@@ -63,6 +64,7 @@ type CollectionDraft = {
   sampleRetentionHours: number
 }
 type RecognitionDraft = {
+  protocolAnalysis: { enabled: boolean }
   mosdns: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
   featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
 }
@@ -242,6 +244,9 @@ function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraf
 
 function recognitionDraftFromSettings(settings: SettingsResponse): RecognitionDraft {
   return {
+    protocolAnalysis: {
+      enabled: settings?.protocolAnalysis?.enabled !== false,
+    },
     mosdns: {
       enabled: settings.mosdns.enabled,
       baseUrl: mosDNSAddressFromBaseURL(settings.mosdns.baseUrl),
@@ -620,6 +625,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     savePanelPreferences(next)
   }
   const hasDashboard = dashboard !== null
+  const protocolAnalysisEnabled = settings?.protocolAnalysis?.enabled !== false
 
 	const refreshSettingsAfterDeviceSave = async () => {
 		const response = await fetch('/api/settings', { cache: 'no-store' })
@@ -842,6 +848,17 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
+    if (settings?.protocolAnalysis?.enabled !== false || activeView !== 'protocols') return
+    setActiveView('policies')
+    setSelectedTerminalID(null)
+  }, [activeView, settings?.protocolAnalysis?.enabled])
+
+  useEffect(() => {
+    if (protocolAnalysisEnabled || terminalTab !== 'flows') return
+    setTerminalTab('basic')
+  }, [protocolAnalysisEnabled, terminalTab])
+
+  useEffect(() => {
     if (activeView !== 'overview' && activeView !== 'resource' || dashboardRefreshMs <= 0) return
     let cancelled = false
     let refreshing = false
@@ -1034,7 +1051,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
   const connectionDetailMode = Boolean(detailMode && terminalTab === 'connections')
   const terminalListMode = Boolean(activeView === 'terminals' && !detailMode)
-  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || activeView === 'protocols' || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
+  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || (activeView === 'protocols' && protocolAnalysisEnabled) || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
   const monitorTabs: MonitorTabConfig | null = activeView === 'interfaces'
     ? {
         value: interfaceCategory,
@@ -1053,7 +1070,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ? {
             value: activeView,
             ariaLabel: '流量监控页面',
-            options: [{ value: 'protocols', label: '协议统计' }, { value: 'policies', label: '策略统计' }],
+            options: [...(protocolAnalysisEnabled ? [{ value: 'protocols', label: '协议统计' }] : []), { value: 'policies', label: '策略统计' }],
             onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
           }
         : activeView === 'dhcp' || activeView === 'routes'
@@ -1172,7 +1189,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               >
                 <NavLabel icon="terminal" label="终端监控" />
               </button>
-              <button type="button" className={activeView === 'protocols' || activeView === 'policies' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('protocols'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
+              <button type="button" className={activeView === 'policies' || (activeView === 'protocols' && protocolAnalysisEnabled) ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView(protocolAnalysisEnabled ? 'protocols' : 'policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
             </div> : null}
@@ -1353,7 +1370,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
         {activeView === 'load' && dashboard ? <LoadPage samples={loadSamples} window={loadWindow} onWindowChange={setLoadWindow} /> : null}
         {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
-        {activeView === 'protocols' && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
+        {activeView === 'protocols' && protocolAnalysisEnabled && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
         {activeView === 'routes' && dashboard ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
@@ -1424,6 +1441,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <TerminalDetailPage
             detail={terminalDetail}
             activeTab={terminalTab}
+            protocolAnalysisEnabled={protocolAnalysisEnabled}
             connectionFamily={connectionFamily}
             scope={detailScope}
             onBack={() => {
@@ -2190,7 +2208,8 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
   const [draft, setDraft] = useState<RecognitionDraft>(() => recognitionDraftFromSettings(props.settings))
   useEffect(() => setDraft(recognitionDraftFromSettings(props.settings)), [props.settings])
   return <form className="settings-form recognition-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
-    <fieldset className="settings-fieldset wide">
+    <label className="checkbox-label wide protocol-analysis-toggle"><input type="checkbox" checked={draft.protocolAnalysis.enabled} onChange={(event) => setDraft((current) => ({ ...current, protocolAnalysis: { enabled: event.target.checked } }))} /><span>启用协议分析</span></label>
+    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>MosDNS DNS 日志对接</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
       <label><span>MosDNS 地址</span><input type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
@@ -2204,7 +2223,7 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
         <SettingItem label="运行状态" value={props.settings.mosdns.lastError ? `异常：${props.settings.mosdns.lastError}` : props.settings.mosdns.enabled ? '已启用' : '已关闭'} wide />
       </div>
     </fieldset>
-    <fieldset className="settings-fieldset wide">
+    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>协议特征库</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
       <label><span>特征库地址</span><input type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
@@ -2717,8 +2736,8 @@ function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
     const load = async () => {
       const response = await fetch(scopedURL('/api/protocols?window=30m', props.deviceID))
       if (!response.ok) return
-      const payload = (await response.json()) as { history: ProtocolHistorySample[] }
-      if (!cancelled) setHistory(payload.history)
+      const payload = (await response.json()) as ProtocolResponse
+      if (!cancelled) setHistory(payload.history ?? [])
     }
     load().catch(() => undefined)
     const timer = window.setInterval(() => load().catch(() => undefined), 30000)
@@ -3223,23 +3242,25 @@ function ConnectionTable(props: { state: ConnectionTableState; showStatus: boole
 function TerminalDetailPage(props: {
   detail: TerminalDetail
   activeTab: TerminalTab
+  protocolAnalysisEnabled: boolean
   connectionFamily: ConnectionFamily
   scope: TerminalFamily
   onBack: () => void
   onTabChange: (value: TerminalTab) => void
   onConnectionFamilyChange: (value: ConnectionFamily) => void
 }) {
+  const activeTab = !props.protocolAnalysisEnabled && props.activeTab === 'flows' ? 'basic' : props.activeTab
   const isRouterConntrack = props.detail.terminal.id === 'routeros:self'
   const scopedConnections = props.scope === 'all' ? props.detail.connections : props.detail.connections.filter((item) => item.family === props.scope)
   const scopedEgressInterfaces = Array.from(new Set(scopedConnections.flatMap((item) => item.egressInterfaces ?? []))).sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true }))
   const repliedConnections = scopedConnections.filter((item) => item.seenReply).length
   const unrepliedConnections = scopedConnections.length - repliedConnections
   const summary = props.scope === 'all' ? props.detail.terminal : (props.detail.familySummaries?.[props.scope] ?? props.detail.terminal)
-  const visibleFlows = props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? [])
+  const visibleFlows = props.protocolAnalysisEnabled ? props.scope === 'all' ? props.detail.flowCategories : (props.detail.familyFlows?.[props.scope] ?? []) : []
   const connectionTable = useConnectionTableState({ connections: props.detail.connections, scope: props.scope, family: props.connectionFamily, onFamilyChange: props.onConnectionFamilyChange, showStatus: isRouterConntrack })
 
   return (
-    <section className={props.activeTab === 'connections' ? 'detail-page detail-page-connections' : 'detail-page'}>
+    <section className={activeTab === 'connections' ? 'detail-page detail-page-connections' : 'detail-page'}>
       <div className="detail-page-head">
         <div className="detail-identity">
           <div className="detail-identity-line">
@@ -3263,15 +3284,15 @@ function TerminalDetailPage(props: {
         </div>
       </div>
 
-      <div className={`tab-row detail-tabs${props.scope === 'all' ? ' has-history' : ''}`}>
-        <TabButton label="基础信息" active={props.activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
-        <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={props.activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
-        <TabButton label="流量分布" active={props.activeTab === 'flows'} onClick={() => props.onTabChange('flows')} />
-        {props.scope === 'all' ? <TabButton label="历史记录" active={props.activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
+      <div className={`tab-row detail-tabs${props.scope === 'all' ? ' has-history' : ''}${props.protocolAnalysisEnabled ? '' : ' without-flows'}`}>
+        <TabButton label="基础信息" active={activeTab === 'basic'} onClick={() => props.onTabChange('basic')} />
+        <TabButton label={isRouterConntrack ? '跟踪详情' : '连接详情'} active={activeTab === 'connections'} onClick={() => props.onTabChange('connections')} />
+        {props.protocolAnalysisEnabled ? <TabButton label="流量分布" active={activeTab === 'flows'} onClick={() => props.onTabChange('flows')} /> : null}
+        {props.scope === 'all' ? <TabButton label="历史记录" active={activeTab === 'history'} onClick={() => props.onTabChange('history')} /> : null}
       </div>
 
-      <section className={props.activeTab === 'connections' ? 'panel detail-panel detail-panel-connections' : 'panel detail-panel'}>
-        {props.activeTab === 'basic' ? (
+      <section className={activeTab === 'connections' ? 'panel detail-panel detail-panel-connections' : 'panel detail-panel'}>
+        {activeTab === 'basic' ? (
           <div className="detail-grid">
             <DetailItem label="设备名称" value={summary.displayName} />
             <DetailItem label="自动识别名称" value={summary.autoName || '暂未识别'} />
@@ -3294,9 +3315,9 @@ function TerminalDetailPage(props: {
           </div>
         ) : null}
 
-        {props.activeTab === 'connections' ? <ConnectionTable state={connectionTable} showStatus={isRouterConntrack} emptyLabel={`当前筛选范围没有 ${connectionTable.selectedFamily === 'all' ? '活动' : connectionTable.selectedFamily.toUpperCase()} ${isRouterConntrack ? '跟踪条目' : '连接详情'}`} /> : null}
+        {activeTab === 'connections' ? <ConnectionTable state={connectionTable} showStatus={isRouterConntrack} emptyLabel={`当前筛选范围没有 ${connectionTable.selectedFamily === 'all' ? '活动' : connectionTable.selectedFamily.toUpperCase()} ${isRouterConntrack ? '跟踪条目' : '连接详情'}`} /> : null}
 
-        {props.activeTab === 'flows' ? (
+        {activeTab === 'flows' && props.protocolAnalysisEnabled ? (
           <div>
             <p className="table-note">按当前活动连接的协议和端口估算，不等同于 DPI 应用识别。</p>
             <div className="table-scroll">
@@ -3334,7 +3355,7 @@ function TerminalDetailPage(props: {
           </div>
         ) : null}
 
-        {props.activeTab === 'history' ? (
+        {activeTab === 'history' ? (
           <div>
             <p className="table-note">每分钟保存一条面板本地累计快照。</p>
             <div className="table-scroll">

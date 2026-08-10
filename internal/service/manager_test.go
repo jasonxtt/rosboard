@@ -61,3 +61,20 @@ func TestMonitorRetryDelayBacksOffAndCaps(t *testing.T) {
 		t.Fatalf("max retry delay = %s, want 5m", got)
 	}
 }
+
+func TestProtocolAnalysisDisabledSkipsRecognitionServices(t *testing.T) {
+	manager, err := NewMonitorManager(config.Config{
+		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: false},
+		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 30},
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.mosdns != nil || manager.feature != nil || manager.resolver != nil {
+		t.Fatalf("recognition services must stay nil when protocol analysis is disabled: %+v", manager)
+	}
+	if manager.MosDNSStatus() != (MosDNSStatus{}) || manager.RecognitionStatus() != (RecognitionStatus{}) {
+		t.Fatalf("recognition status must be zero when protocol analysis is disabled: mosdns=%+v recognition=%+v", manager.MosDNSStatus(), manager.RecognitionStatus())
+	}
+}

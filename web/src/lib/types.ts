@@ -185,6 +185,7 @@ export type Terminal = {
 export type CapabilityNote = { area: string; item: string; status: string; details: string }
 export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean; source?: string }
 export type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
+export type ProtocolResponse = { protocols: ProtocolStat[]; history: ProtocolHistorySample[]; enabled?: boolean }
 export type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
 export type RouteStat = { id: string; kind: string; family: string; destination: string; gateway: string; table: string; action: string; source: string; distance: number; active: boolean; disabled: boolean; prefSrc: string; scope: string; targetScope: string; immediateGateway: string; protocol: string; comment: string; currentMatches: number }
 export type DHCPServerStat = { name: string; interface: string; addressPool: string; leaseTime: string; disabled: boolean; invalid: boolean }
@@ -256,6 +257,9 @@ export type SettingsResponse = {
     realtimePollIntervalSeconds: number
     terminalPollIntervalSeconds: number
     sampleRetentionHours: number
+  }
+  protocolAnalysis?: {
+    enabled: boolean
   }
   mosdns: {
     enabled: boolean
