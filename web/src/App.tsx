@@ -417,7 +417,7 @@ function MonitorPageTabs(props: MonitorTabConfig) {
           type="button"
           role="tab"
           aria-selected={props.value === option.value}
-          className={props.value === option.value ? 'active' : ''}
+          className={props.value === option.value ? 'monitor-tab-button active' : 'monitor-tab-button'}
           onClick={() => props.onChange(option.value)}
         >
           {option.label}
@@ -1233,7 +1233,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         </nav>
         <div className="sidebar-device-card">
           <label htmlFor="global-device-selector">当前设备</label>
-          <select id="global-device-selector" value={selectedDeviceID} onChange={(event) => setSelectedDeviceID(event.target.value)}>
+          <select id="global-device-selector" className="select-control sidebar-device-select" value={selectedDeviceID} onChange={(event) => setSelectedDeviceID(event.target.value)}>
             {devices.filter((device) => device.enabled && !device.archived).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
           </select>
           <dl>
@@ -1283,7 +1283,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
               ) : null}
               {activeView !== 'fleet' && globalWarnings.length ? (
-                <button type="button" className="system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i /><span className="status-label">{alertCount} 项告警</span><span className="status-count" aria-hidden="true">{alertCount}</span></button>
+                <button type="button" className="pill pill--pad-sm system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i /><span className="status-label">{alertCount} 项告警</span><span className="status-count" aria-hidden="true">{alertCount}</span></button>
               ) : activeView !== 'fleet' ? (
                 <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i /><span className="status-label">{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span></span>
               ) : null}
@@ -1293,7 +1293,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <div className="theme-control">
                 <button
                   type="button"
-                  className="theme-button"
+                  className="pill pill--pad-sm theme-button"
                   aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
                   aria-haspopup="menu"
                   aria-expanded={themeMenuOpen}
@@ -1324,11 +1324,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   </div>
                 ) : null}
               </div>
-              <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
-              <select className="refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
+              <button type="button" className="pill pill--icon icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
+              <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
                 <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
               </select>
-              <select className="refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
+              <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
                 <option value={0}>停</option><option value={1000}>1s</option><option value={3000}>3s</option><option value={5000}>5s</option><option value={10000}>10s</option>
               </select>
             </div>
@@ -1337,7 +1337,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 
         {globalWarnings.length && warningsExpanded ? (
           <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
-            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" onClick={() => setWarningsExpanded(false)}>收起</button></div>
+            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" className="pill pill--xs pill--pad-sm global-warning-collapse" onClick={() => setWarningsExpanded(false)}>收起</button></div>
             <ul>
               {globalWarnings.map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
@@ -1642,7 +1642,7 @@ function SettingsPage(props: {
           }}>
             <label>
               <span>默认自动刷新</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.refreshMs}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, refreshMs: Number(event.target.value) }))}
               >
@@ -1651,7 +1651,7 @@ function SettingsPage(props: {
             </label>
             <label>
               <span>默认打开页面</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.landingView}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, landingView: event.target.value as ActiveView }))}
               >
@@ -1660,7 +1660,7 @@ function SettingsPage(props: {
             </label>
             <label>
               <span>默认终端范围</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.terminalFamily}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, terminalFamily: event.target.value as TerminalFamily }))}
               >
@@ -2002,7 +2002,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 
   return <div className="device-settings-workspace">
     <div className="device-settings-list">
-      <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
+      <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="pill pill--icon icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
       {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
@@ -2010,8 +2010,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
-        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
-        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'active' : ''} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
       </div>
     ) : null}
     {showQuick ? (
@@ -2024,7 +2024,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
               <summary><span><strong>高级设置</strong><small>协议和端口</small></span></summary>
               <div className="settings-disclosure-body">
                 <label><span>协议</span>
-                  <select value={quickScheme} onChange={(event) => changeQuickScheme(event.target.value === 'https' ? 'https' : 'http')}>
+                  <select className="select-control settings-select" value={quickScheme} onChange={(event) => changeQuickScheme(event.target.value === 'https' ? 'https' : 'http')}>
                     <option value="http">HTTP</option>
                     <option value="https">HTTPS</option>
                   </select>
@@ -2071,7 +2071,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice() }}>
       <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-      <label><span>协议</span><select value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      <label><span>协议</span><select className="select-control settings-select" value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
       <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
       <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
       <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
@@ -2135,7 +2135,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         </div>
       </details>
       <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
+      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id && !props.onboarding ? <button type="button" className="pill pill--danger danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
@@ -2176,7 +2176,7 @@ function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsR
       <span>{device.name}</span>
       {device.cleanupAvailable ? <button type="button" className="toolbar-button" disabled={cleanupLoadingID === device.id} onClick={() => void loadCleanup(device)}>{cleanupLoadingID === device.id ? '正在生成...' : 'RouterOS 清理脚本'}</button> : null}
       <button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button>
-      <button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button>
+      <button type="button" className="pill pill--danger danger-button" onClick={() => void act(device, true)}>永久清除</button>
     </div>)}
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {cleanupError ? <div className="settings-message" role="alert">{cleanupError}</div> : null}
@@ -2245,7 +2245,7 @@ function formatSettingList(values: string[]) {
 }
 
 function OverviewRangePills(props: { value: string; onChange: (value: string) => void }) {
-  return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'active' : ''} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
+  return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'pill range-pill active' : 'pill range-pill'} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
 }
 
 function FleetDashboardPage(props: { overview: FleetOverview; query: string; onOpenDevice: (deviceID: string, view: ActiveView) => void }) {
@@ -2278,9 +2278,9 @@ function FleetDashboardPage(props: { overview: FleetOverview; query: string; onO
     <div className="fleet-pagination">
       <span>共 {filtered.length} 台</span>
       <span className="toolbar-spacer" />
-      <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+      <button type="button" className="pill fleet-pagination-button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
       <strong>{currentPage} / {pageCount}</strong>
-      <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button>
+      <button type="button" className="pill fleet-pagination-button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button>
     </div>
   </div>
 }
@@ -2836,7 +2836,7 @@ function RoutesPage(props: { routes: RouteStat[] }) {
     <div className="page-grid">
       <div className="data-toolbar panel">
         <strong>现有路由与分流状态</strong><span className="result-count">匹配数为当前 conntrack 快照推算</span><span className="toolbar-spacer" />
-        <label className="toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label>
+        <label className="pill toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label>
         <span>显示 {visibleRoutes.length} / {props.routes.length} 条{disabledCount ? `，已禁用 ${disabledCount}` : ''}</span>
       </div>
       {rules.length ? (
@@ -3017,10 +3017,10 @@ function TerminalsPage(props: {
         </div>
       ) : null}
       <div className="pagination">
-        <span>每页</span><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
-        <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+        <span>每页</span><select className="pill select-control pagination-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
+        <button type="button" className="pill pagination-button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
         <span>{currentPage} / {totalPages}</span>
-        <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
+        <button type="button" className="pill pagination-button" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
       </div>
     </section>
   )
@@ -3072,7 +3072,7 @@ function ConnectionFilterOptions(props: {
   onChange: (value: string) => void
 }) {
   return <div className="connection-filter-options">
-    {props.options.map((option) => <button key={option.value} type="button" className={props.value === option.value ? 'active' : ''} aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}>{option.label}</button>)}
+    {props.options.map((option) => <button key={option.value} type="button" className={props.value === option.value ? 'connection-filter-option active' : 'connection-filter-option'} aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}>{option.label}</button>)}
   </div>
 }
 
@@ -3205,7 +3205,7 @@ function ConnectionTable(props: { state: ConnectionTableState; showStatus: boole
     {state.activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={state.routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...state.routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setRouteTableFilter(value))} /> : null}
     {state.activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={state.gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...state.gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setGatewayFilter(value))} /> : null}
     {state.activeConnectionFilter === 'egress' ? <ConnectionFilterOptions value={state.egressFilter} options={[{ value: 'all', label: '全部出接口' }, ...state.egresses.map((egress) => ({ value: egress, label: egress }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setEgressFilter(value))} /> : null}
-    {state.activeConnectionFilter === 'status' ? <select value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
+    {state.activeConnectionFilter === 'status' ? <select className="select-control connection-filter-select" value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
   </div> : null
   const columnCount = 14 + Number(props.showStatus)
   return <div className="connection-table-shell" onKeyDown={(event) => { if (event.key === 'Escape') state.setActiveConnectionFilter(null) }}>
@@ -3278,7 +3278,7 @@ function TerminalDetailPage(props: {
           </div>
         </div>
         <div className="detail-head-actions">
-          <button type="button" className="close-button" onClick={props.onBack}>
+          <button type="button" className="close-button detail-action-button" onClick={props.onBack}>
             返回
           </button>
         </div>
@@ -3434,10 +3434,10 @@ function TerminalMetadataModal(props: {
           />
           </label>
           <div className="remark-modal-actions">
-            <button type="button" className="close-button" onClick={props.onClose}>
+            <button type="button" className="close-button modal-action-button" onClick={props.onClose}>
               取消
             </button>
-            <button type="button" className="primary-button" onClick={props.onSave} disabled={props.saving}>
+            <button type="button" className="primary-button modal-action-button" onClick={props.onSave} disabled={props.saving}>
               {props.saving ? '保存中...' : '保存'}
             </button>
           </div>
