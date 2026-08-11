@@ -41,6 +41,12 @@ browser evidence and the user has approved that route.
   frontend correctness before handing off visual review.
 - For UI changes with layout risk, include a concise manual QA checklist in the
   final handoff instead of silently performing Chrome-based visual approval.
+- Treat `max-width` and `max-device-width` as different matching contracts.
+  Adding a `max-device-width` fallback can activate a narrow layout in a wide
+  desktop viewport when the physical display still satisfies the device-width
+  query. Do not add, remove, or normalize that fallback under a zero-visual-
+  change requirement without computed-style evidence at desktop and mobile
+  widths; defer the cleanup when either direction changes the matched set.
 
 ---
 

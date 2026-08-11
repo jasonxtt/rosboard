@@ -270,3 +270,136 @@ the user's box was out of scope, so there is no live row-count comparison.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 63: UI design tokens phases 1-2
+
+**Date**: 2026-08-11
+**Task**: UI design tokens phases 1-2
+**Branch**: `main`
+
+### Summary
+
+Completed, deployed, and manually accepted phases 1-2. Paused before phase 3; remaining work is form-selector cleanup and refresh/theme interaction unification.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `574498a` | (see git log) |
+| `41c57ba` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 64: 完成 UI 设计令牌第三期
+
+**Date**: 2026-08-11
+**Task**: 完成 UI 设计令牌第三期
+**Branch**: `main`
+
+### Summary
+
+为设置表单文本、数字、密码和 URL 控件增加 settings-input，收窄通用表单选择器并移除表单区域 !important；保留复选框、接口卡片和主题卡片的等值局部样式。通过前端 lint/build、Go test/vet、静态视觉回归和本地运行时验证，按门禁部署到 10.0.0.6 并备份 /opt/rosboard/backups/rosboard-ui-phase3-20260811-223755/，远端服务/API/嵌入 CSS 校验通过，用户人工验收通过。第四期未开始。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7508b1` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 65: 完成 UI 设计令牌第四期
+
+**Date**: 2026-08-12
+**Task**: 完成 UI 设计令牌第四期
+**Branch**: `main`
+
+### Summary
+
+完成主题与自动刷新 ChoiceMenu 统一、手机端仪表台四控件满行布局和 PC 立即刷新圆形按钮；通过 lint/build、Go test/vet、响应式视觉回归、本地运行与远端部署验收，用户已通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f9c2377` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 66: 合并刷新控件并统一轮询行为
+
+**Date**: 2026-08-12
+**Task**: 合并刷新控件并统一轮询行为
+**Branch**: `agent/unify-ui-design-tokens`
+
+### Summary
+
+将立即刷新与自动刷新设置合并为分栏刷新控件；修正停止刷新时的手动刷新、实时/历史与终端详情轮询行为。完成本地 lint/build、Go test/vet、响应式 harness、浏览器运行态验证和 10.0.0.6 远程部署验收；用户已人工验收通过。备份：/opt/rosboard/backups/rosboard-refresh-control-20260812-004552/。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05a15fc` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

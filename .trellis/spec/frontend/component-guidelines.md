@@ -21,6 +21,19 @@
   theme remain on one row; on mobile the search may use a full-width row. Its
   matching fields are
   device name, RouterOS/router name, board name, version, and address.
+- On the mobile fleet dashboard, the search, theme, immediate-refresh, and
+  auto-refresh controls stay in one full-width row: the search consumes the
+  remaining width from the row's left edge, while the three action controls
+  remain 44px touch targets with no document-level horizontal overflow.
+- The shared topbar refresh control is one split group: the left segment is a
+  fixed-size circular immediate-refresh icon button, and the right segment is
+  the shared labeled choice menu for the auto-refresh period. Keep the two
+  native buttons independently focusable and independently labeled; do not
+  nest one button inside the other.
+- The refresh choice menu retains `停止刷新`, `1 秒刷新`, `3 秒刷新`, `5 秒刷新`,
+  and `10 秒刷新`. The selected period controls browser polling for dashboard,
+  realtime, history, and terminal-detail reads. Stopping periodic refresh must
+  not block initial loads or the immediate-refresh segment.
 - The fleet dashboard does not render status-filter or sort selects. Keep
   free-text matching, pagination, and device-row navigation available.
 - `接口监控` hides only the redundant shared topbar heading/subtitle. Its
@@ -220,6 +233,7 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 ### 3. Contracts
 
 - Settings section navigation stays in the left sidebar and follows the existing status-monitor submenu pattern.
+- Native text, number, password, and URL controls use the explicit `.settings-input` class (with `.settings-select` for selects); do not use a broad `.settings-form input` selector that can style checkbox or selectable-card inputs. Checkbox and interface/theme picker inputs keep scoped styles.
 - Desktop device-management and UI forms use three equal columns. Collection numeric controls use four equal columns and does not include per-device interface/CIDR fields. Do not render sparse two-column setting-card rows.
 - Device management is the only UI section that edits per-device RouterOS connection, `采集接口`, and terminal CIDRs. It must make the selected device scope obvious.
 - `采集接口` uses picker-style checkbox cards, retaining configured interfaces that are missing from the latest live interface list.
@@ -544,6 +558,10 @@ overflow.
 - `PanelPreferences.theme` is `light` or `dark`, defaults to `light`, and is stored with the other browser-local interface preferences.
 - Apply the theme through the root `data-theme` attribute and `color-scheme`. Canvas charts must observe theme changes and update axis, grid, tooltip, and text colors without requiring a reload.
 - The UI settings theme radio previews immediately by applying the draft theme to the root document. It is still only persisted through `保存界面设置`; refreshing before save restores the saved theme.
+- The topbar theme and auto-refresh controls use the shared choice-menu
+  structure with `role="menu"` and `role="menuitemradio"`; settings theme cards
+  reuse the same option data and theme-option base styles through size/layout
+  modifiers. `PanelApp` is the only component that writes the root theme.
 
 ### 3. Responsive And State Validation
 

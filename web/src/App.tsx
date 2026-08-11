@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
   compareTerminal,
@@ -52,10 +52,12 @@ import type {
   RouterOSCleanupResponse,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
+type ChoiceMenuOption<T extends string | number> = { value: T; label: string; description?: string }
+type PanelRefreshOption = { value: number; label: string; topbarLabel: string; shortLabel: string }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
   pollIntervalSeconds: number
@@ -78,10 +80,18 @@ const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
 const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
-const panelThemeOptions: Array<{ value: PanelTheme; label: string; description: string }> = [
+const panelThemeOptions: ChoiceMenuOption<PanelTheme>[] = [
   { value: 'light', label: '明亮', description: '浅色纸面与薄荷强调' },
   { value: 'dark', label: '深色', description: '近黑底色，适合夜间' },
 ]
+const panelRefreshOptions: PanelRefreshOption[] = [
+  { value: 0, label: '停止刷新', topbarLabel: '停止刷新', shortLabel: '停' },
+  { value: 1000, label: '1 秒刷新', topbarLabel: '1 秒', shortLabel: '1s' },
+  { value: 3000, label: '3 秒刷新', topbarLabel: '3 秒', shortLabel: '3s' },
+  { value: 5000, label: '5 秒刷新', topbarLabel: '5 秒', shortLabel: '5s' },
+  { value: 10000, label: '10 秒刷新', topbarLabel: '10 秒', shortLabel: '10s' },
+]
+const topbarRefreshOptions: ChoiceMenuOption<number>[] = panelRefreshOptions.map(({ value, label }) => ({ value, label }))
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -417,7 +427,7 @@ function MonitorPageTabs(props: MonitorTabConfig) {
           type="button"
           role="tab"
           aria-selected={props.value === option.value}
-          className={props.value === option.value ? 'active' : ''}
+          className={props.value === option.value ? 'monitor-tab-button active' : 'monitor-tab-button'}
           onClick={() => props.onChange(option.value)}
         >
           {option.label}
@@ -439,6 +449,7 @@ function Icon(props: { name: IconName }) {
     route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
     settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
+    chevronDown: <path d="m6 9 6 6 6-6"/>,
     cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
     memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
     connections: <><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="18" r="3"/><path d="m8.5 9 2 6m5-6-2 6M9 7h6"/></>,
@@ -455,6 +466,130 @@ function Icon(props: { name: IconName }) {
     palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h4a5 5 0 0 0 5-5 9 9 0 0 0-9-5Z"/><circle cx="7.5" cy="10" r=".75" fill="currentColor" stroke="none"/><circle cx="10" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="14" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="17" cy="10" r=".75" fill="currentColor" stroke="none"/></>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
+}
+
+type ChoiceMenuProps<T extends string | number> = {
+  value: T
+  options: ChoiceMenuOption<T>[]
+  ariaLabel: string
+  triggerLabel: string
+  triggerClassName: string
+  menuClassName: string
+  optionClassName: string
+  menuTitle?: string
+  menuDescription?: string
+  triggerContent: ReactNode
+  renderOption: (option: ChoiceMenuOption<T>) => ReactNode
+  onChange: (value: T) => void
+}
+
+function ChoiceMenu<T extends string | number>(props: ChoiceMenuProps<T>) {
+  const [open, setOpen] = useState(false)
+  const selectedIndex = props.options.findIndex((option) => option.value === props.value)
+  const currentIndex = selectedIndex >= 0 ? selectedIndex : 0
+  const [focusedIndex, setFocusedIndex] = useState(currentIndex)
+  const controlRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  useEffect(() => {
+    if (!open) return
+    optionRefs.current[focusedIndex]?.focus()
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !controlRef.current?.contains(event.target)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [focusedIndex, open])
+
+  const openMenu = () => {
+    setFocusedIndex(currentIndex)
+    setOpen(true)
+  }
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault()
+      openMenu()
+    }
+  }
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const offset = event.key === 'ArrowDown' ? 1 : -1
+      setFocusedIndex((index) => (index + offset + props.options.length) % props.options.length)
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      setFocusedIndex(event.key === 'Home' ? 0 : props.options.length - 1)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+    } else if (event.key === 'Tab') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="choice-menu-control" ref={controlRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={props.triggerClassName}
+        aria-label={props.triggerLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => open ? setOpen(false) : openMenu()}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        {props.triggerContent}
+      </button>
+      {open ? (
+        <div className={props.menuClassName} role="menu" aria-label={props.ariaLabel}>
+          {props.menuTitle || props.menuDescription ? (
+            <div className="choice-menu-head">
+              {props.menuTitle ? <strong>{props.menuTitle}</strong> : null}
+              {props.menuDescription ? <small>{props.menuDescription}</small> : null}
+            </div>
+          ) : null}
+          {props.options.map((option, index) => {
+            const selected = option.value === props.value
+            return (
+              <button
+                key={String(option.value)}
+                ref={(element) => { optionRefs.current[index] = element }}
+                type="button"
+                className={selected ? `${props.optionClassName} active` : props.optionClassName}
+                role="menuitemradio"
+                aria-checked={selected}
+                tabIndex={index === focusedIndex ? 0 : -1}
+                onFocus={() => setFocusedIndex(index)}
+                onKeyDown={handleMenuKeyDown}
+                onClick={() => {
+                  props.onChange(option.value)
+                  setOpen(false)
+                  triggerRef.current?.focus()
+                }}
+              >
+                {props.renderOption(option)}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function NavLabel(props: { icon: IconName; label: string }) { return <span className="nav-label"><Icon name={props.icon} /><span>{props.label}</span></span> }
@@ -509,9 +644,9 @@ function AdminSetupPage(props: { onComplete: () => void }) {
 	const [saving, setSaving] = useState(false)
 	return <StartupCard title="创建管理员" description="第一步：设置用于持续登录 Rosboard 的唯一管理员账号。密码至少 4 个字符。" error={error}>
 		<form className="settings-form auth-form admin-setup-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/setup/admin', { username, password, passwordConfirmation: confirmation }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '管理员创建失败') } finally { setSaving(false) } }}>
-			<label className="wide"><span>管理员用户名</span><input required maxLength={64} autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-			<label><span>密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-			<label><span>确认密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+			<label className="wide"><span>管理员用户名</span><input className="settings-input" required maxLength={64} autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label><span>密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<label><span>确认密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
 			<div className="settings-actions wide"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在创建...' : '创建管理员并继续'}</button></div>
 		</form>
 	</StartupCard>
@@ -524,8 +659,8 @@ function LoginPage(props: { onComplete: () => void }) {
 	const [saving, setSaving] = useState(false)
 	return <StartupCard title="登录 Rosboard" description="使用管理员账号继续。" error={error}>
 		<form className="settings-form auth-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/auth/login', { username, password }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '登录失败') } finally { setSaving(false) } }}>
-			<label className="wide"><span>用户名</span><input required autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-			<label className="wide"><span>密码</span><input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<label className="wide"><span>用户名</span><input className="settings-input" required autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label className="wide"><span>密码</span><input className="settings-input" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
 			<div className="settings-actions wide"><button className="primary-button" disabled={saving} type="submit">{saving ? '正在登录...' : '登录'}</button></div>
 		</form>
 	</StartupCard>
@@ -618,12 +753,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [statusExpanded, setStatusExpanded] = useState(false)
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+  const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
+    setThemePreview(null)
     setPanelPreferences(next)
     savePanelPreferences(next)
   }
+  const previewPanelTheme = useCallback((theme: PanelTheme) => setThemePreview(theme), [])
   const hasDashboard = dashboard !== null
   const protocolAnalysisEnabled = settings?.protocolAnalysis?.enabled !== false
 
@@ -636,25 +773,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	}
 
   useEffect(() => {
-    document.documentElement.dataset.theme = panelPreferences.theme
-    document.documentElement.style.colorScheme = panelPreferences.theme === 'dark' ? 'dark' : 'light'
-  }, [panelPreferences.theme])
-
-  useEffect(() => {
-    if (!themeMenuOpen) return
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (event.target instanceof HTMLElement && !event.target.closest('.theme-control')) setThemeMenuOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setThemeMenuOpen(false)
-    }
-    document.addEventListener('mousedown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [themeMenuOpen])
+    const appliedTheme = themePreview ?? panelPreferences.theme
+    document.documentElement.dataset.theme = appliedTheme
+    document.documentElement.style.colorScheme = appliedTheme === 'dark' ? 'dark' : 'light'
+  }, [panelPreferences.theme, themePreview])
 
   useEffect(() => {
     let cancelled = false
@@ -859,7 +981,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [protocolAnalysisEnabled, terminalTab])
 
   useEffect(() => {
-    if (activeView !== 'overview' && activeView !== 'resource' || dashboardRefreshMs <= 0) return
+    if (activeView !== 'overview' && activeView !== 'resource') return
     let cancelled = false
     let refreshing = false
 
@@ -882,10 +1004,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     }
 
     refreshRealtime()
-    const timer = window.setInterval(refreshRealtime, dashboardRefreshMs)
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(refreshRealtime, dashboardRefreshMs) : 0
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearInterval(timer)
     }
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
@@ -935,13 +1057,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       }
     }
     load().catch(handleError)
-    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(handleError), 1000) : 0
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(handleError), dashboardRefreshMs) : 0
 
     return () => {
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
-  }, [dashboardRefreshMs, restartPending, selectedTerminalID, selectedDeviceID])
+  }, [dashboardRefreshMs, refreshNonce, restartPending, selectedTerminalID, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'load' && activeView !== 'overview') return
@@ -953,9 +1075,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       if (!cancelled) setLoadSamples(payload.samples ?? [])
     }
     load().catch((loadError) => { if (!restartPending) setError(loadError instanceof Error ? loadError.message : '负载历史读取失败') })
-    const timer = window.setInterval(() => load().catch(() => undefined), activeView === 'overview' && trafficWindow === '5m' ? 3000 : 30000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, loadWindow, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(() => undefined), dashboardRefreshMs) : 0
+    return () => { cancelled = true; if (timer) window.clearInterval(timer) }
+  }, [activeView, dashboardRefreshMs, loadWindow, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
 
   useEffect(() => {
     if (activeView !== 'overview') return
@@ -1233,7 +1355,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         </nav>
         <div className="sidebar-device-card">
           <label htmlFor="global-device-selector">当前设备</label>
-          <select id="global-device-selector" value={selectedDeviceID} onChange={(event) => setSelectedDeviceID(event.target.value)}>
+          <select id="global-device-selector" className="select-control sidebar-device-select" value={selectedDeviceID} onChange={(event) => setSelectedDeviceID(event.target.value)}>
             {devices.filter((device) => device.enabled && !device.archived).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
           </select>
           <dl>
@@ -1283,61 +1405,56 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
               ) : null}
               {activeView !== 'fleet' && globalWarnings.length ? (
-                <button type="button" className="system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i /><span className="status-label">{alertCount} 项告警</span><span className="status-count" aria-hidden="true">{alertCount}</span></button>
+                <button type="button" className="pill pill--pad-sm system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i /><span className="status-label">{alertCount} 项告警</span><span className="status-count" aria-hidden="true">{alertCount}</span></button>
               ) : activeView !== 'fleet' ? (
                 <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i /><span className="status-label">{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span></span>
               ) : null}
               {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
-              {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
-              {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
-              <div className="theme-control">
-                <button
-                  type="button"
-                  className="theme-button"
-                  aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
-                  aria-haspopup="menu"
-                  aria-expanded={themeMenuOpen}
-                  onClick={() => setThemeMenuOpen((value) => !value)}
-                >
-                  <Icon name="palette" />
-                  <span>主题</span>
-                </button>
-                {themeMenuOpen ? (
-                  <div className="theme-menu" role="menu" aria-label="主题外观">
-                    <div className="theme-menu-head"><strong>主题外观</strong><small>即时应用并保存到当前浏览器</small></div>
-                    {panelThemeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={panelPreferences.theme === option.value ? 'theme-menu-option active' : 'theme-menu-option'}
-                        role="menuitemradio"
-                        aria-checked={panelPreferences.theme === option.value}
-                        onClick={() => {
-                          updatePanelPreferences({ ...panelPreferences, theme: option.value })
-                          setThemeMenuOpen(false)
-                        }}
-                      >
-                        <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
-                        <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+              <div className="topbar-refresh-controls">
+                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
+                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
+                <ChoiceMenu
+                  value={panelPreferences.theme}
+                  options={panelThemeOptions}
+                  ariaLabel="主题外观"
+                  triggerLabel={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
+                  triggerClassName="pill pill--pad-sm theme-button"
+                  menuClassName="choice-menu theme-menu"
+                  optionClassName="theme-option theme-option--menu"
+                  menuTitle="主题外观"
+                  menuDescription="即时应用并保存到当前浏览器"
+                  triggerContent={<><Icon name="palette" /><span>主题</span></>}
+                  renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
+                  onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
+                />
+                <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                  <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
+                  <ChoiceMenu
+                    value={dashboardRefreshMs}
+                    options={topbarRefreshOptions}
+                    ariaLabel="自动刷新间隔"
+                    triggerLabel={`刷新设置，当前自动刷新为${panelRefreshOptions.find((option) => option.value === dashboardRefreshMs)?.label || '停止刷新'}`}
+                    triggerClassName="pill topbar-select refresh-period-menu-trigger"
+                    menuClassName="choice-menu refresh-menu"
+                    optionClassName="choice-menu-option"
+                    menuTitle="自动刷新"
+                    menuDescription="选择面板数据更新周期"
+                    triggerContent={(() => {
+                      const option = panelRefreshOptions.find((item) => item.value === dashboardRefreshMs) ?? panelRefreshOptions[0]
+                      return <><span className="refresh-period-menu-label"><span className="refresh-period-menu-desktop-label">{option.topbarLabel}</span><span className="refresh-period-menu-mobile-label">{option.shortLabel}</span></span><Icon name="chevronDown" /></>
+                    })()}
+                    renderOption={(option) => <span>{option.label}</span>}
+                    onChange={setDashboardRefreshMs}
+                  />
+                </div>
               </div>
-              <button type="button" className="icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
-              <select className="refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
-              </select>
-              <select className="refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                <option value={0}>停</option><option value={1000}>1s</option><option value={3000}>3s</option><option value={5000}>5s</option><option value={10000}>10s</option>
-              </select>
             </div>
           </div>
         </header>
 
         {globalWarnings.length && warningsExpanded ? (
           <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
-            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" onClick={() => setWarningsExpanded(false)}>收起</button></div>
+            <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" className="pill pill--xs pill--pad-sm global-warning-collapse" onClick={() => setWarningsExpanded(false)}>收起</button></div>
             <ul>
               {globalWarnings.map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
@@ -1398,8 +1515,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               setDashboardRefreshMs(preferences.refreshMs)
               setTerminalFamily(preferences.terminalFamily)
             }}
+            onPreviewTheme={previewPanelTheme}
             onResetPreferences={() => {
               window.localStorage.removeItem(panelPreferenceKey)
+              setThemePreview(null)
               setPanelPreferences(defaultPanelPreferences)
               setDashboardRefreshMs(defaultPanelPreferences.refreshMs)
               setTerminalFamily(defaultPanelPreferences.terminalFamily)
@@ -1575,6 +1694,7 @@ function SettingsPage(props: {
   onSaveRecognition: (draft: RecognitionDraft) => Promise<void>
   onDeviceSaved: (deviceID: string) => Promise<void>
   onSavePreferences: (preferences: PanelPreferences) => void
+  onPreviewTheme: (theme: PanelTheme) => void
   onResetPreferences: () => void
   onRestart: () => Promise<void>
   onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void>
@@ -1584,12 +1704,10 @@ function SettingsPage(props: {
   const [preferenceDraft, setPreferenceDraft] = useState(props.preferences)
   const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null)
+  const { onPreviewTheme } = props
 
   useEffect(() => setPreferenceDraft(props.preferences), [props.preferences])
-  useEffect(() => {
-    document.documentElement.dataset.theme = preferenceDraft.theme
-    document.documentElement.style.colorScheme = preferenceDraft.theme === 'dark' ? 'dark' : 'light'
-  }, [preferenceDraft.theme])
+  useEffect(() => onPreviewTheme(preferenceDraft.theme), [preferenceDraft.theme, onPreviewTheme])
 
   const exportSettings = () => {
     if (!props.settings) return
@@ -1642,16 +1760,16 @@ function SettingsPage(props: {
           }}>
             <label>
               <span>默认自动刷新</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.refreshMs}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, refreshMs: Number(event.target.value) }))}
               >
-                <option value={0}>停止刷新</option><option value={1000}>1 秒刷新</option><option value={3000}>3 秒刷新</option><option value={5000}>5 秒刷新</option><option value={10000}>10 秒刷新</option>
+                {panelRefreshOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label>
               <span>默认打开页面</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.landingView}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, landingView: event.target.value as ActiveView }))}
               >
@@ -1660,7 +1778,7 @@ function SettingsPage(props: {
             </label>
             <label>
               <span>默认终端范围</span>
-              <select
+              <select className="select-control settings-select"
                 value={preferenceDraft.terminalFamily}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, terminalFamily: event.target.value as TerminalFamily }))}
               >
@@ -1670,7 +1788,7 @@ function SettingsPage(props: {
             <fieldset className="theme-picker wide">
               <legend>主题</legend>
               {panelThemeOptions.map((option) => (
-                <label key={option.value} className={preferenceDraft.theme === option.value ? 'theme-option active' : 'theme-option'}>
+                <label key={option.value} className={preferenceDraft.theme === option.value ? 'theme-option theme-option--settings active' : 'theme-option theme-option--settings'}>
                   <input type="radio" name="panel-theme" value={option.value} checked={preferenceDraft.theme === option.value} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: option.value }))} />
                   <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
                   <span><strong>{option.label}</strong><small>{option.description}</small></span>
@@ -1716,9 +1834,9 @@ function AccountSettings(props: { username: string; onAuthenticationChanged: () 
 	}
 	return <section className="panel settings-panel">
 		<form className="settings-form account-credentials-form" onSubmit={updateCredentials}>
-			<label><span>管理员用户名</span><input required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
-			<label><span>密码（至少 4 个字符）</span><input required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
-			<label><span>再次输入密码</span><input required minLength={4} maxLength={128} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>
+			<label><span>管理员用户名</span><input className="settings-input" required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
+			<label><span>密码（至少 4 个字符）</span><input className="settings-input" required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
+			<label><span>再次输入密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>
 			<div className="settings-actions"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在保存...' : '保存账号和密码'}</button></div>
 		</form>
 		{message ? <div className="settings-message" role="status">{message}</div> : null}
@@ -2002,7 +2120,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 
   return <div className="device-settings-workspace">
     <div className="device-settings-list">
-      <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
+      <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="pill pill--icon icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
       {available.map((device) => <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={device.enabled ? 'online' : ''} /></button>)}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>
@@ -2010,27 +2128,27 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
-        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'active' : ''} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
-        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'active' : ''} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
       </div>
     ) : null}
     {showQuick ? (
       <div className="provisioning-flow">
         {!provisioningSession ? (
           <form className="settings-form provisioning-form" onSubmit={(event) => { event.preventDefault(); void generateQuickScript() }}>
-            <label><span>设备名称</span><input required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
-            <label><span>RouterOS IP / 主机名</span><input required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
+            <label><span>设备名称</span><input className="settings-input" required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
+            <label><span>RouterOS IP / 主机名</span><input className="settings-input" required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
             <details className="settings-disclosure provisioning-advanced">
               <summary><span><strong>高级设置</strong><small>协议和端口</small></span></summary>
               <div className="settings-disclosure-body">
                 <label><span>协议</span>
-                  <select value={quickScheme} onChange={(event) => changeQuickScheme(event.target.value === 'https' ? 'https' : 'http')}>
+                  <select className="select-control settings-select" value={quickScheme} onChange={(event) => changeQuickScheme(event.target.value === 'https' ? 'https' : 'http')}>
                     <option value="http">HTTP</option>
                     <option value="https">HTTPS</option>
                   </select>
                 </label>
                 <label><span>REST 端口</span>
-                  <input type="number" min={1} max={65535} value={quickPort} onChange={(event) => setQuickPort(Number(event.target.value))} />
+                  <input className="settings-input" type="number" min={1} max={65535} value={quickPort} onChange={(event) => setQuickPort(Number(event.target.value))} />
                 </label>
               </div>
             </details>
@@ -2070,12 +2188,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     ) : null}
     {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice() }}>
-      <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-      <label><span>协议</span><select value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
-      <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
-      <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
-      <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
-      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+      <label><span>设备名称</span><input className="settings-input" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+      <label><span>协议</span><select className="select-control settings-select" value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      <label><span>IP / 主机名</span><input className="settings-input" required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
+      <label><span>REST 端口</span><input className="settings-input" type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
+      <label><span>用户名</span><input className="settings-input" required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
+      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input className="settings-input" id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
       <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
       {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
       <details className="settings-disclosure wide auto-scope-settings">
@@ -2135,7 +2253,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
         </div>
       </details>
       <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用后台采集</span></label>
-      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id && !props.onboarding ? <button type="button" className="danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
+      <div className="settings-actions span-2"><button type="submit" className="primary-button" disabled={saving || verificationRequired}>{savingAction === 'save' ? '保存中...' : verificationRequired ? '请先测试连接' : props.onboarding ? '保存设备' : draft.id ? '保存设备' : '添加设备'}</button>{draft.id && !props.onboarding ? <button type="button" className="pill pill--danger danger-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}</div>
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
@@ -2176,7 +2294,7 @@ function ArchivedDevices({ settings, onRestartingAction }: { settings: SettingsR
       <span>{device.name}</span>
       {device.cleanupAvailable ? <button type="button" className="toolbar-button" disabled={cleanupLoadingID === device.id} onClick={() => void loadCleanup(device)}>{cleanupLoadingID === device.id ? '正在生成...' : 'RouterOS 清理脚本'}</button> : null}
       <button type="button" className="toolbar-button" onClick={() => void act(device, false)}>恢复</button>
-      <button type="button" className="danger-button" onClick={() => void act(device, true)}>永久清除</button>
+      <button type="button" className="pill pill--danger danger-button" onClick={() => void act(device, true)}>永久清除</button>
     </div>)}
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {cleanupError ? <div className="settings-message" role="alert">{cleanupError}</div> : null}
@@ -2189,7 +2307,7 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
   const numberField = (key: keyof Pick<CollectionDraft, 'pollIntervalSeconds' | 'realtimePollIntervalSeconds' | 'terminalPollIntervalSeconds' | 'sampleRetentionHours'>, label: string, unit: string) => (
     <label>
       <span>{label}</span>
-      <span className="number-input"><input type="number" min={1} required value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /><small>{unit}</small></span>
+      <span className="number-input"><input className="settings-input" type="number" min={1} required value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /><small>{unit}</small></span>
     </label>
   )
   return <form className="settings-form collection-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
@@ -2212,8 +2330,8 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
     <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>MosDNS DNS 日志对接</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
-      <label><span>MosDNS 地址</span><input type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
-      <label><span>同步周期</span><span className="number-input"><input type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
+      <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       <div className="settings-grid connection-runtime-grid">
         <SettingItem label="最近导入" value={`${props.settings.mosdns.lastImported} 条`} />
         <SettingItem label="最近去重" value={`${props.settings.mosdns.lastDuplicates} 条`} />
@@ -2226,9 +2344,9 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
     <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>协议特征库</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
-      <label><span>特征库地址</span><input type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
-      <label><span>刷新周期</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
-      <label><span>DNS 匹配窗口</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>特征库地址</span><input className="settings-input" type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
+      <label><span>刷新周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
+      <label><span>DNS 匹配窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       <div className="settings-grid connection-runtime-grid">
         <SettingItem label="已加载规则" value={`${props.settings.featureLibrary.ruleCount} 条`} />
         <SettingItem label="最近成功" value={props.settings.featureLibrary.lastSuccess ? formatDateTime(props.settings.featureLibrary.lastSuccess) : '-'} />
@@ -2245,7 +2363,7 @@ function formatSettingList(values: string[]) {
 }
 
 function OverviewRangePills(props: { value: string; onChange: (value: string) => void }) {
-  return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'active' : ''} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
+  return <span className="range-pills topbar-range-pills" aria-label="首页时间范围">{['5m', '1h', '6h', '24h'].map((value) => <button key={value} type="button" className={props.value === value ? 'pill range-pill active' : 'pill range-pill'} onClick={() => props.onChange(value)}>{value === '5m' ? '5min' : value}</button>)}</span>
 }
 
 function FleetDashboardPage(props: { overview: FleetOverview; query: string; onOpenDevice: (deviceID: string, view: ActiveView) => void }) {
@@ -2278,9 +2396,9 @@ function FleetDashboardPage(props: { overview: FleetOverview; query: string; onO
     <div className="fleet-pagination">
       <span>共 {filtered.length} 台</span>
       <span className="toolbar-spacer" />
-      <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+      <button type="button" className="pill fleet-pagination-button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
       <strong>{currentPage} / {pageCount}</strong>
-      <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button>
+      <button type="button" className="pill fleet-pagination-button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>下一页</button>
     </div>
   </div>
 }
@@ -2836,7 +2954,7 @@ function RoutesPage(props: { routes: RouteStat[] }) {
     <div className="page-grid">
       <div className="data-toolbar panel">
         <strong>现有路由与分流状态</strong><span className="result-count">匹配数为当前 conntrack 快照推算</span><span className="toolbar-spacer" />
-        <label className="toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label>
+        <label className="pill toolbar-toggle"><input type="checkbox" checked={hideDisabled} onChange={(event) => setHideDisabled(event.target.checked)} /><span>隐藏已禁用</span></label>
         <span>显示 {visibleRoutes.length} / {props.routes.length} 条{disabledCount ? `，已禁用 ${disabledCount}` : ''}</span>
       </div>
       {rules.length ? (
@@ -3017,10 +3135,10 @@ function TerminalsPage(props: {
         </div>
       ) : null}
       <div className="pagination">
-        <span>每页</span><select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
-        <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
+        <span>每页</span><select className="pill select-control pagination-select" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select>
+        <button type="button" className="pill pagination-button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
         <span>{currentPage} / {totalPages}</span>
-        <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
+        <button type="button" className="pill pagination-button" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>下一页</button>
       </div>
     </section>
   )
@@ -3072,7 +3190,7 @@ function ConnectionFilterOptions(props: {
   onChange: (value: string) => void
 }) {
   return <div className="connection-filter-options">
-    {props.options.map((option) => <button key={option.value} type="button" className={props.value === option.value ? 'active' : ''} aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}>{option.label}</button>)}
+    {props.options.map((option) => <button key={option.value} type="button" className={props.value === option.value ? 'connection-filter-option active' : 'connection-filter-option'} aria-pressed={props.value === option.value} onClick={() => props.onChange(option.value)}>{option.label}</button>)}
   </div>
 }
 
@@ -3205,7 +3323,7 @@ function ConnectionTable(props: { state: ConnectionTableState; showStatus: boole
     {state.activeConnectionFilter === 'routeTable' ? <ConnectionFilterOptions value={state.routeTableFilter} options={[{ value: 'all', label: '全部路由表' }, ...state.routeTables.map((table) => ({ value: table, label: table }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setRouteTableFilter(value))} /> : null}
     {state.activeConnectionFilter === 'gateway' ? <ConnectionFilterOptions value={state.gatewayFilter} options={[{ value: 'all', label: '全部网关' }, ...state.gateways.map((gateway) => ({ value: gateway, label: gateway }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setGatewayFilter(value))} /> : null}
     {state.activeConnectionFilter === 'egress' ? <ConnectionFilterOptions value={state.egressFilter} options={[{ value: 'all', label: '全部出接口' }, ...state.egresses.map((egress) => ({ value: egress, label: egress }))]} onChange={(value) => state.chooseConnectionFilter(() => state.setEgressFilter(value))} /> : null}
-    {state.activeConnectionFilter === 'status' ? <select value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
+    {state.activeConnectionFilter === 'status' ? <select className="select-control connection-filter-select" value={state.statusFilter} onChange={(event) => state.setStatusFilter(event.target.value)} aria-label="连接状态筛选"><option value="all">全部状态</option>{state.statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select> : null}
   </div> : null
   const columnCount = 14 + Number(props.showStatus)
   return <div className="connection-table-shell" onKeyDown={(event) => { if (event.key === 'Escape') state.setActiveConnectionFilter(null) }}>
@@ -3278,7 +3396,7 @@ function TerminalDetailPage(props: {
           </div>
         </div>
         <div className="detail-head-actions">
-          <button type="button" className="close-button" onClick={props.onBack}>
+          <button type="button" className="close-button detail-action-button" onClick={props.onBack}>
             返回
           </button>
         </div>
@@ -3434,10 +3552,10 @@ function TerminalMetadataModal(props: {
           />
           </label>
           <div className="remark-modal-actions">
-            <button type="button" className="close-button" onClick={props.onClose}>
+            <button type="button" className="close-button modal-action-button" onClick={props.onClose}>
               取消
             </button>
-            <button type="button" className="primary-button" onClick={props.onSave} disabled={props.saving}>
+            <button type="button" className="primary-button modal-action-button" onClick={props.onSave} disabled={props.saving}>
               {props.saving ? '保存中...' : '保存'}
             </button>
           </div>

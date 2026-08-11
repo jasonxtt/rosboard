@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 62
-- **Last Active**: 2026-08-11
+- **Total Sessions**: 66
+- **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~272 | Active |
+| `journal-2.md` | ~405 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,10 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 66 | 2026-08-12 | 合并刷新控件并统一轮询行为 | `05a15fc` | `agent/unify-ui-design-tokens` |
+| 65 | 2026-08-12 | 完成 UI 设计令牌第四期 | `f9c2377` | `main` |
+| 64 | 2026-08-11 | 完成 UI 设计令牌第三期 | `d7508b1` | `main` |
+| 63 | 2026-08-11 | UI design tokens phases 1-2 | `574498a`, `41c57ba` | `main` |
 | 62 | 2026-08-11 | 修复移动端终端监控概览遮挡与自动刷新圆钮规格 | `8605a89`, `7a61b15`, `c097d37`, `191cf94` | `main` |
 | 61 | 2026-08-11 | 协议分析总开关：配置迁移、分析层门控与部署验收 | `8128c5d`, `6e87fc2` | `main` |
 | 60 | 2026-08-10 | Mobile dashboard topbar layout fix | `eb893ed`, `de13b21` | `main` |
