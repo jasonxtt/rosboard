@@ -25,8 +25,15 @@
   auto-refresh controls stay in one full-width row: the search consumes the
   remaining width from the row's left edge, while the three action controls
   remain 44px touch targets with no document-level horizontal overflow.
-- On desktop, the immediate-refresh control is a fixed-size circular icon
-  button; the auto-refresh control remains the shared labeled choice menu.
+- The shared topbar refresh control is one split group: the left segment is a
+  fixed-size circular immediate-refresh icon button, and the right segment is
+  the shared labeled choice menu for the auto-refresh period. Keep the two
+  native buttons independently focusable and independently labeled; do not
+  nest one button inside the other.
+- The refresh choice menu retains `停止刷新`, `1 秒刷新`, `3 秒刷新`, `5 秒刷新`,
+  and `10 秒刷新`. The selected period controls browser polling for dashboard,
+  realtime, history, and terminal-detail reads. Stopping periodic refresh must
+  not block initial loads or the immediate-refresh segment.
 - The fleet dashboard does not render status-filter or sort selects. Keep
   free-text matching, pagination, and device-row navigation available.
 - `接口监控` hides only the redundant shared topbar heading/subtitle. Its

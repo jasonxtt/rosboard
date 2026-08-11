@@ -86,12 +86,12 @@ const panelThemeOptions: ChoiceMenuOption<PanelTheme>[] = [
 ]
 const panelRefreshOptions: PanelRefreshOption[] = [
   { value: 0, label: '停止刷新', topbarLabel: '停止刷新', shortLabel: '停' },
-  { value: 1000, label: '1 秒刷新', topbarLabel: '自动刷新（1 秒）', shortLabel: '1s' },
-  { value: 3000, label: '3 秒刷新', topbarLabel: '自动刷新（3 秒）', shortLabel: '3s' },
-  { value: 5000, label: '5 秒刷新', topbarLabel: '自动刷新（5 秒）', shortLabel: '5s' },
-  { value: 10000, label: '10 秒刷新', topbarLabel: '自动刷新（10 秒）', shortLabel: '10s' },
+  { value: 1000, label: '1 秒刷新', topbarLabel: '1 秒', shortLabel: '1s' },
+  { value: 3000, label: '3 秒刷新', topbarLabel: '3 秒', shortLabel: '3s' },
+  { value: 5000, label: '5 秒刷新', topbarLabel: '5 秒', shortLabel: '5s' },
+  { value: 10000, label: '10 秒刷新', topbarLabel: '10 秒', shortLabel: '10s' },
 ]
-const topbarRefreshOptions: ChoiceMenuOption<number>[] = panelRefreshOptions.map(({ value, topbarLabel }) => ({ value, label: topbarLabel }))
+const topbarRefreshOptions: ChoiceMenuOption<number>[] = panelRefreshOptions.map(({ value, label }) => ({ value, label }))
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -981,7 +981,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [protocolAnalysisEnabled, terminalTab])
 
   useEffect(() => {
-    if (activeView !== 'overview' && activeView !== 'resource' || dashboardRefreshMs <= 0) return
+    if (activeView !== 'overview' && activeView !== 'resource') return
     let cancelled = false
     let refreshing = false
 
@@ -1004,10 +1004,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     }
 
     refreshRealtime()
-    const timer = window.setInterval(refreshRealtime, dashboardRefreshMs)
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(refreshRealtime, dashboardRefreshMs) : 0
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer) window.clearInterval(timer)
     }
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
@@ -1057,13 +1057,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       }
     }
     load().catch(handleError)
-    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(handleError), 1000) : 0
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(handleError), dashboardRefreshMs) : 0
 
     return () => {
       cancelled = true
       if (timer) window.clearInterval(timer)
     }
-  }, [dashboardRefreshMs, restartPending, selectedTerminalID, selectedDeviceID])
+  }, [dashboardRefreshMs, refreshNonce, restartPending, selectedTerminalID, selectedDeviceID])
 
   useEffect(() => {
     if (activeView !== 'load' && activeView !== 'overview') return
@@ -1075,9 +1075,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       if (!cancelled) setLoadSamples(payload.samples ?? [])
     }
     load().catch((loadError) => { if (!restartPending) setError(loadError instanceof Error ? loadError.message : '负载历史读取失败') })
-    const timer = window.setInterval(() => load().catch(() => undefined), activeView === 'overview' && trafficWindow === '5m' ? 3000 : 30000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [activeView, loadWindow, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
+    const timer = dashboardRefreshMs > 0 ? window.setInterval(() => load().catch(() => undefined), dashboardRefreshMs) : 0
+    return () => { cancelled = true; if (timer) window.clearInterval(timer) }
+  }, [activeView, dashboardRefreshMs, loadWindow, trafficWindow, selectedDeviceID, refreshNonce, restartPending])
 
   useEffect(() => {
     if (activeView !== 'overview') return
@@ -1427,24 +1427,26 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                <button type="button" className="pill pill--icon icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
-                <ChoiceMenu
-                  value={dashboardRefreshMs}
-                  options={topbarRefreshOptions}
-                  ariaLabel="全局自动刷新"
-                  triggerLabel={`修改自动刷新，当前为${panelRefreshOptions.find((option) => option.value === dashboardRefreshMs)?.topbarLabel || '停止刷新'}`}
-                  triggerClassName="pill pill--pad-sm topbar-select refresh-period-menu-trigger"
-                  menuClassName="choice-menu refresh-menu"
-                  optionClassName="choice-menu-option"
-                  menuTitle="自动刷新"
-                  menuDescription="选择面板数据更新周期"
-                  triggerContent={(() => {
-                    const option = panelRefreshOptions.find((item) => item.value === dashboardRefreshMs) ?? panelRefreshOptions[0]
-                    return <><span className="refresh-period-menu-label"><span className="refresh-period-menu-desktop-label">{option.topbarLabel}</span><span className="refresh-period-menu-mobile-label">{option.shortLabel}</span></span><Icon name="chevronDown" /></>
-                  })()}
-                  renderOption={(option) => <span>{option.label}</span>}
-                  onChange={setDashboardRefreshMs}
-                />
+                <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                  <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
+                  <ChoiceMenu
+                    value={dashboardRefreshMs}
+                    options={topbarRefreshOptions}
+                    ariaLabel="自动刷新间隔"
+                    triggerLabel={`刷新设置，当前自动刷新为${panelRefreshOptions.find((option) => option.value === dashboardRefreshMs)?.label || '停止刷新'}`}
+                    triggerClassName="pill topbar-select refresh-period-menu-trigger"
+                    menuClassName="choice-menu refresh-menu"
+                    optionClassName="choice-menu-option"
+                    menuTitle="自动刷新"
+                    menuDescription="选择面板数据更新周期"
+                    triggerContent={(() => {
+                      const option = panelRefreshOptions.find((item) => item.value === dashboardRefreshMs) ?? panelRefreshOptions[0]
+                      return <><span className="refresh-period-menu-label"><span className="refresh-period-menu-desktop-label">{option.topbarLabel}</span><span className="refresh-period-menu-mobile-label">{option.shortLabel}</span></span><Icon name="chevronDown" /></>
+                    })()}
+                    renderOption={(option) => <span>{option.label}</span>}
+                    onChange={setDashboardRefreshMs}
+                  />
+                </div>
               </div>
             </div>
           </div>
