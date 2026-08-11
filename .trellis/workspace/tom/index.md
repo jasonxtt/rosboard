@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 65
+- **Total Sessions**: 66
 - **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~372 | Active |
+| `journal-2.md` | ~405 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 66 | 2026-08-12 | 合并刷新控件并统一轮询行为 | `05a15fc` | `agent/unify-ui-design-tokens` |
 | 65 | 2026-08-12 | 完成 UI 设计令牌第四期 | `f9c2377` | `main` |
 | 64 | 2026-08-11 | 完成 UI 设计令牌第三期 | `d7508b1` | `main` |
 | 63 | 2026-08-11 | UI design tokens phases 1-2 | `574498a`, `41c57ba` | `main` |

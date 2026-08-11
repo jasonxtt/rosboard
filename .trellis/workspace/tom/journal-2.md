@@ -370,3 +370,36 @@ Completed, deployed, and manually accepted phases 1-2. Paused before phase 3; re
 ### Next Steps
 
 - None - task complete
+
+
+## Session 66: 合并刷新控件并统一轮询行为
+
+**Date**: 2026-08-12
+**Task**: 合并刷新控件并统一轮询行为
+**Branch**: `agent/unify-ui-design-tokens`
+
+### Summary
+
+将立即刷新与自动刷新设置合并为分栏刷新控件；修正停止刷新时的手动刷新、实时/历史与终端详情轮询行为。完成本地 lint/build、Go test/vet、响应式 harness、浏览器运行态验证和 10.0.0.6 远程部署验收；用户已人工验收通过。备份：/opt/rosboard/backups/rosboard-refresh-control-20260812-004552/。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05a15fc` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
