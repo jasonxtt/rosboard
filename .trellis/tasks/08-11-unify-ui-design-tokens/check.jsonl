@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend guideline entry point for full-scope review."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Verify responsive layout and touch-target contracts remain intact."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify required lint/build and visual handoff evidence."}

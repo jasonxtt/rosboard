@@ -270,3 +270,37 @@ the user's box was out of scope, so there is no live row-count comparison.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 63: UI design tokens phases 1-2
+
+**Date**: 2026-08-11
+**Task**: UI design tokens phases 1-2
+**Branch**: `main`
+
+### Summary
+
+Completed, deployed, and manually accepted phases 1-2. Paused before phase 3; remaining work is form-selector cleanup and refresh/theme interaction unification.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `574498a` | (see git log) |
+| `41c57ba` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

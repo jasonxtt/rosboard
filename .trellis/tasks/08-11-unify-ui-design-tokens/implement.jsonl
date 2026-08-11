@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend guideline entry point and required quality routing."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Existing responsive layout, touch-target, and monitor UI contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required deterministic checks and manual visual handoff rules."}
