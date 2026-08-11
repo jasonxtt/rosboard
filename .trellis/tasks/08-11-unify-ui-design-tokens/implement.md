@@ -27,5 +27,4 @@
 `!important` 已清零。已通过前端 lint/build、Go test/vet、静态视觉回归和本地
 运行时检查；按门禁部署到 `10.0.0.6`，备份目录为
 `/opt/rosboard/backups/rosboard-ui-phase3-20260811-223755/`，远端 systemd、
-健康/API 合约和嵌入 CSS 均验证通过，用户已人工验收通过。第三期提交后，
-本次提交后，第四期保持未开始。
+健康/API 合约和嵌入 CSS 均验证通过，用户已人工验收通过。第四期保持未开始。
