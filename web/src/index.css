@@ -351,6 +351,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    third-level tabs: same size, weight and row rhythm, but not clickable. */
 .topbar .page-section-title { display: flex; align-items: center; min-height: 38px; color: var(--ink); font-size: var(--fs-h3); font-weight: 600; letter-spacing: var(--track-tight); }
 .overview-topbar .topbar-controls { font-size: var(--fs-caption); }
+.overview-topbar .topbar-action-controls { flex-wrap: nowrap; }
 .system-ok { display: inline-flex; align-items: center; gap: 7px; color: var(--slate); white-space: nowrap; }
 .system-ok i { width: 7px; height: 7px; background: var(--status-ok); border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 16%, transparent); }
 .system-alerting { color: var(--status-warn); }
@@ -361,6 +362,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar-select, .icon-button { transition: border-color var(--motion), background var(--motion); }
 .topbar-select:hover, .icon-button:hover { border-color: var(--stone); background-color: var(--surface-soft); }
 .icon-button .ui-icon { font-size: 16px; }
+.topbar-refresh-controls { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 8px 12px; }
 .theme-control { position: relative; flex: 0 0 auto; }
 .theme-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--gap-inline); font-size: var(--fs-caption); transition: border-color var(--motion), background var(--motion); }
 .theme-button:hover { color: var(--ink); border-color: var(--stone); background: var(--surface-soft); }
@@ -1063,11 +1065,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .topbar-action-controls { width: 100%; min-width: 0; flex-wrap: nowrap; gap: 8px; overflow: visible; }
   .topbar-action-controls > .system-ok { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 var(--pad-pill-x-sm); overflow: hidden; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-full); text-overflow: ellipsis; }
   .topbar-action-controls > .global-warning-toggle { color: var(--status-warn); background: color-mix(in srgb, var(--status-warn) 10%, var(--surface)); border-color: color-mix(in srgb, var(--status-warn) 26%, var(--surface)); }
-  .theme-button, .topbar-action-controls > .icon-button { width: 44px; min-width: 44px; height: var(--control-h-touch); padding: 0; }
+  .theme-button, .topbar-refresh-controls > .icon-button { width: 44px; min-width: 44px; height: var(--control-h-touch); padding: 0; }
   .theme-button > span { display: none; }
-  .theme-button .ui-icon, .topbar-action-controls > .icon-button .ui-icon { width: 18px; height: 18px; font-size: 18px; }
+  .theme-button .ui-icon, .topbar-refresh-controls > .icon-button .ui-icon { width: 18px; height: 18px; font-size: 18px; }
   .refresh-period-select-desktop { display: none; }
   .topbar-controls .refresh-period-select-mobile { display: block; flex: 0 0 44px; width: 44px; min-width: 44px; height: var(--control-h-touch); padding: 0 var(--select-arrow-pad) 0 0; font-size: var(--fs-micro); font-weight: 600; text-align: center; text-align-last: center; }
+  .topbar-refresh-controls { gap: 8px; }
   .theme-menu { right: 0; }
   .monitor-topbar .topbar-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .monitor-topbar .topbar-controls .system-ok, .settings-topbar .topbar-controls .system-ok { display: inline-flex; }
@@ -1082,9 +1085,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .terminal-topbar .topbar-action-controls > .system-ok { order: 2; flex: 0 0 44px; width: 44px; justify-content: center; gap: 4px; padding: 0; }
   .terminal-topbar .topbar-action-controls > .system-ok .status-label { display: none; }
   .terminal-topbar .global-warning-toggle .status-count { display: inline; font-family: var(--font-mono); font-size: var(--fs-nano); font-weight: 600; }
-  .terminal-topbar .theme-control { order: 3; }
-  .terminal-topbar .topbar-action-controls > .icon-button { order: 4; }
-  .terminal-topbar .refresh-period-select-mobile { order: 5; }
+  .terminal-topbar .topbar-refresh-controls { order: 3; }
   .fleet-topbar .fleet-topbar-search-input { flex-basis: 100%; width: 100%; height: var(--control-h-touch); font-size: var(--fs-h3); }
   .overview-topbar .topbar-controls, .fleet-topbar .topbar-controls { flex-wrap: nowrap; gap: 8px; }
   .overview-topbar .topbar-action-controls, .fleet-topbar .topbar-action-controls { flex: 1 1 auto; width: 100%; flex-wrap: nowrap; gap: 8px; overflow: visible; }

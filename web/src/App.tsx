@@ -1288,49 +1288,51 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i /><span className="status-label">{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span></span>
               ) : null}
               {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
-              {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
-              {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
-              <div className="theme-control">
-                <button
-                  type="button"
-                  className="pill pill--pad-sm theme-button"
-                  aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
-                  aria-haspopup="menu"
-                  aria-expanded={themeMenuOpen}
-                  onClick={() => setThemeMenuOpen((value) => !value)}
-                >
-                  <Icon name="palette" />
-                  <span>主题</span>
-                </button>
-                {themeMenuOpen ? (
-                  <div className="theme-menu" role="menu" aria-label="主题外观">
-                    <div className="theme-menu-head"><strong>主题外观</strong><small>即时应用并保存到当前浏览器</small></div>
-                    {panelThemeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={panelPreferences.theme === option.value ? 'theme-menu-option active' : 'theme-menu-option'}
-                        role="menuitemradio"
-                        aria-checked={panelPreferences.theme === option.value}
-                        onClick={() => {
-                          updatePanelPreferences({ ...panelPreferences, theme: option.value })
-                          setThemeMenuOpen(false)
-                        }}
-                      >
-                        <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
-                        <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+              <div className="topbar-refresh-controls">
+                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
+                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
+                <div className="theme-control">
+                  <button
+                    type="button"
+                    className="pill pill--pad-sm theme-button"
+                    aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
+                    aria-haspopup="menu"
+                    aria-expanded={themeMenuOpen}
+                    onClick={() => setThemeMenuOpen((value) => !value)}
+                  >
+                    <Icon name="palette" />
+                    <span>主题</span>
+                  </button>
+                  {themeMenuOpen ? (
+                    <div className="theme-menu" role="menu" aria-label="主题外观">
+                      <div className="theme-menu-head"><strong>主题外观</strong><small>即时应用并保存到当前浏览器</small></div>
+                      {panelThemeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={panelPreferences.theme === option.value ? 'theme-menu-option active' : 'theme-menu-option'}
+                          role="menuitemradio"
+                          aria-checked={panelPreferences.theme === option.value}
+                          onClick={() => {
+                            updatePanelPreferences({ ...panelPreferences, theme: option.value })
+                            setThemeMenuOpen(false)
+                          }}
+                        >
+                          <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
+                          <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <button type="button" className="pill pill--icon icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
+                <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
+                  <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
+                </select>
+                <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
+                  <option value={0}>停</option><option value={1000}>1s</option><option value={3000}>3s</option><option value={5000}>5s</option><option value={10000}>10s</option>
+                </select>
               </div>
-              <button type="button" className="pill pill--icon icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
-              <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
-              </select>
-              <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                <option value={0}>停</option><option value={1000}>1s</option><option value={3000}>3s</option><option value={5000}>5s</option><option value={10000}>10s</option>
-              </select>
             </div>
           </div>
         </header>
