@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
   compareTerminal,
@@ -52,10 +52,12 @@ import type {
   RouterOSCleanupResponse,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
+type ChoiceMenuOption<T extends string | number> = { value: T; label: string; description?: string }
+type PanelRefreshOption = { value: number; label: string; topbarLabel: string; shortLabel: string }
 type ConnectionDraft = { scheme: 'http' | 'https'; host: string; port: number; username: string; password: string }
 type CollectionDraft = {
   pollIntervalSeconds: number
@@ -78,10 +80,18 @@ const pendingRouterOSCleanupKey = 'rosboard:pending-routeros-cleanup'
 const defaultPanelPreferences: PanelPreferences = { refreshMs: 1000, landingView: 'fleet', terminalFamily: 'all', theme: 'light' }
 const restartPollIntervalMs = 750
 const restartTimeoutMs = 90_000
-const panelThemeOptions: Array<{ value: PanelTheme; label: string; description: string }> = [
+const panelThemeOptions: ChoiceMenuOption<PanelTheme>[] = [
   { value: 'light', label: '明亮', description: '浅色纸面与薄荷强调' },
   { value: 'dark', label: '深色', description: '近黑底色，适合夜间' },
 ]
+const panelRefreshOptions: PanelRefreshOption[] = [
+  { value: 0, label: '停止刷新', topbarLabel: '停止刷新', shortLabel: '停' },
+  { value: 1000, label: '1 秒刷新', topbarLabel: '自动刷新（1 秒）', shortLabel: '1s' },
+  { value: 3000, label: '3 秒刷新', topbarLabel: '自动刷新（3 秒）', shortLabel: '3s' },
+  { value: 5000, label: '5 秒刷新', topbarLabel: '自动刷新（5 秒）', shortLabel: '5s' },
+  { value: 10000, label: '10 秒刷新', topbarLabel: '自动刷新（10 秒）', shortLabel: '10s' },
+]
+const topbarRefreshOptions: ChoiceMenuOption<number>[] = panelRefreshOptions.map(({ value, topbarLabel }) => ({ value, label: topbarLabel }))
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
@@ -439,6 +449,7 @@ function Icon(props: { name: IconName }) {
     route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
     settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
+    chevronDown: <path d="m6 9 6 6 6-6"/>,
     cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
     memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
     connections: <><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="18" r="3"/><path d="m8.5 9 2 6m5-6-2 6M9 7h6"/></>,
@@ -455,6 +466,130 @@ function Icon(props: { name: IconName }) {
     palette: <><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H12a2 2 0 0 1 0-4h4a5 5 0 0 0 5-5 9 9 0 0 0-9-5Z"/><circle cx="7.5" cy="10" r=".75" fill="currentColor" stroke="none"/><circle cx="10" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="14" cy="6.8" r=".75" fill="currentColor" stroke="none"/><circle cx="17" cy="10" r=".75" fill="currentColor" stroke="none"/></>,
   }
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[props.name]}</svg>
+}
+
+type ChoiceMenuProps<T extends string | number> = {
+  value: T
+  options: ChoiceMenuOption<T>[]
+  ariaLabel: string
+  triggerLabel: string
+  triggerClassName: string
+  menuClassName: string
+  optionClassName: string
+  menuTitle?: string
+  menuDescription?: string
+  triggerContent: ReactNode
+  renderOption: (option: ChoiceMenuOption<T>) => ReactNode
+  onChange: (value: T) => void
+}
+
+function ChoiceMenu<T extends string | number>(props: ChoiceMenuProps<T>) {
+  const [open, setOpen] = useState(false)
+  const selectedIndex = props.options.findIndex((option) => option.value === props.value)
+  const currentIndex = selectedIndex >= 0 ? selectedIndex : 0
+  const [focusedIndex, setFocusedIndex] = useState(currentIndex)
+  const controlRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  useEffect(() => {
+    if (!open) return
+    optionRefs.current[focusedIndex]?.focus()
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !controlRef.current?.contains(event.target)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [focusedIndex, open])
+
+  const openMenu = () => {
+    setFocusedIndex(currentIndex)
+    setOpen(true)
+  }
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault()
+      openMenu()
+    }
+  }
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const offset = event.key === 'ArrowDown' ? 1 : -1
+      setFocusedIndex((index) => (index + offset + props.options.length) % props.options.length)
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      setFocusedIndex(event.key === 'Home' ? 0 : props.options.length - 1)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+    } else if (event.key === 'Tab') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="choice-menu-control" ref={controlRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={props.triggerClassName}
+        aria-label={props.triggerLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => open ? setOpen(false) : openMenu()}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        {props.triggerContent}
+      </button>
+      {open ? (
+        <div className={props.menuClassName} role="menu" aria-label={props.ariaLabel}>
+          {props.menuTitle || props.menuDescription ? (
+            <div className="choice-menu-head">
+              {props.menuTitle ? <strong>{props.menuTitle}</strong> : null}
+              {props.menuDescription ? <small>{props.menuDescription}</small> : null}
+            </div>
+          ) : null}
+          {props.options.map((option, index) => {
+            const selected = option.value === props.value
+            return (
+              <button
+                key={String(option.value)}
+                ref={(element) => { optionRefs.current[index] = element }}
+                type="button"
+                className={selected ? `${props.optionClassName} active` : props.optionClassName}
+                role="menuitemradio"
+                aria-checked={selected}
+                tabIndex={index === focusedIndex ? 0 : -1}
+                onFocus={() => setFocusedIndex(index)}
+                onKeyDown={handleMenuKeyDown}
+                onClick={() => {
+                  props.onChange(option.value)
+                  setOpen(false)
+                  triggerRef.current?.focus()
+                }}
+              >
+                {props.renderOption(option)}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function NavLabel(props: { icon: IconName; label: string }) { return <span className="nav-label"><Icon name={props.icon} /><span>{props.label}</span></span> }
@@ -618,12 +753,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [statusExpanded, setStatusExpanded] = useState(false)
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+  const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
 
   const updatePanelPreferences = (next: PanelPreferences) => {
+    setThemePreview(null)
     setPanelPreferences(next)
     savePanelPreferences(next)
   }
+  const previewPanelTheme = useCallback((theme: PanelTheme) => setThemePreview(theme), [])
   const hasDashboard = dashboard !== null
   const protocolAnalysisEnabled = settings?.protocolAnalysis?.enabled !== false
 
@@ -636,25 +773,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	}
 
   useEffect(() => {
-    document.documentElement.dataset.theme = panelPreferences.theme
-    document.documentElement.style.colorScheme = panelPreferences.theme === 'dark' ? 'dark' : 'light'
-  }, [panelPreferences.theme])
-
-  useEffect(() => {
-    if (!themeMenuOpen) return
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (event.target instanceof HTMLElement && !event.target.closest('.theme-control')) setThemeMenuOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setThemeMenuOpen(false)
-    }
-    document.addEventListener('mousedown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [themeMenuOpen])
+    const appliedTheme = themePreview ?? panelPreferences.theme
+    document.documentElement.dataset.theme = appliedTheme
+    document.documentElement.style.colorScheme = appliedTheme === 'dark' ? 'dark' : 'light'
+  }, [panelPreferences.theme, themePreview])
 
   useEffect(() => {
     let cancelled = false
@@ -1291,47 +1413,38 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <div className="topbar-refresh-controls">
                 {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
                 {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
-                <div className="theme-control">
-                  <button
-                    type="button"
-                    className="pill pill--pad-sm theme-button"
-                    aria-label={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
-                    aria-haspopup="menu"
-                    aria-expanded={themeMenuOpen}
-                    onClick={() => setThemeMenuOpen((value) => !value)}
-                  >
-                    <Icon name="palette" />
-                    <span>主题</span>
-                  </button>
-                  {themeMenuOpen ? (
-                    <div className="theme-menu" role="menu" aria-label="主题外观">
-                      <div className="theme-menu-head"><strong>主题外观</strong><small>即时应用并保存到当前浏览器</small></div>
-                      {panelThemeOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className={panelPreferences.theme === option.value ? 'theme-menu-option active' : 'theme-menu-option'}
-                          role="menuitemradio"
-                          aria-checked={panelPreferences.theme === option.value}
-                          onClick={() => {
-                            updatePanelPreferences({ ...panelPreferences, theme: option.value })
-                            setThemeMenuOpen(false)
-                          }}
-                        >
-                          <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
-                          <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                <ChoiceMenu
+                  value={panelPreferences.theme}
+                  options={panelThemeOptions}
+                  ariaLabel="主题外观"
+                  triggerLabel={`修改主题，当前为${panelThemeOptions.find((option) => option.value === panelPreferences.theme)?.label || '明亮'}`}
+                  triggerClassName="pill pill--pad-sm theme-button"
+                  menuClassName="choice-menu theme-menu"
+                  optionClassName="theme-option theme-option--menu"
+                  menuTitle="主题外观"
+                  menuDescription="即时应用并保存到当前浏览器"
+                  triggerContent={<><Icon name="palette" /><span>主题</span></>}
+                  renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
+                  onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
+                />
                 <button type="button" className="pill pill--icon icon-button" aria-label="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
-                <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-desktop" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                  <option value={0}>停止刷新</option><option value={1000}>自动刷新（1 秒）</option><option value={3000}>自动刷新（3 秒）</option><option value={5000}>自动刷新（5 秒）</option><option value={10000}>自动刷新（10 秒）</option>
-                </select>
-                <select className="pill pill--pad-sm select-control topbar-select refresh-period-select refresh-period-select-mobile" value={dashboardRefreshMs} onChange={(event) => setDashboardRefreshMs(Number(event.target.value))} aria-label="全局自动刷新">
-                  <option value={0}>停</option><option value={1000}>1s</option><option value={3000}>3s</option><option value={5000}>5s</option><option value={10000}>10s</option>
-                </select>
+                <ChoiceMenu
+                  value={dashboardRefreshMs}
+                  options={topbarRefreshOptions}
+                  ariaLabel="全局自动刷新"
+                  triggerLabel={`修改自动刷新，当前为${panelRefreshOptions.find((option) => option.value === dashboardRefreshMs)?.topbarLabel || '停止刷新'}`}
+                  triggerClassName="pill pill--pad-sm topbar-select refresh-period-menu-trigger"
+                  menuClassName="choice-menu refresh-menu"
+                  optionClassName="choice-menu-option"
+                  menuTitle="自动刷新"
+                  menuDescription="选择面板数据更新周期"
+                  triggerContent={(() => {
+                    const option = panelRefreshOptions.find((item) => item.value === dashboardRefreshMs) ?? panelRefreshOptions[0]
+                    return <><span className="refresh-period-menu-label"><span className="refresh-period-menu-desktop-label">{option.topbarLabel}</span><span className="refresh-period-menu-mobile-label">{option.shortLabel}</span></span><Icon name="chevronDown" /></>
+                  })()}
+                  renderOption={(option) => <span>{option.label}</span>}
+                  onChange={setDashboardRefreshMs}
+                />
               </div>
             </div>
           </div>
@@ -1400,8 +1513,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               setDashboardRefreshMs(preferences.refreshMs)
               setTerminalFamily(preferences.terminalFamily)
             }}
+            onPreviewTheme={previewPanelTheme}
             onResetPreferences={() => {
               window.localStorage.removeItem(panelPreferenceKey)
+              setThemePreview(null)
               setPanelPreferences(defaultPanelPreferences)
               setDashboardRefreshMs(defaultPanelPreferences.refreshMs)
               setTerminalFamily(defaultPanelPreferences.terminalFamily)
@@ -1577,6 +1692,7 @@ function SettingsPage(props: {
   onSaveRecognition: (draft: RecognitionDraft) => Promise<void>
   onDeviceSaved: (deviceID: string) => Promise<void>
   onSavePreferences: (preferences: PanelPreferences) => void
+  onPreviewTheme: (theme: PanelTheme) => void
   onResetPreferences: () => void
   onRestart: () => Promise<void>
   onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void>
@@ -1586,12 +1702,10 @@ function SettingsPage(props: {
   const [preferenceDraft, setPreferenceDraft] = useState(props.preferences)
   const [preferenceMessage, setPreferenceMessage] = useState<string | null>(null)
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null)
+  const { onPreviewTheme } = props
 
   useEffect(() => setPreferenceDraft(props.preferences), [props.preferences])
-  useEffect(() => {
-    document.documentElement.dataset.theme = preferenceDraft.theme
-    document.documentElement.style.colorScheme = preferenceDraft.theme === 'dark' ? 'dark' : 'light'
-  }, [preferenceDraft.theme])
+  useEffect(() => onPreviewTheme(preferenceDraft.theme), [preferenceDraft.theme, onPreviewTheme])
 
   const exportSettings = () => {
     if (!props.settings) return
@@ -1648,7 +1762,7 @@ function SettingsPage(props: {
                 value={preferenceDraft.refreshMs}
                 onChange={(event) => setPreferenceDraft((current) => ({ ...current, refreshMs: Number(event.target.value) }))}
               >
-                <option value={0}>停止刷新</option><option value={1000}>1 秒刷新</option><option value={3000}>3 秒刷新</option><option value={5000}>5 秒刷新</option><option value={10000}>10 秒刷新</option>
+                {panelRefreshOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label>
@@ -1672,7 +1786,7 @@ function SettingsPage(props: {
             <fieldset className="theme-picker wide">
               <legend>主题</legend>
               {panelThemeOptions.map((option) => (
-                <label key={option.value} className={preferenceDraft.theme === option.value ? 'theme-option active' : 'theme-option'}>
+                <label key={option.value} className={preferenceDraft.theme === option.value ? 'theme-option theme-option--settings active' : 'theme-option theme-option--settings'}>
                   <input type="radio" name="panel-theme" value={option.value} checked={preferenceDraft.theme === option.value} onChange={() => setPreferenceDraft((current) => ({ ...current, theme: option.value }))} />
                   <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span>
                   <span><strong>{option.label}</strong><small>{option.description}</small></span>

@@ -21,6 +21,12 @@
   theme remain on one row; on mobile the search may use a full-width row. Its
   matching fields are
   device name, RouterOS/router name, board name, version, and address.
+- On the mobile fleet dashboard, the search, theme, immediate-refresh, and
+  auto-refresh controls stay in one full-width row: the search consumes the
+  remaining width from the row's left edge, while the three action controls
+  remain 44px touch targets with no document-level horizontal overflow.
+- On desktop, the immediate-refresh control is a fixed-size circular icon
+  button; the auto-refresh control remains the shared labeled choice menu.
 - The fleet dashboard does not render status-filter or sort selects. Keep
   free-text matching, pagination, and device-row navigation available.
 - `接口监控` hides only the redundant shared topbar heading/subtitle. Its
@@ -545,6 +551,10 @@ overflow.
 - `PanelPreferences.theme` is `light` or `dark`, defaults to `light`, and is stored with the other browser-local interface preferences.
 - Apply the theme through the root `data-theme` attribute and `color-scheme`. Canvas charts must observe theme changes and update axis, grid, tooltip, and text colors without requiring a reload.
 - The UI settings theme radio previews immediately by applying the draft theme to the root document. It is still only persisted through `保存界面设置`; refreshing before save restores the saved theme.
+- The topbar theme and auto-refresh controls use the shared choice-menu
+  structure with `role="menu"` and `role="menuitemradio"`; settings theme cards
+  reuse the same option data and theme-option base styles through size/layout
+  modifiers. `PanelApp` is the only component that writes the root theme.
 
 ### 3. Responsive And State Validation
 
