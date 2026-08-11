@@ -509,9 +509,9 @@ function AdminSetupPage(props: { onComplete: () => void }) {
 	const [saving, setSaving] = useState(false)
 	return <StartupCard title="创建管理员" description="第一步：设置用于持续登录 Rosboard 的唯一管理员账号。密码至少 4 个字符。" error={error}>
 		<form className="settings-form auth-form admin-setup-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/setup/admin', { username, password, passwordConfirmation: confirmation }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '管理员创建失败') } finally { setSaving(false) } }}>
-			<label className="wide"><span>管理员用户名</span><input required maxLength={64} autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-			<label><span>密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-			<label><span>确认密码</span><input required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+			<label className="wide"><span>管理员用户名</span><input className="settings-input" required maxLength={64} autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label><span>密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<label><span>确认密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
 			<div className="settings-actions wide"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在创建...' : '创建管理员并继续'}</button></div>
 		</form>
 	</StartupCard>
@@ -524,8 +524,8 @@ function LoginPage(props: { onComplete: () => void }) {
 	const [saving, setSaving] = useState(false)
 	return <StartupCard title="登录 Rosboard" description="使用管理员账号继续。" error={error}>
 		<form className="settings-form auth-form" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(null); try { await postJSON('/api/auth/login', { username, password }); props.onComplete() } catch (submitError) { setError(submitError instanceof Error ? submitError.message : '登录失败') } finally { setSaving(false) } }}>
-			<label className="wide"><span>用户名</span><input required autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-			<label className="wide"><span>密码</span><input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+			<label className="wide"><span>用户名</span><input className="settings-input" required autoFocus autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+			<label className="wide"><span>密码</span><input className="settings-input" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
 			<div className="settings-actions wide"><button className="primary-button" disabled={saving} type="submit">{saving ? '正在登录...' : '登录'}</button></div>
 		</form>
 	</StartupCard>
@@ -1718,9 +1718,9 @@ function AccountSettings(props: { username: string; onAuthenticationChanged: () 
 	}
 	return <section className="panel settings-panel">
 		<form className="settings-form account-credentials-form" onSubmit={updateCredentials}>
-			<label><span>管理员用户名</span><input required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
-			<label><span>密码（至少 4 个字符）</span><input required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
-			<label><span>再次输入密码</span><input required minLength={4} maxLength={128} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>
+			<label><span>管理员用户名</span><input className="settings-input" required maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
+			<label><span>密码（至少 4 个字符）</span><input className="settings-input" required minLength={4} maxLength={128} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>
+			<label><span>再次输入密码</span><input className="settings-input" required minLength={4} maxLength={128} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>
 			<div className="settings-actions"><button className="primary-button" disabled={saving || password !== confirmation} type="submit">{saving ? '正在保存...' : '保存账号和密码'}</button></div>
 		</form>
 		{message ? <div className="settings-message" role="status">{message}</div> : null}
@@ -2020,8 +2020,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       <div className="provisioning-flow">
         {!provisioningSession ? (
           <form className="settings-form provisioning-form" onSubmit={(event) => { event.preventDefault(); void generateQuickScript() }}>
-            <label><span>设备名称</span><input required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
-            <label><span>RouterOS IP / 主机名</span><input required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
+            <label><span>设备名称</span><input className="settings-input" required value={quickName} onChange={(event) => setQuickName(event.target.value)} placeholder="例如：主路由" /></label>
+            <label><span>RouterOS IP / 主机名</span><input className="settings-input" required value={quickHost} onChange={(event) => setQuickHost(event.target.value)} placeholder="10.0.0.1" /></label>
             <details className="settings-disclosure provisioning-advanced">
               <summary><span><strong>高级设置</strong><small>协议和端口</small></span></summary>
               <div className="settings-disclosure-body">
@@ -2032,7 +2032,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
                   </select>
                 </label>
                 <label><span>REST 端口</span>
-                  <input type="number" min={1} max={65535} value={quickPort} onChange={(event) => setQuickPort(Number(event.target.value))} />
+                  <input className="settings-input" type="number" min={1} max={65535} value={quickPort} onChange={(event) => setQuickPort(Number(event.target.value))} />
                 </label>
               </div>
             </details>
@@ -2072,12 +2072,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     ) : null}
     {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice() }}>
-      <label><span>设备名称</span><input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+      <label><span>设备名称</span><input className="settings-input" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
       <label><span>协议</span><select className="select-control settings-select" value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
-      <label><span>IP / 主机名</span><input required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
-      <label><span>REST 端口</span><input type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
-      <label><span>用户名</span><input required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
-      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+      <label><span>IP / 主机名</span><input className="settings-input" required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
+      <label><span>REST 端口</span><input className="settings-input" type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
+      <label><span>用户名</span><input className="settings-input" required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
+      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input className="settings-input" id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
       <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
       {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
       <details className="settings-disclosure wide auto-scope-settings">
@@ -2191,7 +2191,7 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
   const numberField = (key: keyof Pick<CollectionDraft, 'pollIntervalSeconds' | 'realtimePollIntervalSeconds' | 'terminalPollIntervalSeconds' | 'sampleRetentionHours'>, label: string, unit: string) => (
     <label>
       <span>{label}</span>
-      <span className="number-input"><input type="number" min={1} required value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /><small>{unit}</small></span>
+      <span className="number-input"><input className="settings-input" type="number" min={1} required value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))} /><small>{unit}</small></span>
     </label>
   )
   return <form className="settings-form collection-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
@@ -2214,8 +2214,8 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
     <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>MosDNS DNS 日志对接</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
-      <label><span>MosDNS 地址</span><input type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
-      <label><span>同步周期</span><span className="number-input"><input type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
+      <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       <div className="settings-grid connection-runtime-grid">
         <SettingItem label="最近导入" value={`${props.settings.mosdns.lastImported} 条`} />
         <SettingItem label="最近去重" value={`${props.settings.mosdns.lastDuplicates} 条`} />
@@ -2228,9 +2228,9 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: bo
     <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
       <legend>协议特征库</legend>
       <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
-      <label><span>特征库地址</span><input type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
-      <label><span>刷新周期</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
-      <label><span>DNS 匹配窗口</span><span className="number-input"><input type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>特征库地址</span><input className="settings-input" type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
+      <label><span>刷新周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
+      <label><span>DNS 匹配窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       <div className="settings-grid connection-runtime-grid">
         <SettingItem label="已加载规则" value={`${props.settings.featureLibrary.ruleCount} 条`} />
         <SettingItem label="最近成功" value={props.settings.featureLibrary.lastSuccess ? formatDateTime(props.settings.featureLibrary.lastSuccess) : '-'} />
