@@ -304,3 +304,36 @@ Completed, deployed, and manually accepted phases 1-2. Paused before phase 3; re
 ### Next Steps
 
 - None - task complete
+
+
+## Session 64: 完成 UI 设计令牌第三期
+
+**Date**: 2026-08-11
+**Task**: 完成 UI 设计令牌第三期
+**Branch**: `main`
+
+### Summary
+
+为设置表单文本、数字、密码和 URL 控件增加 settings-input，收窄通用表单选择器并移除表单区域 !important；保留复选框、接口卡片和主题卡片的等值局部样式。通过前端 lint/build、Go test/vet、静态视觉回归和本地运行时验证，按门禁部署到 10.0.0.6 并备份 /opt/rosboard/backups/rosboard-ui-phase3-20260811-223755/，远端服务/API/嵌入 CSS 校验通过，用户人工验收通过。第四期未开始。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d7508b1` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
