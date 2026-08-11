@@ -220,6 +220,7 @@ const [visibilityFilter, setVisibilityFilter] = useState<'online' | 'all' | 'off
 ### 3. Contracts
 
 - Settings section navigation stays in the left sidebar and follows the existing status-monitor submenu pattern.
+- Native text, number, password, and URL controls use the explicit `.settings-input` class (with `.settings-select` for selects); do not use a broad `.settings-form input` selector that can style checkbox or selectable-card inputs. Checkbox and interface/theme picker inputs keep scoped styles.
 - Desktop device-management and UI forms use three equal columns. Collection numeric controls use four equal columns and does not include per-device interface/CIDR fields. Do not render sparse two-column setting-card rows.
 - Device management is the only UI section that edits per-device RouterOS connection, `采集接口`, and terminal CIDRs. It must make the selected device scope obvious.
 - `采集接口` uses picker-style checkbox cards, retaining configured interfaces that are missing from the latest live interface list.
