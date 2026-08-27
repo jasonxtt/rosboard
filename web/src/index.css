@@ -1402,6 +1402,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-form-actions{justify-content:flex-end;align-items:center;gap:var(--gap-row);flex-wrap:wrap;display:flex}
 
+.policy-plan--compact .policy-form-actions{justify-content:flex-end}
+
 .policy-checkbox{align-items:flex-start;gap:var(--gap-inline);color:var(--slate);font-size:var(--fs-caption);display:flex}
 
 .policy-checkbox input{width:var(--control-box);height:var(--control-box);accent-color:var(--mint-deep);margin-top:1px}
@@ -1564,6 +1566,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-apply-button:hover:not(:disabled){background:color-mix(in srgb, var(--status-error) 82%, var(--ink))}
 
+.policy-cancel-button{color:var(--slate);background:var(--surface);border:1px solid var(--hairline)}
+
+.policy-cancel-button:hover:not(:disabled){color:var(--ink);background:var(--surface-soft);border-color:var(--stone)}
+
 .policy-save-notes{gap:var(--gap-stack-sm);color:var(--slate);font-size:var(--fs-caption);margin:0;padding-left:18px;display:grid}
 
 .policy-wizard-steps{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}
@@ -1655,6 +1661,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-cell-stack{gap:var(--gap-stack-sm);justify-items:start;display:grid}
 
+.policy-source-table .action-links{align-items:center;flex-wrap:nowrap;white-space:nowrap}
+
 .policy-delete-blockers{gap:var(--gap-stack-sm);font-size:var(--fs-caption);margin:0;padding-left:18px;line-height:1.5;display:grid}
 
 @media (max-width:767px){.policy-form-grid,.policy-preview-stats,.policy-interface-options{grid-template-columns:1fr}.policy-preview-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.policy-modal{max-height:90vh;max-height:90dvh}.policy-head-actions{width:100%}.policy-head-actions .pill,.policy-head-actions .primary-button{min-height:var(--control-h-touch);flex:auto}.policy-form-actions .pill,.policy-form-actions .close-button,.policy-form-actions .primary-button,.policy-form-actions .danger-button{min-height:var(--control-h-touch)}.policy-choice{min-height:48px}.policy-ownership-item{align-items:flex-start}.policy-wizard-steps li{padding:6px 12px}}
@@ -1695,6 +1703,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-operation-details{grid-column:1/-1;gap:var(--gap-stack-sm);padding:var(--pad-box);background:var(--surface-soft);border-top:1px solid var(--hairline-soft);display:grid}
 
-@media (max-width:767px){.policy-domain-picker-options{max-height:244px}.policy-domain-option{min-height:44px}}
+@media (max-width:767px){.policy-domain-picker-options{max-height:244px}.policy-domain-option{min-height:44px}.policy-source-table .policy-subcell{display:none}.policy-source-table .action-links{gap:var(--gap-inline);flex-wrap:nowrap}}
 
 .danger-button{color:var(--status-error);border-color:color-mix(in srgb,var(--status-error) 35%,var(--hairline))}

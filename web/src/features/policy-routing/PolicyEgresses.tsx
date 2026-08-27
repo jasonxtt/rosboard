@@ -78,10 +78,9 @@ export function PolicyEgressTable({
 }
 
 function egressStatus(eg: PolicyEgress): { tone: StatusTone; label: string } {
-  if (eg.pendingDeletion) return { tone: 'warn', label: '待删除' }
-  if (eg.applied && eg.enabled) return { tone: 'good', label: '已应用' }
-  if (eg.enabled) return { tone: 'info', label: '待应用' }
-  return { tone: 'neutral', label: '已停用（期望）' }
+  return eg.enabled
+    ? { tone: 'good', label: '启用' }
+    : { tone: 'neutral', label: '停用' }
 }
 
 function EgressRow({
@@ -148,7 +147,7 @@ function EgressRow({
         <td>{policyFailureModeLabel[egress.failureMode] ?? egress.failureMode}</td>
         <td>
           <span className="policy-cell-stack">
-            <PolicyStatusBadge tone={status.tone}>{status.label}{!egress.enabled ? ' · 已停用' : ''}</PolicyStatusBadge>
+            <PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge>
             {editError ? <small className="policy-field-error">{editError}</small> : null}
           </span>
         </td>
