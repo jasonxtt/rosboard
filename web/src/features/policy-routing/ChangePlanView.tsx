@@ -28,6 +28,7 @@ export function ChangePlanView({
   onRegenerate,
   adminPassword: externalPassword,
   onAdminPasswordChange,
+  compact = false,
 }: {
   deviceID: string
   plan: PolicyPlan
@@ -36,13 +37,13 @@ export function ChangePlanView({
   onRegenerate?: () => void
   adminPassword?: string
   onAdminPasswordChange?: (v: string) => void
+  compact?: boolean
 }) {
   const [internalPassword, setInternalPassword] = useState('')
   const adminPassword = externalPassword ?? internalPassword
   const setAdminPassword = onAdminPasswordChange ?? setInternalPassword
 
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
-  const [expandedOperations, setExpandedOperations] = useState<Set<number>>(new Set())
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -100,32 +101,38 @@ export function ChangePlanView({
     }
   }
 
+  const displayedOperationsByAction = compact
+    ? operationsByAction.filter((group) => ['create', 'modify', 'move'].includes(group.key))
+    : operationsByAction
+
   return (
-    <div className="policy-plan">
-      <div className="policy-plan-summary">
-        <PolicyMetadata entries={[
-          ['计划类型', policyPlanKindLabel[plan.kind] ?? plan.kind],
-          ['计划状态', plan.state],
-          ['创建时间', formatTime(plan.createdAt)],
-          ['过期时间', plan.expiresAt ? formatTime(plan.expiresAt) : '—'],
-          ['期望版本', String(plan.desiredRevision)],
-          ['实际指纹', plan.actualFingerprint || '—'],
-          ['计划哈希', plan.planHash ? `${plan.planHash.slice(0, 16)}…` : '—'],
-        ]} />
-        <div className="policy-plan-counts">
-          {Object.entries(plan.summary).map(([key, count]) => {
-            if (!count) return null
-            const label = policyOperationActionLabel[key] ?? key
-            return <span key={key} className="policy-status policy-status-neutral">{label}: {count}</span>
-          })}
+    <div className={`policy-plan${compact ? ' policy-plan--compact' : ''}`}>
+      {!compact ? (
+        <div className="policy-plan-summary">
+          <PolicyMetadata entries={[
+            ['计划类型', policyPlanKindLabel[plan.kind] ?? plan.kind],
+            ['计划状态', plan.state],
+            ['创建时间', formatTime(plan.createdAt)],
+            ['过期时间', plan.expiresAt ? formatTime(plan.expiresAt) : '—'],
+            ['期望版本', String(plan.desiredRevision)],
+            ['实际指纹', plan.actualFingerprint || '—'],
+            ['计划哈希', plan.planHash ? `${plan.planHash.slice(0, 16)}…` : '—'],
+          ]} />
+          <div className="policy-plan-counts">
+            {Object.entries(plan.summary).map(([key, count]) => {
+              if (!count) return null
+              const label = policyOperationActionLabel[key] ?? key
+              return <span key={key} className="policy-status policy-status-neutral">{label}: {count}</span>
+            })}
+          </div>
+          {plan.resourceEstimate?.resourceWarning ? (
+            <PolicyNotice tone="warn" title="资源警告">
+              有效域名 {plan.resourceEstimate.validDomains} 条 · 最大列表 {plan.resourceEstimate.largestSource} 条
+              {plan.resourceEstimate.scheduledShrink ? ' · 包含计划性缩减' : ''}
+            </PolicyNotice>
+          ) : null}
         </div>
-        {plan.resourceEstimate?.resourceWarning ? (
-          <PolicyNotice tone="warn" title="资源警告">
-            有效域名 {plan.resourceEstimate.validDomains} 条 · 最大列表 {plan.resourceEstimate.largestSource} 条
-            {plan.resourceEstimate.scheduledShrink ? ' · 包含计划性缩减' : ''}
-          </PolicyNotice>
-        ) : null}
-      </div>
+      ) : null}
 
       {plan.blockers.length ? (
         <IssueBlock title="阻断项" issues={plan.blockers} tone="bad" />
@@ -143,7 +150,7 @@ export function ChangePlanView({
         </PolicyNotice>
       ) : null}
 
-      {plan.capabilities && Object.keys(plan.capabilities).length ? (
+      {!compact && plan.capabilities && Object.keys(plan.capabilities).length ? (
         <div className="policy-plan-capabilities">
           <h4>能力矩阵</h4>
           <div className="policy-capability-list">
@@ -156,38 +163,23 @@ export function ChangePlanView({
         </div>
       ) : null}
 
-      {plan.operations.length ? (
+      {displayedOperationsByAction.length ? (
         <div className="policy-operations">
           <h4>操作列表</h4>
           <div className="policy-operation-list">
-            {operationsByAction.map((group) => (
+            {displayedOperationsByAction.map((group) => (
               <div key={group.key} className="policy-operation-group">
                 <div className="policy-operation-head">
                   <strong>{group.label}</strong>
                   <span className="policy-operation-count">{group.operations.length}</span>
                 </div>
                 <div className="policy-operation-list">
-                  {group.operations.map((op) => (
-                    <div key={op.seq} className="policy-operation">
-                      <span className="policy-operation-seq">{op.seq}</span>
-                      <span className="policy-operation-menu">{op.menu || 'RouterOS 对象'}</span>
-                      {op.logicalID ? <span className="policy-operation-target">{op.logicalID}</span> : null}
-                      {op.family ? <span className="policy-status policy-status-neutral">{op.family}</span> : null}
-                      {op.ownership ? <span className="policy-status policy-status-neutral">{policyOwnershipLabel[op.ownership] ?? op.ownership}</span> : null}
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => setExpandedOperations((current) => {
-                          const next = new Set(current)
-                          if (next.has(op.seq)) next.delete(op.seq)
-                          else next.add(op.seq)
-                          return next
-                        })}
-                      >
-                        {expandedOperations.has(op.seq) ? '收起字段差异' : '查看字段差异'}
-                      </button>
-                      {expandedOperations.has(op.seq) ? <OperationDetails operation={op} /> : null}
-                    </div>
+                  {groupOperationsByMenu(group.operations).map((typeGroup) => (
+                    <OperationTypeGroup
+                      key={`${group.key}:${typeGroup.menu}`}
+                      menu={typeGroup.menu}
+                      operations={typeGroup.operations}
+                    />
                   ))}
                 </div>
               </div>
@@ -209,7 +201,7 @@ export function ChangePlanView({
         </div>
       ) : null}
 
-      {plan.requiresStepUp ? (
+      {!compact && plan.requiresStepUp ? (
         <PolicyField label="管理员密码" hint="此操作需要管理员密码确认">
           <PolicyPasswordInput value={adminPassword} onChange={setAdminPassword} className="policy-apply-password" placeholder="输入管理员密码" />
         </PolicyField>
@@ -226,6 +218,70 @@ export function ChangePlanView({
         ) : null}
         <button type="button" className="toolbar-button" disabled={applying} onClick={onCancel}>取消</button>
       </div>
+    </div>
+  )
+}
+
+type OperationTypeGroupData = {
+  menu: string
+  operations: PolicyPlanOperation[]
+}
+
+function groupOperationsByMenu(operations: PolicyPlanOperation[]): OperationTypeGroupData[] {
+  const groups = new Map<string, PolicyPlanOperation[]>()
+  for (const operation of operations) {
+    const menu = operation.menu || 'RouterOS 对象'
+    const groupedOperations = groups.get(menu)
+    if (groupedOperations) groupedOperations.push(operation)
+    else groups.set(menu, [operation])
+  }
+  return Array.from(groups, ([menu, groupedOperations]) => ({ menu, operations: groupedOperations }))
+}
+
+function OperationTypeGroup({ menu, operations }: OperationTypeGroupData) {
+  const [showAll, setShowAll] = useState(false)
+  const [expandedOperations, setExpandedOperations] = useState<Set<number>>(new Set())
+  const visibleOperations = showAll ? operations : operations.slice(0, 1)
+
+  return (
+    <div className="policy-operation-type-group">
+      <div className="policy-operation-head">
+        <span className="policy-operation-menu">{menu}</span>
+        <span className="policy-operation-count">{operations.length}</span>
+      </div>
+      <div className="policy-operation-list">
+        {visibleOperations.map((op) => (
+          <div key={op.seq} className="policy-operation">
+            <span className="policy-operation-seq">{op.seq}</span>
+            {op.logicalID ? <span className="policy-operation-target">{op.logicalID}</span> : null}
+            {op.family ? <span className="policy-status policy-status-neutral">{op.family}</span> : null}
+            {op.ownership ? <span className="policy-status policy-status-neutral">{policyOwnershipLabel[op.ownership] ?? op.ownership}</span> : null}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setExpandedOperations((current) => {
+                const next = new Set(current)
+                if (next.has(op.seq)) next.delete(op.seq)
+                else next.add(op.seq)
+                return next
+              })}
+            >
+              {expandedOperations.has(op.seq) ? '收起字段差异' : '查看字段差异'}
+            </button>
+            {expandedOperations.has(op.seq) ? <OperationDetails operation={op} /> : null}
+          </div>
+        ))}
+      </div>
+      {operations.length > 1 ? (
+        <button
+          type="button"
+          className="link-button policy-operation-more"
+          onClick={() => setShowAll((expanded) => !expanded)}
+          aria-expanded={showAll}
+        >
+          {showAll ? '收起' : `显示更多（还有 ${operations.length - 1} 条）`}
+        </button>
+      ) : null}
     </div>
   )
 }

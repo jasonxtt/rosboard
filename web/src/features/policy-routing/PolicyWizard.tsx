@@ -21,14 +21,12 @@ import {
   PolicyWizardSteps,
 } from './components'
 import {
-  policyFailureModeLabel,
   policyFamilyLabel,
-  policyListModeLabel,
   policySourceTypeLabel,
 } from './format'
 import type { PolicyEgress } from './types'
 
-const WIZARD_STEPS = ['出口与地址族', 'LAN 范围', '域名列表', '解析预览', '确认草稿', '差异与应用']
+const WIZARD_STEPS = ['出口与地址族', 'LAN 范围', '域名列表', '预览并应用']
 
 export function PolicyWizard({
   deviceID,
@@ -58,7 +56,7 @@ export function PolicyWizard({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [plan, setPlan] = useState<PolicyPlanEnvelope | null>(null)
-  const [adminPassword, setAdminPassword] = useState('')
+  const [adminPassword] = useState('')
 
   const [allDomainOptions, setAllDomainOptions] = useState<PolicySource[]>(() => (
     overview.sources.filter((source) => !source.pendingDeletion)
@@ -115,7 +113,7 @@ export function PolicyWizard({
       : [...previous, source.id])
   }
 
-  const handleSaveDraft = async () => {
+  const handleSaveDraftAndGeneratePlan = async () => {
     setError(null)
     setSaving(true)
     try {
@@ -132,23 +130,12 @@ export function PolicyWizard({
           }, undefined)
         }
       }
+      const envelope = await generatePlan(deviceID, overview.egresses.length ? 'structural' : 'initial')
+      setPlan(envelope)
       onChanged()
-      setStep(5)
+      setStep(3)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleGeneratePlan = async () => {
-    setError(null)
-    setSaving(true)
-    try {
-      const envelope = await generatePlan(deviceID, 'structural')
-      setPlan(envelope)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '生成计划失败')
     } finally {
       setSaving(false)
     }
@@ -157,24 +144,24 @@ export function PolicyWizard({
   return (
     <PolicyModal
       title={egress ? `编辑策略：${egress.name}` : '新建策略'}
-      subtitle="向导依次完成出口、LAN 范围与域名列表草稿（保存在 rosboard，不写入 RouterOS）；管理员密码只在最终应用设置时输入。"
+      subtitle="向导依次完成出口、LAN 范围与域名列表草稿（保存在 rosboard，不写入 RouterOS）。"
       wide
       onClose={onClose}
       header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => i <= step && setStep(i)} />}
-      footer={step < 5 ? (
+      footer={step < 3 ? (
         <div className="policy-form-actions policy-wizard-nav policy-wizard-footer">
           <button type="button" className="close-button" onClick={step === 0 ? onClose : () => setStep((s) => Math.max(0, s - 1))} disabled={saving}>
             {step === 0 ? '取消' : '上一步'}
           </button>
-          <button type="button" className="primary-button" disabled={!canNext || saving || (step === 4 && readOnly)} onClick={() => {
+          <button type="button" className="primary-button" disabled={!canNext || saving || (step === 2 && readOnly)} onClick={() => {
             if (step === 2 && selectedDomainIds.length === 0) {
               setError('请至少选择或新建一个域名列表')
               return
             }
-            if (step === 4) void handleSaveDraft()
+            if (step === 2) void handleSaveDraftAndGeneratePlan()
             else setStep((s) => s + 1)
           }}>
-            {step === 4 ? (saving ? '保存中…' : '保存草稿并继续') : '下一步'}
+            {step === 2 && saving ? '保存并预览中…' : '下一步'}
           </button>
         </div>
       ) : null}
@@ -272,55 +259,21 @@ export function PolicyWizard({
       ) : null}
 
       {step === 3 ? (
-        <div className="policy-preview">
-          <h4>解析预览</h4>
-          <p className="policy-hint">已选域名列表沿用各自当前活动版本。新建域名列表时，解析预览已在新建弹窗中完成。</p>
-          <dl className="policy-preview-stats">
-            <div><dt>已选列表</dt><dd>{selectedDomainIds.length}</dd></div>
-            <div><dt>解析来源</dt><dd>活动版本</dd></div>
-          </dl>
-          <div className="policy-preview-rules" aria-label="已选域名列表">
-            {selectedDomainIds.map((id) => allDomainOptions.find((source) => source.id === id)).filter((source): source is PolicySource => Boolean(source)).map((source) => (
-              <code key={source.id}>{source.name}</code>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {step === 4 ? (
-        <div className="policy-draft-confirm">
-          <h4>草稿确认</h4>
-          <dl className="policy-meta">
-            <div><dt>名称</dt><dd>{draft.name}</dd></div>
-            <div><dt>优先级</dt><dd>{draft.priority}</dd></div>
-            <div><dt>列表模式</dt><dd>{policyListModeLabel[draft.listMode] ?? draft.listMode}</dd></div>
-            <div><dt>列表名称</dt><dd>{draft.listName || '—'}</dd></div>
-            <div><dt>DNS 上游</dt><dd>{draft.dnsUpstream || '—'}</dd></div>
-            <div><dt>断线处理</dt><dd>{policyFailureModeLabel[draft.failureMode] ?? draft.failureMode}</dd></div>
-            <div><dt>地址族</dt><dd>{draft.families.filter((f) => f.enabled).map((f) => policyFamilyLabel[f.family]).join(' / ')}</dd></div>
-            <div><dt>LAN 接口</dt><dd>{lanInterfaces.join(', ') || '—'}</dd></div>
-            <div><dt>域名列表</dt><dd>{selectedDomainIds.map((id) => allDomainOptions.find((source) => source.id === id)?.name).filter(Boolean).join('、') || '—'}</dd></div>
-          </dl>
-          {plan?.readOnly ? <PolicyNotice tone="warn">此计划为只读</PolicyNotice> : null}
-        </div>
-      ) : null}
-
-      {step === 5 ? (
         <div className="policy-wizard-apply">
-          <p className="policy-hint">点击「生成计划」预览将要应用到 RouterOS 的变更，然后应用。</p>
+          <h4>预览并应用</h4>
+          <p className="policy-hint">草稿已保存，以下为将要应用到 RouterOS 的变更。</p>
           {plan ? (
             <ChangePlanView
+              key={plan.planId}
               deviceID={deviceID}
               plan={plan.plan}
+              compact
               adminPassword={adminPassword}
-              onAdminPasswordChange={setAdminPassword}
               onApplied={(result) => { setPlan(null); onApplied(result); onClose() }}
-              onCancel={() => setPlan(null)}
+              onCancel={() => { setPlan(null); setStep(2) }}
             />
           ) : (
-            <button type="button" className="primary-button" disabled={saving} onClick={handleGeneratePlan}>
-              {saving ? '生成中…' : '生成计划'}
-            </button>
+            <PolicyNotice tone="warn">差异预览尚未生成，请返回域名列表重试。</PolicyNotice>
           )}
         </div>
       ) : null}

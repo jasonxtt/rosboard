@@ -1538,6 +1538,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-operation-list{gap:var(--gap-stack-sm);margin:0;padding:0;list-style:none;display:grid}
 
+.policy-operation-type-group{gap:var(--gap-stack-sm);display:grid}
+
+.policy-operation-more{justify-self:start}
+
 .policy-operation{gap:var(--gap-stack-sm);padding:var(--pad-box);background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);display:grid}
 
 .policy-operation-head{align-items:center;gap:var(--gap-inline);flex-wrap:wrap;min-width:0;display:flex}
