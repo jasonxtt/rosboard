@@ -48,18 +48,6 @@ export function PolicySourcesPage({
     <section className="panel policy-panel" aria-label="域名列表">
       <div className="policy-panel-head">
         <h3>域名列表</h3>
-        <div className="policy-head-actions">
-          <button type="button" className="pill pill--pad-sm" onClick={onChanged}>刷新</button>
-          {readOnly ? null : (
-            <button
-              type="button"
-              className="pill pill--pad-sm"
-              onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}
-            >
-              新建域名列表
-            </button>
-          )}
-        </div>
       </div>
       {sources.length === 0 ? (
         <PolicyEmptyState
@@ -68,37 +56,44 @@ export function PolicySourcesPage({
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>新建域名列表</button>}
         />
       ) : (
-        <div className="table-scroll policy-table-scroll">
-          <table className="data-table policy-source-table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>类型</th>
-                <th>归属策略路由</th>
-                <th>标记列表</th>
-                <th>更新计划</th>
-                <th>活动版本</th>
-                <th>下次更新</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((src) => (
-                <SourceRow
-                  key={src.id}
-                  source={src}
-                  egresses={egresses}
-                  overview={overview}
-                  readOnly={readOnly}
-                  onEdit={() => setEditing(sourceDraftFromSource(src))}
-                  onViewRules={() => setViewingRules(src)}
-                  onDelete={() => setDeleting(src)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="table-scroll policy-table-scroll">
+            <table className="data-table policy-source-table">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th>归属策略路由</th>
+                  <th>标记列表</th>
+                  <th>更新计划</th>
+                  <th>活动版本</th>
+                  <th>下次更新</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.map((src) => (
+                  <SourceRow
+                    key={src.id}
+                    source={src}
+                    egresses={egresses}
+                    overview={overview}
+                    readOnly={readOnly}
+                    onEdit={() => setEditing(sourceDraftFromSource(src))}
+                    onViewRules={() => setViewingRules(src)}
+                    onDelete={() => setDeleting(src)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!readOnly ? (
+            <div className="policy-panel-add-action">
+              <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>增加域名列表</button>
+            </div>
+          ) : null}
+        </>
       )}
 
       {editing ? (
@@ -107,7 +102,7 @@ export function PolicySourcesPage({
           draft={editing}
           egresses={egresses}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); onChanged() }}
+          onSuccess={() => { setEditing(null); onChanged() }}
         />
       ) : null}
 
@@ -203,18 +198,18 @@ function formatPolicyDateTime(value: Date): string {
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`
 }
 
-function SourceEditorModal({
+export function SourceEditorModal({
   deviceID,
   draft,
   egresses,
   onClose,
-  onSaved,
+  onSuccess,
 }: {
   deviceID: string
   draft: PolicySourceDraft
   egresses: PolicyEgress[]
   onClose: () => void
-  onSaved: () => void
+  onSuccess: (source: PolicySource) => void
 }) {
   const [name, setName] = useState(draft.name)
   const [type, setType] = useState(draft.type)
@@ -269,8 +264,8 @@ function SourceEditorModal({
       if (preview && preview.validRules <= 0) {
         throw new Error('解析结果没有有效规则，无法继续保存该列表')
       }
-      await saveSource(deviceID, { ...draft, name, type, url, schedule, egressId }, { previewId: preview?.previewId })
-      onSaved()
+      const savedSource = await saveSource(deviceID, { ...draft, name, type, url, schedule, egressId }, { previewId: preview?.previewId })
+      onSuccess(savedSource)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
     } finally {

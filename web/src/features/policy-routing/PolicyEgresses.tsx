@@ -36,11 +36,6 @@ export function PolicyEgressTable({
     <section className="panel policy-panel" aria-label="出口策略">
       <div className="policy-panel-head">
         <h3>出口策略</h3>
-        <div className="policy-head-actions">
-          {readOnly ? null : (
-            <button type="button" className="pill pill--pad-sm" onClick={onCreate}>新建策略</button>
-          )}
-        </div>
       </div>
       {egresses.length === 0 ? (
         <PolicyEmptyState
@@ -49,27 +44,34 @@ export function PolicyEgressTable({
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={onCreate}>新建策略</button>}
         />
       ) : (
-        <div className="policy-table-scroll">
-          <table className="data-table policy-egress-table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>策略接口</th>
-                <th>域名列表</th>
-                <th>标记列表</th>
-                <th>优先级</th>
-                <th>断线处理</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {egresses.map((eg) => (
-                <EgressRow key={eg.id} deviceID={deviceID} egress={eg} egresses={egresses} sources={sources} readOnly={readOnly} onChanged={onChanged} onEdit={onEdit} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="policy-table-scroll">
+            <table className="data-table policy-egress-table">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>策略接口</th>
+                  <th>域名列表</th>
+                  <th>标记列表</th>
+                  <th>优先级</th>
+                  <th>断线处理</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {egresses.map((eg) => (
+                  <EgressRow key={eg.id} deviceID={deviceID} egress={eg} egresses={egresses} sources={sources} readOnly={readOnly} onChanged={onChanged} onEdit={onEdit} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!readOnly ? (
+            <div className="policy-panel-add-action">
+              <button type="button" className="primary-button" onClick={onCreate}>增加策略</button>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   )
