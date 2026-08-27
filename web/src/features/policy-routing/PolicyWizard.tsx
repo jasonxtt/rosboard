@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   PolicyDiscovery,
   PolicyApplyResult,
@@ -6,23 +6,25 @@ import type {
   PolicyEgressFamily,
   PolicyOverview,
   PolicyPlanEnvelope,
-  PolicyPreview,
+  PolicySource,
 } from './types'
-import { defaultEgressDraft, egressDraftErrors, egressDraftFromEgress } from './drafts'
+import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress } from './drafts'
 import { saveEgress, saveLANScope, saveSource, generatePlan } from './api'
 import { ChangePlanView } from './ChangePlanView'
+import { SourceEditorModal } from './PolicySourcesPage'
 import {
   PolicyErrorDisplay,
   PolicyField,
   PolicyModal,
   PolicyNotice,
+  PolicyStatusBadge,
   PolicyWizardSteps,
 } from './components'
 import {
   policyFailureModeLabel,
   policyFamilyLabel,
   policyListModeLabel,
-  scheduleOptions,
+  policySourceTypeLabel,
 } from './format'
 import type { PolicyEgress } from './types'
 
@@ -58,30 +60,60 @@ export function PolicyWizard({
   const [plan, setPlan] = useState<PolicyPlanEnvelope | null>(null)
   const [adminPassword, setAdminPassword] = useState('')
 
-  // Source creation within wizard
-  const [newSourceName, setNewSourceName] = useState('')
-  const [newSourceType, setNewSourceType] = useState<'url' | 'upload'>('url')
-  const [newSourceURL, setNewSourceURL] = useState('')
-  const [newSourceFile, setNewSourceFile] = useState<File | null>(null)
-  const [newSourceSchedule, setNewSourceSchedule] = useState('24h')
-  const [preview, setPreview] = useState<PolicyPreview | null>(null)
-  const [selectedSourceIDs, setSelectedSourceIDs] = useState<Set<string>>(() => new Set(
-    overview.sources.filter((source) => source.egressId === egress?.id && !source.pendingDeletion).map((source) => source.id),
+  const [allDomainOptions, setAllDomainOptions] = useState<PolicySource[]>(() => (
+    overview.sources.filter((source) => !source.pendingDeletion)
   ))
+  const [selectedDomainIds, setSelectedDomainIds] = useState<string[]>(() => (
+    overview.sources
+      .filter((source) => source.egressId === egress?.id && !source.pendingDeletion)
+      .map((source) => source.id)
+  ))
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [domainMenuOpen, setDomainMenuOpen] = useState(false)
+  const [domainQuery, setDomainQuery] = useState('')
+
+  useEffect(() => {
+    const availableSources = overview.sources.filter((source) => !source.pendingDeletion)
+    setAllDomainOptions(availableSources)
+    setSelectedDomainIds((current) => {
+      const availableIDs = new Set(availableSources.map((source) => source.id))
+      return current.filter((id) => availableIDs.has(id))
+    })
+  }, [overview.sources])
 
   const readOnly = !overview || !overview.access.enabled || overview.setup.state !== 'ready'
   const errors = egressDraftErrors(draft)
-  const sourceInputValid = !newSourceName.trim() || (newSourceType === 'url' ? Boolean(newSourceURL.trim()) : Boolean(newSourceFile))
-  const sourcePreviewValid = !newSourceName.trim() || Boolean(preview?.previewId)
   const canNext = step === 0
     ? errors.length === 0
     : step === 1
       ? lanInterfaces.length > 0
-      : step === 2
-        ? sourceInputValid
-        : step === 3
-          ? sourcePreviewValid
-          : true
+      : true
+
+  const filteredDomainOptions = allDomainOptions.filter((source) => {
+    const query = domainQuery.trim().toLocaleLowerCase()
+    if (!query) return true
+    return source.name.toLocaleLowerCase().includes(query) || source.url.toLocaleLowerCase().includes(query)
+  })
+
+  const handleCreateDomainSuccess = (newCreatedItem: PolicySource) => {
+    setAllDomainOptions((previous) => [
+      newCreatedItem,
+      ...previous.filter((source) => source.id !== newCreatedItem.id),
+    ])
+    setSelectedDomainIds((previous) => previous.includes(newCreatedItem.id) ? previous : [...previous, newCreatedItem.id])
+    setIsCreateModalOpen(false)
+    setDomainMenuOpen(false)
+    setDomainQuery('')
+    setError(null)
+  }
+
+  const handleToggleDomain = (source: PolicySource) => {
+    if (source.egressId && source.egressId !== egress?.id) return
+    setError(null)
+    setSelectedDomainIds((previous) => previous.includes(source.id)
+      ? previous.filter((id) => id !== source.id)
+      : [...previous, source.id])
+  }
 
   const handleSaveDraft = async () => {
     setError(null)
@@ -90,33 +122,15 @@ export function PolicyWizard({
       const savedEgress = await saveEgress(deviceID, draft)
       const scope = { ...overview.lanScope, interfaces: lanInterfaces }
       await saveLANScope(deviceID, scope, adminPassword)
-      if (newSourceName && !preview) {
-        throw new Error('请先解析新域名列表，再保存出口草稿')
-      }
-      if (newSourceName && preview && preview.validRules <= 0) {
-        throw new Error('解析结果没有有效规则，无法继续保存该列表')
-      }
-      for (const source of overview.sources) {
+      for (const source of allDomainOptions) {
         const currentlyBound = source.egressId === savedEgress.id
-        const shouldBeBound = selectedSourceIDs.has(source.id)
+        const shouldBeBound = selectedDomainIds.includes(source.id)
         if (currentlyBound !== shouldBeBound) {
           await saveSource(deviceID, {
             ...source,
             egressId: shouldBeBound ? savedEgress.id : '',
           }, undefined)
         }
-      }
-      if (newSourceName && preview?.previewId) {
-        await saveSource(deviceID, {
-          id: '',
-          egressId: savedEgress.id,
-          type: newSourceType,
-          name: newSourceName,
-          url: newSourceURL,
-          schedule: newSourceSchedule,
-          enabled: true,
-          revision: 0,
-        }, { previewId: preview.previewId })
       }
       onChanged()
       setStep(5)
@@ -146,8 +160,25 @@ export function PolicyWizard({
       subtitle="向导依次完成出口、LAN 范围与域名列表草稿（保存在 rosboard，不写入 RouterOS）；管理员密码只在最终应用设置时输入。"
       wide
       onClose={onClose}
+      header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => i <= step && setStep(i)} />}
+      footer={step < 5 ? (
+        <div className="policy-form-actions policy-wizard-nav policy-wizard-footer">
+          <button type="button" className="close-button" onClick={step === 0 ? onClose : () => setStep((s) => Math.max(0, s - 1))} disabled={saving}>
+            {step === 0 ? '取消' : '上一步'}
+          </button>
+          <button type="button" className="primary-button" disabled={!canNext || saving || (step === 4 && readOnly)} onClick={() => {
+            if (step === 2 && selectedDomainIds.length === 0) {
+              setError('请至少选择或新建一个域名列表')
+              return
+            }
+            if (step === 4) void handleSaveDraft()
+            else setStep((s) => s + 1)
+          }}>
+            {step === 4 ? (saving ? '保存中…' : '保存草稿并继续') : '下一步'}
+          </button>
+        </div>
+      ) : null}
     >
-      <PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => i <= step && setStep(i)} />
       {error ? <PolicyErrorDisplay error={error} /> : null}
 
       {step === 0 ? (
@@ -166,90 +197,93 @@ export function PolicyWizard({
       ) : null}
 
       {step === 2 ? (
-        <div className="policy-wizard-new-list">
+        <div className="policy-wizard-stage">
           <h4>域名列表</h4>
-          <p className="policy-hint">选择已有域名列表，或在此步骤添加新的来源。已绑定到其他出口的列表不会被自动改绑。</p>
-          {overview.sources.length ? (
-            <div className="policy-wizard-source-list">
-              {overview.sources.filter((source) => !source.pendingDeletion).map((source) => {
-                const boundElsewhere = Boolean(source.egressId && source.egressId !== egress?.id)
-                return (
-                  <label key={source.id} className={`policy-choice ${boundElsewhere ? 'policy-choice-disabled' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSourceIDs.has(source.id)}
-                      disabled={boundElsewhere}
-                      onChange={() => setSelectedSourceIDs((current) => {
-                        const next = new Set(current)
-                        if (next.has(source.id)) next.delete(source.id)
-                        else next.add(source.id)
-                        return next
-                      })}
-                    />
-                    <span><strong>{source.name}</strong><small> · {source.type === 'url' ? '远程 URL' : '本地上传'}{boundElsewhere ? ' · 已绑定其他出口' : ''}</small></span>
-                  </label>
-                )
-              })}
-            </div>
-          ) : null}
-          <div className="policy-wizard-new-list-form">
-            <PolicyField label="新列表名称">
-              <input className="settings-input" value={newSourceName} onChange={(e) => { setNewSourceName(e.target.value); setPreview(null) }} placeholder="可选" />
-            </PolicyField>
-            <PolicyField label="类型">
-              <div className="policy-choice-list">
-                <label className="policy-choice"><input type="radio" checked={newSourceType === 'url'} onChange={() => setNewSourceType('url')} /><span>远程 URL</span></label>
-                <label className="policy-choice"><input type="radio" checked={newSourceType === 'upload'} onChange={() => setNewSourceType('upload')} /><span>本地上传</span></label>
+          <p className="policy-hint">可同时选择多个域名列表。已绑定到其他策略路由的列表不会被自动改绑。</p>
+          <div className="policy-domain-picker">
+            <button
+              type="button"
+              className="policy-domain-picker-trigger"
+              aria-expanded={domainMenuOpen}
+              aria-haspopup="listbox"
+              onClick={() => setDomainMenuOpen((open) => !open)}
+            >
+              <span>{selectedDomainIds.length ? `已选择 ${selectedDomainIds.length} 个域名列表` : '选择域名列表'}</span>
+              <span aria-hidden="true">▾</span>
+            </button>
+            {domainMenuOpen ? (
+              <div className="policy-domain-picker-menu">
+                <input
+                  className="settings-input"
+                  value={domainQuery}
+                  onChange={(event) => setDomainQuery(event.target.value)}
+                  placeholder="搜索列表名称或 URL"
+                  aria-label="搜索域名列表"
+                  autoFocus
+                />
+                <div className="policy-domain-picker-options" role="listbox" aria-label="选择域名列表" aria-multiselectable="true">
+                  {filteredDomainOptions.length ? filteredDomainOptions.map((source) => {
+                    const selected = selectedDomainIds.includes(source.id)
+                    const boundElsewhere = Boolean(source.egressId && source.egressId !== egress?.id)
+                    const location = source.type === 'url' ? source.url || '未填写 URL' : '本地上传 YAML'
+                    return (
+                      <label key={source.id} className={`policy-domain-option${selected ? ' selected' : ''}${boundElsewhere ? ' disabled' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          disabled={boundElsewhere}
+                          onChange={() => handleToggleDomain(source)}
+                        />
+                        <span className="policy-domain-option-body">
+                          <span className="policy-domain-option-title">
+                            <strong title={source.name}>{source.name}</strong>
+                            <PolicyStatusBadge tone="info">{policySourceTypeLabel[source.type] ?? source.type}</PolicyStatusBadge>
+                            <small className="policy-domain-option-location" title={location}>
+                              {location}{boundElsewhere ? ' · 已绑定其他策略路由' : ''}
+                            </small>
+                          </span>
+                        </span>
+                      </label>
+                    )
+                  }) : <p className="policy-hint">暂无已保存列表</p>}
+                </div>
+                <div className="policy-domain-picker-footer">
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => { setDomainMenuOpen(false); setIsCreateModalOpen(true) }}
+                  >
+                    ＋ 新建域名列表...
+                  </button>
+                </div>
               </div>
-            </PolicyField>
-            {newSourceType === 'url' ? (
-              <PolicyField label="URL">
-                <input className="settings-input" value={newSourceURL} onChange={(e) => { setNewSourceURL(e.target.value); setPreview(null) }} placeholder="https://…" />
-              </PolicyField>
-            ) : (
-              <PolicyField label="文件">
-                <input type="file" className="policy-source-file" accept=".yaml,.yml,.txt" onChange={(e) => { setNewSourceFile(e.target.files?.[0] ?? null); setPreview(null) }} />
-              </PolicyField>
-            )}
-            <PolicyField label="更新计划">
-              <select className="select-control" value={newSourceSchedule} onChange={(e) => setNewSourceSchedule(e.target.value)}>
-                {scheduleOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-            </PolicyField>
+            ) : null}
           </div>
-        </div>
+          {isCreateModalOpen ? (
+            <SourceEditorModal
+              deviceID={deviceID}
+              draft={defaultSourceDraft('')}
+              egresses={overview.egresses}
+              onClose={() => setIsCreateModalOpen(false)}
+              onSuccess={handleCreateDomainSuccess}
+            />
+          ) : null}
+          </div>
       ) : null}
 
       {step === 3 ? (
         <div className="policy-preview">
-          {preview ? (
-            <>
-              <div className="policy-preview-stats">
-                <span>有效规则：{preview.validRules}</span>
-                {preview.sha256 ? <span>SHA-256：{preview.sha256.slice(0, 16)}…</span> : null}
-                {preview.notModified ? <PolicyNotice tone="info">未修改</PolicyNotice> : null}
-              </div>
-              {preview.ignored && Object.keys(preview.ignored).length ? (
-                <div className="policy-preview-errors">
-                  <h4>忽略统计</h4>
-                  {Object.entries(preview.ignored).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
-                </div>
-              ) : null}
-              {preview.errorSamples?.length ? (
-                <div className="policy-preview-errors">
-                  <h4>错误样本</h4>
-                  <ul>{preview.errorSamples.slice(0, 5).map((s, i) => <li key={i}>{s}</li>)}</ul>
-                </div>
-              ) : null}
-              {preview.rules.length ? (
-                <div className="policy-preview-rules">
-                  <code>{preview.rules.slice(0, 50).map((r) => `${r.type}: ${r.domain}`).join('\n')}</code>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <PolicyNotice tone="info">{newSourceName ? '点击「解析预览」按钮预览域名列表' : '未提供域名列表，可跳过此步骤'}</PolicyNotice>
-          )}
+          <h4>解析预览</h4>
+          <p className="policy-hint">已选域名列表沿用各自当前活动版本。新建域名列表时，解析预览已在新建弹窗中完成。</p>
+          <dl className="policy-preview-stats">
+            <div><dt>已选列表</dt><dd>{selectedDomainIds.length}</dd></div>
+            <div><dt>解析来源</dt><dd>活动版本</dd></div>
+          </dl>
+          <div className="policy-preview-rules" aria-label="已选域名列表">
+            {selectedDomainIds.map((id) => allDomainOptions.find((source) => source.id === id)).filter((source): source is PolicySource => Boolean(source)).map((source) => (
+              <code key={source.id}>{source.name}</code>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -265,7 +299,7 @@ export function PolicyWizard({
             <div><dt>断线处理</dt><dd>{policyFailureModeLabel[draft.failureMode] ?? draft.failureMode}</dd></div>
             <div><dt>地址族</dt><dd>{draft.families.filter((f) => f.enabled).map((f) => policyFamilyLabel[f.family]).join(' / ')}</dd></div>
             <div><dt>LAN 接口</dt><dd>{lanInterfaces.join(', ') || '—'}</dd></div>
-            {newSourceName ? <div><dt>新域名列表</dt><dd>{newSourceName} ({newSourceType})</dd></div> : null}
+            <div><dt>域名列表</dt><dd>{selectedDomainIds.map((id) => allDomainOptions.find((source) => source.id === id)?.name).filter(Boolean).join('、') || '—'}</dd></div>
           </dl>
           {plan?.readOnly ? <PolicyNotice tone="warn">此计划为只读</PolicyNotice> : null}
         </div>
@@ -291,19 +325,6 @@ export function PolicyWizard({
         </div>
       ) : null}
 
-      {step < 5 ? (
-        <div className="policy-form-actions policy-wizard-nav">
-          <button type="button" className="close-button" onClick={step === 0 ? onClose : () => setStep((s) => Math.max(0, s - 1))} disabled={saving}>
-            {step === 0 ? '取消' : '上一步'}
-          </button>
-          <button type="button" className="primary-button" disabled={!canNext || saving || (step === 4 && readOnly)} onClick={() => {
-            if (step === 4) void handleSaveDraft()
-            else setStep((s) => s + 1)
-          }}>
-            {step === 4 ? (saving ? '保存中…' : '保存草稿并继续') : '下一步'}
-          </button>
-        </div>
-      ) : null}
     </PolicyModal>
   )
 }

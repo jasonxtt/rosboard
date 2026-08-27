@@ -108,7 +108,7 @@ export function PolicyPasswordInput({ value, onChange, className, placeholder }:
 
 // ---- Modal dialog ----
 
-export function PolicyModal({ title, subtitle, wide, onClose, children, footer }: { title: string; subtitle?: React.ReactNode; wide?: boolean; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
+export function PolicyModal({ title, subtitle, wide, onClose, header, children, footer }: { title: string; subtitle?: React.ReactNode; wide?: boolean; onClose: () => void; header?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
 
@@ -148,6 +148,7 @@ export function PolicyModal({ title, subtitle, wide, onClose, children, footer }
           </div>
           <button type="button" className="close-button" onClick={onClose}>关闭</button>
         </div>
+        {header ? <div className="policy-modal-header-addon">{header}</div> : null}
         <div className="remark-modal-body policy-modal-body">{children}</div>
         {footer ? <div className="remark-modal-actions policy-modal-footer">{footer}</div> : null}
       </div>
