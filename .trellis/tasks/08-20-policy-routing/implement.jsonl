@@ -1,0 +1,16 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index and scope for Phase 1 changes."}
+{"file": ".trellis/spec/backend/runtime-configuration.md", "reason": "Secure YAML configuration, device credential, projection, and concurrent-save contracts."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite migration, device isolation, and transaction contracts."}
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "Administrator, session, password, and step-up authentication contracts."}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Read-only Monitor boundaries and API/device lifecycle contracts."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Backend error handling reference for new validation failures."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Secret-safe logging boundary for credentials and auth."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Go testing and review constraints."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend package and boundary reference."}
+{"file": ".trellis/tasks/08-20-policy-routing/prd.md", "reason": "Frozen requirements and Phase 1 acceptance criteria."}
+{"file": ".trellis/tasks/08-20-policy-routing/design.md", "reason": "Approved technical boundaries for config, store, auth, provisioning, and inert manager."}
+{"file": ".trellis/tasks/08-20-policy-routing/implement.md", "reason": "Approved Phase 0 and Phase 1 execution checklist and verification commands."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Phase 7 durable job, journal, and backup identity persistence."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Phase 7 fake RouterOS, race, and fail-closed verification boundary."}
+{"file": ".trellis/tasks/08-20-policy-routing/design.md", "reason": "Phase 7 backup, mutation ordering, verification, and compensation contracts."}
+{"file": ".trellis/tasks/08-20-policy-routing/implement.md", "reason": "Phase 7 execution checklist and acceptance commands."}

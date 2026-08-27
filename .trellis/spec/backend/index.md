@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Monitoring Contracts](./monitoring-contracts.md) | RouterOS self attribution and IP-family terminal payloads | Active |
+| [Policy Routing](./policy-routing.md) | Desired-state RouterOS policy lifecycle and ownership contracts | Active |
 | [Runtime Configuration](./runtime-configuration.md) | Secure local YAML startup and delivery contracts | Active |
 
 ---

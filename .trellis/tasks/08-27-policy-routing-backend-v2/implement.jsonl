@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/08-27-policy-routing-backend-v2/research/frontend-reachable-contract.md", "reason": "冻结当前可达前端契约，防止后端范围回膨"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "约束 API、服务、SQLite 和前端边界"}
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "复用认证、会话和 step-up 安全边界"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "遵守设备级 SQLite 隔离和事务边界"}
