@@ -534,3 +534,59 @@ func TestDeviceLifecycleArchivesBeforePurging(t *testing.T) {
 		t.Fatalf("purged device remained configured: %#v", loaded.Devices)
 	}
 }
+
+func TestSettingsProjectionExcludesRetiredPolicyAccess(t *testing.T) {
+	server := NewServer(config.Config{Devices: []config.DeviceConfig{{
+		ID: "edge", Name: "Edge", Enabled: true,
+		RouterOS: config.RouterOSConfig{BaseURL: "http://router.test", Username: "monitor", Password: "monitor-secret"},
+	}}}, nil, nil)
+
+	payload, err := json.Marshal(server.settingsResponse())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(payload)
+	if strings.Contains(body, "monitor-secret") || strings.Contains(body, "policyAccess") {
+		t.Fatalf("settings projection leaked a password: %s", body)
+	}
+}
+
+func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
+	dir := t.TempDir()
+	restarted := make(chan struct{}, 1)
+	cfg := config.Config{
+		Path: filepath.Join(dir, "config.yaml"), ListenAddress: ":8080", DataDir: dir,
+		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		Devices: []config.DeviceConfig{{
+			ID: "edge", Name: "Edge", Enabled: true,
+			RouterOS:       config.RouterOSConfig{BaseURL: "http://10.0.0.1", Username: "rosboard_old", Password: "secret"},
+			ManagedAccount: &config.ManagedRouterOSAccount{Username: "rosboard_old", GroupName: "rosboard_g_old"},
+		}},
+	}
+	server := NewServerWithRestart(cfg, nil, nil, func() { restarted <- struct{}{} })
+	request := httptest.NewRequest(http.MethodDelete, "/api/devices/edge/account", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	device, found := server.configSnapshot().Device("edge")
+	if !found || device.Enabled || device.RouterOS.Username != "" || device.RouterOS.Password != "" || device.ManagedAccount != nil {
+		t.Fatalf("device account was not cleared safely: %#v found=%v", device, found)
+	}
+	select {
+	case <-restarted:
+	case <-time.After(time.Second):
+		t.Fatal("device restart was not scheduled")
+	}
+	loaded, err := config.Load(cfg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, found := loaded.Device("edge")
+	if !found || persisted.Enabled || persisted.RouterOS.Username != "" || persisted.RouterOS.Password != "" || persisted.ManagedAccount != nil {
+		t.Fatalf("persisted device account was not cleared: %#v found=%v", persisted, found)
+	}
+}

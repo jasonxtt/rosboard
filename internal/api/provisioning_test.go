@@ -81,6 +81,33 @@ func TestCreateProvisioningSessionHTTPSDefaults(t *testing.T) {
 	}
 }
 
+func TestCreateProvisioningSessionForExistingDeviceUsesSavedConnection(t *testing.T) {
+	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
+	server := NewServerWithProvisioning(config.Config{Devices: []config.DeviceConfig{{
+		ID: "edge", Name: "Edge Router", RouterOS: config.RouterOSConfig{BaseURL: "https://10.0.0.6:8443", Username: "readonly"},
+	}}}, monitor, nil, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/device-onboarding/sessions", strings.NewReader(`{"deviceId":"edge"}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload createProvisioningSessionResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Connection.Scheme != "https" || payload.Connection.Host != "10.0.0.6" || payload.Connection.Port != 8443 {
+		t.Fatalf("unexpected connection: %#v", payload.Connection)
+	}
+	session, ok := server.provisioning.get(payload.SessionID)
+	if !ok || session.deviceID != "edge" || session.deviceName != "Edge Router" {
+		t.Fatalf("unexpected replacement session: %#v ok=%v", session, ok)
+	}
+}
+
 func TestCreateProvisioningSessionInputValidation(t *testing.T) {
 	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
 	server := NewServerWithProvisioning(config.Config{}, monitor, nil, nil)
@@ -221,13 +248,13 @@ func TestProvisioningScriptContent(t *testing.T) {
 		t.Fatal("script should contain the generated group name")
 	}
 
-	// Correct permissions. Some RouterOS releases log REST authentication via the
-	// internal API channel, so the read-only account needs both login policies.
-	if !strings.Contains(script, "read,test,api,rest-api") {
-		t.Fatal("script does not contain read,test,api,rest-api")
+	// Monitoring and policy routing share one account. Ordinary configuration
+	// writes are allowed, while RouterOS user management remains forbidden.
+	if !strings.Contains(script, "read,write,test,api,rest-api") {
+		t.Fatal("script does not contain read,write,test,api,rest-api")
 	}
 	// Check that disallowed permission values are not present
-	for _, forbidden := range []string{"write", "policy", "sensitive", "sniff", "reboot", "full", "web", "winbox", "ssh", "ftp", "password", "romon", "local", "telnet"} {
+	for _, forbidden := range []string{"policy", "sensitive", "sniff", "reboot", "full", "web", "winbox", "ssh", "ftp", "password", "romon", "local", "telnet"} {
 		if strings.Contains(script, "policy="+forbidden) || strings.Contains(script, ","+forbidden) {
 			t.Fatalf("script contains unexpected permission: %s", forbidden)
 		}
@@ -308,7 +335,7 @@ func TestProvisioningSessionExpired(t *testing.T) {
 	ps := newProvisioningSessions()
 	ps.now = func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }
 
-	sessionID, _, _, err := ps.create("test", "http", "10.0.0.1", 80)
+	sessionID, _, _, err := ps.create("", "test", "http", "10.0.0.1", 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +351,7 @@ func TestProvisioningSessionExpired(t *testing.T) {
 
 func TestProvisioningSessionConsumed(t *testing.T) {
 	ps := newProvisioningSessions()
-	sessionID, _, _, err := ps.create("test", "http", "10.0.0.1", 80)
+	sessionID, _, _, err := ps.create("", "test", "http", "10.0.0.1", 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,8 +381,8 @@ func TestNormalizedRouterOSURLAcceptsBracketedIPv6(t *testing.T) {
 
 func TestProvisioningSessionClear(t *testing.T) {
 	ps := newProvisioningSessions()
-	sid1, _, _, _ := ps.create("a", "http", "10.0.0.1", 80)
-	sid2, _, _, _ := ps.create("b", "http", "10.0.0.2", 80)
+	sid1, _, _, _ := ps.create("", "a", "http", "10.0.0.1", 80)
+	sid2, _, _, _ := ps.create("", "b", "http", "10.0.0.2", 80)
 
 	ps.clear()
 
@@ -369,7 +396,7 @@ func TestProvisioningSessionClear(t *testing.T) {
 
 func TestProvisioningSessionRetryable(t *testing.T) {
 	ps := newProvisioningSessions()
-	sessionID, _, _, err := ps.create("test", "http", "10.0.0.1", 80)
+	sessionID, _, _, err := ps.create("", "test", "http", "10.0.0.1", 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +475,7 @@ func TestCompleteProvisioningCanSaveWithoutRestart(t *testing.T) {
 	restarted := make(chan struct{}, 1)
 	path := t.TempDir() + "/config.yaml"
 	server := NewServerWithRestart(config.Config{Path: path}, nil, nil, func() { restarted <- struct{}{} })
-	sessionID, _, _, err := server.provisioning.create("Edge", scheme, host, port)
+	sessionID, _, _, err := server.provisioning.create("", "Edge", scheme, host, port)
 	if err != nil {
 		t.Fatal(err)
 	}

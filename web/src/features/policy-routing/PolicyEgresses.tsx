@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { PolicyEgress, PolicySource } from './types'
-import { deleteEgress, saveEgress } from './api'
-import { egressDraftFromEgress } from './drafts'
+import { deleteEgress, fetchJob, setEgressEnabled } from './api'
 import {
   PolicyErrorDisplay,
   PolicyEmptyState,
@@ -40,7 +39,7 @@ export function PolicyEgressTable({
       {egresses.length === 0 ? (
         <PolicyEmptyState
           title="尚未配置策略路由"
-          description={readOnly ? '当前为只读状态，无法创建策略路由。' : '通过向导创建第一条策略路由：选择 WAN 与地址族，确认路由 / DNS / LAN 范围。'}
+          description={readOnly ? '当前为只读状态，无法创建策略路由。' : '通过向导创建第一条策略路由：选择 WAN 与地址族，确认路由 / DNS / 策略流量入口。'}
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={onCreate}>新建策略</button>}
         />
       ) : (
@@ -103,7 +102,9 @@ function EgressRow({
   const [editError, setEditError] = useState<string | null>(null)
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [retryEnabled, setRetryEnabled] = useState<boolean | null>(null)
   const status = egressStatus(egress)
   const enabledFamilies = egress.families.filter((f) => f.enabled).map((f) => policyFamilyLabel[f.family] ?? f.family).join(' / ') || '—'
   const egressSources = sources.filter((s) => egress.sources.some((es) => es.id === s.id))
@@ -115,10 +116,14 @@ function EgressRow({
   const handleToggle = async () => {
     setEditError(null)
     setToggling(true)
+    const enabled = retryEnabled ?? !egress.enabled
     try {
-      await saveEgress(deviceID, { ...egressDraftFromEgress(egress), enabled: !egress.enabled })
+      const result = await setEgressEnabled(deviceID, egress.id, enabled, egress.revision)
+      if (result.jobId) await waitForEgressJob(deviceID, result.jobId)
+      setRetryEnabled(null)
       onChanged()
     } catch (e) {
+      setRetryEnabled(enabled)
       setEditError(e instanceof Error ? e.message : '操作失败')
     } finally {
       setToggling(false)
@@ -127,12 +132,17 @@ function EgressRow({
 
   const handleDelete = async () => {
     setDeleteError(null)
+    setDeleting(true)
     try {
-      await deleteEgress(deviceID, egress.id, egress.revision)
+      const result = await deleteEgress(deviceID, egress.id, egress.revision)
+      if (result.jobId) await waitForEgressJob(deviceID, result.jobId)
       setDeleteModal(false)
       onChanged()
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : '删除失败')
+      onChanged()
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -154,10 +164,10 @@ function EgressRow({
         <td>
           {readOnly ? null : (
             <div className="action-links">
-              {egress.pendingDeletion ? <small className="policy-hint">待清理：请点击“应用设置”</small> : (
+              {egress.pendingDeletion ? <button type="button" className="link-button link-button--danger" disabled={deleting} onClick={() => setDeleteModal(true)}>重试清理</button> : (
                 <>
                   <button type="button" className="link-button" disabled={toggling} onClick={handleToggle}>
-                    {toggling ? '处理中…' : egress.enabled ? '停用' : '启用'}
+                    {toggling ? '处理中…' : retryEnabled !== null ? `重试${retryEnabled ? '启用' : '停用'}` : egress.enabled ? '停用' : '启用'}
                   </button>
                   <button type="button" className="link-button" onClick={() => onEdit(egress)}>编辑</button>
                   <button type="button" className="link-button link-button--danger" onClick={() => setDeleteModal(true)}>删除</button>
@@ -171,17 +181,26 @@ function EgressRow({
         <PolicyModal title="删除出口策略" onClose={() => setDeleteModal(false)}>
           {deleteError ? <PolicyErrorDisplay error={deleteError} /> : null}
           <p className="policy-hint">
-            确认删除出口策略「{egress.name}」？其绑定的域名列表会先解除引用，出口对象将在下一次应用设置时从 RouterOS 清理。
+            {egress.pendingDeletion ? `继续清理出口策略「${egress.name}」在 RouterOS 中的受管对象？` : `确认删除出口策略「${egress.name}」？确认后将立即解除域名列表引用并清理 RouterOS 中属于该策略的对象。`}
           </p>
           {egressSources.length ? <p className="policy-hint">当前绑定域名列表：{egressSources.map((source) => source.name).join('、')}。</p> : null}
           {sharedListUsers.length ? <PolicyNotice tone="info" title="共享标记列表仍被其他出口使用">标记列表 {egress.listName} 仍被 {sharedListUsers.map((item) => item.name).join('、')} 使用；删除本出口不会删除或停用该共享列表。</PolicyNotice> : null}
           {egress.revision ? <p className="policy-hint">修订版本：{egress.revision}</p> : null}
           <div className="policy-form-actions">
-            <button type="button" className="primary-button" onClick={handleDelete}>确认删除</button>
-            <button type="button" className="toolbar-button" onClick={() => setDeleteModal(false)}>取消</button>
+            <button type="button" className="primary-button" disabled={deleting} onClick={handleDelete}>{deleting ? '正在清理…' : egress.pendingDeletion ? '重试清理' : '确认删除'}</button>
+            <button type="button" className="toolbar-button" disabled={deleting} onClick={() => setDeleteModal(false)}>取消</button>
           </div>
         </PolicyModal>
       ) : null}
     </>
   )
+}
+
+async function waitForEgressJob(deviceID: string, jobID: string): Promise<void> {
+  for (;;) {
+    const job = await fetchJob(deviceID, jobID)
+    if (job.state === 'committed') return
+    if (job.state === 'failed') throw new Error(job.error || 'RouterOS 同步失败')
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+  }
 }

@@ -7,9 +7,10 @@ import type {
   PolicyOverview,
   PolicyPlanEnvelope,
   PolicySource,
+  PolicyTrafficIngressScope,
 } from './types'
 import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress } from './drafts'
-import { saveEgress, saveLANScope, saveSource, generatePlan } from './api'
+import { saveEgress, saveTrafficIngress, saveSource, generatePlan } from './api'
 import { ChangePlanView } from './ChangePlanView'
 import { SourceEditorModal } from './PolicySourcesPage'
 import {
@@ -26,7 +27,7 @@ import {
 } from './format'
 import type { PolicyEgress } from './types'
 
-const WIZARD_STEPS = ['出口与地址族', 'LAN 范围', '域名列表', '预览并应用']
+const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名列表', '预览并应用']
 
 export function PolicyWizard({
   deviceID,
@@ -47,16 +48,11 @@ export function PolicyWizard({
 }) {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<PolicyEgressDraft>(() => egress ? egressDraftFromEgress(egress) : defaultEgressDraft())
-  const [lanInterfaces, setLANInterfaces] = useState<string[]>(() => {
-    const scope = overview.lanScope
-    const value = scope.interfaces ?? scope.interfaceList ?? scope.listName
-    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
-    return typeof value === 'string' && value ? [value] : []
-  })
+  const [trafficIngress, setTrafficIngress] = useState<PolicyTrafficIngressScope>(() => overview.trafficIngress)
+  const [trafficIngressDefaulted, setTrafficIngressDefaulted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [plan, setPlan] = useState<PolicyPlanEnvelope | null>(null)
-  const [adminPassword] = useState('')
 
   const [allDomainOptions, setAllDomainOptions] = useState<PolicySource[]>(() => (
     overview.sources.filter((source) => !source.pendingDeletion)
@@ -79,12 +75,38 @@ export function PolicyWizard({
     })
   }, [overview.sources])
 
-  const readOnly = !overview || !overview.access.enabled || overview.setup.state !== 'ready'
+  useEffect(() => {
+    if (trafficIngressDefaulted || !discovery?.available) return
+    setTrafficIngressDefaulted(true)
+    const listNames = new Set(discovery.trafficIngress.filter((candidate) => candidate.kind === 'interface-list').map((candidate) => candidate.name))
+    const interfaceNames = new Set(discovery.trafficIngress.filter((candidate) => candidate.kind !== 'interface-list').map((candidate) => candidate.name))
+    const interfaceLists: string[] = []
+    const interfaces: string[] = []
+    const classify = (name: string, preferList: boolean) => {
+      if (preferList && listNames.has(name)) interfaceLists.push(name)
+      else if (!preferList && interfaceNames.has(name)) interfaces.push(name)
+      else if (listNames.has(name)) interfaceLists.push(name)
+      else if (interfaceNames.has(name)) interfaces.push(name)
+    }
+    trafficIngress.interfaceLists.forEach((name) => classify(name, true))
+    trafficIngress.interfaces.forEach((name) => classify(name, false))
+    const normalized = {
+      interfaceLists: [...new Set(interfaceLists)],
+      interfaces: [...new Set(interfaces)],
+    }
+    if (!normalized.interfaceLists.length && !normalized.interfaces.length) {
+      const defaultList = discovery.trafficIngress.find((candidate) => candidate.kind === 'interface-list' && candidate.default)
+      if (defaultList) normalized.interfaceLists = [defaultList.name]
+    }
+    setTrafficIngress(normalized)
+  }, [discovery, trafficIngress, trafficIngressDefaulted])
+
+  const readOnly = !overview || overview.setup.state !== 'ready'
   const errors = egressDraftErrors(draft)
   const canNext = step === 0
     ? errors.length === 0
     : step === 1
-      ? lanInterfaces.length > 0
+      ? trafficIngress.interfaceLists.length + trafficIngress.interfaces.length > 0
       : true
 
   const filteredDomainOptions = allDomainOptions.filter((source) => {
@@ -118,8 +140,7 @@ export function PolicyWizard({
     setSaving(true)
     try {
       const savedEgress = await saveEgress(deviceID, draft)
-      const scope = { ...overview.lanScope, interfaces: lanInterfaces }
-      await saveLANScope(deviceID, scope, adminPassword)
+      await saveTrafficIngress(deviceID, trafficIngress)
       for (const source of allDomainOptions) {
         const currentlyBound = source.egressId === savedEgress.id
         const shouldBeBound = selectedDomainIds.includes(source.id)
@@ -144,7 +165,7 @@ export function PolicyWizard({
   return (
     <PolicyModal
       title={egress ? `编辑策略：${egress.name}` : '新建策略'}
-      subtitle="向导依次完成出口、LAN 范围与域名列表草稿（保存在 rosboard，不写入 RouterOS）。"
+      subtitle="向导依次完成出口、策略流量入口与域名列表草稿（保存在 rosboard，不写入 RouterOS）。"
       wide
       onClose={onClose}
       header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => i <= step && setStep(i)} />}
@@ -176,10 +197,10 @@ export function PolicyWizard({
       ) : null}
 
       {step === 1 ? (
-        <LANScopeForm
+        <TrafficIngressForm
           discovery={discovery}
-          lanInterfaces={lanInterfaces}
-          setLANInterfaces={setLANInterfaces}
+          value={trafficIngress}
+          onChange={setTrafficIngress}
         />
       ) : null}
 
@@ -268,7 +289,6 @@ export function PolicyWizard({
               deviceID={deviceID}
               plan={plan.plan}
               compact
-              adminPassword={adminPassword}
               onApplied={(result) => { setPlan(null); onApplied(result); onClose() }}
               onCancel={() => { setPlan(null); setStep(2) }}
             />
@@ -374,8 +394,8 @@ function EgressDraftForm({
             </PolicyField>
             <PolicyField label="标记列表模式" hint="共享模式下多个域名列表共用一个标记列表和一组业务 mangle；专用模式为每个域名列表独立建表。">
               <select id="policy-egress-listmode" className="settings-select" value={draft.listMode} onChange={(e) => update({ listMode: e.target.value })}>
-                <option value="shared">共享标记列表（默认）</option>
-                <option value="dedicated">每个域名列表专用标记列表</option>
+                <option value="shared">共享标记列表</option>
+                <option value="dedicated">每个域名列表专用标记列表（默认）</option>
               </select>
             </PolicyField>
             {draft.listMode === 'dedicated' ? (
@@ -538,79 +558,103 @@ function EgressFamilyAdvancedFields({
   )
 }
 
-// ---- LAN scope form ----
+// ---- Traffic ingress form ----
 
-function LANScopeForm({
+function TrafficIngressForm({
   discovery,
-  lanInterfaces,
-  setLANInterfaces,
+  value,
+  onChange,
 }: {
   discovery: PolicyDiscovery | null
-  lanInterfaces: string[]
-  setLANInterfaces: (v: string[]) => void
+  value: PolicyTrafficIngressScope
+  onChange: (value: PolicyTrafficIngressScope) => void
 }) {
-  const lanCandidates = discovery?.lan ?? []
-  const [manualName, setManualName] = useState('')
+  const candidates = discovery?.trafficIngress ?? []
+  const selectedLists = new Set(value.interfaceLists)
 
-  const toggleInterface = (name: string) => {
-    setLANInterfaces(lanInterfaces.includes(name)
-      ? lanInterfaces.filter((i) => i !== name)
-      : [...lanInterfaces, name])
+  const toggleCandidate = (name: string, kind: string) => {
+    if (kind === 'interface-list') {
+      const selecting = !selectedLists.has(name)
+      const interfaceLists = selecting
+        ? [...value.interfaceLists, name]
+        : value.interfaceLists.filter((item) => item !== name)
+      const interfaces = selecting
+        ? value.interfaces.filter((interfaceName) => !candidates.some((candidate) => candidate.name === interfaceName && candidate.coveredBy.includes(name)))
+        : value.interfaces
+      onChange({ interfaceLists, interfaces })
+      return
+    }
+    onChange({
+      ...value,
+      interfaces: value.interfaces.includes(name)
+        ? value.interfaces.filter((item) => item !== name)
+        : [...value.interfaces, name],
+    })
   }
 
-  const addManualName = () => {
-    const value = manualName.trim()
-    if (!value || lanInterfaces.includes(value)) return
-    setLANInterfaces([...lanInterfaces, value])
-    setManualName('')
+  const kindLabel: Record<string, string> = {
+    'interface-list': '接口列表',
+    bridge: 'Bridge',
+    vlan: 'VLAN',
+    wireguard: 'WireGuard',
+    vpn: 'VPN',
+    tunnel: '隧道',
+    physical: '物理接口',
   }
 
   return (
     <div className="policy-wizard-lan">
-      <h4>LAN 范围</h4>
+      <h4>策略流量入口</h4>
       <p className="policy-hint">
-        选择需要纳入策略路由的 LAN 接口。这些接口将用于识别本地终端并生成 mangle 规则。
+        选择需要进入策略路由的接口列表或三层接口。该设置由本设备全部出口策略共享。
       </p>
-      {lanCandidates.length ? (
+      {candidates.length ? (
         <div className="policy-wizard-lan-list">
-          {lanCandidates.map((candidate) => (
-            <label key={candidate.name} className={`policy-choice ${candidate.frozen ? 'policy-choice-disabled' : ''}`}>
-              <input
-                type="checkbox"
-                checked={lanInterfaces.includes(candidate.name)}
-                onChange={() => toggleInterface(candidate.name)}
-                disabled={candidate.frozen}
-              />
-              <span>
-                <strong>{candidate.name}</strong>
-                {candidate.kind ? <small> ({candidate.kind})</small> : null}
-                {candidate.addresses?.length ? <small> {candidate.addresses.join(', ')}</small> : null}
-              </span>
-              {candidate.reason ? <small className="policy-hint">{candidate.reason}</small> : null}
-            </label>
-          ))}
+          {candidates.map((candidate) => {
+            const coveredBy = candidate.kind === 'interface-list'
+              ? []
+              : candidate.coveredBy.filter((listName) => selectedLists.has(listName))
+            const covered = coveredBy.length > 0
+            const directlySelected = candidate.kind === 'interface-list'
+              ? value.interfaceLists.includes(candidate.name)
+              : value.interfaces.includes(candidate.name)
+            return (
+              <label key={`${candidate.kind}:${candidate.name}`} className={`policy-choice ${covered ? 'policy-choice-disabled' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={directlySelected || covered}
+                  onChange={() => toggleCandidate(candidate.name, candidate.kind)}
+                  disabled={covered}
+                />
+                <span>
+                  <strong>{candidate.name}</strong>
+                  <small>（{kindLabel[candidate.kind] ?? candidate.kind}）</small>
+                  {!candidate.running && candidate.kind !== 'interface-list' ? <small> · 当前未运行</small> : null}
+                  {candidate.addresses.length ? <small> · {candidate.addresses.join(', ')}</small> : null}
+                  {candidate.staticMembers.length ? <small> · 成员：{candidate.staticMembers.join(', ')}</small> : null}
+                  {candidate.dynamicMembers ? <small> · 含动态 VPN 成员</small> : null}
+                </span>
+                <small className="policy-hint">
+                  {covered ? `已由 ${coveredBy.join(', ')} 覆盖` : candidate.reason}
+                </small>
+              </label>
+            )
+          })}
         </div>
       ) : (
         <PolicyNotice tone="info">
-          {discovery?.available ? '未发现 LAN 接口' : '设备发现不可用，可手动输入接口名称'}
+          {discovery?.available ? '未发现可用的策略流量入口' : '设备发现不可用，暂时不能选择策略流量入口'}
         </PolicyNotice>
       )}
-      {lanInterfaces.length ? (
+      {value.interfaceLists.length + value.interfaces.length ? (
         <div className="policy-lan-selected">
-          <strong>已选接口：</strong>
-          <span>{lanInterfaces.join(', ')}</span>
+          <strong>已选择：</strong>
+          <span>{[...value.interfaceLists, ...value.interfaces].join(', ')}</span>
         </div>
       ) : null}
-      <div className="policy-form-actions">
-        <input
-          className="settings-input"
-          value={manualName}
-          onChange={(event) => setManualName(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addManualName() } }}
-          placeholder="手动输入列表名…"
-        />
-        <button type="button" className="toolbar-button" disabled={!manualName.trim()} onClick={addManualName}>添加</button>
-      </div>
+      <PolicyNotice tone="info">
+        WireGuard 可直接选择；动态 L2TP/SSTP/OpenVPN 请先由 RouterOS VPN 配置加入专用接口列表（如 VPN-LAN），再在这里选择该列表。
+      </PolicyNotice>
     </div>
   )
 }

@@ -3,10 +3,8 @@ import type { PolicyApplyResult, PolicyPlan, PolicyPlanIssue, PolicyPlanOperatio
 import { applyPlan } from './api'
 import {
   PolicyErrorDisplay,
-  PolicyField,
   PolicyMetadata,
   PolicyNotice,
-  PolicyPasswordInput,
   PolicyStatusBadge,
   type StatusTone,
 } from './components'
@@ -26,8 +24,6 @@ export function ChangePlanView({
   onApplied,
   onCancel,
   onRegenerate,
-  adminPassword: externalPassword,
-  onAdminPasswordChange,
   compact = false,
 }: {
   deviceID: string
@@ -35,14 +31,8 @@ export function ChangePlanView({
   onApplied: (result?: PolicyApplyResult) => void
   onCancel: () => void
   onRegenerate?: () => void
-  adminPassword?: string
-  onAdminPasswordChange?: (v: string) => void
   compact?: boolean
 }) {
-  const [internalPassword, setInternalPassword] = useState('')
-  const adminPassword = externalPassword ?? internalPassword
-  const setAdminPassword = onAdminPasswordChange ?? setInternalPassword
-
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +40,7 @@ export function ChangePlanView({
   const requiredAcks = plan.acknowledgements.filter((a) => a.required)
   const allAcksAccepted = requiredAcks.every((a) => acks.has(a.code))
   const planBlocked = plan.pendingReview || plan.state === 'blocked' || plan.state === 'pending_review'
-  const canApply = (!plan.requiresStepUp || adminPassword) && allAcksAccepted && !plan.blockers.length && !planBlocked
+  const canApply = allAcksAccepted && !plan.blockers.length && !planBlocked
 
   const toggleAck = (code: string) => {
     setAcks((prev) => {
@@ -90,7 +80,6 @@ export function ChangePlanView({
     try {
       const result = await applyPlan(deviceID, plan.planID, {
         acknowledgements: Array.from(acks),
-        adminPassword: plan.requiresStepUp ? adminPassword : undefined,
       })
       onApplied(result)
     } catch (e) {
@@ -208,12 +197,6 @@ export function ChangePlanView({
             </label>
           ))}
         </div>
-      ) : null}
-
-      {!compact && plan.requiresStepUp ? (
-        <PolicyField label="管理员密码" hint="此操作需要管理员密码确认">
-          <PolicyPasswordInput value={adminPassword} onChange={setAdminPassword} className="policy-apply-password" placeholder="输入管理员密码" />
-        </PolicyField>
       ) : null}
 
       {error ? <PolicyErrorDisplay error={error} /> : null}

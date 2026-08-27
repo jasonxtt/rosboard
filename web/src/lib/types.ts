@@ -198,6 +198,14 @@ export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
   username: string; passwordSet: boolean; cleanupAvailable: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
 }
+export type DeviceAccountStatus = {
+  username: string
+  group?: string
+  policies: string[]
+  permission: 'write' | 'read_only' | 'unknown'
+  writeAccess: boolean
+  error?: string
+}
 export type TrafficScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[] }
 export type TrafficScope = { mode: string; legacy: boolean; interfaces: { name: string; kind: string; reasons: string[]; automatic: boolean; running: boolean; disabled: boolean }[]; warnings: string[]; overridesApplied: boolean }
 export type TerminalScopeConfig = { mode?: 'auto'; include_interfaces?: string[]; exclude_interfaces?: string[]; include_cidrs?: string[]; exclude_cidrs?: string[] }

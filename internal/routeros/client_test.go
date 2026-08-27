@@ -2,10 +2,74 @@ package routeros
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestHTTPErrorIncludesBoundedSanitizedRouterOSDetail(t *testing.T) {
+	username := "policy"
+	password := "secret"
+	basicToken := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = writer.Write([]byte(`{"message":"Bad Request","detail":"unknown parameter type; Authorization: Basic ` + basicToken + `"}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, username, password).IPRoutes(context.Background())
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("IPRoutes error = %v, want HTTPError", err)
+	}
+	if !strings.Contains(err.Error(), "Bad Request: unknown parameter type") {
+		t.Fatalf("HTTP error omitted RouterOS detail: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[redacted]") || !strings.Contains(httpErr.Detail, "[redacted]") {
+		t.Fatalf("HTTP error did not preserve redaction marker: err=%q detail=%q", err.Error(), httpErr.Detail)
+	}
+	for _, value := range []string{password, username + ":" + password, basicToken, username} {
+		if strings.Contains(err.Error(), value) || strings.Contains(httpErr.Detail, value) {
+			t.Fatalf("HTTP error leaked credential %q: err=%q detail=%q", value, err.Error(), httpErr.Detail)
+		}
+	}
+	if len(httpErr.Detail) > maxMutationDetailBytes {
+		t.Fatalf("HTTP error detail length = %d, want <= %d", len(httpErr.Detail), maxMutationDetailBytes)
+	}
+}
+
+func TestAccountAccessResolvesCurrentUserGroupPolicies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/user":
+			_, _ = writer.Write([]byte(`[{"name":"rosboard","group":"rosboard_g"}]`))
+		case "/rest/user/group":
+			_, _ = writer.Write([]byte(`[{"name":"rosboard_g","policy":"read,write,test,api,rest-api,!policy"}]`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	access, err := NewClient(server.URL, "rosboard", "secret").AccountAccess(context.Background(), "rosboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !access.Writable || access.Group != "rosboard_g" || strings.Join(access.Policies, ",") != "read,write,test,api,rest-api" {
+		t.Fatalf("unexpected account access: %#v", access)
+	}
+}
+
+func TestAccountAccessRecognizesExplicitlyMissingWrite(t *testing.T) {
+	policies, writable := normalizeAccountPolicies("read,test,api,rest-api,!write")
+	if writable || strings.Contains(strings.Join(policies, ","), "write") {
+		t.Fatalf("read-only policy was treated as writable: %#v", policies)
+	}
+}
 
 func TestSystemHealthAcceptsRouterOSObjectAndArrayResponses(t *testing.T) {
 	for name, body := range map[string]string{

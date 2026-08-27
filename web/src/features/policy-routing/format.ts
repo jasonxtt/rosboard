@@ -6,7 +6,7 @@ import type {
 } from './types'
 
 export const policySetupStateLabel: Record<PolicySetupState, string> = {
-  access_required: '需要配置策略访问账号',
+  write_access_required: 'RouterOS 账号缺少写入权限',
   manager_unavailable: '策略管理器不可用',
   runtime_unavailable: '策略运行时不可用',
   ready: '就绪',

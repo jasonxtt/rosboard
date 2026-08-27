@@ -1,6 +1,6 @@
 // Policy routing domain types — reconstructed from dist bundle and backend API contract.
 
-export type PolicySetupState = 'access_required' | 'manager_unavailable' | 'runtime_unavailable' | 'ready'
+export type PolicySetupState = 'write_access_required' | 'manager_unavailable' | 'runtime_unavailable' | 'ready'
 
 export type PolicyAddressFamily = 'ipv4' | 'ipv6'
 
@@ -165,38 +165,15 @@ export type PolicyRulesPage = {
   nextCursor: string
 }
 
-// ---- Access ----
+// ---- Device account ----
 
-export type PolicyAccess = {
-  enabled: boolean
+export type PolicyAccount = {
   username: string
-  passwordSet: boolean
-  managed: boolean
-  cleanupAvailable: boolean
-}
-
-export type PolicyProvisionSession = {
-  sessionId: string
-  deviceId: string
-  username: string
-  script: string
-  // Newer provisioning endpoints deliberately do not return the generated
-  // password; the script is the source of truth.
-  password?: string
-  expiresAt: string
-}
-
-export type PolicyAccessSaveResponse = {
-  access: PolicyAccess
-  restarting: boolean
-}
-
-export type PolicyCleanupInfo = {
-  deviceId?: string
-  managed?: boolean
-  username?: string
-  groupName?: string
-  script: string
+  group?: string
+  policies: string[]
+  permission: 'write' | 'read_only' | 'unknown' | string
+  writeAccess: boolean
+  error?: string
 }
 
 // ---- Discovery ----
@@ -214,7 +191,7 @@ export type PolicyWANRoute = {
   proven: boolean
 }
 
-export type PolicyLANCandidate = {
+export type PolicyTrafficIngressCandidate = {
   name: string
   kind: string
   include: string[]
@@ -224,6 +201,15 @@ export type PolicyLANCandidate = {
   frozen: boolean
   addresses: string[]
   reason: string
+  coveredBy: string[]
+  default: boolean
+  dynamic: boolean
+  running: boolean
+}
+
+export type PolicyTrafficIngressScope = {
+  interfaceLists: string[]
+  interfaces: string[]
 }
 
 export type PolicyObjectReference = {
@@ -255,7 +241,7 @@ export type PolicyDiscovery = {
     proven: boolean
     routes: PolicyWANRoute[]
   }>
-  lan: PolicyLANCandidate[]
+  trafficIngress: PolicyTrafficIngressCandidate[]
   builtins?: PolicyObjectReference[]
   existingPolicy?: PolicyExistingPolicy[]
   adoptionCandidates?: PolicyExistingPolicy[]
@@ -315,10 +301,10 @@ export type PolicyDevice = {
 
 export type PolicyOverview = {
   device: PolicyDevice
-  access: PolicyAccess
+  account: PolicyAccount
   setup: { state: PolicySetupState; managerAvailable?: boolean }
   capability?: PolicyRuntimeCapability
-  lanScope: Record<string, unknown>
+  trafficIngress: PolicyTrafficIngressScope
   health?: PolicyHealth
   drift?: PolicyDrift
   egresses: PolicyEgress[]
@@ -435,7 +421,6 @@ export type PolicyPlan = {
   familyBlockers?: PolicyPlanIssue[]
   warnings: PolicyPlanIssue[]
   acknowledgements: PolicyPlanAcknowledgement[]
-  requiresStepUp: boolean
   ownershipStrict: boolean
   summary: PolicyPlanSummary
   resourceEstimate: PolicyResourceEstimate

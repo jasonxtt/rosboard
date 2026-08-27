@@ -19,24 +19,31 @@ import (
 
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
+	"rosboard/internal/policy"
+	"rosboard/internal/policyv2"
+	"rosboard/internal/routeros"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
 )
 
 type Server struct {
-	cfgMu        sync.RWMutex
-	deviceSaveMu sync.Mutex
-	cfg          config.Config
-	monitor      *service.Monitor
-	manager      *service.MonitorManager
-	store        *store.Store
-	assets       fs.FS
-	allowedCIDRs []*net.IPNet
-	fileServer   http.Handler
-	restart      func()
-	auth         *auth.Service
-	tickets      *verificationTickets
-	provisioning *provisioningSessions
+	cfgMu         sync.RWMutex
+	deviceSaveMu  sync.Mutex
+	cfg           config.Config
+	monitor       *service.Monitor
+	manager       *service.MonitorManager
+	policy        *policyv2.Manager
+	store         *store.Store
+	assets        fs.FS
+	allowedCIDRs  []*net.IPNet
+	fileServer    http.Handler
+	restart       func()
+	auth          *auth.Service
+	tickets       *verificationTickets
+	provisioning  *provisioningSessions
+	sourceFetcher *policy.SourceFetcher
+	previewMu     sync.Mutex
+	previews      map[string]policyPreviewEntry
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
@@ -45,27 +52,29 @@ func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Serve
 
 func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
-		cfg:          cfg,
-		monitor:      monitor,
-		assets:       assets,
-		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:   http.FileServer(http.FS(assets)),
-		restart:      restart,
-		tickets:      newVerificationTickets(),
-		provisioning: newProvisioningSessions(),
+		cfg:           cfg,
+		monitor:       monitor,
+		assets:        assets,
+		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
+		fileServer:    http.FileServer(http.FS(assets)),
+		restart:       restart,
+		tickets:       newVerificationTickets(),
+		provisioning:  newProvisioningSessions(),
+		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
 }
 
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
-		cfg:          cfg,
-		monitor:      monitor,
-		assets:       assets,
-		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:   http.FileServer(http.FS(assets)),
-		restart:      restart,
-		tickets:      newVerificationTickets(),
-		provisioning: newProvisioningSessions(),
+		cfg:           cfg,
+		monitor:       monitor,
+		assets:        assets,
+		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
+		fileServer:    http.FileServer(http.FS(assets)),
+		restart:       restart,
+		tickets:       newVerificationTickets(),
+		provisioning:  newProvisioningSessions(),
+		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
 }
 
@@ -75,17 +84,24 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 		authService = auth.New(storage)
 	}
 	return &Server{
-		cfg:          cfg,
-		manager:      manager,
-		store:        storage,
-		assets:       assets,
-		allowedCIDRs: parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:   http.FileServer(http.FS(assets)),
-		restart:      restart,
-		auth:         authService,
-		tickets:      newVerificationTickets(),
-		provisioning: newProvisioningSessions(),
+		cfg:           cfg,
+		manager:       manager,
+		store:         storage,
+		assets:        assets,
+		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
+		fileServer:    http.FileServer(http.FS(assets)),
+		restart:       restart,
+		auth:          authService,
+		tickets:       newVerificationTickets(),
+		provisioning:  newProvisioningSessions(),
+		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
+}
+
+func NewServerWithPolicyManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), policyManager *policyv2.Manager) *Server {
+	server := NewServerWithManager(cfg, manager, storage, assets, restart)
+	server.policy = policyManager
+	return server
 }
 
 func NewServerWithAuth(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), authService *auth.Service) *Server {
@@ -98,11 +114,19 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if strings.HasPrefix(request.URL.Path, "/api/") {
 		setSecurityHeaders(writer)
 		if !s.allowed(request) {
-			writeError(writer, http.StatusForbidden, "forbidden")
+			if isPolicyRoutingPath(request.URL.Path) {
+				writePolicyError(writer, http.StatusForbidden, "cidr_forbidden", "request is outside the allowed network", nil)
+			} else {
+				writeError(writer, http.StatusForbidden, "forbidden")
+			}
 			return
 		}
 		if s.auth != nil && !sameOriginWrite(request) {
-			writeError(writer, http.StatusForbidden, "cross-origin request denied")
+			if isPolicyRoutingPath(request.URL.Path) {
+				writePolicyError(writer, http.StatusForbidden, "cross_origin_denied", "cross-origin request denied", nil)
+			} else {
+				writeError(writer, http.StatusForbidden, "cross-origin request denied")
+			}
 			return
 		}
 		if s.auth != nil && !publicAPI(request.URL.Path, request.Method) {
@@ -130,6 +154,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 	if s.serveAuthAPI(writer, request) {
+		return
+	}
+	if isPolicyRoutingPath(request.URL.Path) {
+		s.servePolicyRoutingAPI(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/settings/connection" {
@@ -716,6 +744,49 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		}
 		writeJSON(writer, http.StatusOK, value)
 		return
+	case request.Method == http.MethodGet && action == "account":
+		cfg := s.configSnapshot()
+		device, found := cfg.Device(deviceID)
+		if !found {
+			writeAPIError(writer, http.StatusNotFound, "device_not_found", "device not found")
+			return
+		}
+		account, err := routeros.NewClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password).AccountAccess(request.Context(), device.RouterOS.Username)
+		if err != nil {
+			writeJSON(writer, http.StatusOK, map[string]any{"username": device.RouterOS.Username, "permission": "unknown", "writeAccess": false, "error": err.Error()})
+			return
+		}
+		permission := "read_only"
+		if account.Writable {
+			permission = "write"
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"username": account.Username, "group": account.Group, "policies": account.Policies, "permission": permission, "writeAccess": account.Writable})
+		return
+	case request.Method == http.MethodDelete && action == "account":
+		found := false
+		if err := s.saveSettings(func(next *config.Config) {
+			for index := range next.Devices {
+				if next.Devices[index].ID != deviceID {
+					continue
+				}
+				next.Devices[index].Enabled = false
+				next.Devices[index].RouterOS.Username = ""
+				next.Devices[index].RouterOS.Password = ""
+				next.Devices[index].ManagedAccount = nil
+				found = true
+				return
+			}
+		}); err != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "save_failed", "failed to remove device account")
+			return
+		}
+		if !found {
+			writeAPIError(writer, http.StatusNotFound, "device_not_found", "device not found")
+			return
+		}
+		s.scheduleRestart()
+		writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": s.restart != nil})
+		return
 	case request.Method == http.MethodPut && action == "":
 		var payload deviceSettingsRequest
 		if err := decodeJSONBody(writer, request, &payload); err != nil {
@@ -1020,14 +1091,6 @@ func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Reques
 	s.tickets.clear()
 	s.provisioning.clear()
 	clearSessionCookie(writer, request)
-	s.scheduleRestart()
-	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "phase": "needs_admin", "restarting": s.restart != nil})
-}
-
-func (s *Server) configSnapshot() config.Config {
-	s.cfgMu.RLock()
-	defer s.cfgMu.RUnlock()
-	return s.cfg
 }
 
 func (s *Server) saveSettings(update func(*config.Config)) error {
@@ -1342,4 +1405,17 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 
 func writeError(writer http.ResponseWriter, status int, message string) {
 	writeJSON(writer, status, map[string]string{"error": message})
+}
+
+func (s *Server) configSnapshot() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
+func writePolicyError(writer http.ResponseWriter, status int, code, message string, details any) {
+	if details == nil {
+		details = map[string]any{}
+	}
+	writeJSON(writer, status, map[string]any{"code": code, "error": message, "details": details})
 }
