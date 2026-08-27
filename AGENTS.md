@@ -25,9 +25,13 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 For every change that modifies the runnable program:
 
 1. Finish automated checks and local visual/runtime verification.
-2. Deploy the verified build to `10.0.0.6`, preserving a timestamped backup of the existing binary, configuration, and SQLite data before replacement.
+2. Before replacing the build on `10.0.0.6`, preserve a timestamped backup of the existing binary, configuration, SQLite data, and service unit under the local NAS path `/Users/tom/nas/wyp/github/rosboard/backups/<timestamp>-<label>/`. Confirm that the NAS path is mounted and writable first; do not store development rollback backups on `10.0.0.6` (including `/opt/rosboard/backups`). Keep at most 10 backup directories; before creating the 11th, remove only the oldest timestamped backup directory.
 3. Verify the remote systemd service, health endpoint, affected API contracts, and embedded frontend assets.
 4. Wait for the user to manually inspect the deployed instance and explicitly approve it.
 5. Only after that approval, create the work commit and continue with Trellis task archival/session recording.
 
 Do not commit program changes before the remote manual-acceptance gate. Documentation-only or planning-only changes do not require deployment.
+
+## Mac development directory backup
+
+To sync the local GitHub development directory for remote development, use `/Users/tom/github/backup-github-to-nas.sh`. It copies `/Users/tom/github/` to the NAS path `/Users/tom/nas/wyp/github/` over SSH, so the NAS contains directly usable project directories rather than an archive. Rebuildable `node_modules/`, `.venv/`, `target/`, and `__pycache__/` directories are excluded. It does not delete NAS-only files, so work created remotely is not removed by a later Mac-to-NAS sync. The rosboard rollback directory and old-net archive are also outside the sync scope and remain reserved for backup retention.
