@@ -1,20 +1,11 @@
 // Mock API for development/testing — mimics the policy-routing backend responses.
 import type {
-  PolicyAccess,
   PolicyDiscovery,
   PolicyEgress,
   PolicyOverview,
   PolicyPreview,
   PolicySource,
 } from '../types'
-
-const mockAccess: PolicyAccess = {
-  enabled: false,
-  username: '',
-  passwordSet: false,
-  managed: false,
-  cleanupAvailable: false,
-}
 
 const mockEgresses: PolicyEgress[] = [
   {
@@ -42,9 +33,9 @@ const mockSources: PolicySource[] = []
 
 const mockOverview: PolicyOverview = {
   device: { id: 'mock-device', name: 'Mock Device', enabled: true },
-  access: mockAccess,
-  setup: { state: 'access_required' },
-  lanScope: {},
+  account: { username: 'rosboard_mock', group: 'rosboard_g_mock', policies: ['read', 'write', 'rest-api'], permission: 'write', writeAccess: true },
+  setup: { state: 'ready' },
+  trafficIngress: { interfaceLists: [], interfaces: [] },
   health: { state: 'ok', driftState: '', mutationPaused: false, manualInterventionRequired: false, pauseReason: '', pauseJobId: '' },
   drift: { state: '', items: [] },
   egresses: mockEgresses,
@@ -58,7 +49,7 @@ const mockDiscovery: PolicyDiscovery = {
   available: false,
   reason: 'runtime not ready',
   wans: [],
-  lan: [],
+  trafficIngress: [],
 }
 
 const mockPreview: PolicyPreview = {
@@ -74,9 +65,6 @@ export const mockPolicyApi = {
   },
   async fetchDiscovery(_deviceID: string): Promise<PolicyDiscovery> {
     return mockDiscovery
-  },
-  async saveAccess(_deviceID: string, _body: { enabled: boolean; username: string; password: string }): Promise<{ access: PolicyAccess; restarting: boolean }> {
-    return { access: { ...mockAccess, enabled: true, username: 'rosboard_policy_mock' }, restarting: true }
   },
   async saveEgress(_deviceID: string, draft: import('../types').PolicyEgressDraft): Promise<PolicyEgress> {
     return { ...mockEgresses[0], ...draft, id: draft.id || 'mock-egress-new', applied: false, pendingDeletion: false, sources: [] }

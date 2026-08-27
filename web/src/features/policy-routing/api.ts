@@ -1,9 +1,6 @@
 import type {
-  PolicyAccess,
-  PolicyAccessSaveResponse,
   PolicyApplyResult,
   PolicyAuditPage,
-  PolicyCleanupInfo,
   PolicyDiscovery,
   PolicyEgress,
   PolicyEgressDraft,
@@ -12,7 +9,6 @@ import type {
   PolicyPlan,
   PolicyPlanEnvelope,
   PolicyPreview,
-  PolicyProvisionSession,
   PolicyRulesPage,
   PolicySource,
   PolicySourceDraft,
@@ -128,14 +124,15 @@ async function policyFetch<T>(
 
 // ---- Parsers ----
 
-function parseAccess(value: unknown): PolicyAccess {
+function parseAccount(value: unknown): import('./types').PolicyAccount {
   const o = safeObject(value)
   return {
-    enabled: safeBoolean(o.enabled ?? o.Enabled),
     username: safeString(o.username ?? o.Username),
-    passwordSet: safeBoolean(o.passwordSet ?? o.PasswordSet),
-    managed: safeBoolean(o.managed ?? o.Managed),
-    cleanupAvailable: safeBoolean(o.cleanupAvailable ?? o.CleanupAvailable),
+    group: safeString(o.group),
+    policies: safeArray<unknown>(o.policies).map(safeString).filter(Boolean),
+    permission: safeString(o.permission) || 'unknown',
+    writeAccess: safeBoolean(o.writeAccess),
+    error: safeString(o.error) || undefined,
   }
 }
 
@@ -272,7 +269,7 @@ function parseWANRoute(value: unknown): import('./types').PolicyWANRoute {
   }
 }
 
-function parseLANCandidate(value: unknown): import('./types').PolicyLANCandidate {
+function parseTrafficIngressCandidate(value: unknown): import('./types').PolicyTrafficIngressCandidate {
   const o = safeObject(value)
   return {
     name: safeString(o.name),
@@ -284,6 +281,10 @@ function parseLANCandidate(value: unknown): import('./types').PolicyLANCandidate
     frozen: safeBoolean(o.frozen),
     addresses: safeArray<unknown>(o.addresses).filter((v): v is string => typeof v === 'string'),
     reason: safeString(o.reason),
+    coveredBy: safeArray<unknown>(o.coveredBy).filter((v): v is string => typeof v === 'string'),
+    default: safeBoolean(o.default),
+    dynamic: safeBoolean(o.dynamic),
+    running: safeBoolean(o.running),
   }
 }
 
@@ -313,7 +314,7 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
       available: false,
       reason: safeString(o.reason),
       wans: [],
-      lan: [],
+      trafficIngress: [],
     }
   }
   const snapshot = safeObject(o.snapshot)
@@ -350,7 +351,7 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
         routes: safeArray<unknown>(o.routes).map(parseWANRoute),
       }
     }),
-    lan: safeArray<unknown>(o.lan).map(parseLANCandidate),
+    trafficIngress: safeArray<unknown>(o.trafficIngress ?? o.lan).map(parseTrafficIngressCandidate),
     builtins: safeArray<unknown>(o.builtins).map(parseObjectReference),
     existingPolicy: safeArray<unknown>(o.existingPolicy).map(parseExistingPolicy),
     adoptionCandidates: safeArray<unknown>(o.adoptionCandidates).map(parseExistingPolicy),
@@ -418,7 +419,6 @@ function parsePlan(value: unknown): PolicyPlan {
     familyBlockers: safeArray<unknown>(o.familyBlockers).map(parsePlanIssue),
     warnings: safeArray<unknown>(o.warnings).map(parsePlanIssue),
     acknowledgements: safeArray<unknown>(o.acknowledgements).map(parsePlanAck),
-    requiresStepUp: safeBoolean(o.requiresStepUp),
     ownershipStrict: safeBoolean(o.ownershipStrict),
     summary: {
       create: safeNumber(summary.create),
@@ -502,10 +502,21 @@ function parseJob(value: unknown): import('./types').PolicyJob {
   }
 }
 
+function parseTrafficIngress(value: unknown): import('./types').PolicyTrafficIngressScope {
+  const o = safeObject(value)
+  const values = (key: string) => safeArray<unknown>(o[key]).filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+  if (Object.prototype.hasOwnProperty.call(o, 'interfaceLists')) {
+    return { interfaceLists: values('interfaceLists'), interfaces: values('interfaces') }
+  }
+  const legacyInterfaces = values('interfaces')
+  const legacyList = safeString(o.interfaceList ?? o.listName ?? o.lanScope)
+  return { interfaceLists: legacyInterfaces.length ? legacyInterfaces : legacyList ? [legacyList] : [], interfaces: [] }
+}
+
 function parseOverview(value: unknown): PolicyOverview {
   const o = safeObject(value)
   const device = safeObject(o.device)
-  const access = parseAccess(o.access)
+  const account = parseAccount(o.account)
   const setup = safeObject(o.setup)
   const health = safeObject(o.health)
   const drift = safeObject(o.drift)
@@ -516,13 +527,13 @@ function parseOverview(value: unknown): PolicyOverview {
       enabled: safeBoolean(device.enabled),
       archived: safeBoolean(device.archived),
     },
-    access,
+    account,
     setup: {
-      state: (safeString(setup.state) || (access.enabled ? 'runtime_unavailable' : 'access_required')) as import('./types').PolicySetupState,
+      state: (safeString(setup.state) || 'runtime_unavailable') as import('./types').PolicySetupState,
       managerAvailable: safeBoolean(setup.managerAvailable),
     },
     capability: o.capability ? parseRuntimeCapability(o.capability) : undefined,
-    lanScope: safeObject(o.lanScope),
+    trafficIngress: parseTrafficIngress(o.trafficIngress ?? o.lanScope),
     health: {
       state: safeString(health.state),
       driftState: safeString(health.driftState),
@@ -626,65 +637,14 @@ export function fetchSource(deviceID: string, id: string, signal?: AbortSignal |
   return policyFetch(deviceID, `/sources/${encodeURIComponent(id)}`, { signal }, parseSource)
 }
 
-export function saveAccess(
+export function saveTrafficIngress(
   deviceID: string,
-  body: { enabled: boolean; username: string; password: string; adminPassword: string },
+  trafficIngress: import('./types').PolicyTrafficIngressScope,
   signal?: AbortSignal | null,
-): Promise<PolicyAccessSaveResponse> {
-  return policyFetch(deviceID, '/access', { method: 'PUT', body, signal }, (value) => {
+): Promise<import('./types').PolicyTrafficIngressScope> {
+  return policyFetch(deviceID, '/traffic-ingress', { method: 'PUT', body: { trafficIngress }, signal }, (value) => {
     const o = safeObject(value)
-    return { access: parseAccess(o.access), restarting: safeBoolean(o.restarting) }
-  })
-}
-
-export function createProvisionSession(deviceID: string, signal?: AbortSignal | null): Promise<PolicyProvisionSession> {
-  return policyFetch(deviceID, '/access/sessions', { method: 'POST', signal }, (value) => {
-    const o = safeObject(value)
-    return {
-      sessionId: safeString(o.sessionId),
-      deviceId: safeString(o.deviceId),
-      username: safeString(o.username),
-      script: safeString(o.script),
-      password: safeString(o.password),
-      expiresAt: safeString(o.expiresAt),
-    }
-  })
-}
-
-export function completeProvisionSession(
-  deviceID: string,
-  sessionID: string,
-  adminPassword: string,
-  signal?: AbortSignal | null,
-): Promise<{ access: PolicyAccess; restarting: boolean }> {
-  return policyFetch(deviceID, `/access/sessions/${encodeURIComponent(sessionID)}/complete`, { method: 'POST', body: { adminPassword }, signal }, (value) => {
-    const o = safeObject(value)
-    return { access: parseAccess(o.access), restarting: safeBoolean(o.restarting) }
-  })
-}
-
-export function fetchCleanupInfo(deviceID: string, signal?: AbortSignal | null): Promise<PolicyCleanupInfo> {
-  return policyFetch(deviceID, '/access/cleanup', { method: 'POST', signal }, (value) => {
-    const o = safeObject(value)
-    return {
-      deviceId: safeString(o.deviceId ?? o.deviceID),
-      managed: safeBoolean(o.managed),
-      username: safeString(o.username),
-      groupName: safeString(o.groupName),
-      script: safeString(o.script),
-    }
-  })
-}
-
-export function saveLANScope(
-  deviceID: string,
-  scope: unknown,
-  adminPassword: string,
-  signal?: AbortSignal | null,
-): Promise<Record<string, unknown>> {
-  return policyFetch(deviceID, '/lan-scope', { method: 'PUT', body: { scope, adminPassword }, signal }, (value) => {
-    const o = safeObject(value)
-    return safeObject(o.lanScope ?? value)
+    return parseTrafficIngress(o.trafficIngress ?? value)
   })
 }
 
@@ -694,8 +654,21 @@ export function saveEgress(deviceID: string, draft: PolicyEgressDraft, signal?: 
   return policyFetch(deviceID, path, { method, body: draft, signal }, parseEgress)
 }
 
-export function deleteEgress(deviceID: string, id: string, revision: number, signal?: AbortSignal | null): Promise<void> {
-  return policyFetch(deviceID, `/egresses/${encodeURIComponent(id)}?revision=${revision}`, { method: 'DELETE', signal }, () => undefined)
+function parseApplyResult(value: unknown): PolicyApplyResult {
+  const o = safeObject(value)
+  return {
+    ...o,
+    job: o.job ? parseJob(o.job) : undefined,
+    jobId: safeString(o.jobId ?? safeObject(o.job).id),
+  }
+}
+
+export function setEgressEnabled(deviceID: string, id: string, enabled: boolean, revision: number, signal?: AbortSignal | null): Promise<PolicyApplyResult> {
+  return policyFetch(deviceID, `/egresses/${encodeURIComponent(id)}/state`, { method: 'POST', body: { enabled, revision }, signal }, parseApplyResult)
+}
+
+export function deleteEgress(deviceID: string, id: string, revision: number, signal?: AbortSignal | null): Promise<PolicyApplyResult> {
+  return policyFetch(deviceID, `/egresses/${encodeURIComponent(id)}?revision=${revision}`, { method: 'DELETE', signal }, parseApplyResult)
 }
 
 export function saveSource(deviceID: string, draft: PolicySourceDraft, extra?: { previewId?: string }, signal?: AbortSignal | null): Promise<PolicySource> {
@@ -705,8 +678,8 @@ export function saveSource(deviceID: string, draft: PolicySourceDraft, extra?: {
   return policyFetch(deviceID, path, { method, body, signal }, parseSource)
 }
 
-export function deleteSource(deviceID: string, id: string, revision: number, signal?: AbortSignal | null): Promise<void> {
-  return policyFetch(deviceID, `/sources/${encodeURIComponent(id)}?revision=${revision}`, { method: 'DELETE', signal }, () => undefined)
+export function deleteSource(deviceID: string, id: string, revision: number, signal?: AbortSignal | null): Promise<PolicyApplyResult> {
+  return policyFetch(deviceID, `/sources/${encodeURIComponent(id)}?revision=${revision}`, { method: 'DELETE', signal }, parseApplyResult)
 }
 
 export function fetchSourceRules(
@@ -772,17 +745,10 @@ export function generateTakeoverPlan(deviceID: string, items: unknown, signal?: 
 export function applyPlan(
   deviceID: string,
   planId: string,
-  body: { acknowledgements: string[]; adminPassword?: string },
+  body: { acknowledgements: string[] },
   signal?: AbortSignal | null,
 ): Promise<PolicyApplyResult> {
-  return policyFetch(deviceID, `/plans/${encodeURIComponent(planId)}/apply`, { method: 'POST', body, signal }, (value) => {
-    const o = safeObject(value)
-    return {
-      ...o,
-      job: o.job ? parseJob(o.job) : undefined,
-      jobId: safeString(o.jobId ?? safeObject(o.job).id),
-    } as PolicyApplyResult
-  })
+  return policyFetch(deviceID, `/plans/${encodeURIComponent(planId)}/apply`, { method: 'POST', body, signal }, parseApplyResult)
 }
 
 export function fetchAudit(deviceID: string, options: { cursor?: string; limit?: number }, signal?: AbortSignal | null): Promise<PolicyAuditPage> {

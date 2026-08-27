@@ -32,6 +32,32 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	}
 }
 
+func TestLegacyPolicyAccessIsIgnoredAndRemovedOnSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	payload := []byte("devices:\n  - id: edge\n    name: Edge\n    enabled: true\n    routeros:\n      base_url: http://router.test\n      username: monitor\n      password: monitor-secret\n    policy_access:\n      enabled: true\n      username: old-policy\n      password: old-secret\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices) != 1 || cfg.Devices[0].RouterOS.Username != "monitor" {
+		t.Fatalf("legacy device did not load: %#v", cfg.Devices)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "policy_access") || strings.Contains(string(saved), "old-secret") {
+		t.Fatalf("retired policy access remained in saved config: %s", saved)
+	}
+}
+
 func TestLoadProtocolAnalysisDefaultsAndMigration(t *testing.T) {
 	tests := []struct {
 		name         string

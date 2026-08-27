@@ -21,6 +21,7 @@ import type {
   ConnectionFamily,
   DashboardResponse,
   DeviceStatus,
+  DeviceAccountStatus,
   DHCPStat,
   FleetDevice,
   FleetOverview,
@@ -1551,7 +1552,17 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
         {activeView === 'policy-routing' ? (
           <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载策略路由…</p></div></main>}>
-            <PolicyRoutingPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} section={policySection} />
+            <PolicyRoutingPage
+              key={selectedDeviceID}
+              deviceID={selectedDeviceID}
+              refreshNonce={refreshNonce}
+              section={policySection}
+              onOpenDeviceSettings={() => {
+                setActiveView('settings')
+                setSettingsSection('connection')
+                setSettingsExpanded(true)
+              }}
+            />
           </Suspense>
         ) : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
@@ -1987,6 +1998,13 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 	const [pendingDeviceChanges, setPendingDeviceChanges] = useState(false)
 	const [applyingDeviceChanges, setApplyingDeviceChanges] = useState(false)
 	const [cleanup, setCleanup] = useState<RouterOSCleanupResponse | null>(() => consumePendingRouterOSCleanup())
+	const [accountStatus, setAccountStatus] = useState<DeviceAccountStatus | null>(null)
+	const [accountLoading, setAccountLoading] = useState(false)
+	const [accountEditing, setAccountEditing] = useState(false)
+	const [replacementSession, setReplacementSession] = useState<ProvisioningSessionResponse | null>(null)
+	const [replacementBusy, setReplacementBusy] = useState(false)
+	const [replacementCopied, setReplacementCopied] = useState(false)
+	const [replacementError, setReplacementError] = useState<string | null>(null)
 	const original = available.find((device) => device.id === draft.id)
 	const connectionChanged = !original || original.scheme !== draft.scheme || original.host !== draft.host.trim() || original.port !== draft.port || original.username !== draft.username.trim() || draft.password !== ''
 	const verificationRequired = connectionChanged && !verification
@@ -2025,11 +2043,28 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
 			})
 		return () => { cancelled = true }
 	}, [draft.id])
+	useEffect(() => {
+		if (!draft.id) {
+			setAccountStatus(null)
+			return
+		}
+		let cancelled = false
+		setAccountLoading(true)
+		requestJSON(`/api/devices/${encodeURIComponent(draft.id)}/account`, 'GET')
+			.then((response) => response.json() as Promise<DeviceAccountStatus>)
+			.then((status) => { if (!cancelled) setAccountStatus(status) })
+			.catch((error) => {
+				if (!cancelled) setAccountStatus({ username: '', policies: [], permission: 'unknown', writeAccess: false, error: error instanceof Error ? error.message : '读取权限失败' })
+			})
+			.finally(() => { if (!cancelled) setAccountLoading(false) })
+		return () => { cancelled = true }
+	}, [draft.id])
   const choose = (device?: SettingsDevice) => {
 	setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null);
 	setVerification(null); setScopedDashboard(null); setScopeError(null);
 	setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false);
 	setProvisioningMode('quick')
+	setAccountEditing(false); setReplacementSession(null); setReplacementError(null); setReplacementCopied(false)
 	if (!device) {
 	  setQuickName('')
 	  setQuickHost('10.0.0.1')
@@ -2167,6 +2202,58 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     }
   }
 
+	const generateReplacementScript = async () => {
+		if (!draft.id) return
+		setReplacementBusy(true)
+		setReplacementError(null)
+		try {
+			const response = await requestJSON('/api/device-onboarding/sessions', 'POST', { deviceId: draft.id })
+			setReplacementSession(await response.json() as ProvisioningSessionResponse)
+		} catch (error) {
+			setReplacementError(error instanceof Error ? error.message : '生成一键更换脚本失败')
+		} finally {
+			setReplacementBusy(false)
+		}
+	}
+
+	const copyReplacementScript = async () => {
+		if (!replacementSession) return
+		try {
+			await copyText(replacementSession.script)
+			setReplacementCopied(true)
+			window.setTimeout(() => setReplacementCopied(false), 2000)
+		} catch {
+			setReplacementError('复制失败，请手动选择并复制脚本')
+		}
+	}
+
+	const completeReplacement = async () => {
+		if (!replacementSession) return
+		setReplacementBusy(true)
+		setReplacementError(null)
+		try {
+			await props.onRestartingAction(
+				() => requestJSON(`/api/device-onboarding/sessions/${encodeURIComponent(replacementSession.sessionId)}/complete`, 'POST', { completeOnboarding: false, deferRestart: false }).then(() => undefined),
+				() => setReplacementError('账号已更换，面板正在重新连接…'),
+			)
+		} catch (error) {
+			setReplacementError(error instanceof Error ? error.message : '更换账号失败')
+			setReplacementBusy(false)
+		}
+	}
+
+	const removeDeviceAccount = async () => {
+		if (!draft.id || !window.confirm('删除 rosboard 保存的设备账号？设备将同时停用，但不会删除 RouterOS 中的用户。')) return
+		try {
+			await props.onRestartingAction(
+				() => requestJSON(`/api/devices/${encodeURIComponent(draft.id)}/account`, 'DELETE').then(() => undefined),
+				() => setMessage('账号已删除，设备已停用，面板正在重启…'),
+			)
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : '删除设备账号失败')
+		}
+	}
+
   const archiveDevice = async () => {
     if (!draft.id || !window.confirm(`归档设备“${draft.name}”？历史数据将保留。`)) return
     setSavingAction('save')
@@ -2253,12 +2340,28 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
     ) : null}
     {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); void saveDevice() }}>
-      <label><span>设备名称</span><input className="settings-input" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-      <label><span>协议</span><select className="select-control settings-select" value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
-      <label><span>IP / 主机名</span><input className="settings-input" required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
-      <label><span>REST 端口</span><input className="settings-input" type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
-      <label><span>用户名</span><input className="settings-input" required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
-      <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input className="settings-input" id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+      <div className="device-connection-row wide">
+        <label><span>设备名称</span><input className="settings-input" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+        <label><span>协议</span><select className="select-control settings-select" value={draft.scheme} onChange={(event) => { setDraft((current) => ({ ...current, scheme: event.target.value === 'https' ? 'https' : 'http', port: current.port === 80 || current.port === 443 ? (event.target.value === 'https' ? 443 : 80) : current.port })); setVerification(null) }}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+        <label><span>IP / 主机名</span><input className="settings-input" required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); setVerification(null) }} /></label>
+        <label><span>REST 端口</span><input className="settings-input" type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); setVerification(null) }} /></label>
+      </div>
+      <section className="device-account-card wide" aria-labelledby="device-account-title">
+        <div className="device-account-head"><div><h4 id="device-account-title">账号管理</h4><small>监控与策略路由共用此 RouterOS REST 账号</small></div>{draft.id ? <button type="button" className="toolbar-button" onClick={() => setAccountEditing((value) => !value)}>{accountEditing ? '取消编辑' : '编辑'}</button> : null}</div>
+        {draft.id && !accountEditing ? (
+          <div className="device-account-row">
+            <span><small>用户名</small><strong>{draft.username || '未配置'}</strong></span>
+            <span><small>权限</small><strong className={accountStatus?.writeAccess ? 'account-permission-ok' : 'account-permission-warn'}>{accountLoading ? '读取中…' : accountStatus?.permission === 'write' ? '可写' : accountStatus?.permission === 'read_only' ? '只读' : '未知'}</strong></span>
+            <div className="device-account-actions"><button type="button" className="toolbar-button" disabled={replacementBusy} onClick={() => void generateReplacementScript()}>{replacementBusy ? '正在生成…' : '一键更换'}</button><button type="button" className="link-button link-button--danger" onClick={() => void removeDeviceAccount()}>删除</button></div>
+            {accountStatus?.error ? <small className="settings-message">{accountStatus.error}</small> : null}
+          </div>
+        ) : (
+          <div className="device-account-edit">
+            <label><span>用户名</span><input className="settings-input" required autoComplete="username" value={draft.username} onChange={(event) => { setDraft((current) => ({ ...current, username: event.target.value })); setVerification(null) }} /></label>
+            <div className="settings-field"><label htmlFor="device-password">密码</label><span className="password-input"><input className="settings-input" id="device-password" required={!draft.id} placeholder={draft.id && original?.passwordSet ? '留空则保持现有密码' : ''} type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={draft.password} onChange={(event) => { setDraft((current) => ({ ...current, password: event.target.value })); setVerification(null) }} /><button type="button" className="password-toggle" aria-label={passwordVisible ? '隐藏密码' : '显示密码'} onClick={() => setPasswordVisible((value) => !value)}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} /></button></span></div>
+          </div>
+        )}
+      </section>
       <div className="settings-actions span-2"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '正在测试...' : verification ? '重新测试连接' : '测试 RouterOS 连接'}</button><span className="settings-inline-note">连接成功后将自动识别上网线路和本地终端范围。</span></div>
       {verification ? <div className="verification-summary span-2"><strong>{verification.identity.routerName || verification.identity.boardName} · RouterOS {verification.identity.version || '版本未知'}</strong>{verification.warnings?.map((warning) => <p key={warning.capability}>{warning.message}</p>)}</div> : null}
       <details className="settings-disclosure wide auto-scope-settings">
@@ -2322,6 +2425,19 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; selectedDevice
       {message ? <div className="settings-message span-2" role="status">{message}</div> : null}
     </form>
     ) : null}
+	{replacementSession ? (
+		<div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="replace-account-title">
+			<div className="remark-modal account-replacement-modal">
+				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
+				<div className="remark-modal-body">
+					<div className="provisioning-step-card"><strong>步骤 1：复制并执行脚本</strong><textarea readOnly value={replacementSession.script} rows={12} spellCheck={false} /><button type="button" className="toolbar-button" onClick={() => void copyReplacementScript()}>{replacementCopied ? '已复制 ✓' : '复制脚本'}</button></div>
+					<div className="provisioning-step-card"><strong>步骤 2：验证并替换</strong><p>在 RouterOS Terminal 执行成功后点击下方按钮，rosboard 会验证新账号、替换保存的凭据并重启。</p></div>
+					{replacementError ? <div className="settings-message" role="alert">{replacementError}</div> : null}
+					<div className="remark-modal-actions"><button type="button" className="close-button modal-action-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>取消</button><button type="button" className="primary-button modal-action-button" disabled={replacementBusy} onClick={() => void completeReplacement()}>{replacementBusy ? '正在验证…' : '验证并更换账号'}</button></div>
+				</div>
+			</div>
+		</div>
+	) : null}
 	{pendingDeviceChanges && !props.onboarding ? <div className="pending-device-actions" role="status"><span>设备配置已保存但尚未应用，可继续添加其他设备。</span><button type="button" className="complete-setup-button" disabled={applyingDeviceChanges} onClick={() => void applyDeviceChanges()}>{applyingDeviceChanges ? '正在应用...' : '应用全部设备并重启'}</button></div> : null}
     </div>
   </div>

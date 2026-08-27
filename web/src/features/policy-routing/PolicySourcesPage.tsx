@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PolicyEgress, PolicyOverview, PolicySource } from './types'
 import {
   deleteSource,
+  fetchJob,
   previewUpload,
   previewURL,
   saveSource,
@@ -123,8 +124,7 @@ export function PolicySourcesPage({
 }
 
 function sourceStatus(src: PolicySource, overview: PolicyOverview | null): { tone: StatusTone; label: string } {
-  if (src.pendingDeletion && src.egressId) return { tone: 'warn', label: '待清理（仍绑定策略，需应用设置）' }
-  if (src.pendingDeletion) return { tone: 'warn', label: '未分配（待清理，需应用设置）' }
+  if (src.pendingDeletion) return { tone: 'warn', label: '清理未完成，可重试' }
   if (!src.egressId) return { tone: 'neutral', label: '未分配（不参与应用）' }
   const egress = overview?.egresses.find((e) => e.id === src.egressId)
   if (egress && (egress.pendingDeletion || !egress.enabled)) return { tone: 'warn', label: '策略已停用（暂不参与应用）' }
@@ -438,7 +438,8 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
     setError(null)
     setDeleting(true)
     try {
-      await deleteSource(deviceID, source.id, source.revision)
+      const result = await deleteSource(deviceID, source.id, source.revision)
+      if (result.jobId) await waitForSourceDeleteJob(deviceID, result.jobId)
       onDone()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
@@ -448,10 +449,10 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
   }
 
   const message = source.pendingDeletion
-    ? `该列表已处于待清理状态：本次将继续自动解除任何残余策略绑定；若仍有已应用的 RouterOS 引用，将保持待清理、需随后通过应用设置完成清理（rosboard 不直接写 RouterOS）；无引用时才会物理删除定义与历史版本。`
+    ? '该列表上次清理未完成；确认后将重新清理它在 RouterOS 中生成的规则。'
     : source.egressId
-      ? `将先自动解除该列表与策略路由的绑定（列表在其他页面显示为未分配）；若存在已应用的 RouterOS 对象，会进入待清理状态，需随后应用设置清理；否则立即删除 rosboard 定义与历史版本。rosboard 不会直接写 RouterOS。`
-      : `该列表未分配给任何策略路由：将立即删除 rosboard 中的定义与历史版本，不写 RouterOS、不要求应用设置。若它仍有曾应用过的规则，会进入待清理状态，需随后应用设置清理。此操作不可撤销。`
+      ? '确认后将立即解除策略绑定并清理该列表在 RouterOS 中生成的规则；其他列表和策略不受影响。'
+      : '该列表未分配给策略；确认后将立即删除 rosboard 中的定义与历史版本。此操作不可撤销。'
 
   return (
     <PolicyModal title="删除域名列表" onClose={onClose}>
@@ -466,4 +467,13 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
       </div>
     </PolicyModal>
   )
+}
+
+async function waitForSourceDeleteJob(deviceID: string, jobID: string): Promise<void> {
+  for (;;) {
+    const job = await fetchJob(deviceID, jobID)
+    if (job.state === 'committed') return
+    if (job.state === 'failed') throw new Error(job.error || 'RouterOS 清理失败')
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+  }
 }

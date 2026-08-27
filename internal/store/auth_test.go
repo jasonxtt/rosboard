@@ -101,3 +101,55 @@ func TestResetAllClearsAuthenticationStateAndMonitoringData(t *testing.T) {
 		t.Fatalf("monitoring data survived reset: count=%d err=%v", samples, err)
 	}
 }
+
+func TestManagerInstanceIDIsStableAndConcurrencySafe(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	const callers = 32
+	ids := make(chan string, callers)
+	errs := make(chan error, callers)
+	for range callers {
+		go func() {
+			id, err := storage.ManagerInstanceID(context.Background())
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- id
+		}()
+	}
+	for range callers {
+		select {
+		case err := <-errs:
+			t.Fatal(err)
+		case id := <-ids:
+			if id == "" {
+				t.Fatal("manager instance ID is empty")
+			}
+			if len(id) != 36 {
+				t.Fatalf("manager instance ID is not a UUID: %q", id)
+			}
+		}
+	}
+
+	first, err := storage.ManagerInstanceID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := Open(storage.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	second, err := restarted.ManagerInstanceID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("manager instance ID changed after reopen: first=%q second=%q", first, second)
+	}
+}

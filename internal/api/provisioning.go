@@ -29,6 +29,7 @@ const provisioningPasswordCharset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrst
 const provisioningPasswordLength = 32
 
 type provisioningSession struct {
+	deviceID   string
 	deviceName string
 	baseURL    string
 	scheme     string
@@ -51,7 +52,7 @@ func newProvisioningSessions() *provisioningSessions {
 	return &provisioningSessions{now: time.Now, random: rand.Reader, items: make(map[[32]byte]provisioningSession)}
 }
 
-func (ps *provisioningSessions) create(deviceName, scheme, host string, port int) (sessionID string, session provisioningSession, script string, err error) {
+func (ps *provisioningSessions) create(deviceID, deviceName, scheme, host string, port int) (sessionID string, session provisioningSession, script string, err error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.pruneLocked()
@@ -83,6 +84,7 @@ func (ps *provisioningSessions) create(deviceName, scheme, host string, port int
 
 	expiresAt := ps.now().UTC().Add(provisioningSessionLifetime)
 	session = provisioningSession{
+		deviceID:   deviceID,
 		deviceName: deviceName,
 		baseURL:    baseURL,
 		scheme:     scheme,
@@ -158,9 +160,9 @@ func provisioningScript(username, groupName, password string) string {
 	return fmt.Sprintf(`{
 :local rbGroupId [/user group find where name="%s"]
 :if ([:len $rbGroupId] = 0) do={
-    /user group add name="%s" policy=read,test,api,rest-api
+    /user group add name="%s" policy=read,write,test,api,rest-api
 } else={
-    /user group set $rbGroupId policy=read,test,api,rest-api
+    /user group set $rbGroupId policy=read,write,test,api,rest-api
 }
 :local rbUserId [/user find where name="%s"]
 :if ([:len $rbUserId] = 0) do={
@@ -245,10 +247,11 @@ func routerOSCleanupForDevice(device config.DeviceConfig) (routerOSCleanupRespon
 }
 
 type createProvisioningSessionRequest struct {
-	Name   string `json:"name"`
-	Host   string `json:"host"`
-	Scheme string `json:"scheme"`
-	Port   int    `json:"port"`
+	DeviceID string `json:"deviceId"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Scheme   string `json:"scheme"`
+	Port     int    `json:"port"`
 }
 
 type createProvisioningSessionResponse struct {
@@ -273,6 +276,16 @@ func (s *Server) serveCreateProvisioningSession(writer http.ResponseWriter, requ
 		return
 	}
 	name := strings.TrimSpace(payload.Name)
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	if deviceID != "" {
+		device, found := s.configSnapshot().Device(deviceID)
+		if !found {
+			writeAPIError(writer, http.StatusNotFound, "device_not_found", "device not found")
+			return
+		}
+		name = device.Name
+		payload.Scheme, payload.Host, payload.Port = routerOSConnectionParts(device.RouterOS.BaseURL)
+	}
 	if name == "" {
 		writeAPIError(writer, http.StatusBadRequest, "invalid_device", "device name is required")
 		return
@@ -323,7 +336,7 @@ func (s *Server) serveCreateProvisioningSession(writer http.ResponseWriter, requ
 		}
 	}
 
-	sessionID, session, script, err := s.provisioning.create(name, scheme, host, port)
+	sessionID, session, script, err := s.provisioning.create(deviceID, name, scheme, host, port)
 	if err != nil {
 		writeAPIError(writer, http.StatusInternalServerError, "provisioning_failed", "failed to create provisioning session")
 		return
@@ -446,8 +459,24 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 	// Step 7: Prepare device (with deviceSaveMu lock)
 	s.deviceSaveMu.Lock()
 	deviceID, err := func() (string, error) {
-		deviceID := uuid.NewString()
-		device, consumeTicket, err := s.prepareDevice(ctx, deviceID, devicePayload, nil)
+		deviceID := session.deviceID
+		var existing *config.DeviceConfig
+		if deviceID == "" {
+			deviceID = uuid.NewString()
+		} else {
+			current, found := s.configSnapshot().Device(deviceID)
+			if !found {
+				return "", errors.New("device not found")
+			}
+			existing = &current
+			devicePayload.Name = current.Name
+			devicePayload.Enabled = current.Enabled
+			devicePayload.TrafficInterfaces = current.RouterOS.TrafficInterfaces
+			devicePayload.TrafficScope = current.RouterOS.TrafficScope
+			devicePayload.TerminalCIDRs = current.RouterOS.TerminalCIDRs
+			devicePayload.TerminalScope = current.RouterOS.TerminalScope
+		}
+		device, consumeTicket, err := s.prepareDevice(ctx, deviceID, devicePayload, existing)
 		if err != nil {
 			return "", err
 		}
@@ -456,7 +485,16 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 			GroupName: session.groupName,
 		}
 		if err := s.saveSettings(func(next *config.Config) {
-			next.Devices = append(next.Devices, device)
+			if existing == nil {
+				next.Devices = append(next.Devices, device)
+				return
+			}
+			for index := range next.Devices {
+				if next.Devices[index].ID == deviceID {
+					next.Devices[index] = device
+					return
+				}
+			}
 		}); err != nil {
 			return "", fmt.Errorf("save device: %w", err)
 		}

@@ -20,6 +20,7 @@ import (
 	"rosboard/internal/api"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
+	"rosboard/internal/policyv2"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
 	"rosboard/internal/ui"
@@ -77,10 +78,15 @@ func main() {
 	if !cfg.RouterOSConfigured() {
 		logger.Print("routeros is not configured, serving setup UI")
 	}
+	policyManager := policyv2.NewManager(logger)
+	if err := assemblePolicyRuntimes(cfg, storage, policyManager); err != nil {
+		log.Fatalf("assemble policy runtimes: %v", err)
+	}
+	go policyManager.Start(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           api.NewServerWithManager(cfg, manager, storage, assets, func() { os.Exit(0) }),
+		Handler:           api.NewServerWithPolicyManager(cfg, manager, storage, assets, func() { os.Exit(0) }, policyManager),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

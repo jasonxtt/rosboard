@@ -12,7 +12,7 @@ export function defaultEgressDraft(): PolicyEgressDraft {
     id: '',
     name: '',
     priority: 100,
-    listMode: 'shared',
+    listMode: 'dedicated',
     listName: 'manual_proxy_lab',
     dnsUpstream: '1.1.1.1',
     fakeAlias: '',

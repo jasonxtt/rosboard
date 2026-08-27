@@ -11,7 +11,6 @@ import {
   PolicyNotice,
   PolicyPreparing,
 } from './components'
-import { policySetupStateLabel } from './format'
 
 const policyRoutingViewKey = 'rosboard:policy-routing-view'
 
@@ -19,13 +18,15 @@ export function PolicyRoutingPage({
   deviceID,
   refreshNonce,
   section,
+  onOpenDeviceSettings,
 }: {
   deviceID: string
   refreshNonce: number
   section: PolicySection
+  onOpenDeviceSettings: () => void
 }) {
   const { overview, loading, error, reload } = usePolicyOverview(deviceID, refreshNonce)
-  const discoveryEnabled = overview?.access.enabled === true && overview?.setup.state === 'ready'
+  const discoveryEnabled = overview?.setup.state === 'ready'
   const { discovery } = usePolicyDiscovery(deviceID, discoveryEnabled)
 
   const [wizardEgress, setWizardEgress] = useState<PolicyEgress | null | undefined>(undefined)
@@ -59,7 +60,7 @@ export function PolicyRoutingPage({
     return <PolicyPreparing text="正在读取策略状态…" />
   }
 
-  const readOnly = !overview.device.enabled || Boolean(overview.device.archived) || !overview.access.enabled || overview.setup.state !== 'ready'
+  const readOnly = !overview.device.enabled || Boolean(overview.device.archived) || overview.setup.state !== 'ready'
   const setupState = overview.setup.state
 
   return (
@@ -75,17 +76,15 @@ export function PolicyRoutingPage({
         <PolicyNotice tone="warn" title="RouterOS 策略运行时不可用">
           {overview.capability?.reason || '无法连接 RouterOS 策略运行时。'}草稿仍可编辑，预览与应用暂不可用。
         </PolicyNotice>
-      ) : setupState === 'access_required' ? (
-        <PolicyNotice tone="warn" title="策略运行时未就绪">
-          {policySetupStateLabel[setupState] ?? setupState} — 策略编辑、预览与应用暂不可用。
+      ) : setupState === 'write_access_required' ? (
+        <PolicyNotice tone="warn" title="RouterOS 账号缺少写入权限">
+          当前账号 {overview.account.username || '未知'} 只能读取 RouterOS，无法应用策略路由。<button type="button" className="link-button" onClick={onOpenDeviceSettings}>前往设备管理更换账号</button>
         </PolicyNotice>
       ) : null}
 
       {readOnly && setupState === 'ready' ? (
         <PolicyNotice tone="info" title="当前为只读状态">
-          {overview.access.enabled
-            ? '设备已停用或策略运行时未就绪，草稿编辑、预览与应用暂不可用。'
-            : '策略访问未就绪，暂时无法编辑草稿、生成预览与应用变更。'}
+          设备已停用、账号缺少写权限或策略运行时未就绪，草稿编辑、预览与应用暂不可用。
         </PolicyNotice>
       ) : null}
 
@@ -171,7 +170,7 @@ function ApplyPlanModal({
     <div className="policy-modal policy-modal--wide">
         <div className="policy-modal-head">
           <div>
-            <h3>应用设置</h3>
+            <h3>应用变更</h3>
             <p className="policy-modal-subtitle">预览并确认 RouterOS 差异；计划在实际状态指纹变化或过期后失效，需要重新生成。</p>
           </div>
           <button type="button" className="policy-modal-close" onClick={onClose}>×</button>

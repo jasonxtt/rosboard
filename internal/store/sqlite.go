@@ -21,14 +21,15 @@ import (
 var ErrTerminalNotFound = errors.New("terminal not found")
 
 type Store struct {
-	db         *sql.DB
-	deviceID   string
-	owner      bool
-	closeable  bool
-	dataDir    string
-	dbPath     string
-	childrenMu sync.Mutex
-	children   map[string]*Store
+	db                *sql.DB
+	deviceID          string
+	owner             bool
+	closeable         bool
+	dataDir           string
+	dbPath            string
+	managerInstanceID string
+	childrenMu        sync.Mutex
+	children          map[string]*Store
 }
 
 const defaultDeviceID = "default"
@@ -106,6 +107,16 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := store.initInstallationMetaSchema(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	managerInstanceID, err := store.ManagerInstanceID(context.Background())
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	store.managerInstanceID = managerInstanceID
 	return store, nil
 }
 
@@ -141,14 +152,14 @@ func (s *Store) ForDevice(deviceID string) *Store {
 		deviceID = defaultDeviceID
 	}
 	if deviceID == defaultDeviceID || !s.owner {
-		return &Store{db: s.db, deviceID: deviceID, closeable: false}
+		return &Store{db: s.db, deviceID: deviceID, closeable: false, managerInstanceID: s.managerInstanceID}
 	}
 	child, err := s.OpenDevice(deviceID)
 	if err != nil {
 		// Keep the legacy helper's no-error signature for tests and callers that
 		// only need a device view. Production monitor startup uses OpenDevice and
 		// returns the initialization error instead of falling back silently.
-		return &Store{db: s.db, deviceID: deviceID}
+		return &Store{db: s.db, deviceID: deviceID, managerInstanceID: s.managerInstanceID}
 	}
 	return child
 }
@@ -161,7 +172,7 @@ func (s *Store) OpenDevice(deviceID string) (*Store, error) {
 	}
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" || deviceID == defaultDeviceID {
-		return &Store{db: s.db, deviceID: defaultDeviceID, closeable: false}, nil
+		return &Store{db: s.db, deviceID: defaultDeviceID, closeable: false, managerInstanceID: s.managerInstanceID}, nil
 	}
 
 	s.childrenMu.Lock()
@@ -183,7 +194,7 @@ func (s *Store) OpenDevice(deviceID string) (*Store, error) {
 	// writer order deterministic without creating a global cross-device queue.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	child := &Store{db: db, deviceID: deviceID, closeable: true, dataDir: deviceDir, dbPath: dbPath}
+	child := &Store{db: db, deviceID: deviceID, closeable: true, dataDir: deviceDir, dbPath: dbPath, managerInstanceID: s.managerInstanceID}
 	if err := child.initDeviceSchema(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -350,7 +361,10 @@ func (s *Store) initSchema() error {
 	if err := s.backfillDNSFeatures(); err != nil {
 		return err
 	}
-	return s.initAuthSchema()
+	if err := s.initAuthSchema(); err != nil {
+		return err
+	}
+	return s.initPolicySchema()
 }
 
 func (s *Store) initDeviceSchema() error {
@@ -378,7 +392,7 @@ func (s *Store) initDeviceSchema() error {
 	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("checkpoint device schema: %w", err)
 	}
-	return nil
+	return s.initPolicySchema()
 }
 
 func (s *Store) migrateLegacyDevice(sourcePath, deviceID string) error {

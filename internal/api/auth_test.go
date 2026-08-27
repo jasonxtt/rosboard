@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -209,6 +210,53 @@ func TestAuthenticatedServerRejectsWriteWithoutOrigin(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestSameOriginWriteUsesExactEffectiveOrigin(t *testing.T) {
+	httpRequest := httptest.NewRequest(http.MethodPost, "http://panel.example/api/settings", nil)
+	for _, origin := range []string{"http://panel.example", "http://panel.example:80"} {
+		httpRequest.Header.Set("Origin", origin)
+		if !sameOriginWrite(httpRequest) {
+			t.Fatalf("valid HTTP origin %q was rejected", origin)
+		}
+	}
+	for _, origin := range []string{"https://panel.example", "http://panel.example/path", "http://user@panel.example", "http://panel.example:81"} {
+		httpRequest.Header.Set("Origin", origin)
+		if sameOriginWrite(httpRequest) {
+			t.Fatalf("invalid HTTP origin %q was accepted", origin)
+		}
+	}
+
+	httpsRequest := httptest.NewRequest(http.MethodPost, "https://panel.example/api/settings", nil)
+	httpsRequest.TLS = &tls.ConnectionState{}
+	for _, origin := range []string{"http://panel.example", "https://panel.example/path", "https://user@panel.example"} {
+		httpsRequest.Header.Set("Origin", origin)
+		if sameOriginWrite(httpsRequest) {
+			t.Fatalf("invalid HTTPS origin %q was accepted", origin)
+		}
+	}
+	httpsRequest.Header.Set("Origin", "https://panel.example:443")
+	if !sameOriginWrite(httpsRequest) {
+		t.Fatal("valid HTTPS origin was rejected")
+	}
+
+	absoluteForm := httptest.NewRequest(http.MethodPost, "https://panel.example/api/settings", nil)
+	absoluteForm.TLS = nil
+	absoluteForm.Header.Set("Origin", "https://panel.example")
+	if sameOriginWrite(absoluteForm) {
+		t.Fatal("absolute-form request target changed the trusted HTTP scheme")
+	}
+	absoluteForm.Header.Set("Origin", "http://panel.example")
+	if !sameOriginWrite(absoluteForm) {
+		t.Fatal("absolute-form HTTP request did not use the direct connection scheme")
+	}
+
+	proxyMismatch := httptest.NewRequest(http.MethodPost, "http://panel.example/api/settings", nil)
+	proxyMismatch.TLS = &tls.ConnectionState{}
+	proxyMismatch.Header.Set("Origin", "http://panel.example")
+	if sameOriginWrite(proxyMismatch) {
+		t.Fatal("proxy scheme mismatch was accepted")
 	}
 }
 
