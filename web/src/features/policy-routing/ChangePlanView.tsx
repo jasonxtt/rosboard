@@ -105,6 +105,15 @@ export function ChangePlanView({
     ? operationsByAction.filter((group) => ['create', 'modify', 'move'].includes(group.key))
     : operationsByAction
 
+  const applyButton = (
+    <button type="button" className="primary-button policy-apply-button" disabled={!canApply || applying} onClick={handleApply}>
+      {applying ? '应用中…' : '应用计划'}
+    </button>
+  )
+  const cancelButton = (
+    <button type="button" className="primary-button policy-cancel-button" disabled={applying} onClick={onCancel}>取消</button>
+  )
+
   return (
     <div className={`policy-plan${compact ? ' policy-plan--compact' : ''}`}>
       {!compact ? (
@@ -210,13 +219,11 @@ export function ChangePlanView({
       {error ? <PolicyErrorDisplay error={error} /> : null}
 
       <div className="policy-form-actions">
-        <button type="button" className="primary-button policy-apply-button" disabled={!canApply || applying} onClick={handleApply}>
-          {applying ? '应用中…' : '应用计划'}
-        </button>
+        {compact ? cancelButton : applyButton}
         {onRegenerate ? (
           <button type="button" className="toolbar-button" disabled={applying} onClick={onRegenerate}>重新生成</button>
         ) : null}
-        <button type="button" className="toolbar-button" disabled={applying} onClick={onCancel}>取消</button>
+        {compact ? applyButton : cancelButton}
       </div>
     </div>
   )

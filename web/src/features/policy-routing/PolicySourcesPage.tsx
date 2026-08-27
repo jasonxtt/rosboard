@@ -160,7 +160,7 @@ function SourceRow({
       <td>
         <span className="policy-cell-stack">
           <strong>{source.name}</strong>
-          {source.url ? <span className="policy-sub-cell mono">{source.url}</span> : null}
+          {source.url ? <span className="policy-subcell mono">{source.url}</span> : null}
         </span>
       </td>
       <td>{policySourceTypeLabel[source.type] ?? source.type}</td>
