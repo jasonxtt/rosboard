@@ -11,7 +11,20 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8080',
+      '/api': {
+        target: 'http://10.0.0.6:8080',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            const targetOrigin = 'http://10.0.0.6:8080'
+            if (req.headers.origin) proxyReq.setHeader('origin', targetOrigin)
+            if (req.headers.referer) {
+              const referer = req.headers.referer.replace(/^https?:\/\/[^\/]+/, targetOrigin)
+              proxyReq.setHeader('referer', referer)
+            }
+          })
+        },
+      },
     },
   },
 })

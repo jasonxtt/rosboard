@@ -73,6 +73,8 @@ type RecognitionDraft = {
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
+const PolicyRoutingPage = lazy(() => import('./features/policy-routing/PolicyRoutingPage').then((module) => ({ default: module.PolicyRoutingPage })))
+
 const panelPreferenceKey = 'rosboard:panel-preferences'
 const selectedDeviceKey = 'rosboard:selected-device'
 const trafficWindowKey = 'rosboard:traffic-window'
@@ -215,7 +217,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings']
+const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'policy-routing']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -751,9 +753,18 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [statusExpanded, setStatusExpanded] = useState(false)
+  const [hostSettingsExpanded, setHostSettingsExpanded] = useState(false)
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
+  const [policySection, setPolicySection] = useState<'settings' | 'sources'>(() => {
+    try {
+      const raw = window.sessionStorage.getItem('rosboard:policy-routing-view')
+      if (!raw) return 'settings'
+      const parsed = JSON.parse(raw) as { view: string; section: string }
+      return parsed.section === 'sources' ? 'sources' : 'settings'
+    } catch { return 'settings' }
+  })
 
   const updatePanelPreferences = (next: PanelPreferences) => {
     setThemePreview(null)
@@ -907,12 +918,22 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings') return
+    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing') return
     setStatusExpanded(true)
   }, [activeView])
 
   useEffect(() => {
-    if (activeView === 'fleet') return
+    if (activeView === 'policy-routing') setHostSettingsExpanded(true)
+  }, [activeView])
+
+  useEffect(() => {
+    if (activeView === 'policy-routing') {
+      window.sessionStorage.setItem('rosboard:policy-routing-view', JSON.stringify({ view: 'policy-routing', section: policySection }))
+    }
+  }, [activeView, policySection])
+
+  useEffect(() => {
+    if (activeView === 'fleet' || activeView === 'policy-routing') return
     let cancelled = false
     let refreshing = false
 
@@ -1156,7 +1177,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
   }
 
-  if (!dashboard && !(activeView === 'fleet' && fleetOverview)) {
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing') {
 	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
     return (
       <main className="shell loading-shell">
@@ -1209,6 +1230,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 options: [{ value: 'resource', label: '资源监控' }, { value: 'load', label: '负载历史' }],
                 onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
               }
+          : activeView === 'policy-routing'
+            ? {
+                value: policySection,
+                ariaLabel: '策略路由页面',
+                options: [{ value: 'settings', label: '策略设置' }, { value: 'sources', label: '域名列表' }],
+                onChange: (value) => setPolicySection(value as 'settings' | 'sources'),
+              }
             : null
   const topbarClassName = detailMode
     ? 'topbar detail-topbar'
@@ -1216,7 +1244,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings'
+        : activeView === 'settings' || activeView === 'policy-routing'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1314,6 +1342,38 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <button type="button" className={activeView === 'policies' || (activeView === 'protocols' && protocolAnalysisEnabled) ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView(protocolAnalysisEnabled ? 'protocols' : 'policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
+            </div> : null}
+          </div>
+
+          <div className="menu-group">
+            <button
+              type="button"
+              className={activeView === 'policy-routing' ? 'menu-item active' : 'menu-item'}
+              aria-expanded={hostSettingsExpanded}
+              aria-controls="host-settings-menu"
+              onClick={() => {
+                const alreadyInPolicyRouting = activeView === 'policy-routing'
+                setHostSettingsExpanded((value) => alreadyInPolicyRouting ? !value : true)
+                if (!alreadyInPolicyRouting) setActiveView('policy-routing')
+                setSelectedTerminalID(null)
+                setSidebarOpen(false)
+              }}
+            >
+              <NavLabel icon="policy" label="主机设置" />
+            </button>
+            {hostSettingsExpanded ? <div className="submenu" id="host-settings-menu">
+              <button
+                type="button"
+                className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
+                onClick={() => {
+                  setHostSettingsExpanded(true)
+                  setActiveView('policy-routing')
+                  setSelectedTerminalID(null)
+                  setSidebarOpen(false)
+                }}
+              >
+                <NavLabel icon="route" label="策略路由" />
+              </button>
             </div> : null}
           </div>
 
@@ -1427,7 +1487,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                {activeView === 'policy-routing' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
                   <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
                   <ChoiceMenu
                     value={dashboardRefreshMs}
@@ -1446,7 +1506,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                     renderOption={(option) => <span>{option.label}</span>}
                     onChange={setDashboardRefreshMs}
                   />
-                </div>
+                </div>}
               </div>
             </div>
           </div>
@@ -1489,6 +1549,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
         {activeView === 'protocols' && protocolAnalysisEnabled && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'policy-routing' ? (
+          <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载策略路由…</p></div></main>}>
+            <PolicyRoutingPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} section={policySection} />
+          </Suspense>
+        ) : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
         {activeView === 'routes' && dashboard ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
         {activeView === 'settings' && dashboard ? (
