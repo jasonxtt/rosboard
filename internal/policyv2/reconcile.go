@@ -136,6 +136,9 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 		if phaseOrder[operations[i].Phase] != phaseOrder[operations[j].Phase] {
 			return phaseOrder[operations[i].Phase] < phaseOrder[operations[j].Phase]
 		}
+		if left, right := dnsDependencyOrder(operations[i]), dnsDependencyOrder(operations[j]); left != right {
+			return left < right
+		}
 		if actionOrder[operations[i].Action] != actionOrder[operations[j].Action] {
 			return actionOrder[operations[i].Action] < actionOrder[operations[j].Action]
 		}
@@ -151,6 +154,20 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 		operations[index].Seq = index + 1
 	}
 	return operations, blockers
+}
+
+func dnsDependencyOrder(operation PlanOperation) int {
+	if operation.Phase != "dns" || operation.Action == "delete" {
+		return 0
+	}
+	switch operation.Menu {
+	case string(routeros.MenuIPDNSForwarders):
+		return 1
+	case string(routeros.MenuIPDNSStatic):
+		return 2
+	default:
+		return 3
+	}
 }
 
 func cleanupMenuOrder(menu string) int {

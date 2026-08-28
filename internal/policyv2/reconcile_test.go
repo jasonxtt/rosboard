@@ -37,3 +37,39 @@ func TestTrafficIngressCleanupDeletesAggregateListLast(t *testing.T) {
 		t.Fatalf("unsafe traffic ingress cleanup order: %#v", operations)
 	}
 }
+
+func TestDiffDesiredOrdersDNSForwarderBeforeStaticRules(t *testing.T) {
+	forwarder := DesiredObject{
+		LogicalID: "forwarder:egress",
+		Menu:      string(routeros.MenuIPDNSForwarders),
+		Phase:     "dns",
+		Fields:    map[string]string{"name": "rosboard_egress", "dns-servers": "192.0.2.1"},
+	}
+	staticRule := DesiredObject{
+		LogicalID: "dns:egress:source:DOMAIN-SUFFIX:example.com",
+		Menu:      string(routeros.MenuIPDNSStatic),
+		Phase:     "dns",
+		Fields:    map[string]string{"name": "example.com", "type": "FWD", "forward-to": "rosboard_egress"},
+	}
+
+	for _, test := range []struct {
+		name   string
+		actual []ActualObject
+	}{
+		{name: "create", actual: nil},
+		{name: "patch", actual: []ActualObject{
+			{LogicalID: staticRule.LogicalID, Menu: staticRule.Menu, RouterID: "*1", Fields: map[string]string{"name": "example.com", "type": "FWD", "forward-to": "old_forwarder"}},
+			{LogicalID: forwarder.LogicalID, Menu: forwarder.Menu, RouterID: "*2", Fields: map[string]string{"name": "rosboard_egress", "dns-servers": "192.0.2.2"}},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operations, blockers := DiffDesired([]DesiredObject{staticRule, forwarder}, test.actual)
+			if len(blockers) != 0 || len(operations) != 2 {
+				t.Fatalf("operations=%#v blockers=%#v", operations, blockers)
+			}
+			if operations[0].Menu != string(routeros.MenuIPDNSForwarders) {
+				t.Fatalf("DNS forwarder must precede static FWD rule: %#v", operations)
+			}
+		})
+	}
+}
