@@ -329,12 +329,22 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 		t.Fatalf("dual-stack desired is blocked: %#v", desired.Blockers)
 	}
 	hasIPv6Route := false
+	hasIPv4ReturnGuard := false
+	hasIPv6ReturnGuard := false
 	lists := make(map[string]bool)
 	hasReadableStrategyComment := false
 	hasReadableSourceComment := false
 	for _, object := range desired.Objects {
 		if object.Menu == string(routeros.MenuIPv6Route) && object.Fields["dst-address"] == "::/0" {
 			hasIPv6Route = true
+		}
+		if object.Fields["action"] == "mark-routing" && object.Fields["chain"] == "prerouting" && object.Fields["dst-address-type"] == "!local" {
+			if object.Menu == string(routeros.MenuIPFirewallMangle) {
+				hasIPv4ReturnGuard = true
+			}
+			if object.Menu == string(routeros.MenuIPv6FirewallMangle) {
+				hasIPv6ReturnGuard = true
+			}
 		}
 		if value := object.Fields["dst-address-list"]; value != "" {
 			lists[value] = true
@@ -346,8 +356,8 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 			hasReadableSourceComment = true
 		}
 	}
-	if !hasIPv6Route || len(lists) != 2 {
-		t.Fatalf("dual/dedicated objects missing: ipv6=%v lists=%v", hasIPv6Route, lists)
+	if !hasIPv6Route || !hasIPv4ReturnGuard || !hasIPv6ReturnGuard || len(lists) != 2 {
+		t.Fatalf("dual/dedicated objects missing: ipv6=%v ipv4-return-guard=%v ipv6-return-guard=%v lists=%v", hasIPv6Route, hasIPv4ReturnGuard, hasIPv6ReturnGuard, lists)
 	}
 	for listName := range lists {
 		if !strings.HasPrefix(listName, "manual_") || !strings.HasSuffix(listName, "_lab") || strings.Count(listName, "_") < 3 {
