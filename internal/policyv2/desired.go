@@ -241,9 +241,9 @@ func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, 
 		}
 	}
 
-	mangleMenu, natMenu := routeros.MenuIPFirewallMangle, routeros.MenuIPFirewallNAT
+	mangleMenu := routeros.MenuIPFirewallMangle
 	if family.Family == FamilyIPv6 {
-		mangleMenu, natMenu = routeros.MenuIPv6FirewallMangle, routeros.MenuIPv6FirewallNAT
+		mangleMenu = routeros.MenuIPv6FirewallMangle
 	}
 	lists := uniqueSortedValues(listBySource)
 	for _, listName := range lists {
@@ -256,13 +256,6 @@ func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, 
 			add("router-connection:"+identity, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": disabled})
 			add("router-routing:"+identity, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
 		}
-	}
-	if family.NATMode == "masquerade" || family.NATMode == "" && family.Family == FamilyIPv4 {
-		fields := map[string]string{"chain": "srcnat", "action": "masquerade", "disabled": disabled}
-		if family.WANInterface != "" {
-			fields["out-interface"] = family.WANInterface
-		}
-		add("masquerade:"+egress.ID+":"+familyName, natMenu, "activation", fields)
 	}
 }
 

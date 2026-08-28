@@ -107,7 +107,7 @@ export function PolicyWizard({
   const nameError = errors.find((message) => message.includes('出口名称')) ?? null
   const listNameError = errors.find((message) => message.includes('标记列表名称')) ?? null
   const canNext = step === 0
-    ? errors.length === 0
+    ? Boolean(discovery?.available) && errors.length === 0
     : step === 1
       ? trafficIngress.interfaceLists.length + trafficIngress.interfaces.length > 0
       : true
@@ -191,6 +191,8 @@ export function PolicyWizard({
       ) : null}
     >
       {error ? <PolicyErrorDisplay error={error} /> : null}
+      {discovery && !discovery.available ? <PolicyNotice tone="warn" title="设备发现不可用">{discovery.reason || '必需的 RouterOS 发现项读取失败，暂不能配置出口。'}</PolicyNotice> : null}
+      {discovery?.warnings?.length ? <PolicyNotice tone="warn" title="设备发现有警告">{discovery.warnings.join('；')}</PolicyNotice> : null}
 
       {step === 0 ? (
         <div className="policy-wizard-stage">
@@ -455,10 +457,8 @@ function WANFamilyEditor({
   const wans = discovery?.wans ?? []
   const interfaces = wans.map((wan) => wan.interface)
   const discoveryAvailable = Boolean(discovery?.available) && interfaces.length > 0
-  const [manual, setManual] = useState(false)
   const [gatewayManuallyEdited, setGatewayManuallyEdited] = useState(() => Boolean(family.gateway.trim()))
   const knownInterface = interfaces.includes(family.wanInterface)
-  const manualMode = !discoveryAvailable || manual || (family.wanInterface !== '' && !knownInterface)
   const selectedWAN = wans.find((wan) => wan.interface === family.wanInterface)
   const gatewayCandidates = selectedWAN ? selectedWAN.routes
     .filter((route) => route.family === family.family && route.active && route.proven && isMainPolicyRoute(route))
@@ -478,9 +478,8 @@ function WANFamilyEditor({
     if (value === nextHopValue) {
       update({ wanSource: 'next-hop', wanInterface: '' })
     } else {
-      update({ wanSource: nextHop ? '' : family.wanSource, wanInterface: value })
+      update({ wanSource: '', wanInterface: value })
     }
-    setManual(false)
   }
 
   const gatewayHint = nextHop
@@ -493,8 +492,8 @@ function WANFamilyEditor({
 
   return (
     <div className="policy-form-grid">
-      <PolicyField label="策略接口" htmlFor={`policy-wan-${family.family}-${manualMode ? 'mode' : 'select'}`} hint={discoveryAvailable ? '选择真实 WAN 接口，或选择“下一跳网关”；下一跳模式不绑定接口。' : '无法读取接口候选时可手动输入；普通接口必须同时填写下一跳网关。'}>
-        {(discoveryAvailable || nextHop) && !manualMode ? (
+      <PolicyField label="策略接口" htmlFor={`policy-wan-${family.family}-select`} hint="选择实机发现的 WAN 接口，或选择“下一跳网关”；下一跳模式不绑定真实接口。">
+        {discoveryAvailable ? (
           <select
             id={`policy-wan-${family.family}-select`}
             className="settings-select"
@@ -502,38 +501,13 @@ function WANFamilyEditor({
             onChange={(event) => selectInterface(event.target.value)}
           >
             {!nextHop && !family.wanInterface ? <option value="" disabled>请选择真实接口</option> : null}
-            {!knownInterface && family.wanInterface ? <option value={family.wanInterface}>{family.wanInterface}（自定义）</option> : null}
-            {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}）`}</option>)}
+            {!knownInterface && family.wanInterface ? <option value={family.wanInterface}>{family.wanInterface}（当前配置未被发现）</option> : null}
+            {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}${wan.proven ? '' : '，未验证路由'}）`}</option>)}
             <option value={nextHopValue}>下一跳网关</option>
           </select>
         ) : (
-          <>
-            <select
-              id={`policy-wan-${family.family}-mode`}
-              className="settings-select"
-              value={nextHop ? nextHopValue : 'manual'}
-              onChange={(event) => selectInterface(event.target.value)}
-            >
-              <option value="manual">真实接口（手动输入）</option>
-              <option value={nextHopValue}>下一跳网关</option>
-            </select>
-            {!nextHop ? (
-              <input
-                id={`policy-wan-${family.family}-input`}
-                className="settings-input"
-                list={discoveryAvailable ? `policy-wan-${family.family}` : undefined}
-                value={family.wanInterface}
-                onChange={(event) => update({ wanSource: family.wanSource === 'next-hop' && event.target.value.trim() ? '' : family.wanSource, wanInterface: event.target.value })}
-                placeholder="例如 pppoe-out1 / ether1 / wg-cf"
-              />
-            ) : null}
-          </>
+          <PolicyNotice tone="warn">RouterOS WAN 发现不可用，暂不能配置出口。</PolicyNotice>
         )}
-        {discoveryAvailable && manualMode ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(false)}>从候选接口选择</button></p> : null}
-        {discoveryAvailable && !manualMode ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(true)}>手动输入接口名…</button></p> : null}
-        <datalist id={`policy-wan-${family.family}`}>
-          {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}）`}</option>)}
-        </datalist>
       </PolicyField>
       <PolicyField label={`下一跳网关（${family.family === 'ipv6' ? 'IPv6' : 'IPv4'}）${gatewayRequired ? '（必填）' : ''}`} htmlFor={`policy-wan-gw-${family.family}-input`} hint={gatewayHint}>
         <input
@@ -575,13 +549,6 @@ function EgressFamilyAdvancedFields({
           <option value="">跟随出口断线处理设置</option>
           <option value="strict">严格绑定</option>
           <option value="fallback">允许回落 main</option>
-        </select>
-      </PolicyField>
-      <PolicyField label={`NAT 模式（${familyName}）`}>
-        <select id={`policy-nat-mode-${family.family}`} className="settings-select" value={family.natMode} onChange={(event) => update({ natMode: event.target.value })}>
-          <option value="">自动（可证明复用，否则窄范围自建）</option>
-          <option value="none">不建立 NAT</option>
-          <option value="masquerade">动态 masquerade</option>
         </select>
       </PolicyField>
     </div>

@@ -149,7 +149,11 @@ export function egressDraftErrors(draft: PolicyEgressDraft, discovery: PolicyDis
     } else if (!f.wanInterface.trim()) {
       errors.push(`${f.family.toUpperCase()} 必须选择目标 WAN 接口`)
     } else {
-      const wan = discovery?.wans.find((candidate) => candidate.interface === f.wanInterface)
+      const wan = discovery?.available ? discovery.wans.find((candidate) => candidate.interface === f.wanInterface) : undefined
+      if (!wan) {
+        errors.push(`${f.family.toUpperCase()} 必须选择设备发现的 WAN 接口`)
+        continue
+      }
       if (!wan?.pointToPoint && !f.gateway.trim()) {
         errors.push(`${f.family.toUpperCase()} 为普通接口且未发现唯一网关，必须填写下一跳网关 IP`)
       }

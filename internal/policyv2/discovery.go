@@ -17,6 +17,7 @@ type Discovery struct {
 	Device         map[string]string         `json:"device"`
 	Available      bool                      `json:"available"`
 	Reason         string                    `json:"reason,omitempty"`
+	Warnings       []string                  `json:"warnings,omitempty"`
 	Snapshot       DiscoverySnapshot         `json:"snapshot"`
 	WANs           []WANCandidate            `json:"wans"`
 	TrafficIngress []TrafficIngressCandidate `json:"trafficIngress"`
@@ -85,21 +86,38 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	if err != nil {
 		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", err)
 	}
-	ipv4Routes, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "dynamic"})
-	ipv6Routes, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "dynamic"})
-	ipv4DHCP, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"})
-	ipv6DHCP, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"})
-	lists, _ := s.reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"})
-	members, _ := s.reader.PolicyList(ctx, routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"})
-	bridgePorts, _ := s.reader.PolicyList(ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"})
-	ipv4Addresses, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPAddress, []string{"address", "interface", "disabled"})
-	ipv6Addresses, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"})
+	warnings := make([]string, 0)
+	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "disabled", "dynamic"})
+	if err != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", err)
+	}
+	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "disabled", "dynamic"})
+	if ipv6RouteErr != nil {
+		warnings = append(warnings, "IPv6 默认路由发现失败："+ipv6RouteErr.Error())
+		ipv6Routes = nil
+	}
+	readOptional := func(menu routeros.ReadMenu, proplist []string, label string) []routeros.RouterOSObject {
+		objects, err := s.reader.PolicyList(ctx, menu, proplist)
+		if err != nil {
+			warnings = append(warnings, label+"读取失败："+err.Error())
+			return nil
+		}
+		return objects
+	}
+	ipv4DHCP := readOptional(routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv4 DHCP Client")
+	ipv6DHCP := readOptional(routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv6 DHCP Client")
+	lists := readOptional(routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"}, "interface list")
+	members := readOptional(routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"}, "interface list member")
+	bridgePorts, bridgePortsAvailable := readOptionalWithStatus(s.reader, ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"}, "bridge port", &warnings)
+	ipv4Addresses := readOptional(routeros.ReadMenuIPAddress, []string{"address", "interface", "disabled"}, "IPv4 address")
+	ipv6Addresses := readOptional(routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"}, "IPv6 address")
 
 	routes := append(defaultRoutes(ipv4Routes, "ipv4"), defaultRoutes(ipv6Routes, "ipv6")...)
 	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
 	routes = append(routes, dhcpClientRoutes(ipv6DHCP, "ipv6")...)
-	wans := buildWANCandidates(interfaces, routes)
-	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, wans)
+	lanInterfaces := explicitLANInterfaceMembers(lists, members, interfaces)
+	wans := buildWANCandidates(interfaces, routes, lanInterfaces)
+	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans)
 	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, lists, members, bridgePorts)
 	if err != nil {
 		return Discovery{}, err
@@ -113,6 +131,7 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	return Discovery{
 		Device:    map[string]string{"id": deviceID},
 		Available: true,
+		Warnings:  warnings,
 		Snapshot: DiscoverySnapshot{
 			Fingerprint:    fingerprint,
 			DeviceIdentity: identity,
@@ -122,6 +141,15 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 		TrafficIngress: lan,
 		ExistingPolicy: []any{},
 	}, nil
+}
+
+func readOptionalWithStatus(reader PolicyReader, ctx context.Context, menu routeros.ReadMenu, proplist []string, label string, warnings *[]string) ([]routeros.RouterOSObject, bool) {
+	objects, err := reader.PolicyList(ctx, menu, proplist)
+	if err != nil {
+		*warnings = append(*warnings, label+"读取失败："+err.Error())
+		return nil, false
+	}
+	return objects, true
 }
 
 func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute {
@@ -145,7 +173,7 @@ func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute 
 			iface = routeInterface(gateway)
 		}
 		distance, _ := strconv.Atoi(object["distance"])
-		active := routerBool(object["active"], true)
+		active := routerBool(object["active"], false) && !routerBool(object["disabled"], false)
 		result = append(result, WANRoute{
 			ID: object[".id"], Family: family, Destination: destination,
 			Gateway: gateway, ImmediateGateway: immediate,
@@ -180,20 +208,23 @@ func dhcpClientRoutes(objects []routeros.RouterOSObject, family string) []WANRou
 	return result
 }
 
-func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute) []WANCandidate {
+func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute, excluded map[string]bool) []WANCandidate {
 	byName := make(map[string]routeros.RouterOSObject, len(interfaces))
 	for _, object := range interfaces {
 		byName[object["name"]] = object
 	}
 	grouped := make(map[string][]WANRoute)
 	for _, route := range routes {
-		if route.Source != "" {
+		if route.Source != "" && !excluded[route.Source] {
 			grouped[route.Source] = append(grouped[route.Source], route)
 		}
 	}
 	result := make([]WANCandidate, 0, len(grouped))
 	for name, candidateRoutes := range grouped {
 		object := byName[name]
+		if name == "" || routerBool(object["dynamic"], false) || isInboundVPNInterfaceType(object["type"]) {
+			continue
+		}
 		running := routerBool(object["running"], true) && !routerBool(object["disabled"], false)
 		typeName := object["type"]
 		proven := false
@@ -206,16 +237,74 @@ func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute)
 			Proven:       running && proven, Routes: candidateRoutes,
 		})
 	}
+	for _, object := range interfaces {
+		name := strings.TrimSpace(object["name"])
+		if name == "" || excluded[name] || routerBool(object["disabled"], false) || routerBool(object["dynamic"], false) || isInboundVPNInterfaceType(object["type"]) || !isPotentialEgressInterfaceType(object["type"]) {
+			continue
+		}
+		if _, exists := grouped[name]; exists {
+			continue
+		}
+		result = append(result, WANCandidate{
+			Interface: name, Type: object["type"],
+			Running:      routerBool(object["running"], true),
+			PointToPoint: pointToPointInterfaceType(object["type"]),
+			Routes:       []WANRoute{},
+		})
+	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Interface < result[j].Interface })
 	return result
 }
 
 func pointToPointInterfaceType(typeName string) bool {
 	typeName = strings.ToLower(strings.TrimSpace(typeName))
-	return strings.Contains(typeName, "ppp") || strings.Contains(typeName, "wireguard") || typeName == "wg"
+	if strings.Contains(typeName, "ppp") || strings.Contains(typeName, "wireguard") || typeName == "wg" {
+		return true
+	}
+	kind := trafficIngressInterfaceKind(typeName)
+	return kind == "vpn" || kind == "tunnel"
 }
 
-func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, wans []WANCandidate) []TrafficIngressCandidate {
+func isPotentialEgressInterfaceType(typeName string) bool {
+	typeName = strings.ToLower(strings.TrimSpace(typeName))
+	if typeName == "" || isInboundVPNInterfaceType(typeName) {
+		return false
+	}
+	kind := trafficIngressInterfaceKind(typeName)
+	return strings.Contains(typeName, "ppp") || strings.Contains(typeName, "wireguard") || typeName == "wg" || kind == "vpn" || kind == "tunnel"
+}
+
+func isInboundVPNInterfaceType(typeName string) bool {
+	typeName = strings.ToLower(strings.TrimSpace(typeName))
+	return strings.Contains(typeName, "-in") || strings.Contains(typeName, "_in") || strings.Contains(typeName, "server")
+}
+
+func explicitLANInterfaceMembers(lists, members, interfaces []routeros.RouterOSObject) map[string]bool {
+	membersByList := make(map[string][]string)
+	for _, member := range members {
+		if routerBool(member["disabled"], false) {
+			continue
+		}
+		membersByList[member["list"]] = append(membersByList[member["list"]], member["interface"])
+	}
+	interfaceByName := make(map[string]routeros.RouterOSObject, len(interfaces))
+	for _, object := range interfaces {
+		interfaceByName[object["name"]] = object
+	}
+	resolved := resolveInterfaceLists(lists, membersByList, interfaceByName)
+	result := make(map[string]bool)
+	for listName, listMembers := range resolved {
+		if !strings.EqualFold(strings.TrimSpace(listName), "LAN") {
+			continue
+		}
+		for _, name := range listMembers {
+			result[name] = true
+		}
+	}
+	return result
+}
+
+func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate) []TrafficIngressCandidate {
 	membersByList := make(map[string][]string)
 	dynamicByList := make(map[string]bool)
 	for _, member := range members {
@@ -256,7 +345,9 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	}
 	wanNames := make(map[string]bool)
 	for _, wan := range wans {
-		wanNames[wan.Interface] = true
+		if wan.Proven {
+			wanNames[wan.Interface] = true
+		}
 	}
 	bridgeSlaves := make(map[string]bool)
 	for _, port := range bridgePorts {
@@ -270,7 +361,7 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 			continue
 		}
 		kind := trafficIngressInterfaceKind(object["type"])
-		if kind == "" || kind == "physical" && bridgeSlaves[name] {
+		if kind == "" || kind == "physical" && (!bridgePortsAvailable || bridgeSlaves[name]) {
 			continue
 		}
 		coveredBy := make([]string, 0)

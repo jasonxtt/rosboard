@@ -90,9 +90,7 @@ export function ChangePlanView({
     }
   }
 
-  const displayedOperationsByAction = compact
-    ? operationsByAction.filter((group) => ['create', 'modify', 'move'].includes(group.key))
-    : operationsByAction
+  const displayedOperationsByAction = operationsByAction
 
   const applyButton = (
     <button type="button" className="primary-button policy-apply-button" disabled={!canApply || applying} onClick={handleApply}>
@@ -308,7 +306,7 @@ function OperationDetails({ operation }: { operation: PolicyPlanOperation }) {
       {operation.anchor ? (
         <div className="policy-operation-meta">
           位置：{operation.anchor.relation === 'after' ? '插入到锚点之后' : '插入到锚点之前'}
-          {operation.anchor.neighborID ? ` · ${operation.anchor.neighborID}` : ''}
+          {operation.anchor.neighborID || operation.anchor.logicalID ? ` · ${operation.anchor.neighborID || operation.anchor.logicalID}` : ''}
         </div>
       ) : null}
       {operation.compensation ? (

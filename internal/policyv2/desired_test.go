@@ -53,3 +53,32 @@ func TestSharedListNameUsesEgressName(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildFamilyDoesNotCreateMasquerade(t *testing.T) {
+	result := DesiredResult{}
+	add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+	}
+
+	buildFamily(&result, add, Egress{ID: "wan-a", FailureMode: "strict"}, EgressFamily{
+		Family: FamilyIPv4, Enabled: true, WANInterface: "ether1", RouteTable: "wan-a-table", NATMode: "masquerade",
+	}, "198.51.100.1", map[string]string{"source-a": "policy-list"}, "rosboard-lan", "manager", "device", "no")
+
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPFirewallNAT) && object.Fields["chain"] == "srcnat" && object.Fields["action"] == "masquerade" {
+			t.Fatalf("buildFamily created an unmanaged masquerade rule: %#v", object)
+		}
+	}
+
+	result = DesiredResult{}
+	addDNSTransport(add, "wan-a", "192.0.2.53", "198.51.100.53", "wan-a-table", true, "no")
+	foundDNSRedirect := false
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPFirewallNAT) && object.Fields["chain"] == "output" && object.Fields["action"] == "dst-nat" {
+			foundDNSRedirect = true
+		}
+	}
+	if !foundDNSRedirect {
+		t.Fatal("Fake DNS transport lost its policy-owned dst-nat redirect")
+	}
+}

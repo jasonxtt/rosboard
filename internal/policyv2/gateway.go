@@ -53,7 +53,7 @@ func ResolveGateway(ctx context.Context, reader PolicyReader, family EgressFamil
 		routeMenu = routeros.ReadMenuIPRoute
 		dhcpMenu = routeros.ReadMenuIPDHCPClient
 	}
-	routes, err := reader.PolicyList(ctx, routeMenu, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active"})
+	routes, err := reader.PolicyList(ctx, routeMenu, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "disabled"})
 	if err != nil {
 		return GatewayResolution{}, err
 	}
