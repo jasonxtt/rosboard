@@ -53,7 +53,6 @@ export function PolicyEgressTable({
                   <th>下一跳网关</th>
                   <th>域名列表</th>
                   <th>地址族</th>
-                  <th>标记列表</th>
                   <th>优先级</th>
                   <th>断线处理</th>
                   <th>状态</th>
@@ -159,7 +158,6 @@ function EgressRow({
         <td><span className="mono">{gateways}</span></td>
         <td>{sourceNames}</td>
         <td>{ipVersions}</td>
-        <td><code>{egress.listName || '—'}</code></td>
         <td>{egress.priority}</td>
         <td>{policyFailureModeLabel[egress.failureMode] ?? egress.failureMode}</td>
         <td>

@@ -13,8 +13,8 @@ export function defaultEgressDraft(): PolicyEgressDraft {
     id: '',
     name: '',
     priority: 100,
-    listMode: 'dedicated',
-    listName: 'manual_proxy_lab',
+    listMode: 'shared',
+    listName: sharedPolicyListName(''),
     dnsUpstream: '1.1.1.1',
     fakeAlias: '',
     failureMode: 'strict',
@@ -36,13 +36,45 @@ export function defaultEgressDraft(): PolicyEgressDraft {
   }
 }
 
+const sharedListNameCharacter = /^[\p{L}\p{N}]$/u
+
+function sharedListNameKey(value: string): string {
+  const result: string[] = []
+  let separator = false
+  for (const character of value.trim()) {
+    if (sharedListNameCharacter.test(character)) {
+      result.push(character.toLowerCase())
+      separator = false
+    } else if (result.length > 0 && !separator) {
+      result.push('_')
+      separator = true
+    }
+    if (result.length >= 48) break
+  }
+  while (result[result.length - 1] === '_') result.pop()
+  return result.join('') || 'policy'
+}
+
+export function sharedPolicyListName(egressName: string): string {
+  return `manual_${sharedListNameKey(egressName)}_lab`
+}
+
+function samePolicyName(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase()
+}
+
+function existingSharedListName(egress: PolicyEgress): string {
+  return egress.listName.trim() || sharedPolicyListName(egress.name)
+}
+
 export function egressDraftFromEgress(egress: PolicyEgress): PolicyEgressDraft {
+  const listMode = egress.listMode || 'shared'
   return {
     id: egress.id,
     name: egress.name,
     priority: egress.priority,
-    listMode: egress.listMode,
-    listName: egress.listName,
+    listMode,
+    listName: listMode === 'shared' ? sharedPolicyListName(egress.name) : egress.listName,
     dnsUpstream: egress.dnsUpstream,
     fakeAlias: egress.fakeAlias,
     failureMode: egress.failureMode,
@@ -92,9 +124,19 @@ export function sourceDraftFromSource(source: PolicySource): PolicySourceDraft {
   }
 }
 
-export function egressDraftErrors(draft: PolicyEgressDraft, discovery: PolicyDiscovery | null = null): string[] {
+export function egressDraftErrors(draft: PolicyEgressDraft, discovery: PolicyDiscovery | null = null, egresses: PolicyEgress[] = []): string[] {
   const errors: string[] = []
-  if (!draft.name.trim()) errors.push('出口名称不能为空')
+  const name = draft.name.trim()
+  if (!name) errors.push('出口名称不能为空')
+  if (name && egresses.some((egress) => egress.id !== draft.id && samePolicyName(name, egress.name))) {
+    errors.push('出口名称不能与已有策略重复')
+  }
+  if (draft.listMode === 'shared' && name) {
+    const listName = sharedPolicyListName(name)
+    if (egresses.some((egress) => egress.id !== draft.id && egress.listMode !== 'dedicated' && samePolicyName(listName, existingSharedListName(egress)))) {
+      errors.push('共享标记列表名称不能与已有策略重复')
+    }
+  }
   if (draft.listMode === 'dedicated' && !draft.listName.trim()) {
     errors.push('专用列表模式下需要指定列表名称')
   }

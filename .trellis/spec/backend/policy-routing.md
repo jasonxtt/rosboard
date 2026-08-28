@@ -23,7 +23,7 @@
 - Delete omits that egress's owned objects from desired state. Shared managed objects are removed only after their last consumer disappears; external objects are never removed.
 - Managed comments use `stable identity | readable label`. Ownership matching uses only the stable identity, while a label change produces a patch so RouterOS remains readable.
 - Dedicated address-list names contain a sanitized source-name keyword and a short stable suffix. Renaming a source may replace its dedicated list name but must preserve exact ownership and cleanup.
-- New egress drafts default to one dedicated mark list per domain source. Existing egresses retain their stored list mode during edit.
+- New egress drafts default to one shared mark list per egress, named from the egress name as `manual_<egress-name>_lab`; the name is generated and read-only. Dedicated mode remains available as an explicit opt-in, and existing egresses retain their stored list mode during edit.
 - Dynamic VPN ingress is included through a selected stable RouterOS interface list. WireGuard and other fixed interfaces may be selected directly; rosboard does not configure the VPN service itself.
 - Source schedules may create pending versions but never apply RouterOS changes automatically.
 

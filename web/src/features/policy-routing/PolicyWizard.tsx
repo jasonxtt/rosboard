@@ -10,7 +10,7 @@ import type {
   PolicyTrafficIngressScope,
   PolicyWANRoute,
 } from './types'
-import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress } from './drafts'
+import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress, sharedPolicyListName } from './drafts'
 import { saveEgress, saveTrafficIngress, saveSource, generatePlan } from './api'
 import { ChangePlanView } from './ChangePlanView'
 import { SourceEditorModal } from './PolicySourcesPage'
@@ -103,7 +103,9 @@ export function PolicyWizard({
   }, [discovery, trafficIngress, trafficIngressDefaulted])
 
   const readOnly = !overview || overview.setup.state !== 'ready'
-  const errors = egressDraftErrors(draft, discovery)
+  const errors = egressDraftErrors(draft, discovery, overview.egresses)
+  const nameError = errors.find((message) => message.includes('出口名称')) ?? null
+  const listNameError = errors.find((message) => message.includes('标记列表名称')) ?? null
   const canNext = step === 0
     ? errors.length === 0
     : step === 1
@@ -193,7 +195,7 @@ export function PolicyWizard({
       {step === 0 ? (
         <div className="policy-wizard-stage">
           <h4>出口与地址族</h4>
-          <EgressDraftForm draft={draft} setDraft={setDraft} discovery={discovery} />
+          <EgressDraftForm draft={draft} setDraft={setDraft} discovery={discovery} nameError={nameError} listNameError={listNameError} />
         </div>
       ) : null}
 
@@ -309,12 +311,20 @@ function EgressDraftForm({
   draft,
   setDraft,
   discovery,
+  nameError,
+  listNameError,
 }: {
   draft: PolicyEgressDraft
   setDraft: (d: PolicyEgressDraft) => void
   discovery: PolicyDiscovery | null
+  nameError?: string | null
+  listNameError?: string | null
 }) {
-  const update = (patch: Partial<PolicyEgressDraft>) => setDraft({ ...draft, ...patch })
+  const update = (patch: Partial<PolicyEgressDraft>) => {
+    const next = { ...draft, ...patch }
+    if (next.listMode === 'shared') next.listName = sharedPolicyListName(next.name)
+    setDraft(next)
+  }
   const setFamilyEnabled = (family: PolicyEgressFamily['family'], enabled: boolean) => {
     const index = draft.families.findIndex((item) => item.family === family)
     if (index >= 0) {
@@ -341,7 +351,7 @@ function EgressDraftForm({
 
   return (
     <div className="policy-form">
-      <PolicyField label="出口名称" htmlFor="policy-egress-name">
+      <PolicyField label="出口名称" htmlFor="policy-egress-name" error={nameError}>
         <input id="policy-egress-name" className="settings-input" value={draft.name} onChange={(e) => update({ name: e.target.value })} maxLength={128} placeholder="例如 国际出口" />
       </PolicyField>
       <fieldset className="policy-family-editor">
@@ -396,17 +406,18 @@ function EgressDraftForm({
             <PolicyField label="标记列表模式" hint="共享模式下多个域名列表共用一个标记列表和一组业务 mangle；专用模式为每个域名列表独立建表。">
               <select id="policy-egress-listmode" className="settings-select" value={draft.listMode} onChange={(e) => update({ listMode: e.target.value })}>
                 <option value="shared">共享标记列表</option>
-                <option value="dedicated">每个域名列表专用标记列表（默认）</option>
+                <option value="dedicated">每个域名列表专用标记列表</option>
               </select>
             </PolicyField>
             {draft.listMode === 'dedicated' ? (
               <div className="policy-field">
                 <span className="policy-field-label">标记列表名称</span>
                 <p className="policy-hint">专用模式下每个域名列表独立生成一个标记列表，名称跟随域名列表并由 rosboard 稳定生成，不在此编辑。当前后端保存契约仍要求出口级兼容名称（将按默认值发送），逐列表自定义命名待后端契约匹配。</p>
+                {listNameError ? <p className="policy-field-error" role="alert">{listNameError}</p> : null}
               </div>
             ) : (
-              <PolicyField label="标记列表名称" hint="RouterOS address-list 名称；共享模式下多个域名列表共用此列表；不加 _v4/_v6 后缀；改名属于结构变更。">
-                <input id="policy-egress-listname" className="settings-input" value={draft.listName} onChange={(e) => update({ listName: e.target.value })} placeholder="manual_proxy_lab" />
+              <PolicyField label="标记列表名称" error={listNameError} hint="根据出口名称自动生成 RouterOS address-list；共享模式下多个域名列表共用此列表，不能手动修改。">
+                <input id="policy-egress-listname" className="settings-input" value={sharedPolicyListName(draft.name)} readOnly aria-readonly="true" />
               </PolicyField>
             )}
           </div>

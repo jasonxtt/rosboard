@@ -36,3 +36,20 @@ func TestAppendDNSCacheWarningOnlyAboveRuleThreshold(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedListNameUsesEgressName(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "Google Exit", want: "manual_google_exit_lab"},
+		{name: "国际 出口", want: "manual_国际_出口_lab"},
+		{name: "", want: "manual_policy_lab"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SharedListName(test.name); got != test.want {
+				t.Fatalf("SharedListName(%q)=%q, want %q", test.name, got, test.want)
+			}
+		})
+	}
+}

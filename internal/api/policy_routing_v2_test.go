@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"rosboard/internal/config"
@@ -154,6 +155,57 @@ func TestPolicyV2EgressCRUDMatchesFrontendShape(t *testing.T) {
 	}
 	if loaded.Name != updated.Name || len(loaded.Families) != 1 {
 		t.Fatalf("unexpected loaded egress: %#v", loaded)
+	}
+}
+
+func TestPolicyV2EgressDefaultsSharedListNameFromName(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	response := policyV2Request(t, server, http.MethodPost, "/egresses", `{
+        "name":"Google Exit","priority":10,
+        "dnsUpstream":"1.1.1.1","failureMode":"strict","enabled":true,
+        "families":[{"family":"ipv4","enabled":true,"wanSource":"next-hop","gateway":"192.0.2.1"}]
+    }`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var created policyv2.Egress
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ListMode != policyv2.ListModeShared || created.ListName != "manual_google_exit_lab" {
+		t.Fatalf("unexpected shared list normalization: mode=%q name=%q", created.ListMode, created.ListName)
+	}
+}
+
+func TestPolicyV2EgressRejectsDuplicateNameAndSharedListName(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	if _, err := repository.SaveEgress(context.Background(), policyv2.Egress{
+		ID: "existing", Name: "WAN A", ListMode: policyv2.ListModeShared, ListName: "manual_wan_a_lab", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.80", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANSource: "next-hop", Gateway: "192.0.2.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	duplicateName := policyv2.Egress{
+		ID: "duplicate-name", Name: " wan a ", ListMode: policyv2.ListModeShared, DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.81", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANSource: "next-hop", Gateway: "192.0.2.1"}},
+	}
+	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &duplicateName); err == nil || !strings.Contains(err.Error(), "egress name") {
+		t.Fatalf("duplicate egress name was accepted or returned the wrong error: %v", err)
+	}
+
+	duplicateList := policyv2.Egress{
+		ID: "duplicate-list", Name: "WAN-A", ListMode: policyv2.ListModeShared, DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.82", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANSource: "next-hop", Gateway: "192.0.2.1"}},
+	}
+	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &duplicateList); err == nil || !strings.Contains(err.Error(), "shared address-list name") {
+		t.Fatalf("duplicate shared list name was accepted or returned the wrong error: %v", err)
 	}
 }
 
