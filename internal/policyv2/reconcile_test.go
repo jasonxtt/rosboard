@@ -73,3 +73,67 @@ func TestDiffDesiredOrdersDNSForwarderBeforeStaticRules(t *testing.T) {
 		})
 	}
 }
+
+func TestDiffDesiredClearsRemovedManagedFields(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "rule",
+		Menu:      string(routeros.MenuIPFirewallMangle),
+		Phase:     "activation",
+		Order:     1,
+		Fields:    map[string]string{"chain": "prerouting", "action": "mark-routing"},
+	}}
+	actual := []ActualObject{{
+		LogicalID: "rule",
+		Menu:      string(routeros.MenuIPFirewallMangle),
+		RouterID:  "*1",
+		Fields:    map[string]string{"chain": "prerouting", "action": "mark-routing", "in-interface": "ether1", "scope": "30"},
+	}}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 || len(operations) != 1 {
+		t.Fatalf("unexpected field-clear diff: operations=%#v blockers=%#v", operations, blockers)
+	}
+	if operations[0].Action != "patch" || operations[0].After["in-interface"] != "" {
+		t.Fatalf("removed field was not cleared: %#v", operations[0])
+	}
+	if _, ok := operations[0].After["scope"]; ok {
+		t.Fatalf("unmanaged RouterOS field was cleared: %#v", operations[0])
+	}
+}
+
+func TestDiffDesiredMovesManagedObjectsToDesiredOrder(t *testing.T) {
+	desired := []DesiredObject{
+		{LogicalID: "rule-a", Menu: string(routeros.MenuIPFirewallMangle), Phase: "activation", Order: 1, Fields: map[string]string{"comment": "a"}},
+		{LogicalID: "rule-b", Menu: string(routeros.MenuIPFirewallMangle), Phase: "activation", Order: 2, Fields: map[string]string{"comment": "b"}},
+	}
+	actual := []ActualObject{
+		{LogicalID: "rule-b", Menu: string(routeros.MenuIPFirewallMangle), RouterID: "*b", Position: 0, Fields: map[string]string{"comment": "b"}},
+		{LogicalID: "rule-a", Menu: string(routeros.MenuIPFirewallMangle), RouterID: "*a", Position: 1, Fields: map[string]string{"comment": "a"}},
+	}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 || len(operations) != 1 {
+		t.Fatalf("unexpected order diff: operations=%#v blockers=%#v", operations, blockers)
+	}
+	move := operations[0]
+	if move.Action != "move" || move.RouterID != "*a" || move.Anchor == nil || move.Anchor.RouterID != "*b" || move.Anchor.Relation != "before" {
+		t.Fatalf("unexpected move operation: %#v", move)
+	}
+}
+
+func TestForeignMasqueradeIsNotManagedButLegacyOwnedMasqueradeIs(t *testing.T) {
+	prefix := managedCommentPrefix("manager", "edge")
+	foreign := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
+	if !isForeignMasquerade(routeros.MenuIPFirewallNAT, foreign, prefix, "") {
+		t.Fatal("uncommented masquerade should remain outside policy ownership")
+	}
+	owned := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
+	ownedComment := managedComment(prefix, "masquerade:wan-a:ipv4")
+	if isForeignMasquerade(routeros.MenuIPFirewallNAT, owned, prefix, ownedComment) {
+		t.Fatal("legacy policy masquerade should remain discoverable for cleanup")
+	}
+	nonMasquerade := routeros.RouterOSObject{"chain": "srcnat", "action": "src-nat"}
+	if isForeignMasquerade(routeros.MenuIPFirewallNAT, nonMasquerade, prefix, "") {
+		t.Fatal("non-masquerade NAT rule should not be classified as foreign masquerade")
+	}
+}

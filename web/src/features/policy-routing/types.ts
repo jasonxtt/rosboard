@@ -16,7 +16,7 @@ export type PolicyWANSource = '' | 'next-hop'
 
 export type PolicyRouteMode = '' | 'strict' | 'fallback'
 
-export type PolicyNATMode = '' | 'none' | 'masquerade'
+export type PolicyNATMode = '' | 'none'
 
 export type PolicyOwnershipState = 'owned' | 'reused' | 'foreign' | 'manual_candidate'
 
@@ -228,6 +228,7 @@ export type PolicyDiscovery = {
   device?: { id: string; name: string }
   available: boolean
   reason?: string
+  warnings: string[]
   snapshot?: {
     fingerprint: string
     deviceIdentity: Record<string, string>
@@ -359,6 +360,7 @@ export type PolicyResourceEstimate = {
 }
 
 export type PolicyAnchorDescriptor = {
+  logicalID?: string
   routerID?: string
   relation?: string
   neighborID?: string

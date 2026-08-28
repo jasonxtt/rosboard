@@ -44,12 +44,6 @@ export const policyRouteModeLabel: Record<string, string> = {
   fallback: '允许回落 main',
 }
 
-export const policyNATModeLabel: Record<string, string> = {
-  '': '自动',
-  none: '不建立 NAT',
-  masquerade: '动态 masquerade',
-}
-
 export const policyRuleTypeLabel: Record<string, string> = {
   DOMAIN: '精确匹配',
   'DOMAIN-SUFFIX': '后缀匹配',

@@ -48,6 +48,7 @@ const mockOverview: PolicyOverview = {
 const mockDiscovery: PolicyDiscovery = {
   available: false,
   reason: 'runtime not ready',
+  warnings: [],
   wans: [],
   trafficIngress: [],
 }

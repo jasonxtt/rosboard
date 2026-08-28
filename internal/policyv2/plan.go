@@ -14,6 +14,7 @@ type ActualObject struct {
 	LogicalID string
 	Menu      string
 	RouterID  string
+	Position  int
 	Fields    map[string]string
 }
 
@@ -34,6 +35,7 @@ type PlanAcknowledgement struct {
 
 type PlanOperation struct {
 	Seq       int               `json:"seq"`
+	Order     int               `json:"-"`
 	Phase     string            `json:"phase"`
 	Action    string            `json:"action"`
 	Menu      string            `json:"menu"`
@@ -42,6 +44,14 @@ type PlanOperation struct {
 	Ownership string            `json:"ownership"`
 	Before    map[string]string `json:"before,omitempty"`
 	After     map[string]string `json:"after,omitempty"`
+	Anchor    *PlanAnchor       `json:"anchor,omitempty"`
+}
+
+type PlanAnchor struct {
+	LogicalID string `json:"logicalID,omitempty"`
+	RouterID  string `json:"routerID,omitempty"`
+	Relation  string `json:"relation"`
+	Menu      string `json:"menu,omitempty"`
 }
 
 type PlanSummary struct {

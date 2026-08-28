@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ type policyV2FakeRouter struct {
 	mu           sync.Mutex
 	nextID       int
 	objects      map[routeros.MutationMenu]map[string]routeros.RouterOSObject
+	order        map[routeros.MutationMenu][]string
 	flushes      int
 	dnsCacheSize string
 	failAt       int
@@ -23,7 +25,10 @@ type policyV2FakeRouter struct {
 }
 
 func newPolicyV2FakeRouter() *policyV2FakeRouter {
-	return &policyV2FakeRouter{objects: make(map[routeros.MutationMenu]map[string]routeros.RouterOSObject)}
+	return &policyV2FakeRouter{
+		objects: make(map[routeros.MutationMenu]map[string]routeros.RouterOSObject),
+		order:   make(map[routeros.MutationMenu][]string),
+	}
 }
 
 func (r *policyV2FakeRouter) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
@@ -40,8 +45,22 @@ func (r *policyV2FakeRouter) List(_ context.Context, menu routeros.MutationMenu,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	result := make([]routeros.RouterOSObject, 0, len(r.objects[menu]))
-	for _, object := range r.objects[menu] {
-		result = append(result, clonePolicyV2RouterObject(object))
+	seen := make(map[string]bool, len(r.order[menu]))
+	for _, id := range r.order[menu] {
+		if object := r.objects[menu][id]; object != nil {
+			result = append(result, clonePolicyV2RouterObject(object))
+			seen[id] = true
+		}
+	}
+	missing := make([]string, 0, len(r.objects[menu])-len(result))
+	for id := range r.objects[menu] {
+		if !seen[id] {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	for _, id := range missing {
+		result = append(result, clonePolicyV2RouterObject(r.objects[menu][id]))
 	}
 	return result, nil
 }
@@ -62,6 +81,7 @@ func (r *policyV2FakeRouter) Create(_ context.Context, menu routeros.MutationMen
 		r.objects[menu] = make(map[string]routeros.RouterOSObject)
 	}
 	r.objects[menu][id] = object
+	r.order[menu] = append(r.order[menu], id)
 	return clonePolicyV2RouterObject(object), nil
 }
 
@@ -88,11 +108,39 @@ func (r *policyV2FakeRouter) Delete(_ context.Context, menu routeros.MutationMen
 		return err
 	}
 	delete(r.objects[menu], id)
+	r.removeFromOrder(menu, id)
 	return nil
 }
 
-func (r *policyV2FakeRouter) Move(context.Context, routeros.MutationMenu, routeros.MoveRequest) (routeros.MutationResponse, error) {
-	return routeros.MutationResponse{}, nil
+func (r *policyV2FakeRouter) Move(_ context.Context, menu routeros.MutationMenu, request routeros.MoveRequest) (routeros.MutationResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.beforeWrite(); err != nil {
+		return routeros.MutationResponse{}, err
+	}
+	if r.objects[menu][request.ID] == nil || r.objects[menu][request.BeforeID] == nil {
+		return routeros.MutationResponse{}, fmt.Errorf("missing move object")
+	}
+	r.removeFromOrder(menu, request.ID)
+	order := r.order[menu]
+	for index, id := range order {
+		if id == request.BeforeID {
+			order = append(append(append([]string(nil), order[:index]...), request.ID), order[index:]...)
+			r.order[menu] = order
+			return routeros.MutationResponse{}, nil
+		}
+	}
+	return routeros.MutationResponse{}, fmt.Errorf("missing move destination")
+}
+
+func (r *policyV2FakeRouter) removeFromOrder(menu routeros.MutationMenu, id string) {
+	order := r.order[menu]
+	for index, current := range order {
+		if current == id {
+			r.order[menu] = append(order[:index], order[index+1:]...)
+			return
+		}
+	}
 }
 
 func (r *policyV2FakeRouter) SetDNSSettings(_ context.Context, fields routeros.RouterOSFields) error {

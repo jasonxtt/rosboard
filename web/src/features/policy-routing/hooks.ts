@@ -76,9 +76,16 @@ export function usePolicyDiscovery(deviceID: string, enabled: boolean) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) {
+      setDiscovery(null)
+      setError(null)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     const controller = new AbortController()
+    setDiscovery(null)
+    setError(null)
 
     const load = async () => {
       setLoading(true)
@@ -90,6 +97,7 @@ export function usePolicyDiscovery(deviceID: string, enabled: boolean) {
         }
       } catch (e) {
         if (!cancelled && !(e instanceof DOMException && e.name === 'AbortError')) {
+          setDiscovery(null)
           setError(e instanceof Error ? e.message : '设备发现失败')
         }
       } finally {
@@ -107,6 +115,7 @@ export function usePolicyDiscovery(deviceID: string, enabled: boolean) {
       setDiscovery(data)
       setError(null)
     } catch (e) {
+      setDiscovery(null)
       setError(e instanceof Error ? e.message : '设备发现失败')
     }
   }, [deviceID])

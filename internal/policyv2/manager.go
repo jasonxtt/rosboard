@@ -333,8 +333,9 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		m.failJob(ctx, applier.Repo, &job, "dns-cache-size", err)
 		return
 	}
+	createdRouterIDs := make(map[string]string)
 	for index, operation := range cached.Plan.Operations {
-		if err := applyOperation(ctx, applier.Mutation, operation); err != nil {
+		if err := applyOperation(ctx, applier.Mutation, operation, createdRouterIDs); err != nil {
 			m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
 			return
 		}
@@ -410,7 +411,7 @@ func parseDNSCacheSizeKiB(value string) (int64, error) {
 	return parsed, nil
 }
 
-func applyOperation(ctx context.Context, mutation PolicyMutation, operation PlanOperation) error {
+func applyOperation(ctx context.Context, mutation PolicyMutation, operation PlanOperation, createdRouterIDs map[string]string) error {
 	menu := routeros.MutationMenu(operation.Menu)
 	fields := make(routeros.RouterOSFields, len(operation.After))
 	for key, value := range operation.After {
@@ -425,13 +426,33 @@ func applyOperation(ctx context.Context, mutation PolicyMutation, operation Plan
 	}
 	switch operation.Action {
 	case "create":
-		_, err := mutation.Create(ctx, menu, fields)
+		object, err := mutation.Create(ctx, menu, fields)
+		if err == nil && object.ID() != "" {
+			createdRouterIDs[operation.LogicalID] = object.ID()
+		}
 		return err
 	case "patch":
 		_, err := mutation.Patch(ctx, menu, operation.RouterID, fields)
 		return err
 	case "delete":
 		return mutation.Delete(ctx, menu, operation.RouterID)
+	case "move":
+		sourceID := operation.RouterID
+		if sourceID == "" {
+			sourceID = createdRouterIDs[operation.LogicalID]
+		}
+		if sourceID == "" || operation.Anchor == nil {
+			return fmt.Errorf("move operation is missing its source or anchor")
+		}
+		beforeID := operation.Anchor.RouterID
+		if beforeID == "" {
+			beforeID = createdRouterIDs[operation.Anchor.LogicalID]
+		}
+		if beforeID == "" {
+			return fmt.Errorf("move operation is missing its destination anchor")
+		}
+		_, err := mutation.Move(ctx, menu, routeros.MoveRequest{ID: sourceID, BeforeID: beforeID})
+		return err
 	default:
 		return fmt.Errorf("unsupported policy operation %q", operation.Action)
 	}

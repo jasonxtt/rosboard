@@ -45,6 +45,37 @@ func TestResolveGatewayAllowsPointToPointWithoutIPGateway(t *testing.T) {
 	}
 }
 
+func TestResolveGatewayTreatsVPNAndTunnelInterfacesAsPointToPoint(t *testing.T) {
+	for _, interfaceType := range []string{"wg", "l2tp-out", "sstp-out", "ovpn-out", "pptp-out", "gre", "ipip", "eoip", "vxlan"} {
+		t.Run(interfaceType, func(t *testing.T) {
+			reader := gatewayTestReader{
+				routeros.ReadMenuInterface: {{"name": "vpn-out", "type": interfaceType}},
+			}
+			resolution, err := ResolveGateway(context.Background(), reader, EgressFamily{Family: FamilyIPv4, WANInterface: "vpn-out"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !resolution.PointToPoint || resolution.Gateway != "" || len(resolution.Candidates) != 0 {
+				t.Fatalf("unexpected point-to-point resolution: %#v", resolution)
+			}
+		})
+	}
+}
+
+func TestResolveGatewayIgnoresInactiveDefaultRouteWhenActiveIsOmitted(t *testing.T) {
+	reader := gatewayTestReader{
+		routeros.ReadMenuInterface: {{"name": "ether1", "type": "ether"}},
+		routeros.ReadMenuIPRoute:   {{"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "immediate-gw": "192.0.2.1%ether1", "routing-table": "main"}},
+	}
+	resolution, err := ResolveGateway(context.Background(), reader, EgressFamily{Family: FamilyIPv4, WANInterface: "ether1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Gateway != "" || len(resolution.Candidates) != 0 {
+		t.Fatalf("inactive default route was used as gateway evidence: %#v", resolution)
+	}
+}
+
 func TestResolveGatewayUsesBoundDHCPGateway(t *testing.T) {
 	reader := gatewayTestReader{
 		routeros.ReadMenuInterface:    {{"name": "ether1", "type": "ether"}},

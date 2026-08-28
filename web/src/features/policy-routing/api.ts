@@ -313,6 +313,7 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
     return {
       available: false,
       reason: safeString(o.reason),
+      warnings: safeArray<unknown>(o.warnings).filter((item): item is string => typeof item === 'string'),
       wans: [],
       trafficIngress: [],
     }
@@ -325,6 +326,7 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
       : undefined,
     available: true,
     reason: safeString(o.reason),
+    warnings: safeArray<unknown>(o.warnings).filter((item): item is string => typeof item === 'string'),
     snapshot: {
       fingerprint: safeString(snapshot.fingerprint),
       deviceIdentity: stringRecord(snapshot.deviceIdentity),
@@ -381,6 +383,7 @@ function parsePlanAck(value: unknown): import('./types').PolicyPlanAcknowledgeme
 
 function parsePlanOperation(value: unknown): import('./types').PolicyPlanOperation {
   const o = safeObject(value)
+  const anchor = safeObject(o.anchor)
   return {
     seq: safeNumber(o.seq ?? o.sequence),
     operationID: safeString(o.operationID),
@@ -395,7 +398,7 @@ function parsePlanOperation(value: unknown): import('./types').PolicyPlanOperati
     ownership: safeString(o.ownership),
     before: valueRecord(o.before),
     after: valueRecord(o.after),
-    anchor: safeObject(o.anchor) as import('./types').PolicyAnchorDescriptor,
+    anchor: Object.keys(anchor).length ? anchor as import('./types').PolicyAnchorDescriptor : undefined,
     verification: safeObject(o.verification) as import('./types').PolicyVerificationDescriptor,
     compensation: safeObject(o.compensation) as import('./types').PolicyCompensationDescriptor,
   }
