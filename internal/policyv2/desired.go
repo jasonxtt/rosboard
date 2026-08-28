@@ -108,7 +108,7 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			if mode == ListModeDedicated {
 				listBySource[source.ID] = dedicatedListName(source)
 			} else {
-				listBySource[source.ID] = firstNonEmptyString(egress.ListName, "manual_proxy_lab")
+				listBySource[source.ID] = firstNonEmptyString(egress.ListName, SharedListName(egress.Name))
 			}
 		}
 		forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
@@ -314,6 +314,11 @@ func hasEnabledEgress(egresses []Egress) bool {
 		}
 	}
 	return false
+}
+
+// SharedListName returns the stable address-list name used by a shared egress.
+func SharedListName(egressName string) string {
+	return "manual_" + readableNameKey(egressName, "policy", 48) + "_lab"
 }
 
 func dedicatedListName(source Source) string {

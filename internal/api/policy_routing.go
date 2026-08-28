@@ -2,10 +2,8 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -407,7 +405,7 @@ func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if eg.ListMode == "" {
-		eg.ListMode = policyv2.ListModeDedicated
+		eg.ListMode = policyv2.ListModeShared
 	}
 	if eg.FailureMode == "" {
 		eg.FailureMode = "strict"
@@ -449,8 +447,8 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	if egress.ListMode != policyv2.ListModeShared && egress.ListMode != policyv2.ListModeDedicated {
 		return errors.New("listMode must be shared or dedicated")
 	}
-	if egress.ListMode == policyv2.ListModeShared && strings.TrimSpace(egress.ListName) == "" {
-		egress.ListName = "manual_" + shortPolicyAPIHash(egress.ID, 10) + "_lab"
+	if egress.ListMode == policyv2.ListModeShared {
+		egress.ListName = policyv2.SharedListName(egress.Name)
 	}
 	if egress.FailureMode != "strict" && egress.FailureMode != "fallback" && egress.FailureMode != "existing" {
 		return errors.New("failureMode must be strict, fallback, or existing")
@@ -536,7 +534,26 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 		return err
 	}
 	for _, other := range others {
-		if other.ID != egress.ID && other.FakeAlias != "" {
+		if other.ID == egress.ID {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(other.Name), strings.TrimSpace(egress.Name)) {
+			return fmt.Errorf("egress name %q is already in use", strings.TrimSpace(egress.Name))
+		}
+		otherMode := other.ListMode
+		if otherMode == "" {
+			otherMode = policyv2.ListModeShared
+		}
+		if egress.ListMode == policyv2.ListModeShared && otherMode == policyv2.ListModeShared {
+			otherListName := strings.TrimSpace(other.ListName)
+			if otherListName == "" {
+				otherListName = policyv2.SharedListName(other.Name)
+			}
+			if strings.EqualFold(otherListName, egress.ListName) {
+				return fmt.Errorf("shared address-list name %q is already in use", egress.ListName)
+			}
+		}
+		if other.FakeAlias != "" {
 			used = append(used, other.FakeAlias)
 		}
 	}
@@ -550,15 +567,6 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	}
 	egress.FakeAlias = alias
 	return nil
-}
-
-func shortPolicyAPIHash(value string, length int) string {
-	digest := sha256.Sum256([]byte(value))
-	encoded := hex.EncodeToString(digest[:])
-	if length > len(encoded) {
-		return encoded
-	}
-	return encoded[:length]
 }
 
 func policyGatewayMatchesFamily(value string, family policyv2.AddressFamily) bool {
