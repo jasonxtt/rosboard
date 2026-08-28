@@ -1460,3 +1460,36 @@ Lead 复核发现第七轮 PolicySourcesPage.tsx 删除按钮前 '// 所有非�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 82: 修复策略弹窗焦点抢占并调整出口表格列
+
+**Date**: 2026-08-28
+**Task**: 修复策略弹窗焦点抢占并调整出口表格列
+**Branch**: `main`
+
+### Summary
+
+定位 PolicyModal 焦点 effect 依赖 onClose，父组件轮询重渲染导致输入时焦点被抢回关闭按钮；改为仅挂载时初始化焦点、onClose 走 ref。出口策略表格新增策略接口/下一跳网关/地址族列并按用户指定顺序排列。前端 lint+build、go vet+全量测试通过；两次部署 10.0.0.6（备份 20260828T072541Z-policy-modal-focus-fix、20260828T074816Z-policy-egress-table-columns、20260828T080228Z-policy-egress-address-family-column），期间一次因漏设 GOOS=linux 部署了错误二进制导致服务短暂 Exec format error，已立即修复重部，用户验收通过后按 588d0ee（网关发现/DNS缓存预警，此前已上线）与 a64e99a 分两笔提交。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a64e99a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
