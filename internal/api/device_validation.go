@@ -65,12 +65,28 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	var verifiedTicket verificationTicket
 	if connectionChanged {
 		ticket, err := s.tickets.validate(payload.VerificationToken, connectionFingerprint(baseURL, username, password))
-		if err != nil {
+		if err == nil {
+			allowed = ticket.interfaces
+			verifiedTicket = ticket
+			consumeTicket = true
+		} else if !errors.Is(err, errVerificationRequired) {
 			return config.DeviceConfig{}, false, err
+		} else {
+			// Saving does not require a separate UI probe. Verify the endpoint just
+			// enough to validate explicit interface overrides; the monitor will
+			// perform the complete topology discovery after the configuration is saved.
+			verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			interfaces, verifyErr := routeros.NewClient(baseURL, username, password).Interfaces(verifyCtx)
+			cancel()
+			if verifyErr != nil {
+				return config.DeviceConfig{}, false, errors.New("unable to verify RouterOS connection")
+			}
+			for _, item := range interfaces {
+				if name := strings.TrimSpace(item.Name); name != "" {
+					allowed[name] = struct{}{}
+				}
+			}
 		}
-		allowed = ticket.interfaces
-		verifiedTicket = ticket
-		consumeTicket = true
 	} else {
 		verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
@@ -103,7 +119,7 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	if !legacyTraffic {
 		// Automatic results are runtime-only; persist rules, not selected names.
 		trafficScope.Mode = "auto"
-		if connectionChanged && len(trafficScope.IncludeInterfaces) == 0 {
+		if consumeTicket && len(trafficScope.IncludeInterfaces) == 0 {
 			_, preview := service.PreviewScopes(config.RouterOSConfig{TrafficScope: trafficScope, TerminalScope: scope}, verifiedTicket.topology)
 			if len(preview.Interfaces) == 0 {
 				return config.DeviceConfig{}, false, errors.New("unable to identify an ISP traffic interface; add a traffic-scope include interface")
