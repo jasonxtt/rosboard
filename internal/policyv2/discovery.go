@@ -87,6 +87,8 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	}
 	ipv4Routes, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "dynamic"})
 	ipv6Routes, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "dynamic"})
+	ipv4DHCP, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"})
+	ipv6DHCP, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"})
 	lists, _ := s.reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"})
 	members, _ := s.reader.PolicyList(ctx, routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"})
 	bridgePorts, _ := s.reader.PolicyList(ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"})
@@ -94,9 +96,11 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	ipv6Addresses, _ := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"})
 
 	routes := append(defaultRoutes(ipv4Routes, "ipv4"), defaultRoutes(ipv6Routes, "ipv6")...)
+	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
+	routes = append(routes, dhcpClientRoutes(ipv6DHCP, "ipv6")...)
 	wans := buildWANCandidates(interfaces, routes)
 	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, wans)
-	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, lists, members, bridgePorts)
+	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, lists, members, bridgePorts)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -153,6 +157,29 @@ func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute 
 	return result
 }
 
+func dhcpClientRoutes(objects []routeros.RouterOSObject, family string) []WANRoute {
+	result := make([]WANRoute, 0, len(objects))
+	for _, object := range objects {
+		if strings.TrimSpace(object["interface"]) == "" || !strings.EqualFold(strings.TrimSpace(object["status"]), "bound") || routerBool(object["disabled"], false) {
+			continue
+		}
+		gateway := parseGatewayIP(object["gateway"], AddressFamily(family))
+		if gateway == "" {
+			continue
+		}
+		destination := "0.0.0.0/0"
+		if family == "ipv6" {
+			destination = "::/0"
+		}
+		result = append(result, WANRoute{
+			ID: object[".id"], Family: family, Destination: destination,
+			Gateway: gateway, Table: "main", Source: strings.TrimSpace(object["interface"]),
+			Active: true, Proven: true,
+		})
+	}
+	return result
+}
+
 func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute) []WANCandidate {
 	byName := make(map[string]routeros.RouterOSObject, len(interfaces))
 	for _, object := range interfaces {
@@ -175,12 +202,17 @@ func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute)
 		}
 		result = append(result, WANCandidate{
 			Interface: name, Type: typeName, Running: running,
-			PointToPoint: strings.Contains(typeName, "ppp") || strings.Contains(typeName, "wireguard"),
+			PointToPoint: pointToPointInterfaceType(typeName),
 			Proven:       running && proven, Routes: candidateRoutes,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Interface < result[j].Interface })
 	return result
+}
+
+func pointToPointInterfaceType(typeName string) bool {
+	typeName = strings.ToLower(strings.TrimSpace(typeName))
+	return strings.Contains(typeName, "ppp") || strings.Contains(typeName, "wireguard") || typeName == "wg"
 }
 
 func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, wans []WANCandidate) []TrafficIngressCandidate {

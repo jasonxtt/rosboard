@@ -13,12 +13,13 @@ import (
 )
 
 type policyV2FakeRouter struct {
-	mu      sync.Mutex
-	nextID  int
-	objects map[routeros.MutationMenu]map[string]routeros.RouterOSObject
-	flushes int
-	failAt  int
-	writes  int
+	mu           sync.Mutex
+	nextID       int
+	objects      map[routeros.MutationMenu]map[string]routeros.RouterOSObject
+	flushes      int
+	dnsCacheSize string
+	failAt       int
+	writes       int
 }
 
 func newPolicyV2FakeRouter() *policyV2FakeRouter {
@@ -28,6 +29,9 @@ func newPolicyV2FakeRouter() *policyV2FakeRouter {
 func (r *policyV2FakeRouter) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
 	if menu == routeros.ReadMenuInterfaceList {
 		return []routeros.RouterOSObject{{"name": "LAN"}}, nil
+	}
+	if menu == routeros.ReadMenuIPDNS && r.dnsCacheSize != "" {
+		return []routeros.RouterOSObject{{"cache-size": r.dnsCacheSize}}, nil
 	}
 	return []routeros.RouterOSObject{}, nil
 }
@@ -89,6 +93,15 @@ func (r *policyV2FakeRouter) Delete(_ context.Context, menu routeros.MutationMen
 
 func (r *policyV2FakeRouter) Move(context.Context, routeros.MutationMenu, routeros.MoveRequest) (routeros.MutationResponse, error) {
 	return routeros.MutationResponse{}, nil
+}
+
+func (r *policyV2FakeRouter) SetDNSSettings(_ context.Context, fields routeros.RouterOSFields) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if value, ok := fields["cache-size"]; ok {
+		r.dnsCacheSize = fmt.Sprint(value)
+	}
+	return nil
 }
 
 func (r *policyV2FakeRouter) FlushDNSCache(context.Context) error {
@@ -168,7 +181,7 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.Applied() || state.AppliedHash == "" || router.flushes != 1 {
+	if !state.Applied() || state.AppliedHash == "" || router.flushes != 1 || router.dnsCacheSize != "32768KiB" {
 		t.Fatalf("apply was not committed: state=%#v flushes=%d", state, router.flushes)
 	}
 	if router.objects[routeros.MenuIPFirewallMangle]["*foreign"] == nil {
@@ -189,6 +202,9 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	if len(second.Plan.Operations) != 0 {
 		t.Fatalf("idempotent plan still has operations: %#v", second.Plan.Operations)
 	}
+	router.mu.Lock()
+	router.dnsCacheSize = "62768KiB"
+	router.mu.Unlock()
 
 	loadedEgress, err := repository.GetEgress(ctx, egress.ID)
 	if err != nil {
@@ -220,6 +236,12 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	}
 	if renameJob = waitPolicyV2Job(t, repository, renameJob.ID); renameJob.State != "committed" {
 		t.Fatalf("strategy rename apply failed: %#v", renameJob)
+	}
+	router.mu.Lock()
+	cacheSizeAfterRename := router.dnsCacheSize
+	router.mu.Unlock()
+	if cacheSizeAfterRename != "62768KiB" {
+		t.Fatalf("manual DNS cache size was overwritten: %q", cacheSizeAfterRename)
 	}
 
 	loadedEgress, err = repository.GetEgress(ctx, egress.ID)
@@ -298,7 +320,8 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 		}
 		_ = source
 	}
-	desired, err := policyv2.BuildDesired(ctx, repository)
+	router := newPolicyV2FakeRouter()
+	desired, err := policyv2.BuildDesired(ctx, repository, router)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +382,8 @@ func TestPolicyV2DesiredAggregatesListsAndWireGuardIngress(t *testing.T) {
 	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "wg-version", SourceID: "wg-source", SHA256: "wg", CompressedYAML: []byte("wg")}, []policyv2.SourceRule{{RuleType: "DOMAIN", Domain: "example.com"}}); err != nil {
 		t.Fatal(err)
 	}
-	desired, err := policyv2.BuildDesired(ctx, repository)
+	router := newPolicyV2FakeRouter()
+	desired, err := policyv2.BuildDesired(ctx, repository, router)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +445,7 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: repository}); err != nil {
 		t.Fatal(err)
 	}
-	initial, err := policyv2.BuildDesired(ctx, repository)
+	initial, err := policyv2.BuildDesired(ctx, repository, router)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +472,7 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 	if job = waitPolicyV2Job(t, repository, job.ID); job.State != "committed" {
 		t.Fatalf("disable apply failed: %#v", job)
 	}
-	disabledDesired, err := policyv2.BuildDesired(ctx, repository)
+	disabledDesired, err := policyv2.BuildDesired(ctx, repository, router)
 	if err != nil {
 		t.Fatal(err)
 	}

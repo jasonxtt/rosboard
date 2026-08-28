@@ -53,7 +53,7 @@ export function PolicySourcesPage({
       {sources.length === 0 ? (
         <PolicyEmptyState
           title="尚未配置域名列表"
-          description={readOnly ? '当前为只读状态。' : '添加远程 URL 或本地上传的 Clash YAML；点击保存后自动解析预览，确认后即保存为未分配列表，之后在新建/编辑策略路由时分配。'}
+          description={readOnly ? '当前为只读状态。' : '添加远程 URL 或本地上传的 Clash YAML；点击“保存并预览”查看解析结果，确认后再次点击“保存”即可保存为未分配列表，之后在新建/编辑策略路由时分配。'}
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>新建域名列表</button>}
         />
       ) : (
@@ -256,11 +256,12 @@ export function SourceEditorModal({
   const handleSave = async () => {
     setError(null)
     if (validationError) return
+    if (contentChanged && !preview?.previewId && !preview?.notModified) {
+      await handlePreview()
+      return
+    }
     setSaving(true)
     try {
-      if (contentChanged && !preview?.previewId && !preview?.notModified) {
-        throw new Error('请先解析域名列表预览，再保存')
-      }
       if (preview && preview.validRules <= 0) {
         throw new Error('解析结果没有有效规则，无法继续保存该列表')
       }
@@ -327,19 +328,14 @@ export function SourceEditorModal({
         </PolicyField>
         {contentChanged ? (
           <div className="policy-form-section">
-            <div className="policy-form-actions">
-              <button type="button" className="pill pill--pad-sm" disabled={previewing || Boolean(validationError) || (type === 'upload' && !file)} onClick={() => { void handlePreview() }}>
-                {previewing ? '正在解析…' : preview ? '重新预览' : '解析预览'}
-              </button>
-            </div>
-            {preview ? <SourcePreview preview={preview} /> : <p className="policy-hint">内容变化后先自动预览，确认后保存新版本。</p>}
+            {preview ? <SourcePreview preview={preview} /> : <p className="policy-hint">点击“保存并预览”查看解析结果，确认后再次点击“保存”提交新版本。</p>}
           </div>
         ) : <p className="policy-hint">内容未变化，可直接保存名称 / 更新计划 / 归属等元数据修改。</p>}
         {validationError ? <p className="policy-field-error">{validationError}</p> : null}
         <div className="policy-form-actions">
           <button type="button" className="close-button" onClick={onClose} disabled={saving}>取消</button>
-          <button type="button" className="primary-button" disabled={saving || previewing || Boolean(validationError) || (contentChanged && preview?.notModified !== true && !preview?.previewId)} onClick={() => { void handleSave() }}>
-            {saving ? '正在保存…' : previewing ? '正在解析…' : contentChanged ? preview?.previewId ? '确认保存' : '保存并预览' : '保存列表'}
+          <button type="button" className="primary-button" disabled={saving || previewing || Boolean(validationError)} onClick={() => { void handleSave() }}>
+            {saving ? '正在保存…' : previewing ? '正在解析…' : contentChanged ? preview?.previewId || preview?.notModified ? '保存' : '保存并预览' : '保存列表'}
           </button>
         </div>
       </div>

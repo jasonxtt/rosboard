@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type PolicyMutation interface {
 	Patch(context.Context, routeros.MutationMenu, string, routeros.RouterOSFields) (routeros.RouterOSObject, error)
 	Delete(context.Context, routeros.MutationMenu, string) error
 	Move(context.Context, routeros.MutationMenu, routeros.MoveRequest) (routeros.MutationResponse, error)
+	SetDNSSettings(context.Context, routeros.RouterOSFields) error
 	FlushDNSCache(context.Context) error
 }
 
@@ -93,7 +95,7 @@ func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (Plan
 	if applier == nil {
 		return PlanEnvelope{}, errors.New("policy runtime is unavailable")
 	}
-	desired, err := BuildDesired(ctx, applier.Repo)
+	desired, err := BuildDesired(ctx, applier.Repo, applier.Reader)
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
@@ -171,11 +173,14 @@ func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (Apply
 	if len(cached.Plan.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanBlocked
 	}
-	desired, err := BuildDesired(ctx, applier.Repo)
+	desired, err := BuildDesired(ctx, applier.Repo, applier.Reader)
 	if err != nil {
 		return ApplyJob{}, err
 	}
 	if desired.Revision != cached.Plan.DesiredRevision || desired.Hash != cached.Plan.DesiredHash {
+		return ApplyJob{}, ErrPlanStale
+	}
+	if len(desired.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanStale
 	}
 	aliasBlockers, err := ValidateFakeAliases(ctx, applier.Reader, applier.Repo)
@@ -324,6 +329,10 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		m.logApplyError(deviceID, job.ID, err)
 		return
 	}
+	if err := ensureDefaultDNSCache(ctx, applier); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "dns-cache-size", err)
+		return
+	}
 	for index, operation := range cached.Plan.Operations {
 		if err := applyOperation(ctx, applier.Mutation, operation); err != nil {
 			m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
@@ -359,6 +368,46 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 	if err := applier.Repo.CommitApply(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "commit", err)
 	}
+}
+
+const defaultDNSCacheSizeKiB int64 = 32768
+
+func ensureDefaultDNSCache(ctx context.Context, applier *Applier) error {
+	settings, err := applier.Reader.PolicyList(ctx, routeros.ReadMenuIPDNS, []string{"cache-size"})
+	if err != nil {
+		return fmt.Errorf("读取 RouterOS DNS cache-size 失败: %w", err)
+	}
+	if len(settings) > 0 {
+		value, ok := settings[0]["cache-size"]
+		if ok {
+			current, parseErr := parseDNSCacheSizeKiB(value)
+			if parseErr != nil {
+				return fmt.Errorf("解析 RouterOS DNS cache-size 失败: %w", parseErr)
+			}
+			if current >= defaultDNSCacheSizeKiB {
+				return nil
+			}
+		}
+	}
+	if err := applier.Mutation.SetDNSSettings(ctx, routeros.RouterOSFields{"cache-size": "32768KiB"}); err != nil {
+		return fmt.Errorf("设置 RouterOS DNS cache-size=32768KiB 失败: %w", err)
+	}
+	return nil
+}
+
+func parseDNSCacheSizeKiB(value string) (int64, error) {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) >= 3 && strings.EqualFold(trimmed[len(trimmed)-3:], "kib") {
+		trimmed = strings.TrimSpace(trimmed[:len(trimmed)-3])
+	}
+	parsed, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || parsed < 0 {
+		if err == nil {
+			err = errors.New("cache-size must not be negative")
+		}
+		return 0, err
+	}
+	return parsed, nil
 }
 
 func applyOperation(ctx context.Context, mutation PolicyMutation, operation PlanOperation) error {

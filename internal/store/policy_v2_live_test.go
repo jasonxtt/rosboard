@@ -118,7 +118,7 @@ func TestPolicyV2LiveRouterOSRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if job = waitPolicyV2Job(t, repository, job.ID); job.State != "committed" {
-		desired, desiredErr := policyv2.BuildDesired(ctx, repository)
+		desired, desiredErr := policyv2.BuildDesired(ctx, repository, reader)
 		actual, _, scanErr := policyv2.ScanManaged(ctx, mutation, repository, desired.Objects)
 		remaining, blockers := policyv2.DiffDesired(desired.Objects, actual)
 		t.Fatalf("live apply failed: %#v desiredErr=%v scanErr=%v remaining=%#v blockers=%#v", job, desiredErr, scanErr, remaining, blockers)

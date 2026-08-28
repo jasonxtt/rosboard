@@ -166,7 +166,7 @@ function ApplyPlanModal({
   onApplied: (result?: PolicyApplyResult) => void
 }) {
   return (
-    <div className="policy-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="policy-modal-backdrop">
     <div className="policy-modal policy-modal--wide">
         <div className="policy-modal-head">
           <div>

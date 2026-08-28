@@ -22,7 +22,7 @@ type DesiredResult struct {
 	Warnings []PlanIssue
 }
 
-func BuildDesired(ctx context.Context, repository Repository) (DesiredResult, error) {
+func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
 	state, err := repository.GetDeviceState(ctx)
 	if err != nil {
 		return DesiredResult{}, err
@@ -147,9 +147,29 @@ func BuildDesired(ctx context.Context, repository Repository) (DesiredResult, er
 		addDNSTransport(addEgress, egress.ID, alias, upstream, dnsTable, aliasIP.Is4(), disabled)
 
 		for _, family := range families {
-			buildFamily(&result, addEgress, egress, family, listBySource, ingressList, managerID, repository.DeviceID(), disabled)
+			gateway := strings.TrimSpace(family.Gateway)
+			if gateway == "" && family.WANSource != "next-hop" {
+				resolution, resolveErr := ResolveGateway(ctx, reader, family)
+				if resolveErr != nil {
+					result.Blockers = append(result.Blockers, issue("gateway_discovery_failed", string(family.Family), egress.ID, "无法读取该出口的下一跳网关："+resolveErr.Error()))
+					continue
+				}
+				if resolution.PointToPoint {
+					gateway = strings.TrimSpace(family.WANInterface)
+				} else if resolution.Gateway != "" {
+					gateway = resolution.Gateway
+				} else if len(resolution.Candidates) > 1 {
+					result.Blockers = append(result.Blockers, issue("gateway_ambiguous", string(family.Family), egress.ID, "该出口发现了多个可能的下一跳网关，请手动选择"))
+					continue
+				} else {
+					result.Blockers = append(result.Blockers, issue("gateway_required", string(family.Family), egress.ID, "普通出口接口未发现明确下一跳网关，请手动填写网关 IP"))
+					continue
+				}
+			}
+			buildFamily(&result, addEgress, egress, family, gateway, listBySource, ingressList, managerID, repository.DeviceID(), disabled)
 		}
 	}
+	appendDNSCacheWarning(&result)
 	sort.SliceStable(result.Objects, func(i, j int) bool { return result.Objects[i].Order < result.Objects[j].Order })
 	payload, err := json.Marshal(result.Objects)
 	if err != nil {
@@ -160,16 +180,33 @@ func BuildDesired(ctx context.Context, repository Repository) (DesiredResult, er
 	return result, nil
 }
 
-func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, family EgressFamily, listBySource map[string]string, lanList, managerID, deviceID, disabled string) {
+func appendDNSCacheWarning(result *DesiredResult) {
+	if result == nil {
+		return
+	}
+	dnsStaticCount := 0
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPDNSStatic) {
+			dnsStaticCount++
+		}
+	}
+	if dnsStaticCount <= 1000 {
+		return
+	}
+	result.Warnings = append(result.Warnings, PlanIssue{
+		Code:   "dns_cache_capacity",
+		Status: "warning",
+		Reason: fmt.Sprintf("本次将应用 %d 条 DNS 静态规则；默认 DNS cache 上限为 32MiB，可能不足。若 RouterOS 日志出现 cache full, not storing，请适当增大 cache-size。", dnsStaticCount),
+	})
+}
+
+func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, family EgressFamily, gateway string, listBySource map[string]string, lanList, managerID, deviceID, disabled string) {
 	familyName := string(family.Family)
 	if family.Family != FamilyIPv4 && family.Family != FamilyIPv6 {
 		result.Blockers = append(result.Blockers, issue("invalid_family", familyName, egress.ID, "不支持的地址族"))
 		return
 	}
-	gateway := strings.TrimSpace(family.Gateway)
-	if gateway == "" && family.WANSource != "next-hop" {
-		gateway = strings.TrimSpace(family.WANInterface)
-	}
+	gateway = strings.TrimSpace(gateway)
 	if gateway == "" {
 		result.Blockers = append(result.Blockers, issue("route_incomplete", familyName, egress.ID, "出口接口或下一跳网关不能为空"))
 		return
