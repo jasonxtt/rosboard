@@ -29,6 +29,8 @@ import {
 import type { PolicyEgress } from './types'
 
 const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名列表', '预览并应用']
+const PREVIEW_STEP = 3
+const DOMAIN_STEP = 2
 
 export function PolicyWizard({
   deviceID,
@@ -103,14 +105,23 @@ export function PolicyWizard({
   }, [discovery, trafficIngress, trafficIngressDefaulted])
 
   const readOnly = !overview || overview.setup.state !== 'ready'
+  const isEditing = Boolean(egress?.id)
   const errors = egressDraftErrors(draft, discovery, overview.egresses)
   const nameError = errors.find((message) => message.includes('出口名称')) ?? null
   const listNameError = errors.find((message) => message.includes('标记列表名称')) ?? null
+  const hasTrafficIngress = trafficIngress.interfaceLists.length + trafficIngress.interfaces.length > 0
+  const canGeneratePlan = !readOnly
+    && Boolean(discovery?.available)
+    && errors.length === 0
+    && hasTrafficIngress
+    && selectedDomainIds.length > 0
   const canNext = step === 0
     ? Boolean(discovery?.available) && errors.length === 0
     : step === 1
-      ? trafficIngress.interfaceLists.length + trafficIngress.interfaces.length > 0
-      : true
+      ? hasTrafficIngress
+      : step === DOMAIN_STEP
+        ? selectedDomainIds.length > 0
+        : true
 
   const filteredDomainOptions = allDomainOptions.filter((source) => {
     const query = domainQuery.trim().toLocaleLowerCase()
@@ -140,6 +151,10 @@ export function PolicyWizard({
 
   const handleSaveDraftAndGeneratePlan = async () => {
     setError(null)
+    if (!selectedDomainIds.length) {
+      setError('请至少选择或新建一个域名列表')
+      return
+    }
     setSaving(true)
     try {
       const savedEgress = await saveEgress(deviceID, draft)
@@ -157,7 +172,7 @@ export function PolicyWizard({
       const envelope = await generatePlan(deviceID, overview.egresses.length ? 'structural' : 'initial')
       setPlan(envelope)
       onChanged()
-      setStep(3)
+      setStep(PREVIEW_STEP)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
     } finally {
@@ -168,25 +183,26 @@ export function PolicyWizard({
   return (
     <PolicyModal
       title={egress ? `编辑策略：${egress.name}` : '新建策略'}
-      subtitle="向导依次完成出口、策略流量入口与域名列表草稿（保存在 rosboard，不写入 RouterOS）。"
+      subtitle="可点击上方步骤直接跳转；保存的草稿保存在 rosboard，确认计划后才会写入 RouterOS。"
       wide
       onClose={onClose}
-      header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => i <= step && setStep(i)} />}
-      footer={step < 3 ? (
+      header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => { if (!saving) { setError(null); setStep(i) } }} />}
+      footer={step < PREVIEW_STEP ? (
         <div className="policy-form-actions policy-wizard-nav policy-wizard-footer">
           <button type="button" className="close-button" onClick={step === 0 ? onClose : () => setStep((s) => Math.max(0, s - 1))} disabled={saving}>
             {step === 0 ? '取消' : '上一步'}
           </button>
-          <button type="button" className="primary-button" disabled={!canNext || saving || (step === 2 && readOnly)} onClick={() => {
-            if (step === 2 && selectedDomainIds.length === 0) {
-              setError('请至少选择或新建一个域名列表')
-              return
-            }
-            if (step === 2) void handleSaveDraftAndGeneratePlan()
+          <button type="button" className="primary-button" disabled={!canNext || saving || (step === DOMAIN_STEP && !canGeneratePlan)} onClick={() => {
+            if (step === DOMAIN_STEP) void handleSaveDraftAndGeneratePlan()
             else setStep((s) => s + 1)
           }}>
-            {step === 2 && saving ? '保存并预览中…' : '下一步'}
+            {step === DOMAIN_STEP && saving ? '保存并预览中…' : '下一步'}
           </button>
+          {isEditing ? (
+            <button type="button" className="toolbar-button policy-save-apply-button" disabled={!canGeneratePlan || saving} onClick={() => { void handleSaveDraftAndGeneratePlan() }}>
+              {saving ? '保存并预览中…' : '保存并应用'}
+            </button>
+          ) : null}
         </div>
       ) : null}
     >
@@ -196,7 +212,6 @@ export function PolicyWizard({
 
       {step === 0 ? (
         <div className="policy-wizard-stage">
-          <h4>出口与地址族</h4>
           <EgressDraftForm draft={draft} setDraft={setDraft} discovery={discovery} nameError={nameError} listNameError={listNameError} />
         </div>
       ) : null}
@@ -209,7 +224,7 @@ export function PolicyWizard({
         />
       ) : null}
 
-      {step === 2 ? (
+      {step === DOMAIN_STEP ? (
         <div className="policy-wizard-stage">
           <h4>域名列表</h4>
           <p className="policy-hint">可同时选择多个域名列表。已绑定到其他策略路由的列表不会被自动改绑。</p>
@@ -284,7 +299,7 @@ export function PolicyWizard({
           </div>
       ) : null}
 
-      {step === 3 ? (
+      {step === PREVIEW_STEP ? (
         <div className="policy-wizard-apply">
           <h4>预览并应用</h4>
           <p className="policy-hint">草稿已保存，以下为将要应用到 RouterOS 的变更。</p>
@@ -295,10 +310,10 @@ export function PolicyWizard({
               plan={plan.plan}
               compact
               onApplied={(result) => { setPlan(null); onApplied(result); onClose() }}
-              onCancel={() => { setPlan(null); setStep(2) }}
+              onCancel={() => { setPlan(null); setStep(DOMAIN_STEP) }}
             />
           ) : (
-            <PolicyNotice tone="warn">差异预览尚未生成，请返回域名列表重试。</PolicyNotice>
+            <PolicyNotice tone="info">差异预览尚未生成，请在出口、策略流量入口或域名列表步骤点击“保存并应用”。</PolicyNotice>
           )}
         </div>
       ) : null}
@@ -353,40 +368,45 @@ function EgressDraftForm({
 
   return (
     <div className="policy-form">
-      <PolicyField label="出口名称" htmlFor="policy-egress-name" error={nameError}>
-        <input id="policy-egress-name" className="settings-input" value={draft.name} onChange={(e) => update({ name: e.target.value })} maxLength={128} placeholder="例如 国际出口" />
-      </PolicyField>
-      <fieldset className="policy-family-editor">
-        <legend>地址族与出口</legend>
-        {(['ipv4', 'ipv6'] as const).map((family) => {
+      <section className="policy-section-card" aria-labelledby="policy-egress-basic-title">
+        <h4 className="policy-section-card-title" id="policy-egress-basic-title">基础信息</h4>
+        <div className="policy-field">
+          <label className="policy-field-label" htmlFor="policy-egress-name">
+            出口名称 <span className="policy-field-required" aria-hidden="true">*</span>
+          </label>
+          <input id="policy-egress-name" className="settings-input" value={draft.name} onChange={(e) => update({ name: e.target.value })} maxLength={128} placeholder="例如 国际出口" />
+          <p className="policy-field-error-slot" role={nameError ? 'alert' : undefined}>{nameError ?? ''}</p>
+        </div>
+      </section>
+      <section className="policy-section-card" aria-labelledby="policy-egress-family-title">
+        <h4 className="policy-section-card-title" id="policy-egress-family-title">路由与地址族</h4>
+        {(['ipv4', 'ipv6'] as const).map((family, index) => {
           const enabled = isFamilyEnabled(family)
           const selected = draft.families.find((item) => item.family === family)
           return (
-            <div key={family} className="policy-family-row">
+            <div key={family} className={`policy-family-block${index > 0 ? ' policy-family-block--divided' : ''}`}>
               <label className="policy-family-head checkbox-label">
                 <input type="checkbox" checked={enabled} onChange={(event) => setFamilyEnabled(family, event.target.checked)} />
-                <span>{policyFamilyLabel[family]}</span>
+                <span>启用 {policyFamilyLabel[family]}</span>
               </label>
               {enabled && selected ? (
-                <WANFamilyEditor
-                  family={selected}
-                  discovery={discovery}
-                  onChange={(updated) => {
-                    const families = draft.families.map((item) => item.family === updated.family ? updated : item)
-                    setDraft({ ...draft, families })
-                  }}
-                />
+                <div className="policy-family-expand">
+                  <WANFamilyEditor
+                    family={selected}
+                    discovery={discovery}
+                    onChange={(updated) => {
+                      const families = draft.families.map((item) => item.family === updated.family ? updated : item)
+                      setDraft({ ...draft, families })
+                    }}
+                  />
+                </div>
               ) : null}
             </div>
           )
         })}
-      </fieldset>
-      <label className="checkbox-label policy-checkbox">
-        <input type="checkbox" checked={draft.enabled} onChange={(event) => update({ enabled: event.target.checked })} />
-        <span>启用该出口策略</span>
-      </label>
+      </section>
       <details className="settings-disclosure policy-advanced">
-        <summary className="settings-disclosure-summary">高级功能（优先级、路由、DNS、标记列表模式，均有默认值）</summary>
+        <summary className="settings-disclosure-summary">⚙️ 高级配置（优先级、路由、DNS、标记列表模式，均有默认值）</summary>
         <div className="settings-disclosure-body policy-advanced-body">
           <div className="policy-form-grid">
             <PolicyField label="优先级" hint="数值越小越先匹配；不同出口的域名冲突会被阻止。">
