@@ -150,7 +150,7 @@ func TestMutationCommandsAreAllowlistedAndPathsAreScoped(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
 				t.Fatal("invalid settings request body")
 			}
-			if len(fields) != 1 || fields["allow-remote-requests"] != "yes" {
+			if len(fields) != 1 || fields["allow-remote-requests"] != "yes" && fields["cache-size"] != "32768KiB" {
 				t.Fatalf("unexpected DNS settings body: %#v", fields)
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -188,6 +188,10 @@ func TestMutationCommandsAreAllowlistedAndPathsAreScoped(t *testing.T) {
 	if err := client.SetDNSSettings(context.Background(), RouterOSFields{"allow-remote-requests": "yes"}); err != nil {
 		assertNoSensitiveText(t, err.Error(), "secret")
 		t.Fatal("SetDNSSettings() failed")
+	}
+	if err := client.SetDNSSettings(context.Background(), RouterOSFields{"cache-size": "32768KiB"}); err != nil {
+		assertNoSensitiveText(t, err.Error(), "secret")
+		t.Fatal("SetDNSSettings(cache-size) failed")
 	}
 
 	if _, err := client.Command(context.Background(), MutationMenu("ip/dns/static/../../execute"), CommandPrint, nil); err == nil {

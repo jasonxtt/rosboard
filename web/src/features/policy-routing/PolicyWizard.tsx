@@ -8,6 +8,7 @@ import type {
   PolicyPlanEnvelope,
   PolicySource,
   PolicyTrafficIngressScope,
+  PolicyWANRoute,
 } from './types'
 import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress } from './drafts'
 import { saveEgress, saveTrafficIngress, saveSource, generatePlan } from './api'
@@ -102,7 +103,7 @@ export function PolicyWizard({
   }, [discovery, trafficIngress, trafficIngressDefaulted])
 
   const readOnly = !overview || overview.setup.state !== 'ready'
-  const errors = egressDraftErrors(draft)
+  const errors = egressDraftErrors(draft, discovery)
   const canNext = step === 0
     ? errors.length === 0
     : step === 1
@@ -413,7 +414,6 @@ function EgressDraftForm({
             <EgressFamilyAdvancedFields
               key={family.family}
               family={family}
-              discovery={discovery}
               onChange={(updated) => {
                 const families = draft.families.map((item) => item.family === updated.family ? updated : item)
                 setDraft({ ...draft, families })
@@ -445,96 +445,117 @@ function WANFamilyEditor({
   const interfaces = wans.map((wan) => wan.interface)
   const discoveryAvailable = Boolean(discovery?.available) && interfaces.length > 0
   const [manual, setManual] = useState(false)
+  const [gatewayManuallyEdited, setGatewayManuallyEdited] = useState(() => Boolean(family.gateway.trim()))
   const knownInterface = interfaces.includes(family.wanInterface)
   const manualMode = !discoveryAvailable || manual || (family.wanInterface !== '' && !knownInterface)
+  const selectedWAN = wans.find((wan) => wan.interface === family.wanInterface)
+  const gatewayCandidates = selectedWAN ? selectedWAN.routes
+    .filter((route) => route.family === family.family && route.active && route.proven && isMainPolicyRoute(route))
+    .map((route) => policyRouteGateway(route, family.family))
+    .filter(Boolean)
+    .filter((gateway, index, values) => values.indexOf(gateway) === index) : []
+  const suggestedGateway = !selectedWAN?.pointToPoint && gatewayCandidates.length === 1 ? gatewayCandidates[0] : ''
+  const gatewayRequired = nextHop || Boolean(family.wanInterface.trim() && !selectedWAN?.pointToPoint)
 
-  if ((discoveryAvailable || nextHop) && !manualMode) {
-    return (
-      <PolicyField label="策略接口" htmlFor={`policy-wan-${family.family}-select`} hint="选择真实 WAN 网卡，或选择“下一跳网关”改用主路由表可达的显式网关；特殊选项不会作为 wanInterface 发送。">
-        <select
-          id={`policy-wan-${family.family}-select`}
-          className="settings-select"
-          value={nextHop ? nextHopValue : knownInterface ? family.wanInterface : ''}
-          onChange={(event) => {
-            if (event.target.value === nextHopValue) onChange({ ...family, wanSource: 'next-hop', wanInterface: '' })
-            else onChange({ ...family, wanSource: nextHop ? '' : family.wanSource, wanInterface: event.target.value })
-            setManual(false)
-          }}
-        >
-          {!nextHop && !family.wanInterface ? <option value="" disabled>请选择真实接口</option> : null}
-          {!knownInterface && family.wanInterface ? <option value={family.wanInterface}>{family.wanInterface}（自定义）</option> : null}
-          {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}）`}</option>)}
-          <option value={nextHopValue}>下一跳网关</option>
-        </select>
-        <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(true)}>手动输入接口名…</button></p>
-      </PolicyField>
-    )
+  useEffect(() => {
+    if (nextHop || gatewayManuallyEdited || !family.wanInterface.trim() || family.gateway === suggestedGateway) return
+    onChange({ ...family, gateway: suggestedGateway })
+  }, [family, gatewayManuallyEdited, nextHop, onChange, suggestedGateway])
+
+  const update = (patch: Partial<PolicyEgressFamily>) => onChange({ ...family, ...patch })
+  const selectInterface = (value: string) => {
+    if (value === nextHopValue) {
+      update({ wanSource: 'next-hop', wanInterface: '' })
+    } else {
+      update({ wanSource: nextHop ? '' : family.wanSource, wanInterface: value })
+    }
+    setManual(false)
   }
 
+  const gatewayHint = nextHop
+    ? '必须填写单个 IP；该模式不绑定真实接口。'
+    : selectedWAN?.pointToPoint
+      ? '点对点接口无需填写 IP 网关。'
+      : suggestedGateway
+        ? '已从 main 表活动默认路由或 DHCP 自动填入，可手动修改。'
+        : '未发现唯一的下一跳网关，必须手动填写 IP。'
+
   return (
-    <PolicyField label="策略接口" htmlFor={`policy-wan-${family.family}-mode`} hint={discoveryAvailable ? '可手动输入真实接口，也可直接选择“下一跳网关”；特殊选项不会作为 wanInterface 发送。' : '发现不可用时仍可选择“下一跳网关”；如使用真实接口，请手动填写接口名。'}>
-      <select
-        id={`policy-wan-${family.family}-mode`}
-        className="settings-select"
-        value={nextHop ? nextHopValue : 'manual'}
-        onChange={(event) => {
-          if (event.target.value === nextHopValue) onChange({ ...family, wanSource: 'next-hop', wanInterface: '' })
-          else onChange({ ...family, wanSource: nextHop ? '' : family.wanSource })
-        }}
-      >
-        <option value="manual">真实接口（手动输入）</option>
-        <option value={nextHopValue}>下一跳网关</option>
-      </select>
-      {nextHop ? (
-        <p className="policy-hint">下一跳模式不填写策略接口；请在高级设置填写必填的下一跳网关 IP。</p>
-      ) : (
-        <>
-          <input
-            id={`policy-wan-${family.family}-input`}
-            className="settings-input"
-            list={discoveryAvailable ? `policy-wan-${family.family}` : undefined}
-            value={family.wanInterface}
-            onChange={(event) => onChange({ ...family, wanSource: family.wanSource === 'next-hop' && event.target.value.trim() ? '' : family.wanSource, wanInterface: event.target.value })}
-            placeholder="例如 pppoe-out1 / ether1 / wg-cf"
-          />
-          <datalist id={`policy-wan-${family.family}`}>
+    <div className="policy-form-grid">
+      <PolicyField label="策略接口" htmlFor={`policy-wan-${family.family}-${manualMode ? 'mode' : 'select'}`} hint={discoveryAvailable ? '选择真实 WAN 接口，或选择“下一跳网关”；下一跳模式不绑定接口。' : '无法读取接口候选时可手动输入；普通接口必须同时填写下一跳网关。'}>
+        {(discoveryAvailable || nextHop) && !manualMode ? (
+          <select
+            id={`policy-wan-${family.family}-select`}
+            className="settings-select"
+            value={nextHop ? nextHopValue : knownInterface ? family.wanInterface : ''}
+            onChange={(event) => selectInterface(event.target.value)}
+          >
+            {!nextHop && !family.wanInterface ? <option value="" disabled>请选择真实接口</option> : null}
+            {!knownInterface && family.wanInterface ? <option value={family.wanInterface}>{family.wanInterface}（自定义）</option> : null}
             {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}）`}</option>)}
-          </datalist>
-        </>
-      )}
-      {discoveryAvailable ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(false)}>从候选接口选择</button></p> : null}
-      {nextHop && family.wanInterface.trim() ? <p className="policy-field-error">旧数据同时带有下一跳模式和接口：请重新选择“下一跳网关”，或选择真实接口以清除该模式。</p> : null}
-    </PolicyField>
+            <option value={nextHopValue}>下一跳网关</option>
+          </select>
+        ) : (
+          <>
+            <select
+              id={`policy-wan-${family.family}-mode`}
+              className="settings-select"
+              value={nextHop ? nextHopValue : 'manual'}
+              onChange={(event) => selectInterface(event.target.value)}
+            >
+              <option value="manual">真实接口（手动输入）</option>
+              <option value={nextHopValue}>下一跳网关</option>
+            </select>
+            {!nextHop ? (
+              <input
+                id={`policy-wan-${family.family}-input`}
+                className="settings-input"
+                list={discoveryAvailable ? `policy-wan-${family.family}` : undefined}
+                value={family.wanInterface}
+                onChange={(event) => update({ wanSource: family.wanSource === 'next-hop' && event.target.value.trim() ? '' : family.wanSource, wanInterface: event.target.value })}
+                placeholder="例如 pppoe-out1 / ether1 / wg-cf"
+              />
+            ) : null}
+          </>
+        )}
+        {discoveryAvailable && manualMode ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(false)}>从候选接口选择</button></p> : null}
+        {discoveryAvailable && !manualMode ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => setManual(true)}>手动输入接口名…</button></p> : null}
+        <datalist id={`policy-wan-${family.family}`}>
+          {wans.map((wan) => <option key={wan.interface} value={wan.interface}>{`${wan.interface}（${wan.type || '未知类型'}${wan.running ? '，运行中' : ''}）`}</option>)}
+        </datalist>
+      </PolicyField>
+      <PolicyField label={`下一跳网关（${family.family === 'ipv6' ? 'IPv6' : 'IPv4'}）${gatewayRequired ? '（必填）' : ''}`} htmlFor={`policy-wan-gw-${family.family}-input`} hint={gatewayHint}>
+        <input
+          id={`policy-wan-gw-${family.family}-input`}
+          className="settings-input"
+          required={gatewayRequired}
+          list={`policy-wan-gw-${family.family}`}
+          value={family.gateway}
+          onChange={(event) => { setGatewayManuallyEdited(true); update({ gateway: event.target.value }) }}
+          placeholder={gatewayRequired ? '例如 10.0.2.1（必填）' : '点对点接口无需填写'}
+        />
+        <datalist id={`policy-wan-gw-${family.family}`}>
+          {gatewayCandidates.map((gateway) => <option key={gateway} value={gateway} />)}
+        </datalist>
+        {gatewayManuallyEdited && !nextHop ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => { setGatewayManuallyEdited(false); update({ gateway: suggestedGateway }) }}>恢复自动发现</button></p> : null}
+        {gatewayRequired && !family.gateway.trim() ? <p className="policy-field-error">{nextHop ? '下一跳模式必须填写网关 IP。' : '普通接口未发现唯一网关，请填写下一跳 IP。'}</p> : null}
+      </PolicyField>
+    </div>
   )
 }
 
 function EgressFamilyAdvancedFields({
   family,
-  discovery,
   onChange,
 }: {
   family: PolicyEgressFamily
-  discovery: PolicyDiscovery | null
   onChange: (f: PolicyEgressFamily) => void
 }) {
   const familyName = family.family === 'ipv6' ? 'IPv6' : 'IPv4'
-  const routeSuggestions = discovery
-    ? (discovery.wans.find((wan) => wan.interface === family.wanInterface)?.routes ?? [])
-      .filter((route) => route.family === family.family)
-      .map((route) => route.gateway || route.immediateGateway)
-      .filter(Boolean)
-    : []
-  const nextHop = family.wanSource === 'next-hop'
   const update = (patch: Partial<PolicyEgressFamily>) => onChange({ ...family, ...patch })
 
   return (
     <div className="policy-form-grid">
-      <PolicyField label={`下一跳网关（${familyName}）${nextHop ? '（必填）' : ''}`} hint={nextHop ? '必须填写单个 IP；网关必须能经 RouterOS 主路由表到达，旁路由回程/环路由请自行保证。' : '留空：沿用自动行为（点对点接口用接口路由，普通 WAN 用发现到的默认路径）；填写：显式下一跳 IP。'}>
-        <input id={`policy-wan-gw-${family.family}-input`} className="settings-input" required={nextHop} list={`policy-wan-gw-${family.family}`} value={family.gateway} onChange={(event) => update({ gateway: event.target.value })} placeholder={nextHop ? '例如 192.0.2.1（必填）' : '留空表示使用接口路由'} />
-        <datalist id={`policy-wan-gw-${family.family}`}>
-          {routeSuggestions.map((gateway) => <option key={gateway} value={gateway} />)}
-        </datalist>
-      </PolicyField>
       <PolicyField label={`路由表（${familyName}）`} hint="留空时由 rosboard 创建专用 fib 表；填 main 表示复用主表。">
         <input id={`policy-table-${family.family}`} className="settings-input" value={family.routeTable} onChange={(event) => update({ routeTable: event.target.value })} placeholder="自动" />
       </PolicyField>
@@ -552,10 +573,21 @@ function EgressFamilyAdvancedFields({
           <option value="masquerade">动态 masquerade</option>
         </select>
       </PolicyField>
-      {family.gateway.trim() ? <PolicyNotice tone="warn" title="显式下一跳（可能转发给局域网旁路由）"><span>策略将使用显式网关生成该地址族的默认路由。rosboard 不检查旁路由回程与策略环路，请自行确认网络拓扑，否则可能回环或断网；只对域名列表命中的流量生效，不会接管全部 LAN 流量。</span></PolicyNotice> : null}
-      {nextHop && !family.gateway.trim() ? <PolicyNotice tone="warn" title="下一跳网关未填写">请选择与地址族匹配的单个 IP；保存和预览会被阻止，直到填写完成。</PolicyNotice> : null}
     </div>
   )
+}
+
+function isMainPolicyRoute(route: PolicyWANRoute): boolean {
+  return !route.table.trim() || route.table.toLowerCase() === 'main'
+}
+
+function policyRouteGateway(route: PolicyWANRoute, family: PolicyEgressFamily['family']): string {
+  for (const raw of [route.gateway, route.immediateGateway]) {
+    const value = raw.trim()
+    const address = value.includes('%') ? value.slice(0, value.indexOf('%')) : value
+    if (family === 'ipv4' ? address.includes('.') : address.includes(':')) return family === 'ipv6' ? value : address
+  }
+  return ''
 }
 
 // ---- Traffic ingress form ----

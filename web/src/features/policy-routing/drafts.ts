@@ -3,6 +3,7 @@ import type {
   PolicyEgress,
   PolicyEgressDraft,
   PolicyEgressFamily,
+  PolicyDiscovery,
   PolicySource,
   PolicySourceDraft,
 } from './types'
@@ -91,7 +92,7 @@ export function sourceDraftFromSource(source: PolicySource): PolicySourceDraft {
   }
 }
 
-export function egressDraftErrors(draft: PolicyEgressDraft): string[] {
+export function egressDraftErrors(draft: PolicyEgressDraft, discovery: PolicyDiscovery | null = null): string[] {
   const errors: string[] = []
   if (!draft.name.trim()) errors.push('出口名称不能为空')
   if (draft.listMode === 'dedicated' && !draft.listName.trim()) {
@@ -102,9 +103,14 @@ export function egressDraftErrors(draft: PolicyEgressDraft): string[] {
   for (const f of enabledFamilies) {
     if (f.wanSource === 'next-hop') {
       if (f.wanInterface.trim()) errors.push(`${f.family.toUpperCase()} 的下一跳模式仍带有旧接口值，请重新选择真实接口，或重新选择“下一跳网关”后再保存`)
-      if (!f.gateway.trim()) errors.push(`${f.family.toUpperCase()} 选择“下一跳网关”后必须在高级设置填写网关 IP`)
+      if (!f.gateway.trim()) errors.push(`${f.family.toUpperCase()} 选择“下一跳网关”后必须填写网关 IP`)
     } else if (!f.wanInterface.trim()) {
       errors.push(`${f.family.toUpperCase()} 必须选择目标 WAN 接口`)
+    } else {
+      const wan = discovery?.wans.find((candidate) => candidate.interface === f.wanInterface)
+      if (!wan?.pointToPoint && !f.gateway.trim()) {
+        errors.push(`${f.family.toUpperCase()} 为普通接口且未发现唯一网关，必须填写下一跳网关 IP`)
+      }
     }
   }
   return errors

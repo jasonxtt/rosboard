@@ -139,7 +139,7 @@ export function PolicyModal({ title, subtitle, wide, onClose, header, children, 
   }, [onClose])
 
   return (
-    <div className="dialog-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="dialog-backdrop" role="presentation">
       <div className={`remark-modal policy-modal${wide ? ' policy-modal--wide' : ''}`} ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="dialog-head">
           <div>

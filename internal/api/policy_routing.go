@@ -412,7 +412,13 @@ func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Requ
 	if eg.FailureMode == "" {
 		eg.FailureMode = "strict"
 	}
-	if err := normalizePolicyV2Egress(request.Context(), device.repository, &eg); err != nil {
+	var reader policyv2.PolicyReader
+	if s.policy != nil {
+		if applier := s.policy.ApplierFor(device.device.ID); applier != nil {
+			reader = applier.Reader
+		}
+	}
+	if err := normalizePolicyV2Egress(request.Context(), device.repository, reader, &eg); err != nil {
 		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_egress", "error": err.Error()})
 		return
 	}
@@ -428,7 +434,7 @@ func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Requ
 	writePolicyJson(writer, http.StatusOK, eg)
 }
 
-func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyRepository, egress *policyv2.Egress) error {
+func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyRepository, reader policyv2.PolicyReader, egress *policyv2.Egress) error {
 	if egress == nil {
 		return errors.New("egress is required")
 	}
@@ -474,6 +480,29 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 		}
 		if family.WANSource != "next-hop" && strings.TrimSpace(family.WANInterface) == "" && strings.TrimSpace(family.Gateway) == "" {
 			return fmt.Errorf("%s requires a WAN interface or gateway", family.Family)
+		}
+		if family.WANSource == "next-hop" {
+			if !policyGatewayMatchesFamily(family.Gateway, family.Family) {
+				return fmt.Errorf("%s next-hop gateway must be a valid %s IP", family.Family, family.Family)
+			}
+		} else if strings.TrimSpace(family.Gateway) == "" && strings.TrimSpace(family.WANInterface) != "" {
+			if reader == nil {
+				return fmt.Errorf("%s cannot determine the next-hop gateway; please fill it manually", family.Family)
+			}
+			resolution, resolveErr := policyv2.ResolveGateway(ctx, reader, *family)
+			if resolveErr != nil {
+				return fmt.Errorf("%s gateway discovery failed: %w", family.Family, resolveErr)
+			}
+			if !resolution.PointToPoint {
+				switch len(resolution.Candidates) {
+				case 1:
+					family.Gateway = resolution.Gateway
+				case 0:
+					return fmt.Errorf("%s is not point-to-point and no next-hop gateway was found; please fill the gateway IP", family.Family)
+				default:
+					return fmt.Errorf("%s has multiple possible next-hop gateways; please fill one gateway IP", family.Family)
+				}
+			}
 		}
 		if family.RouteTable == "" {
 			family.RouteTable = policyv2.DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family)
@@ -530,6 +559,18 @@ func shortPolicyAPIHash(value string, length int) string {
 		return encoded
 	}
 	return encoded[:length]
+}
+
+func policyGatewayMatchesFamily(value string, family policyv2.AddressFamily) bool {
+	value = strings.TrimSpace(value)
+	if index := strings.IndexByte(value, '%'); index > 0 {
+		value = value[:index]
+	}
+	address, err := netip.ParseAddr(value)
+	if err != nil || address.IsUnspecified() {
+		return false
+	}
+	return (family == policyv2.FamilyIPv4 && address.Is4()) || (family == policyv2.FamilyIPv6 && !address.Is4())
 }
 
 func (s *Server) deletePolicyEgress(writer http.ResponseWriter, request *http.Request, id string) {

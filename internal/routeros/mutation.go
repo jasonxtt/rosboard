@@ -527,6 +527,7 @@ func validateMutationCommandFields(menu MutationMenu, command MutationCommand, f
 		}
 		return validateAllowedMutationFields(fields, map[string]struct{}{
 			"allow-remote-requests": {},
+			"cache-size":            {},
 		})
 	case CommandPrint:
 		return validateAllowedMutationFields(fields, map[string]struct{}{

@@ -19,6 +19,12 @@ import (
 
 type policyV2Router struct{}
 
+type policyGatewayReader map[routeros.ReadMenu][]routeros.RouterOSObject
+
+func (r policyGatewayReader) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
+	return r[menu], nil
+}
+
 func (policyV2Router) AccountAccess(context.Context, string) (routeros.AccountAccess, error) {
 	return routeros.AccountAccess{Username: "device-user", Group: "write", Policies: []string{"read", "write", "rest-api"}, Writable: true}, nil
 }
@@ -45,7 +51,8 @@ func (policyV2Router) Delete(context.Context, routeros.MutationMenu, string) err
 func (policyV2Router) Move(context.Context, routeros.MutationMenu, routeros.MoveRequest) (routeros.MutationResponse, error) {
 	return routeros.MutationResponse{}, nil
 }
-func (policyV2Router) FlushDNSCache(context.Context) error { return nil }
+func (policyV2Router) SetDNSSettings(context.Context, routeros.RouterOSFields) error { return nil }
+func (policyV2Router) FlushDNSCache(context.Context) error                           { return nil }
 
 func newPolicyV2APIServer(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
@@ -147,6 +154,68 @@ func TestPolicyV2EgressCRUDMatchesFrontendShape(t *testing.T) {
 	}
 	if loaded.Name != updated.Name || len(loaded.Families) != 1 {
 		t.Fatalf("unexpected loaded egress: %#v", loaded)
+	}
+}
+
+func TestPolicyV2EgressAutoFillsMainGateway(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	reader := policyGatewayReader{
+		routeros.ReadMenuInterface: {
+			{"name": "ether1", "type": "ether"},
+		},
+		routeros.ReadMenuIPRoute: {
+			{"dst-address": "0.0.0.0/0", "gateway": "10.0.2.1", "immediate-gw": "10.0.2.1%ether1", "routing-table": "main", "active": "true"},
+		},
+	}
+	eg := policyv2.Egress{
+		ID: "auto", Name: "Auto", ListMode: policyv2.ListModeShared, ListName: "auto", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.90", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "ether1"}},
+	}
+	if err := normalizePolicyV2Egress(context.Background(), repository, reader, &eg); err != nil {
+		t.Fatal(err)
+	}
+	if got := eg.Families[0].Gateway; got != "10.0.2.1" {
+		t.Fatalf("gateway was not auto-filled: %q", got)
+	}
+}
+
+func TestPolicyV2EgressAllowsPPPoEWithoutGateway(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	eg := policyv2.Egress{
+		ID: "pppoe", Name: "PPPoE", ListMode: policyv2.ListModeShared, ListName: "pppoe", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.91", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "pppoe-out1"}},
+	}
+	reader := policyGatewayReader{routeros.ReadMenuInterface: {{"name": "pppoe-out1", "type": "pppoe-out"}}}
+	if err := normalizePolicyV2Egress(context.Background(), storage.PolicyRepository(), reader, &eg); err != nil {
+		t.Fatal(err)
+	}
+	if got := eg.Families[0].Gateway; got != "" {
+		t.Fatalf("PPPoE gateway should remain empty: %q", got)
+	}
+}
+
+func TestPolicyV2EgressRequiresUnknownEthernetGateway(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	eg := policyv2.Egress{
+		ID: "ether", Name: "Ethernet", ListMode: policyv2.ListModeShared, ListName: "ether", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.92", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "ether1"}},
+	}
+	reader := policyGatewayReader{routeros.ReadMenuInterface: {{"name": "ether1", "type": "ether"}}}
+	if err := normalizePolicyV2Egress(context.Background(), storage.PolicyRepository(), reader, &eg); err == nil {
+		t.Fatal("unknown Ethernet gateway was accepted")
 	}
 }
 
