@@ -16,7 +16,7 @@ import (
 	"rosboard/internal/routeros"
 )
 
-func TestDeviceCreateRequiresMatchingVerificationAndCanonicalizesCIDRs(t *testing.T) {
+func TestDeviceCreateAllowsSaveWithoutPriorVerificationAndCanonicalizesCIDRs(t *testing.T) {
 	router := newDeviceTestRouter(t)
 	defer router.Close()
 	scheme, host, port := testConnectionParts(t, router.URL)
@@ -24,22 +24,8 @@ func TestDeviceCreateRequiresMatchingVerificationAndCanonicalizesCIDRs(t *testin
 	cfg := config.Config{Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48}
 	server := NewServer(cfg, nil, nil)
 
-	withoutTicket := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":" secret ","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.7/24"]}`
+	withoutTicket := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":" secret ","trafficScope":{"mode":"auto"},"terminalCidrs":["10.0.0.7/24"]}`
 	response := serveJSON(server, http.MethodPost, "/api/devices", withoutTicket)
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "verification") {
-		t.Fatalf("missing-ticket status=%d body=%s", response.Code, response.Body.String())
-	}
-
-	baseURL, err := normalizedRouterOSURL(scheme, host, port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, _, err := server.tickets.issue(connectionFingerprint(baseURL, "admin", " secret "), []routeros.VerificationInterface{{Name: "ether1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	withTicket := strings.TrimSuffix(withoutTicket, "}") + `,"verificationToken":"` + token + `"}`
-	response = serveJSON(server, http.MethodPost, "/api/devices", withTicket)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
