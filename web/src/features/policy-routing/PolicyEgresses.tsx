@@ -50,7 +50,9 @@ export function PolicyEgressTable({
                 <tr>
                   <th>名称</th>
                   <th>策略接口</th>
+                  <th>下一跳网关</th>
                   <th>域名列表</th>
+                  <th>地址族</th>
                   <th>标记列表</th>
                   <th>优先级</th>
                   <th>断线处理</th>
@@ -106,7 +108,10 @@ function EgressRow({
   const [toggling, setToggling] = useState(false)
   const [retryEnabled, setRetryEnabled] = useState<boolean | null>(null)
   const status = egressStatus(egress)
-  const enabledFamilies = egress.families.filter((f) => f.enabled).map((f) => policyFamilyLabel[f.family] ?? f.family).join(' / ') || '—'
+  const enabledFamilies = egress.families.filter((f) => f.enabled)
+  const ipVersions = enabledFamilies.map((f) => policyFamilyLabel[f.family] ?? f.family).join('/') || '—'
+  const wanInterfaces = [...new Set(enabledFamilies.map((f) => f.wanInterface.trim()).filter(Boolean))].join(' / ') || '—'
+  const gateways = [...new Set(enabledFamilies.map((f) => f.gateway.trim()).filter(Boolean))].join(' / ') || '—'
   const egressSources = sources.filter((s) => egress.sources.some((es) => es.id === s.id))
   const sharedListUsers = egress.listMode === 'shared'
     ? egresses.filter((item) => item.id !== egress.id && item.listName === egress.listName && item.enabled)
@@ -150,8 +155,10 @@ function EgressRow({
     <>
       <tr className={egress.enabled ? '' : 'disabled-row'}>
         <td><strong>{egress.name}</strong></td>
-        <td><span className="policy-cell-stack">{enabledFamilies}</span></td>
+        <td><span className="policy-cell-stack">{wanInterfaces}</span></td>
+        <td><span className="mono">{gateways}</span></td>
         <td>{sourceNames}</td>
+        <td>{ipVersions}</td>
         <td><code>{egress.listName || '—'}</code></td>
         <td>{egress.priority}</td>
         <td>{policyFailureModeLabel[egress.failureMode] ?? egress.failureMode}</td>

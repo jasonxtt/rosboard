@@ -111,12 +111,17 @@ export function PolicyPasswordInput({ value, onChange, className, placeholder }:
 export function PolicyModal({ title, subtitle, wide, onClose, header, children, footer }: { title: string; subtitle?: React.ReactNode; wide?: boolean; onClose: () => void; header?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
+  // 焦点初始化只在挂载时执行一次：父组件轮询重渲染会生成新的 onClose 引用，
+  // 若把它放入依赖，effect 重跑会把焦点抢回弹窗内第一个可聚焦元素（关闭按钮），
+  // 用户正在输入时输入框会莫名失焦。
   useEffect(() => {
     previousFocus.current = document.activeElement as HTMLElement | null
     const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])') ?? []).filter((element) => !element.hasAttribute('disabled'))
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
       if (e.key !== 'Tab') return
       const elements = focusable()
       if (!elements.length) return
@@ -136,7 +141,7 @@ export function PolicyModal({ title, subtitle, wide, onClose, header, children, 
       document.removeEventListener('keydown', handleKeyDown)
       previousFocus.current?.focus()
     }
-  }, [onClose])
+  }, [])
 
   return (
     <div className="dialog-backdrop" role="presentation">
