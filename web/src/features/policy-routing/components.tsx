@@ -170,8 +170,10 @@ export function PolicyWizardSteps({ steps, current, onJump }: { steps: string[];
         const done = i < current
         const active = i === current
         return (
-          <li key={step} className={active ? 'active' : done ? 'done' : ''} aria-current={active ? 'step' : undefined} onClick={done ? () => onJump?.(i) : undefined}>
-            {i + 1}. {step}
+          <li key={step} className={active ? 'active' : done ? 'done' : ''} aria-current={active ? 'step' : undefined}>
+            <button type="button" onClick={() => onJump?.(i)}>
+              {i + 1}. {step}
+            </button>
           </li>
         )
       })}
