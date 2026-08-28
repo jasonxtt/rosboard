@@ -250,7 +250,7 @@ func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, 
 		identity := egress.ID + ":" + familyName + ":" + listName
 		connectionMark := "rb_" + shortHash("connection:"+identity, 12)
 		add("lan-connection:"+identity, mangleMenu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": connectionMark, "passthrough": "yes", "disabled": disabled})
-		add("lan-routing:"+identity, mangleMenu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "connection-mark": connectionMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
+		add("lan-routing:"+identity, mangleMenu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "dst-address-type": "!local", "connection-mark": connectionMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
 		if egress.RouterOutput {
 			routerMark := "rb_" + shortHash("router:"+identity, 12)
 			add("router-connection:"+identity, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": disabled})
