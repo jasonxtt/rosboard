@@ -1527,3 +1527,41 @@ Lead 复核发现第七轮 PolicySourcesPage.tsx 删除按钮前 '// 所有非�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 84: Refine policy wizard navigation workflow
+
+**Date**: 2026-08-29
+**Task**: Refine policy wizard navigation workflow
+**Branch**: `main`
+
+### Summary
+
+Reordered policy wizard steps, enabled direct step navigation, added edit-only save-and-preview action, and deployed the verified frontend bundle to net.
+
+### Main Changes
+
+- Reordered the wizard to egress/address family, traffic ingress, domain lists, and preview/apply.
+- Made all wizard step headings directly clickable.
+- Added an edit-only “保存并应用” shortcut that saves the draft, generates a plan, and opens preview.
+- Kept new-policy creation on the normal Next flow without the shortcut.
+- Verified the frontend lint/build, Linux amd64 build, remote health endpoint, and embedded asset markers.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e3dad84` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
