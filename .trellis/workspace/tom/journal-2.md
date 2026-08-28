@@ -1493,3 +1493,37 @@ Lead 复核发现第七轮 PolicySourcesPage.tsx 删除按钮前 '// 所有非�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 83: 策略路由 WAN/LAN/VPN 出口发现修复与 net 部署
+
+**Date**: 2026-08-29
+**Task**: 策略路由 WAN/LAN/VPN 出口发现修复与 net 部署
+**Branch**: `main`
+
+### Summary
+
+完成 LAN 优先的 WAN 发现、WireGuard 与 RouterOS VPN/隧道出口候选、点到点网关处理和未验证状态提示；通过全量测试与远端健康/API/嵌入资源校验，部署到 net 后经用户手动验收通过。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a255e65` | (see git log) |
+| `382e677` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

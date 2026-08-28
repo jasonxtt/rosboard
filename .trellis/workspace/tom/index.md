@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 82
-- **Last Active**: 2026-08-28
+- **Total Sessions**: 83
+- **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1495 | Active |
+| `journal-2.md` | ~1529 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 83 | 2026-08-29 | 策略路由 WAN/LAN/VPN 出口发现修复与 net 部署 | `a255e65`, `382e677` | `main` |
 | 82 | 2026-08-28 | 修复策略弹窗焦点抢占并调整出口表格列 | `a64e99a` | `main` |
 | 81 | 2026-08-28 | 设备管理界面重构与 net 部署验收 | `6082ad0` | `main` |
 | 80 | 2026-08-24 | Phase 12 review 第七轮跟进：移除 JSX 内裸注释泄漏 + 存量注释准确化 | - | `main` |
