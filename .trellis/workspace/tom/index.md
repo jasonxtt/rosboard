@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 91
+- **Total Sessions**: 92
 - **Last Active**: 2026-08-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1808 | Active |
+| `journal-2.md` | ~1841 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 92 | 2026-08-30 | Policy source multi-format parsing | `333d8a4` | `main` |
 | 91 | 2026-08-30 | 补全项目开发规范并归档初始化任务 | `e59178a` | `main` |
 | 90 | 2026-08-30 | 策略路由父任务行政归档 | `3a542ab` | `main` |
 | 89 | 2026-08-30 | 策略路由 IP 列表实现与修复 | `295fd39` | `main` |

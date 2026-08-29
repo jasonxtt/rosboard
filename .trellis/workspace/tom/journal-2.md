@@ -1806,3 +1806,36 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 92: Policy source multi-format parsing
+
+**Date**: 2026-08-30
+**Task**: Policy source multi-format parsing
+**Branch**: `main`
+
+### Summary
+
+Added YAML/TXT/LIST and local-upload parsing with selected domain/IP filtering; defaulted new URL sources to 7-day refresh, regenerated embedded frontend, deployed and passed acceptance.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `333d8a4` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
