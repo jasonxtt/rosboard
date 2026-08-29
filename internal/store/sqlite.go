@@ -156,10 +156,10 @@ func (s *Store) ForDevice(deviceID string) *Store {
 	}
 	child, err := s.OpenDevice(deviceID)
 	if err != nil {
-		// Keep the legacy helper's no-error signature for tests and callers that
-		// only need a device view. Production monitor startup uses OpenDevice and
-		// returns the initialization error instead of falling back silently.
-		return &Store{db: s.db, deviceID: deviceID, managerInstanceID: s.managerInstanceID}
+		// Never fall back to the owner database for another device: the owner
+		// DB hosts the default device's data, and DNS rows are physically
+		// scoped per device database. Callers must handle the nil store.
+		return nil
 	}
 	return child
 }
@@ -358,6 +358,9 @@ func (s *Store) initSchema() error {
 	if err := s.migrateDeviceScope(); err != nil {
 		return err
 	}
+	if err := s.migrateLegacyDNSScope(); err != nil {
+		return err
+	}
 	if err := s.backfillDNSFeatures(); err != nil {
 		return err
 	}
@@ -382,6 +385,33 @@ func (s *Store) initDeviceSchema() error {
 		`CREATE TABLE IF NOT EXISTS terminal_history (device_id TEXT NOT NULL, terminal_id TEXT NOT NULL, ts INTEGER NOT NULL, online_seconds INTEGER NOT NULL, upload_bytes INTEGER NOT NULL, download_bytes INTEGER NOT NULL, PRIMARY KEY (device_id, terminal_id, ts))`,
 		`CREATE TABLE IF NOT EXISTS load_samples (device_id TEXT NOT NULL, ts INTEGER NOT NULL, cpu_percent REAL NOT NULL, memory_percent REAL NOT NULL, online_terminals INTEGER NOT NULL, connection_count INTEGER NOT NULL DEFAULT -1, upload_bps REAL NOT NULL, download_bps REAL NOT NULL, storage_percent REAL NOT NULL DEFAULT 0, PRIMARY KEY (device_id, ts))`,
 		`CREATE TABLE IF NOT EXISTS protocol_samples (device_id TEXT NOT NULL, ts INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, connections INTEGER NOT NULL, upload_bps REAL NOT NULL, download_bps REAL NOT NULL, PRIMARY KEY (device_id, ts, name, kind))`,
+		`CREATE TABLE IF NOT EXISTS dns_observations (
+			dedupe_key TEXT PRIMARY KEY,
+			trace_id TEXT NOT NULL,
+			client_ip TEXT NOT NULL,
+			domain TEXT NOT NULL,
+			answer_ip TEXT NOT NULL,
+			query_type TEXT NOT NULL,
+			query_time_ns INTEGER NOT NULL,
+			ttl INTEGER NOT NULL,
+			effective_tag TEXT NOT NULL DEFAULT '',
+			ingested_at_ns INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_observations_query_time ON dns_observations(query_time_ns DESC)`,
+		`CREATE TABLE IF NOT EXISTS dns_features (
+			client_ip TEXT NOT NULL,
+			domain TEXT NOT NULL,
+			answer_ip TEXT NOT NULL,
+			query_type TEXT NOT NULL,
+			first_seen_ns INTEGER NOT NULL,
+			last_seen_ns INTEGER NOT NULL,
+			hit_count INTEGER NOT NULL,
+			last_ttl INTEGER NOT NULL,
+			effective_tag TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (client_ip, domain, answer_ip)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_dns_features_client_answer ON dns_features(client_ip, answer_ip, hit_count DESC, last_seen_ns DESC)`,
+		`CREATE TABLE IF NOT EXISTS mosdns_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 	}
 	for _, statement := range statements {
@@ -670,6 +700,50 @@ func (s *Store) PruneInterfaceSamples(ctx context.Context, before time.Time) err
 	return nil
 }
 
+// migrateLegacyDNSScope clears DNS data that was ingested while MosDNS was a
+// process-global source. Observations, learned features, and the unscoped sync
+// watermark are now owned by individual device databases, so the owner rows
+// cannot be attributed and are dropped once (guarded by a versioned marker).
+func (s *Store) migrateLegacyDNSScope() error {
+	const dnsScopeMarkerVersion = "2"
+	var migrated string
+	err := s.db.QueryRow(`SELECT value FROM mosdns_state WHERE key = 'dns_scope_migrated'`).Scan(&migrated)
+	if err == nil && migrated == dnsScopeMarkerVersion {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("inspect DNS scope migration marker: %w", err)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin DNS scope migration: %w", err)
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`DELETE FROM dns_observations`,
+		`DELETE FROM dns_features`,
+		// The legacy watermark points at the removed global MosDNS source; a
+		// device-scoped source must start from its own boundary.
+		`DELETE FROM mosdns_state WHERE key IN ('watermark_query_time_ns', 'watermark_trace_id')`,
+		`INSERT INTO mosdns_state (key, value) VALUES ('dns_scope_migrated', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+	} {
+		var execErr error
+		if strings.Contains(statement, "?") {
+			_, execErr = tx.Exec(statement, dnsScopeMarkerVersion)
+		} else {
+			_, execErr = tx.Exec(statement)
+		}
+		if execErr != nil {
+			return fmt.Errorf("migrate DNS scope: %w", execErr)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit DNS scope migration: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) backfillDNSFeatures() error {
 	var count int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM dns_features`).Scan(&count); err != nil {
@@ -690,9 +764,6 @@ func (s *Store) backfillDNSFeatures() error {
 }
 
 func (s *Store) SaveDNSObservations(ctx context.Context, observations []model.DNSObservation, watermark DNSWatermark) (int, error) {
-	if !s.owner {
-		return 0, errors.New("MosDNS observations require the owner store")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin MosDNS observation batch: %w", err)
@@ -767,9 +838,6 @@ func (s *Store) SaveDNSObservations(ctx context.Context, observations []model.DN
 }
 
 func (s *Store) LoadDNSWatermark(ctx context.Context) (DNSWatermark, bool, error) {
-	if !s.owner {
-		return DNSWatermark{}, false, errors.New("MosDNS watermark requires the owner store")
-	}
 	var raw string
 	if err := s.db.QueryRowContext(ctx, `SELECT value FROM mosdns_state WHERE key = 'watermark_query_time_ns'`).Scan(&raw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -789,8 +857,8 @@ func (s *Store) LoadDNSWatermark(ctx context.Context) (DNSWatermark, bool, error
 }
 
 func (s *Store) DNSObservations(ctx context.Context, limit int) ([]model.DNSObservation, error) {
-	if !s.owner {
-		return nil, errors.New("MosDNS observations require the owner store")
+	if s == nil || s.db == nil {
+		return nil, errors.New("device store is unavailable")
 	}
 	if limit <= 0 {
 		limit = 100
@@ -819,9 +887,6 @@ func (s *Store) DNSObservations(ctx context.Context, limit int) ([]model.DNSObse
 }
 
 func (s *Store) DNSObservationsForMatch(ctx context.Context, since, until time.Time) ([]model.DNSObservation, error) {
-	if !s.owner {
-		return nil, errors.New("MosDNS observations require the owner store")
-	}
 	if since.IsZero() {
 		since = time.Unix(0, 0).UTC()
 	}
@@ -853,9 +918,6 @@ func (s *Store) DNSObservationsForMatch(ctx context.Context, since, until time.T
 }
 
 func (s *Store) DNSFeaturesForMatch(ctx context.Context) ([]model.DNSFeature, error) {
-	if !s.owner {
-		return nil, errors.New("DNS features require the owner store")
-	}
 	rows, err := s.db.QueryContext(ctx, `SELECT client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl, effective_tag
 		FROM dns_features ORDER BY hit_count DESC, last_seen_ns DESC`)
 	if err != nil {
@@ -880,9 +942,6 @@ func (s *Store) DNSFeaturesForMatch(ctx context.Context) ([]model.DNSFeature, er
 }
 
 func (s *Store) DNSFeatureSummary(ctx context.Context) (int, time.Time, error) {
-	if !s.owner {
-		return 0, time.Time{}, errors.New("DNS feature summary requires the owner store")
-	}
 	var count int
 	var lastSeen int64
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(last_seen_ns), 0) FROM dns_features`).Scan(&count, &lastSeen); err != nil {
@@ -895,9 +954,6 @@ func (s *Store) DNSFeatureSummary(ctx context.Context) (int, time.Time, error) {
 }
 
 func (s *Store) PruneDNSObservations(ctx context.Context, before time.Time) error {
-	if !s.owner {
-		return errors.New("MosDNS observations require the owner store")
-	}
 	if before.IsZero() {
 		return nil
 	}
@@ -1502,11 +1558,33 @@ func (s *Store) PurgeDevice(ctx context.Context, deviceID string) error {
 		if err := child.purgeDeviceData(ctx, deviceID); err != nil {
 			return err
 		}
+		if err := child.purgeDNSData(ctx); err != nil {
+			return err
+		}
 		// Remove the legacy shared copy as well so a later rollback cannot
 		// resurrect data that the user explicitly purged.
 		return s.purgeDeviceData(ctx, deviceID)
 	}
-	return s.purgeDeviceData(ctx, deviceID)
+	if err := s.purgeDeviceData(ctx, deviceID); err != nil {
+		return err
+	}
+	return s.purgeDNSData(ctx)
+}
+
+// purgeDNSData clears the DNS observations, learned features, and sync state
+// stored in this database. Within a device database every row belongs to that
+// device; in the owner database the DNS tables host the default device only.
+func (s *Store) purgeDNSData(ctx context.Context) error {
+	for _, statement := range []string{
+		`DELETE FROM dns_observations`,
+		`DELETE FROM dns_features`,
+		`DELETE FROM mosdns_state`,
+	} {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("purge DNS data: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) purgeDeviceData(ctx context.Context, deviceID string) error {
@@ -1535,14 +1613,24 @@ func (s *Store) ResetAll(ctx context.Context) error {
 	}
 	s.childrenMu.Lock()
 	children := make([]*Store, 0, len(s.children))
+	openPaths := make(map[string]struct{}, len(s.children))
 	for _, child := range s.children {
 		children = append(children, child)
+		openPaths[child.dbPath] = struct{}{}
 	}
 	s.childrenMu.Unlock()
 	for _, child := range children {
 		if err := child.purgeDeviceData(ctx, child.deviceID); err != nil {
 			return err
 		}
+		if err := child.purgeDNSData(ctx); err != nil {
+			return err
+		}
+	}
+	// Device databases that are not currently open would otherwise keep their
+	// monitoring and DNS history on disk after a full reset.
+	if err := s.resetClosedDeviceDatabases(ctx, openPaths); err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1561,6 +1649,51 @@ func (s *Store) ResetAll(ctx context.Context) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit full reset: %w", err)
+	}
+	return nil
+}
+
+// resetClosedDeviceDatabases wipes every device database file under
+// devices/ that this process has not opened. Each file holds a single
+// device's rows, so the delete statements need no device filter.
+func (s *Store) resetClosedDeviceDatabase(ctx context.Context, path string) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return fmt.Errorf("open device database for reset: %w", err)
+	}
+	defer db.Close()
+	tables := []string{
+		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
+		"terminal_history", "load_samples", "protocol_samples", "terminals",
+		"dns_observations", "dns_features", "mosdns_state",
+	}
+	for _, table := range tables {
+		if _, err := db.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("reset %s in %s: %w", table, filepath.Base(path), err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) resetClosedDeviceDatabases(ctx context.Context, openPaths map[string]struct{}) error {
+	entries, err := os.ReadDir(filepath.Join(s.dataDir, "devices"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("list device databases for reset: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
+			continue
+		}
+		path := filepath.Join(s.dataDir, "devices", entry.Name())
+		if _, open := openPaths[path]; open {
+			continue
+		}
+		if err := s.resetClosedDeviceDatabase(ctx, path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

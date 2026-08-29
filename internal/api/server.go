@@ -223,24 +223,23 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		cfg := s.configSnapshot()
-		status := service.MosDNSStatus{
-			Enabled:             cfg.MosDNS.Configured(),
-			BaseURL:             cfg.MosDNS.BaseURL,
-			SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes,
+		deviceID := strings.TrimSpace(request.URL.Query().Get("deviceId"))
+		if deviceID == "" {
+			writeError(writer, http.StatusBadRequest, "deviceId is required")
+			return
 		}
-		if cfg.ProtocolAnalysis.Enabled && s.manager != nil {
-			status = s.manager.MosDNSStatus()
-		} else if !cfg.ProtocolAnalysis.Enabled {
-			status = service.MosDNSStatus{}
-		}
-		writeJSON(writer, http.StatusOK, status)
+		writeJSON(writer, http.StatusOK, s.manager.MosDNSStatus(deviceID))
 		return
 	}
 	if request.URL.Path == "/api/mosdns/observations" {
 		if request.Method != http.MethodGet {
 			writer.Header().Set("Allow", http.MethodGet)
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		deviceID := strings.TrimSpace(request.URL.Query().Get("deviceId"))
+		if deviceID == "" {
+			writeError(writer, http.StatusBadRequest, "deviceId is required")
 			return
 		}
 		if s.store == nil {
@@ -256,7 +255,12 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			}
 			limit = parsed
 		}
-		observations, err := s.store.DNSObservations(request.Context(), limit)
+		deviceStore := s.store.ForDevice(deviceID)
+		if deviceStore == nil {
+			writeError(writer, http.StatusServiceUnavailable, "device store is unavailable")
+			return
+		}
+		observations, err := deviceStore.DNSObservations(request.Context(), limit)
 		if err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to load MosDNS observations")
 			return
@@ -270,22 +274,19 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		if s.manager == nil {
-			cfg := s.configSnapshot()
-			if !cfg.ProtocolAnalysis.Enabled {
-				writeJSON(writer, http.StatusOK, service.RecognitionStatus{})
-				return
-			}
-			writeJSON(writer, http.StatusOK, service.RecognitionStatus{
-				MosDNS:         service.MosDNSStatus{Enabled: cfg.MosDNS.Configured(), BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes},
-				FeatureLibrary: service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Configured(), SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes},
-			})
+		deviceID := strings.TrimSpace(request.URL.Query().Get("deviceId"))
+		if deviceID == "" {
+			writeError(writer, http.StatusBadRequest, "deviceId is required")
 			return
 		}
-		writeJSON(writer, http.StatusOK, s.manager.RecognitionStatus())
+		status := s.configRecognitionStatus(deviceID)
+		if s.manager != nil {
+			status = s.manager.RecognitionStatus(deviceID)
+		}
+		writeJSON(writer, http.StatusOK, status)
 		return
 	}
-	if request.URL.Path == "/api/protocols" && !s.configSnapshot().ProtocolAnalysis.Enabled {
+	if request.URL.Path == "/api/protocols" && !s.deviceProtocolAnalysisEnabled(request) {
 		writeJSON(writer, http.StatusOK, map[string]any{"protocols": []any{}, "history": []any{}, "enabled": false})
 		return
 	}
@@ -397,34 +398,43 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 }
 
 type settingsResponse struct {
-	Connection       settingsConnection       `json:"connection"`
-	Collection       settingsCollection       `json:"collection"`
-	ProtocolAnalysis settingsProtocolAnalysis `json:"protocolAnalysis"`
-	MosDNS           settingsMosDNS           `json:"mosdns"`
-	FeatureLibrary   settingsFeatureLibrary   `json:"featureLibrary"`
-	Diagnostics      settingsDiagnostics      `json:"diagnostics"`
-	Devices          []settingsDevice         `json:"devices"`
-}
-
-type settingsProtocolAnalysis struct {
-	Enabled bool `json:"enabled"`
+	Connection  settingsConnection  `json:"connection"`
+	Collection  settingsCollection  `json:"collection"`
+	Diagnostics settingsDiagnostics `json:"diagnostics"`
+	Devices     []settingsDevice    `json:"devices"`
 }
 
 type settingsDevice struct {
-	ID                string                     `json:"id"`
-	Name              string                     `json:"name"`
-	Enabled           bool                       `json:"enabled"`
-	Archived          bool                       `json:"archived"`
-	Scheme            string                     `json:"scheme"`
-	Host              string                     `json:"host"`
-	Port              int                        `json:"port"`
-	Username          string                     `json:"username"`
-	PasswordSet       bool                       `json:"passwordSet"`
-	CleanupAvailable  bool                       `json:"cleanupAvailable"`
-	TrafficInterfaces []string                   `json:"trafficInterfaces"`
-	TrafficScope      config.TrafficScopeConfig  `json:"trafficScope"`
-	TerminalCIDRs     []string                   `json:"terminalCidrs"`
-	TerminalScope     config.TerminalScopeConfig `json:"terminalScope"`
+	ID                string                       `json:"id"`
+	Name              string                       `json:"name"`
+	Enabled           bool                         `json:"enabled"`
+	Archived          bool                         `json:"archived"`
+	Scheme            string                       `json:"scheme"`
+	Host              string                       `json:"host"`
+	Port              int                          `json:"port"`
+	Username          string                       `json:"username"`
+	PasswordSet       bool                         `json:"passwordSet"`
+	CleanupAvailable  bool                         `json:"cleanupAvailable"`
+	TrafficInterfaces []string                     `json:"trafficInterfaces"`
+	TrafficScope      config.TrafficScopeConfig    `json:"trafficScope"`
+	TerminalCIDRs     []string                     `json:"terminalCidrs"`
+	TerminalScope     config.TerminalScopeConfig   `json:"terminalScope"`
+	ProtocolAnalysis  bool                         `json:"protocolAnalysis"`
+	FeatureLibrary    settingsDeviceFeatureLibrary `json:"featureLibrary"`
+	MosDNS            settingsDeviceMosDNS         `json:"mosdns"`
+}
+
+type settingsDeviceMosDNS struct {
+	Enabled             bool   `json:"enabled"`
+	BaseURL             string `json:"baseUrl"`
+	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
+}
+
+type settingsDeviceFeatureLibrary struct {
+	Enabled              bool   `json:"enabled"`
+	SourceURL            string `json:"sourceUrl"`
+	RefreshIntervalHours int    `json:"refreshIntervalHours"`
+	MatchWindowMinutes   int    `json:"matchWindowMinutes"`
 }
 
 type settingsConnection struct {
@@ -447,32 +457,6 @@ type settingsCollection struct {
 	SampleRetentionHours        int `json:"sampleRetentionHours"`
 }
 
-type settingsMosDNS struct {
-	Enabled                bool      `json:"enabled"`
-	BaseURL                string    `json:"baseUrl"`
-	SyncIntervalMinutes    int       `json:"syncIntervalMinutes"`
-	LastAttempt            time.Time `json:"lastAttempt,omitempty"`
-	LastSuccess            time.Time `json:"lastSuccess,omitempty"`
-	LastImported           int       `json:"lastImported"`
-	LastDuplicates         int       `json:"lastDuplicates"`
-	LastSkipped            int       `json:"lastSkipped"`
-	Watermark              time.Time `json:"watermark,omitempty"`
-	LearnedFeatureCount    int       `json:"learnedFeatureCount"`
-	LearnedFeatureLastSeen time.Time `json:"learnedFeatureLastSeen,omitempty"`
-	LastError              string    `json:"lastError,omitempty"`
-}
-
-type settingsFeatureLibrary struct {
-	Enabled              bool      `json:"enabled"`
-	SourceURL            string    `json:"sourceUrl"`
-	RefreshIntervalHours int       `json:"refreshIntervalHours"`
-	MatchWindowMinutes   int       `json:"matchWindowMinutes"`
-	RuleCount            int       `json:"ruleCount"`
-	LastAttempt          time.Time `json:"lastAttempt,omitempty"`
-	LastSuccess          time.Time `json:"lastSuccess,omitempty"`
-	LastError            string    `json:"lastError,omitempty"`
-}
-
 type settingsDiagnostics struct {
 	RouterName string    `json:"routerName"`
 	Version    string    `json:"version"`
@@ -481,15 +465,6 @@ type settingsDiagnostics struct {
 
 func (s *Server) settingsResponse() settingsResponse {
 	cfg := s.configSnapshot()
-	mosStatus := service.MosDNSStatus{Enabled: cfg.MosDNS.Enabled, BaseURL: cfg.MosDNS.BaseURL, SyncIntervalMinutes: cfg.MosDNS.SyncIntervalMinutes}
-	featureStatus := service.FeatureLibraryStatus{Enabled: cfg.FeatureLibrary.Enabled, SourceURL: cfg.FeatureLibrary.SourceURL, RefreshIntervalHours: cfg.FeatureLibrary.RefreshIntervalHours, MatchWindowMinutes: cfg.FeatureLibrary.MatchWindowMinutes}
-	if cfg.ProtocolAnalysis.Enabled && s.manager != nil {
-		recognitionStatus := s.manager.RecognitionStatus()
-		mosStatus = recognitionStatus.MosDNS
-		featureStatus = recognitionStatus.FeatureLibrary
-	}
-	mosStatus.Enabled = cfg.MosDNS.Enabled
-	featureStatus.Enabled = cfg.FeatureLibrary.Enabled
 
 	var overview serviceOverview
 	monitor := s.monitor
@@ -515,6 +490,14 @@ func (s *Server) settingsResponse() settingsResponse {
 			PasswordSet:       strings.TrimSpace(device.RouterOS.Password) != "",
 			CleanupAvailable:  cleanupAvailable,
 			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TrafficScope: cloneTrafficScope(device.RouterOS.TrafficScope), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: cloneTerminalScope(device.RouterOS.TerminalScope),
+			ProtocolAnalysis: device.ProtocolAnalysis,
+			FeatureLibrary: settingsDeviceFeatureLibrary{
+				Enabled:              device.FeatureLibrary.Enabled,
+				SourceURL:            device.FeatureLibrary.SourceURL,
+				RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
+				MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
+			},
+			MosDNS: settingsDeviceMosDNS{Enabled: device.MosDNS.Enabled, BaseURL: device.MosDNS.BaseURL, SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes},
 		})
 	}
 	return settingsResponse{
@@ -535,31 +518,6 @@ func (s *Server) settingsResponse() settingsResponse {
 			RealtimePollIntervalSeconds: cfg.RealtimePollIntervalSeconds,
 			TerminalPollIntervalSeconds: cfg.TerminalPollIntervalSeconds,
 			SampleRetentionHours:        cfg.SampleRetentionHours,
-		},
-		ProtocolAnalysis: settingsProtocolAnalysis{Enabled: cfg.ProtocolAnalysis.Enabled},
-		MosDNS: settingsMosDNS{
-			Enabled:                mosStatus.Enabled,
-			BaseURL:                mosStatus.BaseURL,
-			SyncIntervalMinutes:    mosStatus.SyncIntervalMinutes,
-			LastAttempt:            mosStatus.LastAttempt,
-			LastSuccess:            mosStatus.LastSuccess,
-			LastImported:           mosStatus.LastImported,
-			LastDuplicates:         mosStatus.LastDuplicates,
-			LastSkipped:            mosStatus.LastSkipped,
-			Watermark:              mosStatus.Watermark,
-			LearnedFeatureCount:    mosStatus.LearnedFeatureCount,
-			LearnedFeatureLastSeen: mosStatus.LearnedFeatureLastSeen,
-			LastError:              mosStatus.LastError,
-		},
-		FeatureLibrary: settingsFeatureLibrary{
-			Enabled:              featureStatus.Enabled,
-			SourceURL:            featureStatus.SourceURL,
-			RefreshIntervalHours: featureStatus.RefreshIntervalHours,
-			MatchWindowMinutes:   featureStatus.MatchWindowMinutes,
-			RuleCount:            featureStatus.RuleCount,
-			LastAttempt:          featureStatus.LastAttempt,
-			LastSuccess:          featureStatus.LastSuccess,
-			LastError:            featureStatus.LastError,
 		},
 		Diagnostics: settingsDiagnostics{
 			RouterName: overview.RouterName,
@@ -584,6 +542,48 @@ func (s *Server) monitorFor(request *http.Request) (*service.Monitor, error) {
 		return s.monitor, nil
 	}
 	return nil, service.ErrDeviceUnavailable
+}
+
+// deviceProtocolAnalysisEnabled resolves the request's device (explicit query
+// parameter, else the first monitorable device, mirroring
+// MonitorForDevices's fallback) and reports that device's per-device
+// recognition master switch.
+func (s *Server) deviceProtocolAnalysisEnabled(request *http.Request) bool {
+	cfg := s.configSnapshot()
+	deviceID := strings.TrimSpace(request.URL.Query().Get("device"))
+	if deviceID == "" {
+		for _, device := range cfg.Devices {
+			if device.Enabled && !device.Archived && device.RouterOS.Configured() {
+				deviceID = device.ID
+				break
+			}
+		}
+	}
+	device, found := cfg.Device(deviceID)
+	return found && device.ProtocolAnalysis
+}
+
+// configRecognitionStatus projects the stored per-device recognition
+// configuration without live synchronizer counters (manager unavailable).
+func (s *Server) configRecognitionStatus(deviceID string) service.RecognitionStatus {
+	device, found := s.configSnapshot().Device(deviceID)
+	if !found {
+		return service.RecognitionStatus{}
+	}
+	return service.RecognitionStatus{
+		ProtocolAnalysis: device.ProtocolAnalysis,
+		MosDNS: service.MosDNSStatus{
+			Enabled:             device.MosDNS.Configured(),
+			BaseURL:             device.MosDNS.BaseURL,
+			SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
+		},
+		FeatureLibrary: service.FeatureLibraryStatus{
+			Enabled:              device.FeatureLibrary.Configured(),
+			SourceURL:            device.FeatureLibrary.SourceURL,
+			RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
+			MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
+		},
+	}
 }
 
 func (s *Server) deviceStatuses(includeArchived bool) []service.DeviceStatus {
@@ -633,18 +633,27 @@ type collectionSettingsRequest struct {
 }
 
 type recognitionSettingsRequest struct {
-	ProtocolAnalysis *config.ProtocolAnalysisConfig `json:"protocolAnalysis"`
-	MosDNS           struct {
-		Enabled             bool   `json:"enabled"`
-		BaseURL             string `json:"baseUrl"`
-		SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
-	} `json:"mosdns"`
-	FeatureLibrary struct {
-		Enabled              bool   `json:"enabled"`
-		SourceURL            string `json:"sourceUrl"`
-		RefreshIntervalHours int    `json:"refreshIntervalHours"`
-		MatchWindowMinutes   int    `json:"matchWindowMinutes"`
-	} `json:"featureLibrary"`
+	Devices []recognitionDeviceSettings `json:"devices"`
+}
+
+type recognitionDeviceSettings struct {
+	ID               string                       `json:"id"`
+	ProtocolAnalysis bool                         `json:"protocolAnalysis"`
+	MosDNS           recognitionDeviceMosDNS      `json:"mosdns"`
+	FeatureLibrary   recognitionFeatureLibrarySet `json:"featureLibrary"`
+}
+
+type recognitionDeviceMosDNS struct {
+	Enabled             bool   `json:"enabled"`
+	BaseURL             string `json:"baseUrl"`
+	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
+}
+
+type recognitionFeatureLibrarySet struct {
+	Enabled              bool   `json:"enabled"`
+	SourceURL            string `json:"sourceUrl"`
+	RefreshIntervalHours int    `json:"refreshIntervalHours"`
+	MatchWindowMinutes   int    `json:"matchWindowMinutes"`
 }
 
 type deviceSettingsRequest struct {
@@ -659,10 +668,17 @@ type deviceSettingsRequest struct {
 	TrafficScope       config.TrafficScopeConfig  `json:"trafficScope"`
 	TerminalCIDRs      []string                   `json:"terminalCidrs"`
 	TerminalScope      config.TerminalScopeConfig `json:"terminalScope"`
+	MosDNS             *deviceMosDNSSettings      `json:"mosdns"`
 	VerificationToken  string                     `json:"verificationToken"`
 	CompleteOnboarding bool                       `json:"completeOnboarding"`
 	DeferRestart       bool                       `json:"deferRestart"`
 	Confirmation       string                     `json:"confirmation"`
+}
+
+type deviceMosDNSSettings struct {
+	Enabled             bool   `json:"enabled"`
+	BaseURL             string `json:"baseUrl"`
+	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
 }
 
 func shouldDeferDeviceRestart(payload deviceSettingsRequest) bool {
@@ -1073,38 +1089,70 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	protocolAnalysisEnabled := s.configSnapshot().ProtocolAnalysis.Enabled
-	if payload.ProtocolAnalysis != nil {
-		protocolAnalysisEnabled = payload.ProtocolAnalysis.Enabled
+	type deviceRecognition struct {
+		protocolAnalysis bool
+		mosDNS           config.MosDNSConfig
+		featureLibrary   config.FeatureLibraryConfig
 	}
-	payload.MosDNS.BaseURL = config.NormalizeMosDNSBaseURL(payload.MosDNS.BaseURL)
-	payload.FeatureLibrary.SourceURL = strings.TrimSpace(payload.FeatureLibrary.SourceURL)
-	if !protocolAnalysisEnabled {
-		payload.MosDNS.Enabled = false
-		payload.FeatureLibrary.Enabled = false
-	}
-	if payload.MosDNS.Enabled && payload.MosDNS.BaseURL == "" {
-		writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
-		return
-	}
-	if payload.MosDNS.SyncIntervalMinutes <= 0 || payload.FeatureLibrary.RefreshIntervalHours <= 0 || payload.FeatureLibrary.MatchWindowMinutes <= 0 {
-		writeError(writer, http.StatusBadRequest, "识别设置中的周期和窗口必须为正数")
-		return
-	}
-	if payload.FeatureLibrary.Enabled && payload.FeatureLibrary.SourceURL == "" {
-		writeError(writer, http.StatusBadRequest, "特征库地址不能为空")
-		return
+	recognition := make(map[string]deviceRecognition, len(payload.Devices))
+	cfg := s.configSnapshot()
+	for _, device := range payload.Devices {
+		if _, found := cfg.Device(device.ID); !found {
+			writeError(writer, http.StatusBadRequest, "unknown device id in recognition settings")
+			return
+		}
+		// A closed per-device master switch forces both child settings off.
+		mosDNS := config.MosDNSConfig{
+			Enabled:             device.ProtocolAnalysis && device.MosDNS.Enabled,
+			BaseURL:             config.NormalizeMosDNSBaseURL(device.MosDNS.BaseURL),
+			SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
+		}
+		if mosDNS.SyncIntervalMinutes == 0 {
+			mosDNS.SyncIntervalMinutes = 30
+		}
+		if mosDNS.Enabled && strings.TrimSpace(mosDNS.BaseURL) == "" {
+			writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
+			return
+		}
+		if mosDNS.Configured() && mosDNS.SyncIntervalMinutes <= 0 {
+			writeError(writer, http.StatusBadRequest, "MosDNS 同步周期必须为正数")
+			return
+		}
+		featureLibrary := config.FeatureLibraryConfig{
+			Enabled:              device.ProtocolAnalysis && device.FeatureLibrary.Enabled,
+			SourceURL:            strings.TrimSpace(device.FeatureLibrary.SourceURL),
+			RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
+			MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
+		}
+		if featureLibrary.RefreshIntervalHours == 0 {
+			featureLibrary.RefreshIntervalHours = 168
+		}
+		if featureLibrary.MatchWindowMinutes == 0 {
+			featureLibrary.MatchWindowMinutes = 30
+		}
+		if featureLibrary.RefreshIntervalHours <= 0 || featureLibrary.MatchWindowMinutes <= 0 {
+			writeError(writer, http.StatusBadRequest, "识别设置中的周期和窗口必须为正数")
+			return
+		}
+		if featureLibrary.Enabled && featureLibrary.SourceURL == "" {
+			writeError(writer, http.StatusBadRequest, "特征库地址不能为空")
+			return
+		}
+		recognition[device.ID] = deviceRecognition{
+			protocolAnalysis: device.ProtocolAnalysis,
+			mosDNS:           mosDNS,
+			featureLibrary:   featureLibrary,
+		}
 	}
 
 	if err := s.saveSettings(func(next *config.Config) {
-		next.ProtocolAnalysis.Enabled = protocolAnalysisEnabled
-		next.MosDNS.Enabled = payload.MosDNS.Enabled
-		next.MosDNS.BaseURL = payload.MosDNS.BaseURL
-		next.MosDNS.SyncIntervalMinutes = payload.MosDNS.SyncIntervalMinutes
-		next.FeatureLibrary.Enabled = payload.FeatureLibrary.Enabled
-		next.FeatureLibrary.SourceURL = payload.FeatureLibrary.SourceURL
-		next.FeatureLibrary.RefreshIntervalHours = payload.FeatureLibrary.RefreshIntervalHours
-		next.FeatureLibrary.MatchWindowMinutes = payload.FeatureLibrary.MatchWindowMinutes
+		for index := range next.Devices {
+			if value, found := recognition[next.Devices[index].ID]; found {
+				next.Devices[index].ProtocolAnalysis = value.protocolAnalysis
+				next.Devices[index].MosDNS = value.mosDNS
+				next.Devices[index].FeatureLibrary = value.featureLibrary
+			}
+		}
 	}); err != nil {
 		writeError(writer, http.StatusInternalServerError, "failed to save settings")
 		return
@@ -1199,8 +1247,6 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)
 		next.Devices[index].RouterOS.TerminalScope = cloneTerminalScope(s.cfg.Devices[index].RouterOS.TerminalScope)
 	}
-	next.RecognitionDefaultsMigrated = true
-	next.ProtocolAnalysisMigrated = true
 	update(&next)
 	if err := config.Save(next.Path, next); err != nil {
 		return err

@@ -63,18 +63,29 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 	}
 }
 
-func TestMosDNSRoutesAreAvailableWithoutRouterOSMonitor(t *testing.T) {
-	cfg := config.Config{ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true}, MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30}}
-	server := NewServer(cfg, nil, nil)
+func TestMosDNSRoutesRequireDeviceID(t *testing.T) {
+	server := NewServer(config.Config{ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true}}, nil, nil)
+
+	missingResponse := httptest.NewRecorder()
+	server.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns", nil))
+	if missingResponse.Code != http.StatusBadRequest {
+		t.Fatalf("MosDNS status without deviceId: status=%d body=%s", missingResponse.Code, missingResponse.Body.String())
+	}
 
 	statusResponse := httptest.NewRecorder()
-	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns", nil))
-	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"enabled":true`) {
+	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns?deviceId=missing", nil))
+	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"enabled":false`) {
 		t.Fatalf("MosDNS status route failed: status=%d body=%s", statusResponse.Code, statusResponse.Body.String())
 	}
 
+	observationsMissing := httptest.NewRecorder()
+	server.ServeHTTP(observationsMissing, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations", nil))
+	if observationsMissing.Code != http.StatusBadRequest {
+		t.Fatalf("MosDNS observations without deviceId: status=%d body=%s", observationsMissing.Code, observationsMissing.Body.String())
+	}
+
 	observationsResponse := httptest.NewRecorder()
-	server.ServeHTTP(observationsResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations", nil))
+	server.ServeHTTP(observationsResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations?deviceId=missing", nil))
 	if observationsResponse.Code != http.StatusOK || !strings.Contains(observationsResponse.Body.String(), `"observations":[]`) {
 		t.Fatalf("MosDNS observations route failed: status=%d body=%s", observationsResponse.Code, observationsResponse.Body.String())
 	}
@@ -115,14 +126,20 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
 		AllowedCIDRs:                []string{"127.0.0.0/8", "::1/128"},
-		MosDNS:                      config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
-		FeatureLibrary:              config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
 		RouterOS: config.RouterOSConfig{
 			BaseURL:           "http://router.test",
 			Username:          "admin",
 			Password:          "super-secret",
 			TrafficInterfaces: []string{"pppoe-out1"},
 		},
+		Devices: []config.DeviceConfig{{
+			ID:               config.DefaultDeviceID,
+			Name:             "RouterOS",
+			Enabled:          true,
+			RouterOS:         config.RouterOSConfig{BaseURL: "http://router.test", Username: "admin", Password: "super-secret", TrafficInterfaces: []string{"pppoe-out1"}},
+			ProtocolAnalysis: true,
+			FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
+		}},
 	}
 	monitor := service.NewMonitor(cfg, nil, nil, log.Default())
 	server := NewServer(cfg, monitor, nil)
@@ -183,11 +200,11 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		payload.Collection.SampleRetentionHours != cfg.SampleRetentionHours {
 		t.Fatalf("unexpected collection settings: %+v", payload.Collection)
 	}
-	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":{"enabled":false}`) {
-		t.Fatalf("unexpected protocol analysis setting: %+v", payload.ProtocolAnalysis)
+	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":true`) {
+		t.Fatalf("unexpected protocol analysis projection: %+v", payload.ProtocolAnalysis)
 	}
-	if !strings.Contains(response.Body.String(), `"mosdns":{"enabled":true`) || !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":true`) {
-		t.Fatalf("settings projection must preserve stored child toggles: %s", response.Body.String())
+	if !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":true`) {
+		t.Fatalf("device projection must preserve stored feature library toggle: %s", response.Body.String())
 	}
 }
 
@@ -304,19 +321,21 @@ func TestCollectionSettingsRejectsNonPositiveValues(t *testing.T) {
 	}
 }
 
-func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
+func TestRecognitionSettingsPostSavesPerDeviceRecognition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}},
+			{ID: "core", Name: "Core", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://core.test", Username: "u", Password: "p"}},
+		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":true},
-		"mosdns":{"enabled":false,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":60},
-		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}
+		"devices":[
+			{"id":"edge","protocolAnalysis":true,"mosdns":{"enabled":true,"baseUrl":"10.0.0.4","syncIntervalMinutes":15},"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}},
+			{"id":"core","protocolAnalysis":true,"mosdns":{"enabled":false,"baseUrl":"","syncIntervalMinutes":30},"featureLibrary":{"enabled":false,"sourceUrl":"","refreshIntervalHours":168,"matchWindowMinutes":30}}
+		]
 	}`))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -327,27 +346,33 @@ func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.MosDNS.Enabled || loaded.MosDNS.SyncIntervalMinutes != 60 {
-		t.Fatalf("MosDNS settings were not saved: %#v", loaded.MosDNS)
+	edge, found := loaded.Device("edge")
+	if !found || !edge.ProtocolAnalysis {
+		t.Fatalf("edge protocol analysis was not saved: %#v", edge)
 	}
-	if !loaded.FeatureLibrary.Enabled || loaded.FeatureLibrary.SourceURL != "https://example.test/updated.yml" || loaded.FeatureLibrary.RefreshIntervalHours != 24 || loaded.FeatureLibrary.MatchWindowMinutes != 45 {
-		t.Fatalf("feature library settings were not saved: %#v", loaded.FeatureLibrary)
+	if !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.4" || edge.MosDNS.SyncIntervalMinutes != 15 {
+		t.Fatalf("edge device MosDNS was not saved: %#v", edge.MosDNS)
+	}
+	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/updated.yml" || edge.FeatureLibrary.RefreshIntervalHours != 24 || edge.FeatureLibrary.MatchWindowMinutes != 45 {
+		t.Fatalf("edge device feature library was not saved: %#v", edge.FeatureLibrary)
+	}
+	core, found := loaded.Device("core")
+	if !found || core.MosDNS.Enabled || core.FeatureLibrary.Enabled {
+		t.Fatalf("core device recognition settings were not saved: %#v", core)
 	}
 }
 
-func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
+func TestRecognitionSettingsMasterSwitchDisablesChildren(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: false, SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: false, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, ProtocolAnalysis: true},
+		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":true},
-		"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},
-		"featureLibrary":{"enabled":false,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
+		"devices":[{"id":"edge","protocolAnalysis":false,"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}}]
 	}`))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -358,73 +383,57 @@ func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.MosDNS.Enabled || loaded.MosDNS.BaseURL != "http://10.0.0.3" {
-		t.Fatalf("plain MosDNS address was not saved as a URL: %#v", loaded.MosDNS)
+	edge, found := loaded.Device("edge")
+	if !found {
+		t.Fatal("edge device disappeared")
+	}
+	if edge.ProtocolAnalysis || edge.MosDNS.Enabled || edge.FeatureLibrary.Enabled {
+		t.Fatalf("per-device protocol analysis disable must force child toggles off: %#v", edge)
 	}
 }
 
-func TestProtocolAnalysisDisabledShortCircuitsProtocolAPIAndRecognitionStatus(t *testing.T) {
+func TestProtocolAPIGatesPerDevice(t *testing.T) {
 	server := NewServer(config.Config{
-		MosDNS:         config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
-		FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, ProtocolAnalysis: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}},
+			{ID: "core", Name: "Core", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://core.test", Username: "u", Password: "p"}},
+		},
 	}, nil, nil)
 
-	protocolsResponse := httptest.NewRecorder()
-	server.ServeHTTP(protocolsResponse, httptest.NewRequest(http.MethodGet, "/api/protocols", nil))
-	if protocolsResponse.Code != http.StatusOK {
-		t.Fatalf("protocol API status=%d body=%s", protocolsResponse.Code, protocolsResponse.Body.String())
-	}
-	var protocols struct {
-		Protocols []any `json:"protocols"`
-		History   []any `json:"history"`
-		Enabled   bool  `json:"enabled"`
-	}
-	if err := json.Unmarshal(protocolsResponse.Body.Bytes(), &protocols); err != nil {
-		t.Fatal(err)
-	}
-	if protocols.Enabled || protocols.Protocols == nil || protocols.History == nil || len(protocols.Protocols) != 0 || len(protocols.History) != 0 {
-		t.Fatalf("disabled protocol API must return empty arrays and enabled=false: %#v", protocols)
-	}
-
-	recognitionResponse := httptest.NewRecorder()
-	server.ServeHTTP(recognitionResponse, httptest.NewRequest(http.MethodGet, "/api/recognition", nil))
-	if recognitionResponse.Code != http.StatusOK {
-		t.Fatalf("recognition status=%d body=%s", recognitionResponse.Code, recognitionResponse.Body.String())
-	}
-	var recognition service.RecognitionStatus
-	if err := json.Unmarshal(recognitionResponse.Body.Bytes(), &recognition); err != nil {
-		t.Fatal(err)
-	}
-	if recognition != (service.RecognitionStatus{}) {
-		t.Fatalf("disabled recognition status must be zero: %#v", recognition)
-	}
-}
-
-func TestRecognitionSettingsDisablingProtocolAnalysisDisablesChildren(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	cfg := config.Config{
-		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
-	}
-	server := NewServer(cfg, nil, nil)
-	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":false},
-		"mosdns":{"enabled":true,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":30},
-		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
-	}`))
+	request := httptest.NewRequest(http.MethodGet, "/api/protocols?device=core", nil)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		t.Fatalf("protocol API status=%d body=%s", response.Code, response.Body.String())
 	}
-	loaded, err := config.Load(path)
-	if err != nil {
+	var protocols struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &protocols); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.ProtocolAnalysis.Enabled || loaded.MosDNS.Enabled || loaded.FeatureLibrary.Enabled {
-		t.Fatalf("protocol analysis disable must force child toggles off: %#v", loaded)
+	if protocols.Enabled {
+		t.Fatalf("device without protocol analysis must report enabled=false: %#v", protocols)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/protocols?device=edge", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	// With the per-device switch on, the request proceeds to the monitor path;
+	// without a monitor it degrades to setup-required instead of the disabled payload.
+	if response.Code == http.StatusOK && strings.Contains(response.Body.String(), `"enabled":false`) {
+		t.Fatalf("device with protocol analysis must not receive the disabled payload: %s", response.Body.String())
+	}
+
+	recognitionMissing := httptest.NewRecorder()
+	server.ServeHTTP(recognitionMissing, httptest.NewRequest(http.MethodGet, "/api/recognition", nil))
+	if recognitionMissing.Code != http.StatusBadRequest {
+		t.Fatalf("recognition status without deviceId: status=%d", recognitionMissing.Code)
+	}
+	recognitionResponse := httptest.NewRecorder()
+	server.ServeHTTP(recognitionResponse, httptest.NewRequest(http.MethodGet, "/api/recognition?deviceId=edge", nil))
+	if recognitionResponse.Code != http.StatusOK || !strings.Contains(recognitionResponse.Body.String(), `"protocolAnalysis":true`) {
+		t.Fatalf("recognition status=%d body=%s", recognitionResponse.Code, recognitionResponse.Body.String())
 	}
 }
 

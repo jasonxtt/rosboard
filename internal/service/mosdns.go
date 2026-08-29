@@ -49,7 +49,7 @@ func NewMosDNSSynchronizer(cfg config.MosDNSConfig, storage *store.Store, logger
 		return nil, nil
 	}
 	if storage == nil {
-		return nil, fmt.Errorf("MosDNS requires the owner store")
+		return nil, fmt.Errorf("MosDNS requires a device store")
 	}
 	client, err := mosclient.NewClient(cfg.BaseURL, nil)
 	if err != nil {

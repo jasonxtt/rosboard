@@ -54,7 +54,7 @@ import type {
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'gripVertical' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
-type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
+type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ChoiceMenuOption<T extends string | number> = { value: T; label: string; description?: string }
@@ -67,7 +67,9 @@ type CollectionDraft = {
   sampleRetentionHours: number
 }
 type RecognitionDraft = {
-  protocolAnalysis: { enabled: boolean }
+  id: string
+  name: string
+  protocolAnalysis: boolean
   mosdns: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
   featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
 }
@@ -255,21 +257,23 @@ function collectionDraftFromSettings(settings: SettingsResponse): CollectionDraf
   }
 }
 
-function recognitionDraftFromSettings(settings: SettingsResponse): RecognitionDraft {
+function recognitionDraftFromSettings(settings: SettingsResponse, deviceID: string): RecognitionDraft | null {
+  const device = (settings?.devices ?? []).find((item) => item.id === deviceID && !item.archived)
+  if (!device) return null
   return {
-    protocolAnalysis: {
-      enabled: settings?.protocolAnalysis?.enabled !== false,
-    },
+    id: device.id,
+    name: device.name,
+    protocolAnalysis: device.protocolAnalysis,
     mosdns: {
-      enabled: settings.mosdns.enabled,
-      baseUrl: mosDNSAddressFromBaseURL(settings.mosdns.baseUrl),
-      syncIntervalMinutes: settings.mosdns.syncIntervalMinutes,
+      enabled: device.mosdns?.enabled ?? false,
+      baseUrl: device.mosdns ? mosDNSAddressFromBaseURL(device.mosdns.baseUrl) : '',
+      syncIntervalMinutes: device.mosdns?.syncIntervalMinutes || 30,
     },
     featureLibrary: {
-      enabled: settings.featureLibrary.enabled,
-      sourceUrl: settings.featureLibrary.sourceUrl,
-      refreshIntervalHours: settings.featureLibrary.refreshIntervalHours,
-      matchWindowMinutes: settings.featureLibrary.matchWindowMinutes,
+      enabled: device.featureLibrary?.enabled ?? false,
+      sourceUrl: device.featureLibrary?.sourceUrl ?? '',
+      refreshIntervalHours: device.featureLibrary?.refreshIntervalHours || 168,
+      matchWindowMinutes: device.featureLibrary?.matchWindowMinutes || 30,
     },
   }
 }
@@ -851,12 +855,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
-  const [policySection, setPolicySection] = useState<'settings' | 'sources'>(() => {
+  const [policySection, setPolicySection] = useState<'settings' | 'sources' | 'ip_sources'>(() => {
     try {
       const raw = window.sessionStorage.getItem('rosboard:policy-routing-view')
       if (!raw) return 'settings'
       const parsed = JSON.parse(raw) as { view: string; section: string }
-      return parsed.section === 'sources' ? 'sources' : 'settings'
+      if (parsed.section === 'sources') return 'sources'
+      if (parsed.section === 'ip_sources') return 'ip_sources'
+      return 'settings'
     } catch { return 'settings' }
   })
 
@@ -867,7 +873,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }
   const previewPanelTheme = useCallback((theme: PanelTheme) => setThemePreview(theme), [])
   const hasDashboard = dashboard !== null
-  const protocolAnalysisEnabled = settings?.protocolAnalysis?.enabled !== false
+  const protocolAnalysisEnabled = settings?.devices.find((device) => device.id === selectedDeviceID)?.protocolAnalysis === true
 
 	const refreshSettingsAfterDeviceSave = async () => {
 		const response = await fetch('/api/settings', { cache: 'no-store' })
@@ -986,7 +992,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     setRecognitionMessage(null)
     setRestartPending(false)
     try {
-      await postJSON('/api/settings/recognition', draft)
+      await postJSON('/api/settings/recognition', { devices: [draft] })
       setRecognitionMessage('已保存，面板正在重启并应用识别设置，请保持此页面打开...')
       setRestartPending(true)
       await waitForPanelRestart(() => setRecognitionMessage('面板正在启动，恢复后将自动刷新...'))
@@ -1031,7 +1037,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing') return
+    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing' || activeView === 'recognition') return
     setStatusExpanded(true)
   }, [activeView])
 
@@ -1104,10 +1110,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView, dashboardRefreshMs, refreshNonce, restartPending, selectedDeviceID])
 
   useEffect(() => {
-    if (settings?.protocolAnalysis?.enabled !== false || activeView !== 'protocols') return
+    // Wait for settings before judging the per-device switch, otherwise a
+    // protocols landing view is redirected away before the flag loads.
+    if (!settings || protocolAnalysisEnabled || activeView !== 'protocols') return
     setActiveView('policies')
     setSelectedTerminalID(null)
-  }, [activeView, settings?.protocolAnalysis?.enabled])
+  }, [activeView, protocolAnalysisEnabled, settings])
 
   useEffect(() => {
     if (protocolAnalysisEnabled || terminalTab !== 'flows') return
@@ -1347,8 +1355,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             ? {
                 value: policySection,
                 ariaLabel: '策略路由页面',
-                options: [{ value: 'settings', label: '策略设置' }, { value: 'sources', label: '域名列表' }],
-                onChange: (value) => setPolicySection(value as 'settings' | 'sources'),
+                options: [{ value: 'settings', label: '策略设置' }, { value: 'sources', label: '域名列表' }, { value: 'ip_sources', label: 'IP 列表' }],
+                onChange: (value) => setPolicySection(value as 'settings' | 'sources' | 'ip_sources'),
               }
             : null
   const topbarClassName = detailMode
@@ -1357,7 +1365,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings' || activeView === 'policy-routing'
+        : activeView === 'settings' || activeView === 'policy-routing' || activeView === 'recognition'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1365,7 +1373,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const settingsSections: Array<{ key: SettingsSection; label: string; icon: IconName }> = [
     { key: 'connection', label: '设备管理', icon: 'router' },
     { key: 'collection', label: '采集设置', icon: 'refresh' },
-    { key: 'recognition', label: '识别设置', icon: 'shield' },
     { key: 'ui', label: '界面设置', icon: 'overview' },
     { key: 'account', label: '账号安全', icon: 'shield' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
@@ -1472,7 +1479,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <div className="menu-group">
             <button
               type="button"
-              className={activeView === 'policy-routing' ? 'menu-item active' : 'menu-item'}
+              className={activeView === 'policy-routing' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostSettingsExpanded}
               aria-controls="host-settings-menu"
               onClick={() => {
@@ -1497,6 +1504,18 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 }}
               >
                 <NavLabel icon="route" label="策略路由" />
+              </button>
+              <button
+                type="button"
+                className={activeView === 'recognition' ? 'submenu-item active' : 'submenu-item'}
+                onClick={() => {
+                  setHostSettingsExpanded(true)
+                  setActiveView('recognition')
+                  setSelectedTerminalID(null)
+                  setSidebarOpen(false)
+                }}
+              >
+                <NavLabel icon="shield" label="识别设置" />
               </button>
             </div> : null}
           </div>
@@ -1555,6 +1574,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <MonitorPageTabs {...monitorTabs} />
             ) : activeView === 'settings' ? (
               <h2 className="page-section-title">{settingsSectionLabel}</h2>
+            ) : activeView === 'recognition' ? (
+              <h2 className="page-section-title">识别设置</h2>
             ) : (
               <div>
                 <h2>{detailMode ? '终端详情' : viewTitle(activeView)}</h2>
@@ -1679,6 +1700,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}
         {activeView === 'routes' && dashboard ? <RoutesPage routes={dashboard.routes ?? []} /> : null}
+        {activeView === 'recognition' && settings ? (
+          <section className="panel settings-panel">
+            <RecognitionSettingsForm settings={settings} devices={devices} selectedDeviceID={selectedDeviceID} saving={recognitionSaving} message={recognitionMessage} onSave={saveRecognitionSettings} />
+          </section>
+        ) : null}
         {activeView === 'settings' && dashboard ? (
 		  <SettingsPage
 		    settings={settings}
@@ -1690,12 +1716,9 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             selectedDeviceID={selectedDeviceID}
             collectionSaving={collectionSaving}
             collectionMessage={collectionMessage}
-            recognitionSaving={recognitionSaving}
-            recognitionMessage={recognitionMessage}
             restartSaving={restartSaving}
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
-            onSaveRecognition={saveRecognitionSettings}
             onDeviceSaved={refreshSettingsAfterDeviceSave}
             onOrderChanged={refreshDeviceOrder}
 			username={props.username}
@@ -1877,12 +1900,9 @@ function SettingsPage(props: {
   selectedDeviceID: string
   collectionSaving: boolean
   collectionMessage: string | null
-  recognitionSaving: boolean
-  recognitionMessage: string | null
   restartSaving: boolean
   restartMessage: string | null
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
-  onSaveRecognition: (draft: RecognitionDraft) => Promise<void>
   onDeviceSaved: (deviceID: string) => Promise<void>
   onOrderChanged?: () => unknown
   onSavePreferences: (preferences: PanelPreferences) => void
@@ -1929,12 +1949,6 @@ function SettingsPage(props: {
       {props.settings && props.activeSection === 'collection' ? (
         <section className="panel settings-panel">
           <CollectionSettingsForm settings={props.settings} saving={props.collectionSaving} message={props.collectionMessage} onSave={props.onSaveCollection} />
-        </section>
-      ) : null}
-
-      {props.settings && props.activeSection === 'recognition' ? (
-        <section className="panel settings-panel">
-          <RecognitionSettingsForm settings={props.settings} saving={props.recognitionSaving} message={props.recognitionMessage} onSave={props.onSaveRecognition} />
         </section>
       ) : null}
 
@@ -2693,36 +2707,46 @@ function CollectionSettingsForm(props: { settings: SettingsResponse; saving: boo
   </form>
 }
 
-function RecognitionSettingsForm(props: { settings: SettingsResponse; saving: boolean; message: string | null; onSave: (draft: RecognitionDraft) => Promise<void> }) {
-  const [draft, setDraft] = useState<RecognitionDraft>(() => recognitionDraftFromSettings(props.settings))
-  useEffect(() => setDraft(recognitionDraftFromSettings(props.settings)), [props.settings])
+function RecognitionSettingsForm(props: { settings: SettingsResponse; devices: DeviceStatus[]; selectedDeviceID: string; saving: boolean; message: string | null; onSave: (draft: RecognitionDraft) => Promise<void> }) {
+  const selectedID = props.selectedDeviceID || props.settings.devices.find((device) => !device.archived)?.id || ''
+  const [draft, setDraft] = useState<RecognitionDraft | null>(() => recognitionDraftFromSettings(props.settings, selectedID))
+  useEffect(() => setDraft(recognitionDraftFromSettings(props.settings, selectedID)), [props.settings, selectedID])
+  if (!draft) {
+    return <div className="settings-form recognition-settings-form"><p className="settings-field-hint wide">当前没有选中的 RouterOS 设备；添加设备后可在这里为每台设备单独配置识别设置。</p></div>
+  }
+  const deviceStatus = props.devices.find((item) => item.id === draft.id)
   return <form className="settings-form recognition-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
-    <label className="checkbox-label wide protocol-analysis-toggle"><input type="checkbox" checked={draft.protocolAnalysis.enabled} onChange={(event) => setDraft((current) => ({ ...current, protocolAnalysis: { enabled: event.target.checked } }))} /><span>启用协议分析</span></label>
-    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
-      <legend>MosDNS DNS 日志对接</legend>
-      <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
-      <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
-      <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
-      <div className="settings-grid connection-runtime-grid">
-        <SettingItem label="最近导入" value={`${props.settings.mosdns.lastImported} 条`} />
-        <SettingItem label="最近去重" value={`${props.settings.mosdns.lastDuplicates} 条`} />
-        <SettingItem label="长期 IP 特征" value={`${props.settings.mosdns.learnedFeatureCount} 条`} />
-        <SettingItem label="最近学习" value={props.settings.mosdns.learnedFeatureLastSeen ? formatDateTime(props.settings.mosdns.learnedFeatureLastSeen) : '-'} />
-        <SettingItem label="当前水位" value={props.settings.mosdns.watermark ? formatDateTime(props.settings.mosdns.watermark) : '-'} />
-        <SettingItem label="运行状态" value={props.settings.mosdns.lastError ? `异常：${props.settings.mosdns.lastError}` : props.settings.mosdns.enabled ? '已启用' : '已关闭'} wide />
-      </div>
+    <label className="checkbox-label wide protocol-analysis-toggle"><input type="checkbox" checked={draft.protocolAnalysis} onChange={(event) => setDraft((current) => current && ({ ...current, protocolAnalysis: event.target.checked }))} /><span>启用协议分析（{draft.name}）</span></label>
+    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis}>
+      <legend>MosDNS 日志对接 · {draft.name}</legend>
+      <p className="settings-field-hint wide">该设备的识别设置全部独立：MosDNS 只作用于这台 RouterOS，切换顶部设备可为其他 ROS 单独配置。</p>
+      <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
+      <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
+      <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      {draft.mosdns.enabled && deviceStatus?.mosdns ? (
+        <div className="settings-grid connection-runtime-grid">
+          <SettingItem label="最近导入" value={`${deviceStatus.mosdns.lastImported} 条`} />
+          <SettingItem label="最近去重" value={`${deviceStatus.mosdns.lastDuplicates} 条`} />
+          <SettingItem label="长期 IP 特征" value={`${deviceStatus.mosdns.learnedFeatureCount} 条`} />
+          <SettingItem label="最近学习" value={deviceStatus.mosdns.learnedFeatureLastSeen ? formatDateTime(deviceStatus.mosdns.learnedFeatureLastSeen) : '-'} />
+          <SettingItem label="当前水位" value={deviceStatus.mosdns.watermark ? formatDateTime(deviceStatus.mosdns.watermark) : '-'} />
+          <SettingItem label="运行状态" value={deviceStatus.mosdns.lastError ? `异常：${deviceStatus.mosdns.lastError}` : '已启用'} wide />
+        </div>
+      ) : null}
     </fieldset>
-    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis.enabled}>
-      <legend>协议特征库</legend>
-      <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
-      <label><span>特征库地址</span><input className="settings-input" type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
-      <label><span>刷新周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
-      <label><span>DNS 匹配窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
-      <div className="settings-grid connection-runtime-grid">
-        <SettingItem label="已加载规则" value={`${props.settings.featureLibrary.ruleCount} 条`} />
-        <SettingItem label="最近成功" value={props.settings.featureLibrary.lastSuccess ? formatDateTime(props.settings.featureLibrary.lastSuccess) : '-'} />
-        <SettingItem label="运行状态" value={props.settings.featureLibrary.lastError ? `异常：${props.settings.featureLibrary.lastError}` : props.settings.featureLibrary.enabled ? '已启用' : '已关闭'} wide />
-      </div>
+    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis}>
+      <legend>协议特征库 · {draft.name}</legend>
+      <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
+      <label><span>特征库地址</span><input className="settings-input" type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
+      <label><span>刷新周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
+      <label><span>DNS 匹配窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      {draft.featureLibrary.enabled && deviceStatus?.featureLibrary ? (
+        <div className="settings-grid connection-runtime-grid">
+          <SettingItem label="已加载规则" value={`${deviceStatus.featureLibrary.ruleCount} 条`} />
+          <SettingItem label="最近成功" value={deviceStatus.featureLibrary.lastSuccess ? formatDateTime(deviceStatus.featureLibrary.lastSuccess) : '-'} />
+          <SettingItem label="运行状态" value={deviceStatus.featureLibrary.lastError ? `异常：${deviceStatus.featureLibrary.lastError}` : '已启用'} wide />
+        </div>
+      ) : null}
     </fieldset>
     <div className="settings-actions wide"><button type="submit" className="primary-button" disabled={props.saving}>{props.saving ? '保存中...' : '保存并重启识别服务'}</button></div>
     {props.message ? <div className="settings-message wide" role="status">{props.message}</div> : null}

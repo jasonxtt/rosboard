@@ -212,7 +212,7 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret", TrafficInterfaces: []string{"ether1"}, TerminalCIDRs: []string{"10.0.0.0/24"}}}},
+		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret", TrafficInterfaces: []string{"ether1"}, TerminalCIDRs: []string{"10.0.0.0/24"}}, MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 15}}},
 	}
 	server := NewServer(cfg, nil, nil)
 	body := `{"name":"Renamed","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.0/24"]}`
@@ -226,6 +226,9 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	}
 	if saved.Devices[0].Name != "Renamed" || saved.Devices[0].RouterOS.Password != "secret" {
 		t.Fatalf("unexpected saved device: %#v", saved.Devices[0])
+	}
+	if !saved.Devices[0].MosDNS.Configured() || saved.Devices[0].MosDNS.BaseURL != "http://10.0.0.3" || saved.Devices[0].MosDNS.SyncIntervalMinutes != 15 {
+		t.Fatalf("device edit without mosdns payload must preserve recognition settings: %#v", saved.Devices[0].MosDNS)
 	}
 }
 
