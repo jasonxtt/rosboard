@@ -11,7 +11,7 @@ import type {
   PolicyWANRoute,
 } from './types'
 import { defaultEgressDraft, defaultSourceDraft, egressDraftErrors, egressDraftFromEgress, sharedPolicyListName } from './drafts'
-import { applyPlan, generatePlan, saveEgress, saveSource, saveTrafficIngress, waitForPolicyJob } from './api'
+import { generatePlan, saveEgress, saveSource, saveTrafficIngress } from './api'
 import { ChangePlanView } from './ChangePlanView'
 import { SourceEditorModal } from './PolicySourcesPage'
 import {
@@ -28,7 +28,7 @@ import {
 } from './format'
 import type { PolicyEgress } from './types'
 
-const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名列表', '需要处理的变更']
+const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名列表', '预览并应用']
 const PREVIEW_STEP = 3
 const DOMAIN_STEP = 2
 
@@ -148,7 +148,7 @@ export function PolicyWizard({
       : [...previous, source.id])
   }
 
-  const handleSaveAndSync = async () => {
+  const handleSaveDraftAndGeneratePlan = async () => {
     setError(null)
     if (!selectedDomainIds.length) {
       setError('请至少选择或新建一个域名列表')
@@ -169,20 +169,9 @@ export function PolicyWizard({
         }
       }
       const envelope = await generatePlan(deviceID, overview.egresses.length ? 'structural' : 'initial')
-      const needsManualReview = envelope.plan.blockers.length > 0
-        || envelope.plan.pendingReview
-        || envelope.plan.acknowledgements.some((ack) => ack.required && !ack.accepted)
-      if (needsManualReview) {
-        setPlan(envelope)
-        onChanged()
-        setStep(PREVIEW_STEP)
-        return
-      }
-      const result = await applyPlan(deviceID, envelope.planId, {
-        acknowledgements: envelope.plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code),
-      })
-      if (result.jobId) await waitForPolicyJob(deviceID, result.jobId)
-      onApplied(result)
+      setPlan(envelope)
+      onChanged()
+      setStep(PREVIEW_STEP)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
     } finally {
@@ -193,7 +182,7 @@ export function PolicyWizard({
   return (
     <PolicyModal
       title={egress ? `编辑策略：${egress.name}` : '新建策略'}
-      subtitle="可点击上方步骤直接跳转；保存策略和域名列表后会自动同步到 RouterOS，只有阻断项才需要人工处理。"
+      subtitle="可点击上方步骤直接跳转；保存的草稿保存在 rosboard，确认计划后才会写入 RouterOS。"
       wide
       onClose={onClose}
       header={<PolicyWizardSteps steps={WIZARD_STEPS} current={step} onJump={(i) => { if (!saving) { setError(null); setStep(i) } }} />}
@@ -203,10 +192,10 @@ export function PolicyWizard({
             {step === 0 ? '取消' : '上一步'}
           </button>
           <button type="button" className="primary-button" disabled={!canNext || saving || (step === DOMAIN_STEP && !canGeneratePlan)} onClick={() => {
-            if (step === DOMAIN_STEP) void handleSaveAndSync()
+            if (step === DOMAIN_STEP) void handleSaveDraftAndGeneratePlan()
             else setStep((s) => s + 1)
           }}>
-            {step === DOMAIN_STEP && saving ? '保存并同步中…' : step === DOMAIN_STEP ? '保存并同步' : '下一步'}
+            {step === DOMAIN_STEP && saving ? '保存并预览中…' : '下一步'}
           </button>
         </div>
       ) : null}
@@ -307,8 +296,8 @@ export function PolicyWizard({
 
       {step === PREVIEW_STEP ? (
         <div className="policy-wizard-apply">
-          <h4>需要处理的变更</h4>
-          <p className="policy-hint">自动同步前发现阻断项或需要人工确认的变更，请处理后再同步 RouterOS。</p>
+          <h4>预览并应用</h4>
+          <p className="policy-hint">草稿已保存，以下为将要应用到 RouterOS 的变更。</p>
           {plan ? (
             <ChangePlanView
               key={plan.planId}
@@ -319,7 +308,7 @@ export function PolicyWizard({
               onCancel={() => { setPlan(null); setStep(DOMAIN_STEP) }}
             />
           ) : (
-            <PolicyNotice tone="info">自动同步检查尚未生成，请返回前面的步骤保存策略。</PolicyNotice>
+            <PolicyNotice tone="info">差异预览尚未生成，请返回域名列表重试。</PolicyNotice>
           )}
         </div>
       ) : null}
