@@ -40,7 +40,7 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 		return DesiredResult{}, err
 	}
 	sourcesByEgress := enabledSourcesByEgress(sources)
-	prefix := managedCommentPrefix(managerID, repository.DeviceID())
+	prefix := managedCommentIdentityPrefix
 	result := DesiredResult{Revision: state.DesiredRevision, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}}
 	order := 0
 	addWithLabel := func(logicalID string, menu routeros.MutationMenu, phase, label string, fields map[string]string) {
@@ -354,8 +354,44 @@ func allRules(ctx context.Context, repository Repository, versionID string) ([]S
 	}
 }
 
-func managedCommentPrefix(managerID, deviceID string) string {
-	return "rosboard:v2:" + shortHash(managerID, 12) + ":" + shortHash(deviceID, 12) + ":"
+// managedCommentIdentityPrefix marks RouterOS objects owned by this feature.
+// It is deliberately short because operators read it on the router; uniqueness
+// comes from the per-object hash appended by managedComment.
+const managedCommentIdentityPrefix = "rb_"
+
+const legacyManagedCommentNamespace = "rosboard:v2:"
+
+// legacyManagedCommentPrefix reproduces the pre-shortening comment prefix so
+// identities written by older builds stay recognizable and can be migrated in
+// place by the reconciler.
+func legacyManagedCommentPrefix(managerID, deviceID string) string {
+	return legacyManagedCommentNamespace + shortHash(managerID, 12) + ":" + shortHash(deviceID, 12) + ":"
+}
+
+// isManagedComment reports whether a RouterOS comment has a recognized
+// policy-routing identity shape.
+func isManagedComment(comment string) bool {
+	identity := managedCommentIdentity(comment)
+	if strings.HasPrefix(identity, managedCommentIdentityPrefix) {
+		return hasLowerHex(strings.TrimPrefix(identity, managedCommentIdentityPrefix), 8)
+	}
+	if !strings.HasPrefix(identity, legacyManagedCommentNamespace) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(identity, legacyManagedCommentNamespace), ":")
+	return len(parts) == 3 && hasLowerHex(parts[0], 12) && hasLowerHex(parts[1], 12) && hasLowerHex(parts[2], 16)
+}
+
+func hasLowerHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func ManagedTablePrefix(managerID, deviceID string) string {
@@ -371,7 +407,7 @@ func DefaultRouteTable(managerID, deviceID, egressID string, family AddressFamil
 }
 
 func managedComment(prefix, logicalID string, labels ...string) string {
-	identity := prefix + shortHash(logicalID, 16)
+	identity := prefix + shortHash(logicalID, 8)
 	if len(labels) == 0 {
 		return identity
 	}

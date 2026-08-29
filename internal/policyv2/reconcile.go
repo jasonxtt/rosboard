@@ -32,7 +32,7 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 	if err != nil {
 		return nil, "", err
 	}
-	prefix := managedCommentPrefix(managerID, repository.DeviceID())
+	legacyPrefix := legacyManagedCommentPrefix(managerID, repository.DeviceID())
 	tablePrefix := ManagedTablePrefix(managerID, repository.DeviceID())
 	logicalByComment := make(map[string]string, len(desired))
 	logicalByTable := make(map[string]string)
@@ -41,6 +41,9 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 			logicalByTable[object.Fields["name"]] = object.LogicalID
 		} else {
 			logicalByComment[managedCommentIdentity(object.Fields["comment"])] = object.LogicalID
+			// Also accept the pre-shortening identity so existing RouterOS
+			// entries migrate by patching only the comment field.
+			logicalByComment[legacyPrefix+shortHash(object.LogicalID, 16)] = object.LogicalID
 		}
 	}
 	result := make([]ActualObject, 0)
@@ -52,7 +55,7 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 		for position, object := range objects {
 			comment := strings.TrimSpace(object["comment"])
 			commentIdentity := managedCommentIdentity(comment)
-			if isForeignMasquerade(menu, object, prefix, commentIdentity) {
+			if isForeignMasquerade(menu, object, commentIdentity) {
 				continue
 			}
 			logicalID := ""
@@ -66,12 +69,12 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 					logicalID = "stale-table:" + name
 				}
 			} else {
-				if !strings.HasPrefix(commentIdentity, prefix) {
+				if !isManagedComment(comment) {
 					continue
 				}
 				logicalID = logicalByComment[commentIdentity]
 				if logicalID == "" {
-					logicalID = "stale:" + strings.TrimPrefix(commentIdentity, prefix)
+					logicalID = "stale:" + commentIdentity
 				}
 			}
 			fields := make(map[string]string, len(object))
@@ -355,14 +358,14 @@ func moveLogicalIDBefore(values []string, source, target string) []string {
 	return values
 }
 
-func isForeignMasquerade(menu routeros.MutationMenu, object routeros.RouterOSObject, managedPrefix, commentIdentity string) bool {
+func isForeignMasquerade(menu routeros.MutationMenu, object routeros.RouterOSObject, commentIdentity string) bool {
 	if menu != routeros.MenuIPFirewallNAT && menu != routeros.MenuIPv6FirewallNAT {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(object["chain"]), "srcnat") || !strings.EqualFold(strings.TrimSpace(object["action"]), "masquerade") {
 		return false
 	}
-	return !strings.HasPrefix(commentIdentity, managedPrefix)
+	return !isManagedComment(commentIdentity)
 }
 
 func equivalentRouterField(key, left, right string) bool {

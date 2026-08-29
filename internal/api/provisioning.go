@@ -486,12 +486,15 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 		}
 		if err := s.saveSettings(func(next *config.Config) {
 			if existing == nil {
+				device.SortOrder = config.NextDeviceSortOrder(next.Devices)
 				next.Devices = append(next.Devices, device)
+				config.SortDevicesByDisplayOrder(next.Devices)
 				return
 			}
 			for index := range next.Devices {
 				if next.Devices[index].ID == deviceID {
 					next.Devices[index] = device
+					config.SortDevicesByDisplayOrder(next.Devices)
 					return
 				}
 			}

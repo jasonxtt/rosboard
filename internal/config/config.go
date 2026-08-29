@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -56,6 +57,7 @@ type DeviceConfig struct {
 	Name           string                  `yaml:"name"`
 	Enabled        bool                    `yaml:"enabled"`
 	Archived       bool                    `yaml:"archived,omitempty"`
+	SortOrder      int                     `yaml:"sort_order,omitempty"`
 	ManagedAccount *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
 	RouterOS       RouterOSConfig          `yaml:"routeros"`
 }
@@ -454,10 +456,11 @@ func (c *Config) normalizeDevices() {
 	if len(c.Devices) == 0 {
 		if c.RouterOS.Configured() {
 			c.Devices = []DeviceConfig{{
-				ID:       DefaultDeviceID,
-				Name:     "RouterOS",
-				Enabled:  true,
-				RouterOS: c.RouterOS,
+				ID:        DefaultDeviceID,
+				Name:      "RouterOS",
+				Enabled:   true,
+				SortOrder: 1,
+				RouterOS:  c.RouterOS,
 			}}
 		}
 		return
@@ -465,7 +468,23 @@ func (c *Config) normalizeDevices() {
 	for index := range c.Devices {
 		c.Devices[index].ID = strings.TrimSpace(c.Devices[index].ID)
 		c.Devices[index].Name = strings.TrimSpace(c.Devices[index].Name)
+		if c.Devices[index].SortOrder < 0 {
+			c.Devices[index].SortOrder = 0
+		}
 	}
+	if !deviceSortOrderConfigured(c.Devices) {
+		// Legacy config without sort_order: assign positions matching the
+		// previous name-sorted display order so upgrades keep the same order.
+		sorted := append([]DeviceConfig(nil), c.Devices...)
+		sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+		for index := range sorted {
+			sorted[index].SortOrder = index + 1
+		}
+		c.Devices = sorted
+	}
+	// The config slice is the single source of truth for display order: keep
+	// it identical to the effective sort order everywhere.
+	SortDevicesByDisplayOrder(c.Devices)
 	for _, device := range c.Devices {
 		if device.Enabled && !device.Archived {
 			c.RouterOS = device.RouterOS
@@ -473,6 +492,52 @@ func (c *Config) normalizeDevices() {
 		}
 	}
 	c.RouterOS = c.Devices[0].RouterOS
+}
+
+func deviceSortOrderConfigured(devices []DeviceConfig) bool {
+	for _, device := range devices {
+		if device.SortOrder > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// DisplayOrderLess orders devices by (sortOrder, name): positive sort_order
+// values ascending with ties broken by name, and non-positive (unconfigured)
+// values always last, name-sorted among themselves.
+func DisplayOrderLess(aOrder int, aName string, bOrder int, bName string) bool {
+	aConfigured, bConfigured := aOrder > 0, bOrder > 0
+	if !aConfigured || !bConfigured {
+		if !aConfigured && !bConfigured {
+			return aName < bName
+		}
+		return bOrder <= 0
+	}
+	if aOrder != bOrder {
+		return aOrder < bOrder
+	}
+	return aName < bName
+}
+
+// SortDevicesByDisplayOrder sorts device configs into display order in place.
+func SortDevicesByDisplayOrder(devices []DeviceConfig) {
+	sort.SliceStable(devices, func(i, j int) bool {
+		return DisplayOrderLess(devices[i].SortOrder, devices[i].Name, devices[j].SortOrder, devices[j].Name)
+	})
+}
+
+// NextDeviceSortOrder returns the sort position for a device appended to the
+// end of the current display order: one past the largest configured value,
+// or 1 when no device carries a configured order yet.
+func NextDeviceSortOrder(devices []DeviceConfig) int {
+	next := 1
+	for _, device := range devices {
+		if device.SortOrder >= next {
+			next = device.SortOrder + 1
+		}
+	}
+	return next
 }
 
 func (c RouterOSConfig) Configured() bool {

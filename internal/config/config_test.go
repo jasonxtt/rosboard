@@ -279,3 +279,86 @@ func TestLoadCanDisableMosDNSAndRejectsInvalidEnabledInterval(t *testing.T) {
 		t.Fatalf("expected missing MosDNS address error, got %v", err)
 	}
 }
+
+func TestLoadMigratesLegacyDevicesToNameSortedSortOrder(t *testing.T) {
+	directory := t.TempDir()
+	legacyPath := filepath.Join(directory, "legacy.yaml")
+	payload := []byte("devices:\n  - id: zulu\n    name: Zulu\n    enabled: true\n    routeros:\n      base_url: http://zulu.test\n      username: test\n      password: secret\n  - id: alpha\n    name: Alpha\n    enabled: true\n    routeros:\n      base_url: http://alpha.test\n      username: test\n      password: secret\n")
+	if err := os.WriteFile(legacyPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices) != 2 {
+		t.Fatalf("unexpected device count: %+v", cfg.Devices)
+	}
+	if cfg.Devices[0].ID != "alpha" || cfg.Devices[0].SortOrder != 1 {
+		t.Fatalf("legacy devices must be name sorted with sort order 1..n, got %+v", cfg.Devices)
+	}
+	if cfg.Devices[1].ID != "zulu" || cfg.Devices[1].SortOrder != 2 {
+		t.Fatalf("legacy devices must be name sorted with sort order 1..n, got %+v", cfg.Devices)
+	}
+}
+
+func TestLoadNormalizesNegativeSortOrderViaMigration(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "negative.yaml")
+	payload := []byte("devices:\n  - id: zulu\n    name: Zulu\n    enabled: true\n    sort_order: -5\n    routeros:\n      base_url: http://zulu.test\n      username: test\n      password: secret\n  - id: alpha\n    name: Alpha\n    enabled: true\n    routeros:\n      base_url: http://alpha.test\n      username: test\n      password: secret\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Negative values are unconfigured, so the legacy migration fills 1..N by
+	// name and the config slice ends up in display order.
+	if cfg.Devices[0].ID != "alpha" || cfg.Devices[0].SortOrder != 1 {
+		t.Fatalf("negative sort order must be treated as unconfigured, got %+v", cfg.Devices)
+	}
+	if cfg.Devices[1].ID != "zulu" || cfg.Devices[1].SortOrder != 2 {
+		t.Fatalf("negative sort order must be treated as unconfigured, got %+v", cfg.Devices)
+	}
+}
+
+func TestLoadLegacySingleDeviceGetsSortOrderOne(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "legacy-single.yaml")
+	payload := []byte("routeros:\n  base_url: http://router.test\n  username: test\n  password: secret\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || cfg.Devices[0].SortOrder != 1 {
+		t.Fatalf("legacy single-device migration must set sort_order=1, got %+v", cfg.Devices)
+	}
+}
+
+func TestLoadPreservesExplicitSortOrder(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "sorted.yaml")
+	payload := []byte("devices:\n  - id: zulu\n    name: Zulu\n    enabled: true\n    sort_order: 10\n    routeros:\n      base_url: http://zulu.test\n      username: test\n      password: secret\n  - id: alpha\n    name: Alpha\n    enabled: true\n    sort_order: 5\n    routeros:\n      base_url: http://alpha.test\n      username: test\n      password: secret\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The config slice is the single source of truth for display order, so
+	// Load normalizes it to match the effective sort order.
+	if cfg.Devices[0].ID != "alpha" || cfg.Devices[0].SortOrder != 5 {
+		t.Fatalf("config slice must match display order, got %+v", cfg.Devices)
+	}
+	if cfg.Devices[1].ID != "zulu" || cfg.Devices[1].SortOrder != 10 {
+		t.Fatalf("config slice must match display order, got %+v", cfg.Devices)
+	}
+	if cfg.Devices[0].RouterOS.BaseURL != "http://alpha.test" || cfg.Devices[1].RouterOS.BaseURL != "http://zulu.test" {
+		t.Fatalf("reordering must not mix up device payloads, got %+v", cfg.Devices)
+	}
+}

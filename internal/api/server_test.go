@@ -3,11 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -589,4 +592,302 @@ func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
 	if !found || persisted.Enabled || persisted.RouterOS.Username != "" || persisted.RouterOS.Password != "" || persisted.ManagedAccount != nil {
 		t.Fatalf("persisted device account was not cleared: %#v found=%v", persisted, found)
 	}
+}
+
+func newDeviceOrderTestServer(t *testing.T, devices []config.DeviceConfig) (*Server, string, *int) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path:                        path,
+		ListenAddress:               "127.0.0.1:8080",
+		DataDir:                     t.TempDir(),
+		PollIntervalSeconds:         10,
+		RealtimePollIntervalSeconds: 1,
+		TerminalPollIntervalSeconds: 3,
+		SampleRetentionHours:        48,
+		Devices:                     devices,
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarts := 0
+	server := NewServerWithManager(loaded, nil, nil, nil, func() { restarts++ })
+	return server, path, &restarts
+}
+
+func orderedDeviceIDs(t *testing.T, body string) []string {
+	t.Helper()
+	var payload struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(payload.Devices))
+	for _, device := range payload.Devices {
+		ids = append(ids, device.ID)
+	}
+	return ids
+}
+
+func settingsDeviceIDs(t *testing.T, body string) []string {
+	t.Helper()
+	var payload struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(payload.Devices))
+	for _, device := range payload.Devices {
+		ids = append(ids, device.ID)
+	}
+	return ids
+}
+
+func TestDeviceReorderPersistsOrderSkipsRestartAndAlignsResponses(t *testing.T) {
+	server, path, restarts := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+		{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 3},
+	})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(`{"deviceIds":["charlie","alpha","bravo"]}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Restarting bool `json:"restarting"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Restarting {
+		t.Fatal("reorder must not restart the panel")
+	}
+	if *restarts != 0 {
+		t.Fatalf("reorder scheduled %d restarts", *restarts)
+	}
+
+	deviceResponse := httptest.NewRecorder()
+	deviceRequest := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
+	deviceRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(deviceResponse, deviceRequest)
+	if deviceResponse.Code != http.StatusOK {
+		t.Fatalf("devices status=%d body=%s", deviceResponse.Code, deviceResponse.Body.String())
+	}
+	wantOrder := []string{"charlie", "alpha", "bravo"}
+	if got := orderedDeviceIDs(t, deviceResponse.Body.String()); !equalStrings(got, wantOrder) {
+		t.Fatalf("/api/devices order = %v, want %v", got, wantOrder)
+	}
+
+	settingsResponse := httptest.NewRecorder()
+	settingsRequest := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	settingsRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(settingsResponse, settingsRequest)
+	if settingsResponse.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsResponse.Code, settingsResponse.Body.String())
+	}
+	if got := settingsDeviceIDs(t, settingsResponse.Body.String()); !equalStrings(got, wantOrder) {
+		t.Fatalf("/api/settings device order = %v, want %v", got, wantOrder)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, wantID := range wantOrder {
+		device := loaded.Devices[index]
+		if device.ID != wantID || device.SortOrder != index+1 {
+			t.Fatalf("persisted device[%d] = %q sort %d, want %q sort %d (all: %+v)", index, device.ID, device.SortOrder, wantID, index+1, loaded.Devices)
+		}
+	}
+}
+
+func TestDeviceReorderRejectsInvalidRequestsWithoutChangingConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "duplicate", body: `{"deviceIds":["alpha","alpha","charlie"]}`},
+		{name: "unknown", body: `{"deviceIds":["alpha","charlie","ghost"]}`},
+		{name: "missing", body: `{"deviceIds":["alpha"]}`},
+		{name: "empty", body: `{"deviceIds":[]}`},
+		{name: "archived included", body: `{"deviceIds":["alpha","charlie","bravo"]}`},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server, path, restarts := newDeviceOrderTestServer(t, []config.DeviceConfig{
+				{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+				{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 2},
+				{ID: "bravo", Name: "Bravo", Enabled: false, Archived: true, SortOrder: 3},
+			})
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(testCase.body))
+			request.RemoteAddr = "127.0.0.1:12345"
+			server.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if *restarts != 0 {
+				t.Fatalf("rejected reorder scheduled %d restarts", *restarts)
+			}
+			loaded, err := config.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(loaded.Devices) != 3 || loaded.Devices[0].ID != "alpha" || loaded.Devices[0].SortOrder != 1 {
+				t.Fatalf("rejected reorder changed persisted config: %+v", loaded.Devices)
+			}
+		})
+	}
+}
+
+func TestDeviceReorderAllowsEmptyListWithoutDevices(t *testing.T) {
+	server, _, _ := newDeviceOrderTestServer(t, nil)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(`{"deviceIds":[]}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceCreateAppendsTailOrderAndEditPreservesIt(t *testing.T) {
+	routerOS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/rest/interface" {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`[{"name":"ether1","running":"true","disabled":"false"}]`))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer routerOS.Close()
+	endpoint, err := url.Parse(routerOS.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(endpoint.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server, path, _ := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+	})
+
+	createResponse := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/devices", strings.NewReader(fmt.Sprintf(`{"name":"Charlie","scheme":"http","host":"%s","port":%d,"username":"u","password":"p","enabled":true,"deferRestart":true}`, endpoint.Hostname(), port)))
+	createRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	charlie, found := loaded.Device(created.ID)
+	if !found {
+		t.Fatalf("created device missing from config: %+v", loaded.Devices)
+	}
+	// config.Load normalizes the slice into display order, so the new device
+	// must be last with the next sort position.
+	last := loaded.Devices[len(loaded.Devices)-1]
+	if last.ID != created.ID || charlie.SortOrder != 3 {
+		t.Fatalf("created device must be appended at the tail, got %+v", loaded.Devices)
+	}
+
+	editResponse := httptest.NewRecorder()
+	editRequest := httptest.NewRequest(http.MethodPut, "/api/devices/"+url.PathEscape(created.ID), strings.NewReader(fmt.Sprintf(`{"name":"Charlie Renamed","scheme":"http","host":"%s","port":%d,"username":"u","enabled":true,"deferRestart":true}`, endpoint.Hostname(), port)))
+	editRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(editResponse, editRequest)
+	if editResponse.Code != http.StatusOK {
+		t.Fatalf("edit status=%d body=%s", editResponse.Code, editResponse.Body.String())
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, found := reloaded.Device(created.ID)
+	if !found || edited.SortOrder != 3 || edited.Name != "Charlie Renamed" {
+		t.Fatalf("editing a device must preserve its sort order, got %+v", reloaded.Devices)
+	}
+}
+
+func TestDeviceArchiveAndRestoreAffectOrder(t *testing.T) {
+	server, path, _ := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+		{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 3},
+	})
+
+	archiveResponse := httptest.NewRecorder()
+	archiveRequest := httptest.NewRequest(http.MethodDelete, "/api/devices/bravo", nil)
+	archiveRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(archiveResponse, archiveRequest)
+	if archiveResponse.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", archiveResponse.Code, archiveResponse.Body.String())
+	}
+
+	deviceResponse := httptest.NewRecorder()
+	deviceRequest := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
+	deviceRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(deviceResponse, deviceRequest)
+	if got := orderedDeviceIDs(t, deviceResponse.Body.String()); !equalStrings(got, []string{"alpha", "charlie"}) {
+		t.Fatalf("archived device must vanish from /api/devices, got %v", got)
+	}
+
+	restoreResponse := httptest.NewRecorder()
+	restoreRequest := httptest.NewRequest(http.MethodPost, "/api/devices/bravo/restore", nil)
+	restoreRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(restoreResponse, restoreRequest)
+	if restoreResponse.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", restoreResponse.Code, restoreResponse.Body.String())
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravo, found := loaded.Device("bravo")
+	if !found || bravo.Archived {
+		t.Fatalf("restored device must be active again: %#v found=%v", bravo, found)
+	}
+	if bravo.SortOrder != 4 || loaded.Devices[len(loaded.Devices)-1].ID != "bravo" {
+		t.Fatalf("restored device must re-join at the tail, got %+v", loaded.Devices)
+	}
+}
+
+func equalStrings(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
 }

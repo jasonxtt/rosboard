@@ -30,6 +30,7 @@ type DeviceStatus struct {
 	RouterName string    `json:"routerName"`
 	Version    string    `json:"version"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+	SortOrder  int       `json:"-"`
 }
 
 const fleetSnapshotStaleAfter = 90 * time.Second
@@ -72,6 +73,7 @@ type FleetDevice struct {
 	ConnectionOther   int       `json:"connectionOther"`
 	Uptime            string    `json:"uptime"`
 	UpdatedAt         time.Time `json:"updatedAt"`
+	SortOrder         int       `json:"-"`
 }
 
 type managedMonitor struct {
@@ -301,6 +303,27 @@ func (m *MonitorManager) Monitor(deviceID string) (*Monitor, error) {
 	return item.monitor, nil
 }
 
+// MonitorForDevices resolves the monitor for deviceID, falling back to the
+// first enabled device in the caller's current configuration order when no
+// device is requested. This keeps the "first device" default consistent with
+// a reordered config without restarting the manager.
+func (m *MonitorManager) MonitorForDevices(deviceID string, configured []config.DeviceConfig) (*Monitor, error) {
+	if deviceID == "" {
+		m.mu.RLock()
+		for _, device := range configured {
+			if device.Archived {
+				continue
+			}
+			if item := m.items[device.ID]; item != nil && item.device.Enabled && item.monitor != nil {
+				deviceID = device.ID
+				break
+			}
+		}
+		m.mu.RUnlock()
+	}
+	return m.Monitor(deviceID)
+}
+
 func (m *MonitorManager) DefaultDeviceID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -339,7 +362,7 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 		if device.Archived && !includeArchived {
 			continue
 		}
-		status := DeviceStatus{ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived}
+		status := DeviceStatus{ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived, SortOrder: device.SortOrder}
 		if item := m.items[device.ID]; item != nil {
 			status.Healthy = item.started
 			status.Error = item.err
@@ -352,21 +375,29 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 		}
 		result = append(result, status)
 	}
-	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	sort.SliceStable(result, func(i, j int) bool {
+		return config.DisplayOrderLess(result[i].SortOrder, result[i].Name, result[j].SortOrder, result[j].Name)
+	})
 	return result
 }
 
-func (m *MonitorManager) FleetOverview(now time.Time) FleetOverview {
+// FleetOverview builds the fleet grid from the caller's current device
+// configuration so a reordered config is reflected without restarting the
+// manager; per-device state still comes from the cached monitors.
+func (m *MonitorManager) FleetOverview(now time.Time, configured []config.DeviceConfig) FleetOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := FleetOverview{Devices: make([]FleetDevice, 0, len(m.order))}
-	for _, id := range m.order {
-		item := m.items[id]
-		if item == nil || !item.device.Enabled || item.device.Archived {
+	result := FleetOverview{Devices: make([]FleetDevice, 0, len(configured))}
+	for _, deviceConfig := range configured {
+		if deviceConfig.Archived {
 			continue
 		}
-		device := FleetDevice{ID: item.device.ID, Name: item.device.Name, State: "offline", Error: item.err}
+		item := m.items[deviceConfig.ID]
+		if item == nil || !item.device.Enabled {
+			continue
+		}
+		device := FleetDevice{ID: deviceConfig.ID, Name: deviceConfig.Name, State: "offline", Error: item.err, SortOrder: deviceConfig.SortOrder}
 		if endpoint, err := url.Parse(item.device.RouterOS.BaseURL); err == nil {
 			device.Address = endpoint.Hostname()
 		}
@@ -415,6 +446,8 @@ func (m *MonitorManager) FleetOverview(now time.Time) FleetOverview {
 		result.Devices = append(result.Devices, device)
 	}
 	result.TotalDevices = len(result.Devices)
-	sort.SliceStable(result.Devices, func(i, j int) bool { return result.Devices[i].Name < result.Devices[j].Name })
+	sort.SliceStable(result.Devices, func(i, j int) bool {
+		return config.DisplayOrderLess(result.Devices[i].SortOrder, result.Devices[i].Name, result.Devices[j].SortOrder, result.Devices[j].Name)
+	})
 	return result
 }

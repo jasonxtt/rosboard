@@ -329,7 +329,7 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	result := make([]TrafficIngressCandidate, 0, len(lists)+len(interfaces))
 	for _, list := range lists {
 		name := strings.TrimSpace(list["name"])
-		if name == "" || reservedInterfaceLists[strings.ToLower(name)] || strings.HasPrefix(strings.TrimSpace(list["comment"]), "rosboard:v2:") {
+		if name == "" || reservedInterfaceLists[strings.ToLower(name)] || isManagedComment(list["comment"]) {
 			continue
 		}
 		staticMembers := uniqueSorted(membersByList[name])
