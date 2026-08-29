@@ -1632,3 +1632,36 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 87: 手动域名列表来源
+
+**Date**: 2026-08-29
+**Task**: 手动域名列表来源
+**Branch**: `main`
+
+### Summary
+
+新增手动域名列表来源，支持 Clash DOMAIN/DOMAIN-SUFFIX 与 mosdns plain/domain:/full: 格式；已有来源编辑时锁定来源类型，后端拒绝类型变更；通过 Go 全量测试、vet、前端 lint/build、本地运行检查，并部署到 10.0.0.6 完成服务、健康接口、嵌入资源和手工验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0bd6e2` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
