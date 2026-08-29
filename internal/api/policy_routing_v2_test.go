@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"rosboard/internal/config"
 	"rosboard/internal/policy"
@@ -332,6 +333,63 @@ func TestPolicyV2SourceSaveRequiresAndConsumesPreview(t *testing.T) {
 	if _, ok := server.policyPreview(previewID, "edge"); ok {
 		t.Fatal("consumed preview remains available")
 	}
+}
+
+func TestPolicyV2AssignedSourceSaveStartsAutomaticApply(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	if _, err := repository.SaveEgress(context.Background(), policyv2.Egress{
+		ID: "wan", Name: "WAN", ListMode: policyv2.ListModeShared, ListName: "proxy", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.70", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTrafficIngress(context.Background(), []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: "upload", Content: prepared})
+	payload, err := json.Marshal(map[string]any{
+		"name": "assigned-list", "type": "upload", "enabled": true, "egressId": "wan", "previewId": previewID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := policyV2Request(t, server, http.MethodPost, "/sources", string(payload))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var accepted struct {
+		Source policyv2.Source `json:"source"`
+		JobID  string          `json:"jobId"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &accepted); err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Source.ID == "" || accepted.JobID == "" {
+		t.Fatalf("automatic apply response is incomplete: %#v", accepted)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := repository.GetApplyJob(context.Background(), accepted.JobID)
+		if err == nil && job.Terminal() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	job, err := repository.GetApplyJob(context.Background(), accepted.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("automatic apply did not reach a terminal state: %#v", job)
 }
 
 func TestPolicyV2PlanAndApplyEndpointsMatchFrontendContract(t *testing.T) {

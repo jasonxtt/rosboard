@@ -243,6 +243,9 @@ func (s *Server) servePolicyTrafficIngress(writer http.ResponseWriter, request *
 	if !ok {
 		return
 	}
+	if !s.requirePolicyWriteAccess(writer, request, device.device) {
+		return
+	}
 	var payload struct {
 		TrafficIngress json.RawMessage `json:"trafficIngress"`
 		Scope          json.RawMessage `json:"scope"`
@@ -387,6 +390,9 @@ func (s *Server) getPolicyEgress(writer http.ResponseWriter, request *http.Reque
 func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Request, pathID string) {
 	device, ok := s.resolvePolicyDevice(writer, request)
 	if !ok {
+		return
+	}
+	if !s.requirePolicyWriteAccess(writer, request, device.device) {
 		return
 	}
 	var eg policyv2.Egress
@@ -676,9 +682,13 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
+	if !s.requirePolicyWriteAccess(writer, request, device.device) {
+		return
+	}
 	var payload struct {
 		policyv2.Source
-		PreviewID string `json:"previewId"`
+		PreviewID  string `json:"previewId"`
+		DeferApply bool   `json:"deferApply"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
@@ -766,6 +776,16 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "load_failed", "error": err.Error()})
 			return
 		}
+	}
+	if !payload.DeferApply && s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src) {
+		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-save")
+		if err != nil {
+			status, code := policyPlanApplyError(err)
+			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "source": src})
+			return
+		}
+		writePolicyJson(writer, http.StatusAccepted, map[string]any{"source": src, "job": job, "jobId": job.ID})
+		return
 	}
 	writePolicyJson(writer, http.StatusOK, src)
 }
@@ -878,6 +898,9 @@ func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *h
 	if !ok {
 		return
 	}
+	if !s.requirePolicyWriteAccess(writer, request, device.device) {
+		return
+	}
 	src, err := device.repository.GetSource(request.Context(), id)
 	if err != nil || src.Type != "url" || src.URL == "" {
 		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "source_unavailable", "error": "source cannot be refreshed"})
@@ -905,6 +928,21 @@ func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *h
 	version, rules := policyV2SourceContent(legacyVersion, legacyRules)
 	if err := device.repository.SavePendingSourceVersion(request.Context(), version, rules); err != nil {
 		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "save_failed", "error": err.Error()})
+		return
+	}
+	src, err = device.repository.GetSource(request.Context(), id)
+	if err != nil {
+		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "load_failed", "error": err.Error()})
+		return
+	}
+	if s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src) {
+		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-refresh")
+		if err != nil {
+			status, code := policyPlanApplyError(err)
+			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "source": src})
+			return
+		}
+		writePolicyJson(writer, http.StatusAccepted, map[string]any{"source": src, "job": job, "jobId": job.ID})
 		return
 	}
 	writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "versionId": versionID, "ruleCount": len(rules)})

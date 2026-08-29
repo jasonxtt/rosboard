@@ -674,6 +674,60 @@ func TestPolicyV2ScheduledRefreshCreatesPendingVersion(t *testing.T) {
 	}
 }
 
+func TestPolicyV2ScheduledRefreshAutoAppliesAssignedSource(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "scheduled-wan", Name: "Scheduled WAN", ListMode: policyv2.ListModeShared, ListName: "scheduled", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.71", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	source, err := repository.SaveSource(ctx, policyv2.Source{
+		ID: "scheduled-assigned", EgressID: "scheduled-wan", Type: "url", Name: "Scheduled", URL: "https://example.invalid/list.yaml", Schedule: "1h", Enabled: true, NextRunAt: time.Now().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{
+		Reader: router, Mutation: router, Repo: repository,
+		Refresh: func(context.Context, policyv2.Source) (policyv2.SourceRefresh, error) {
+			version := policyv2.SourceVersion{ID: "scheduled-assigned-version", SourceID: source.ID, SHA256: "sha", CompressedYAML: []byte("gzip"), State: "pending"}
+			return policyv2.SourceRefresh{Version: &version, Rules: []policyv2.SourceRule{{RuleType: "DOMAIN", Domain: "scheduled.example"}}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RefreshDue(ctx, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := waitPolicyV2Job(t, repository, state.Job.ID)
+	if job.State != "committed" {
+		t.Fatalf("scheduled source auto-apply failed: %#v", job)
+	}
+	loaded, err := repository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ActiveVersionID != "scheduled-assigned-version" || loaded.PendingVersionID != "" {
+		t.Fatalf("scheduled source version was not activated: %#v", loaded)
+	}
+}
+
 func waitPolicyV2Job(t *testing.T, repository *PolicyRepository, id string) policyv2.ApplyJob {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

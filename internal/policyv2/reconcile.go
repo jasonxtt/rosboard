@@ -220,7 +220,7 @@ func changedFields(actual, desired map[string]string) (map[string]string, map[st
 	after := make(map[string]string)
 	keys := make(map[string]bool, len(actual)+len(desired))
 	for key := range actual {
-		if managedRouterField(key) {
+		if managedRouterField(key) && shouldReconcileActualField(key, desired) {
 			keys[key] = true
 		}
 	}
@@ -237,6 +237,17 @@ func changedFields(actual, desired map[string]string) (map[string]string, map[st
 		after[key] = want
 	}
 	return before, after
+}
+
+func shouldReconcileActualField(key string, desired map[string]string) bool {
+	if strings.ToLower(strings.TrimSpace(key)) == "disabled" {
+		// RouterOS exposes disabled=false on menus whose desired model does
+		// not manage that property. Treat an omitted default as unmanaged;
+		// sending its empty value back is rejected by RouterOS.
+		_, declared := desired["disabled"]
+		return declared
+	}
+	return true
 }
 
 var managedRouterFields = map[string]bool{

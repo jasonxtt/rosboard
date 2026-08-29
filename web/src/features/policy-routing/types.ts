@@ -127,6 +127,12 @@ export type PolicySource = {
   counts?: Record<string, number>
 }
 
+export type PolicySourceSaveResult = {
+  source: PolicySource
+  job?: PolicyJob
+  jobId?: string
+}
+
 // ---- Preview ----
 
 export type PolicyPreviewRule = {

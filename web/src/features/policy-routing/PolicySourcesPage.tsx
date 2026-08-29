@@ -2,10 +2,11 @@ import { useState } from 'react'
 import type { PolicyEgress, PolicyOverview, PolicySource } from './types'
 import {
   deleteSource,
-  fetchJob,
+  fetchSource,
   previewUpload,
   previewURL,
   saveSource,
+  waitForPolicyJob,
 } from './api'
 import {
   PolicyErrorDisplay,
@@ -53,7 +54,7 @@ export function PolicySourcesPage({
       {sources.length === 0 ? (
         <PolicyEmptyState
           title="尚未配置域名列表"
-          description={readOnly ? '当前为只读状态。' : '添加远程 URL 或本地上传的 Clash YAML；点击“保存并预览”查看解析结果，确认后再次点击“保存”即可保存为未分配列表，之后在新建/编辑策略路由时分配。'}
+          description={readOnly ? '当前为只读状态。' : '添加远程 URL 或本地上传的 Clash YAML；内容变化先预览，确认保存后会自动同步到所选策略路由。'}
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>新建域名列表</button>}
         />
       ) : (
@@ -125,12 +126,18 @@ export function PolicySourcesPage({
 
 function sourceStatus(src: PolicySource, overview: PolicyOverview | null): { tone: StatusTone; label: string } {
   if (src.pendingDeletion) return { tone: 'warn', label: '清理未完成，可重试' }
-  if (!src.egressId) return { tone: 'neutral', label: '未分配（不参与应用）' }
+  if (!src.egressId) return { tone: 'neutral', label: '未分配（不参与同步）' }
   const egress = overview?.egresses.find((e) => e.id === src.egressId)
-  if (egress && (egress.pendingDeletion || !egress.enabled)) return { tone: 'warn', label: '策略已停用（暂不参与应用）' }
+  if (egress && (egress.pendingDeletion || !egress.enabled)) return { tone: 'warn', label: '策略已停用（暂不参与同步）' }
   const pendingVersion = src.versions.some((version) => version.state === 'pending')
-  if (src.activeVersionId) return { tone: 'good', label: pendingVersion ? '已引用（待应用更新）' : '已引用' }
-  return { tone: 'info', label: pendingVersion ? '已引用（待应用）' : '已引用（草稿）' }
+  if (pendingVersion) {
+    const failed = overview?.health?.state === 'degraded' && overview.activeJobs.length === 0
+    return failed
+      ? { tone: 'bad', label: '已引用（同步失败，可重新保存）' }
+      : { tone: 'info', label: '已引用（同步中）' }
+  }
+  if (src.activeVersionId) return { tone: 'good', label: '已引用' }
+  return { tone: 'info', label: '已引用（草稿）' }
 }
 
 function SourceRow({
@@ -179,7 +186,7 @@ function SourceRow({
                 type="button"
                 className="link-button"
                 disabled={source.pendingDeletion}
-                title={source.pendingDeletion ? '该记录已标记待删除，无法编辑；请先直接删除（未分配）或应用清理计划（已分配）' : undefined}
+                title={source.pendingDeletion ? '该记录已标记待清理，无法编辑；请先完成清理' : undefined}
                 onClick={onEdit}
               >
                 编辑
@@ -204,12 +211,14 @@ export function SourceEditorModal({
   egresses,
   onClose,
   onSuccess,
+  deferApply = false,
 }: {
   deviceID: string
   draft: PolicySourceDraft
   egresses: PolicyEgress[]
   onClose: () => void
   onSuccess: (source: PolicySource) => void
+  deferApply?: boolean
 }) {
   const [name, setName] = useState(draft.name)
   const [type, setType] = useState(draft.type)
@@ -265,7 +274,15 @@ export function SourceEditorModal({
       if (preview && preview.validRules <= 0) {
         throw new Error('解析结果没有有效规则，无法继续保存该列表')
       }
-      const savedSource = await saveSource(deviceID, { ...draft, name, type, url, schedule, egressId }, { previewId: preview?.previewId })
+      const saveResult = await saveSource(deviceID, { ...draft, name, type, url, schedule, egressId }, {
+        previewId: preview?.previewId,
+        deferApply,
+      })
+      let savedSource = saveResult.source
+      if (saveResult.jobId) {
+        await waitForPolicyJob(deviceID, saveResult.jobId)
+        savedSource = await fetchSource(deviceID, saveResult.source.id)
+      }
       onSuccess(savedSource)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
@@ -277,7 +294,7 @@ export function SourceEditorModal({
   return (
     <PolicyModal
       title={draft.id ? `编辑列表：${draft.name}` : '新建域名列表'}
-      subtitle="内容变化会先解析预览，保存的是待应用版本；需生成计划并应用后才写入 RouterOS。"
+      subtitle="内容变化会先解析预览；确认保存后，已归属启用策略的列表会自动同步到 RouterOS。"
       wide
       onClose={onClose}
     >
@@ -320,9 +337,9 @@ export function SourceEditorModal({
             <input id="policy-source-file" type="file" className="settings-input" accept=".yaml,.yml" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null) }} />
           </PolicyField>
         )}
-        <PolicyField label="归属策略路由" htmlFor="policy-source-egress" hint="一个域名列表最多归属一个策略路由；只有被引用时才参与 RouterOS 物化，可先保存为未分配。">
+        <PolicyField label="归属策略路由" htmlFor="policy-source-egress" hint="一个域名列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。">
           <select id="policy-source-egress" className="settings-select" value={egressId} onChange={(e) => setEgressId(e.target.value)}>
-            <option value="">未分配（不参与应用）</option>
+            <option value="">未分配（不参与同步）</option>
             {egresses.map((eg) => <option key={eg.id} value={eg.id}>{eg.name}{eg.enabled && !eg.pendingDeletion ? '' : '（已停用/待删除）'}</option>)}
           </select>
         </PolicyField>
@@ -435,7 +452,7 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
     setDeleting(true)
     try {
       const result = await deleteSource(deviceID, source.id, source.revision)
-      if (result.jobId) await waitForSourceDeleteJob(deviceID, result.jobId)
+      if (result.jobId) await waitForPolicyJob(deviceID, result.jobId)
       onDone()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
@@ -463,13 +480,4 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
       </div>
     </PolicyModal>
   )
-}
-
-async function waitForSourceDeleteJob(deviceID: string, jobID: string): Promise<void> {
-  for (;;) {
-    const job = await fetchJob(deviceID, jobID)
-    if (job.state === 'committed') return
-    if (job.state === 'failed') throw new Error(job.error || 'RouterOS 清理失败')
-    await new Promise((resolve) => window.setTimeout(resolve, 500))
-  }
 }

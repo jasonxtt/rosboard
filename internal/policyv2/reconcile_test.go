@@ -101,6 +101,72 @@ func TestDiffDesiredClearsRemovedManagedFields(t *testing.T) {
 	}
 }
 
+func TestDiffDesiredDoesNotClearImplicitDisabled(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		menu   routeros.MutationMenu
+		fields map[string]string
+	}{
+		{
+			name: "interface list member",
+			menu: routeros.MenuInterfaceListMember,
+			fields: map[string]string{
+				"list":      "rb_ingress",
+				"interface": "br-container-test",
+				"comment":   "rosboard:managed member",
+			},
+		},
+		{
+			name: "dns forwarder",
+			menu: routeros.MenuIPDNSForwarders,
+			fields: map[string]string{
+				"name":        "rosboard_forwarder",
+				"dns-servers": "192.0.2.1",
+				"comment":     "rosboard:managed forwarder",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			desired := []DesiredObject{{LogicalID: "object", Menu: string(test.menu), Fields: test.fields}}
+			actual := []ActualObject{{
+				LogicalID: "object", Menu: string(test.menu), RouterID: "*6",
+				Fields: map[string]string{
+					"disabled": "false",
+					"comment":  test.fields["comment"],
+					"name":     test.fields["name"],
+				},
+			}}
+			for key, value := range test.fields {
+				actual[0].Fields[key] = value
+			}
+
+			operations, blockers := DiffDesired(desired, actual)
+			if len(blockers) != 0 || len(operations) != 0 {
+				t.Fatalf("RouterOS default disabled field should not create a patch: operations=%#v blockers=%#v", operations, blockers)
+			}
+		})
+	}
+}
+
+func TestDiffDesiredStillReconcilesDeclaredDisabled(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "rule",
+		Menu:      string(routeros.MenuIPFirewallMangle),
+		Fields:    map[string]string{"comment": "rosboard:managed rule", "disabled": "yes"},
+	}}
+	actual := []ActualObject{{
+		LogicalID: "rule",
+		Menu:      string(routeros.MenuIPFirewallMangle),
+		RouterID:  "*1",
+		Fields:    map[string]string{"comment": "rosboard:managed rule", "disabled": "false"},
+	}}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 || len(operations) != 1 || operations[0].After["disabled"] != "yes" {
+		t.Fatalf("declared disabled field was not reconciled: operations=%#v blockers=%#v", operations, blockers)
+	}
+}
+
 func TestDiffDesiredMovesManagedObjectsToDesiredOrder(t *testing.T) {
 	desired := []DesiredObject{
 		{LogicalID: "rule-a", Menu: string(routeros.MenuIPFirewallMangle), Phase: "activation", Order: 1, Fields: map[string]string{"comment": "a"}},

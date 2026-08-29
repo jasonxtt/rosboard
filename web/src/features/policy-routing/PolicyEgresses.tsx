@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { PolicyEgress, PolicySource } from './types'
-import { deleteEgress, fetchJob, setEgressEnabled } from './api'
+import { deleteEgress, setEgressEnabled, waitForPolicyJob } from './api'
 import {
   PolicyErrorDisplay,
   PolicyEmptyState,
@@ -123,7 +123,7 @@ function EgressRow({
     const enabled = retryEnabled ?? !egress.enabled
     try {
       const result = await setEgressEnabled(deviceID, egress.id, enabled, egress.revision)
-      if (result.jobId) await waitForEgressJob(deviceID, result.jobId)
+      if (result.jobId) await waitForPolicyJob(deviceID, result.jobId)
       setRetryEnabled(null)
       onChanged()
     } catch (e) {
@@ -139,7 +139,7 @@ function EgressRow({
     setDeleting(true)
     try {
       const result = await deleteEgress(deviceID, egress.id, egress.revision)
-      if (result.jobId) await waitForEgressJob(deviceID, result.jobId)
+      if (result.jobId) await waitForPolicyJob(deviceID, result.jobId)
       setDeleteModal(false)
       onChanged()
     } catch (e) {
@@ -199,13 +199,4 @@ function EgressRow({
       ) : null}
     </>
   )
-}
-
-async function waitForEgressJob(deviceID: string, jobID: string): Promise<void> {
-  for (;;) {
-    const job = await fetchJob(deviceID, jobID)
-    if (job.state === 'committed') return
-    if (job.state === 'failed') throw new Error(job.error || 'RouterOS 同步失败')
-    await new Promise((resolve) => window.setTimeout(resolve, 500))
-  }
 }
