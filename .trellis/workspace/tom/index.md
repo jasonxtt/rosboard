@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 85
+- **Total Sessions**: 86
 - **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1600 | Active |
+| `journal-2.md` | ~1634 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 86 | 2026-08-29 | Commit and deploy integrated policy/device updates | `df2be77`, `2e03894` | `main` |
 | 85 | 2026-08-29 | 策略路由自动同步与 RouterOS 对账修复 | `c53efae` | `main` |
 | 84 | 2026-08-29 | Refine policy wizard navigation workflow | `e3dad84` | `main` |
 | 83 | 2026-08-29 | 策略路由 WAN/LAN/VPN 出口发现修复与 net 部署 | `a255e65`, `382e677` | `main` |

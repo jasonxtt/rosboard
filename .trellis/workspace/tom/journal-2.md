@@ -1598,3 +1598,37 @@ Reordered policy wizard steps, enabled direct step navigation, added edit-only s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 86: Commit and deploy integrated policy/device updates
+
+**Date**: 2026-08-29
+**Task**: Commit and deploy integrated policy/device updates
+**Branch**: `main`
+
+### Summary
+
+Deployed and user-accepted the integrated policy routing, naming, and device ordering changes; committed implementation and archived the review-fixes task.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `df2be77` | (see git log) |
+| `2e03894` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
