@@ -1740,3 +1740,36 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 90: 策略路由父任务行政归档
+
+**Date**: 2026-08-30
+**Task**: 策略路由父任务行政归档
+**Branch**: `main`
+
+### Summary
+
+策略路由后端 V2 与 IP 列表子任务均已完成并验收；原始大范围父任务不再继续，已作为行政事项归档，未完成的原始规划项保留为历史记录。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3a542ab` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

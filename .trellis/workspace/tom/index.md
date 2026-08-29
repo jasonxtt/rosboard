@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 89
+- **Total Sessions**: 90
 - **Last Active**: 2026-08-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1742 | Active |
+| `journal-2.md` | ~1775 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 90 | 2026-08-30 | 策略路由父任务行政归档 | `3a542ab` | `main` |
 | 89 | 2026-08-30 | 策略路由 IP 列表实现与修复 | `295fd39` | `main` |
 | 88 | 2026-08-30 | 识别设置全量按设备化（MosDNS/协议分析/特征库） | `c808cb0` | `main` |
 | 87 | 2026-08-29 | 手动域名列表来源 | `e0bd6e2` | `main` |
