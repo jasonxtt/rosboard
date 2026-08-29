@@ -44,7 +44,7 @@ func assemblePolicyRuntimes(cfg config.Config, storage *store.Store, manager *po
 
 func policySourceRefresher(fetcher *policy.SourceFetcher, deviceID string) policyv2.SourceRefresher {
 	return func(ctx context.Context, source policyv2.Source) (policyv2.SourceRefresh, error) {
-		preview, err := fetcher.Preview(ctx, source.URL, policy.FetchOptions{ETag: source.ETag, LastModified: source.LastModified})
+		preview, err := fetcher.Preview(ctx, source.URL, policy.FetchOptions{ETag: source.ETag, LastModified: source.LastModified, Kind: source.Kind})
 		if err != nil {
 			return policyv2.SourceRefresh{}, err
 		}

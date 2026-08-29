@@ -123,6 +123,7 @@ export const policyCapabilityKeyLabel: Record<string, string> = {
 export const policySectionLabel: Record<PolicySection, string> = {
   settings: '策略设置',
   sources: '域名列表',
+  ip_sources: 'IP 列表',
 }
 
 export const policyScheduleLabel: Record<string, string> = {
@@ -155,5 +156,11 @@ export function policyCapabilityLabel(key: string): string {
 
 export function policyViewTitle(section: PolicySection | string): string {
   if (section === 'sources') return '域名列表'
+  if (section === 'ip_sources') return 'IP 列表'
   return '策略设置'
+}
+
+export const policySourceKindLabel: Record<string, string> = {
+  domain: '域名列表',
+  ip: 'IP 列表',
 }

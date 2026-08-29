@@ -7,6 +7,7 @@ import type {
   PolicyOverview,
   PolicyPlanEnvelope,
   PolicySource,
+  PolicySourceKind,
   PolicyTrafficIngressScope,
   PolicyWANRoute,
 } from './types'
@@ -24,11 +25,12 @@ import {
 } from './components'
 import {
   policyFamilyLabel,
+  policySourceKindLabel,
   policySourceTypeLabel,
 } from './format'
 import type { PolicyEgress } from './types'
 
-const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名列表', '预览并应用']
+const WIZARD_STEPS = ['出口与地址族', '策略流量入口', '域名 / IP 列表', '预览并应用']
 const PREVIEW_STEP = 3
 const DOMAIN_STEP = 2
 
@@ -66,6 +68,7 @@ export function PolicyWizard({
       .map((source) => source.id)
   ))
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [createKind, setCreateKind] = useState<PolicySourceKind>('domain')
   const [domainMenuOpen, setDomainMenuOpen] = useState(false)
   const [domainQuery, setDomainQuery] = useState('')
 
@@ -127,6 +130,8 @@ export function PolicyWizard({
     if (!query) return true
     return source.name.toLocaleLowerCase().includes(query) || source.url.toLocaleLowerCase().includes(query)
   })
+  const domainKindOptions = filteredDomainOptions.filter((source) => (source.kind ?? 'domain') === 'domain')
+  const ipKindOptions = filteredDomainOptions.filter((source) => source.kind === 'ip')
 
   const handleCreateDomainSuccess = (newCreatedItem: PolicySource) => {
     setAllDomainOptions((previous) => [
@@ -148,10 +153,36 @@ export function PolicyWizard({
       : [...previous, source.id])
   }
 
+  const renderSourceOption = (source: PolicySource) => {
+    const selected = selectedDomainIds.includes(source.id)
+    const boundElsewhere = Boolean(source.egressId && source.egressId !== egress?.id)
+    const location = source.type === 'url' ? source.url || '未填写 URL' : source.type === 'manual' ? '手动输入' : '本地上传 YAML'
+    return (
+      <label key={source.id} className={`policy-domain-option${selected ? ' selected' : ''}${boundElsewhere ? ' disabled' : ''}`}>
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={boundElsewhere}
+          onChange={() => handleToggleDomain(source)}
+        />
+        <span className="policy-domain-option-body">
+          <span className="policy-domain-option-title">
+            <strong title={source.name}>{source.name}</strong>
+            <PolicyStatusBadge tone="info">{policySourceKindLabel[source.kind === 'ip' ? 'ip' : 'domain']}</PolicyStatusBadge>
+            <PolicyStatusBadge tone="neutral">{policySourceTypeLabel[source.type] ?? source.type}</PolicyStatusBadge>
+            <small className="policy-domain-option-location" title={location}>
+              {location}{boundElsewhere ? ' · 已绑定其他策略路由' : ''}
+            </small>
+          </span>
+        </span>
+      </label>
+    )
+  }
+
   const handleSaveDraftAndGeneratePlan = async () => {
     setError(null)
     if (!selectedDomainIds.length) {
-      setError('请至少选择或新建一个域名列表')
+      setError('请至少选择一个域名列表或 IP 列表')
       return
     }
     setSaving(true)
@@ -220,8 +251,8 @@ export function PolicyWizard({
 
       {step === DOMAIN_STEP ? (
         <div className="policy-wizard-stage">
-          <h4>域名列表</h4>
-          <p className="policy-hint">可同时选择多个域名列表。已绑定到其他策略路由的列表不会被自动改绑。</p>
+          <h4>域名 / IP 列表</h4>
+          <p className="policy-hint">可同时选择多个域名列表和 IP 列表（按实际启用的地址族应用）。已绑定到其他策略路由的列表不会被自动改绑。</p>
           <div className="policy-domain-picker">
             <button
               type="button"
@@ -230,7 +261,7 @@ export function PolicyWizard({
               aria-haspopup="listbox"
               onClick={() => setDomainMenuOpen((open) => !open)}
             >
-              <span>{selectedDomainIds.length ? `已选择 ${selectedDomainIds.length} 个域名列表` : '选择域名列表'}</span>
+              <span>{selectedDomainIds.length ? `已选择 ${selectedDomainIds.length} 个列表` : '选择域名列表或 IP 列表'}</span>
               <span aria-hidden="true">▾</span>
             </button>
             {domainMenuOpen ? (
@@ -240,42 +271,38 @@ export function PolicyWizard({
                   value={domainQuery}
                   onChange={(event) => setDomainQuery(event.target.value)}
                   placeholder="搜索列表名称或 URL"
-                  aria-label="搜索域名列表"
+                  aria-label="搜索域名列表或 IP 列表"
                   autoFocus
                 />
-                <div className="policy-domain-picker-options" role="listbox" aria-label="选择域名列表" aria-multiselectable="true">
-                  {filteredDomainOptions.length ? filteredDomainOptions.map((source) => {
-                    const selected = selectedDomainIds.includes(source.id)
-                    const boundElsewhere = Boolean(source.egressId && source.egressId !== egress?.id)
-                    const location = source.type === 'url' ? source.url || '未填写 URL' : source.type === 'manual' ? '手动输入' : '本地上传 YAML'
-                    return (
-                      <label key={source.id} className={`policy-domain-option${selected ? ' selected' : ''}${boundElsewhere ? ' disabled' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          disabled={boundElsewhere}
-                          onChange={() => handleToggleDomain(source)}
-                        />
-                        <span className="policy-domain-option-body">
-                          <span className="policy-domain-option-title">
-                            <strong title={source.name}>{source.name}</strong>
-                            <PolicyStatusBadge tone="info">{policySourceTypeLabel[source.type] ?? source.type}</PolicyStatusBadge>
-                            <small className="policy-domain-option-location" title={location}>
-                              {location}{boundElsewhere ? ' · 已绑定其他策略路由' : ''}
-                            </small>
-                          </span>
-                        </span>
-                      </label>
-                    )
-                  }) : <p className="policy-hint">暂无已保存列表</p>}
+                <div className="policy-domain-picker-options" role="listbox" aria-label="选择域名列表或 IP 列表" aria-multiselectable="true">
+                  {domainKindOptions.length ? (
+                    <>
+                      <p className="policy-hint">域名列表</p>
+                      {domainKindOptions.map((source) => renderSourceOption(source))}
+                    </>
+                  ) : null}
+                  {ipKindOptions.length ? (
+                    <>
+                      <p className="policy-hint">IP 列表</p>
+                      {ipKindOptions.map((source) => renderSourceOption(source))}
+                    </>
+                  ) : null}
+                  {!domainKindOptions.length && !ipKindOptions.length ? <p className="policy-hint">暂无已保存列表</p> : null}
                 </div>
                 <div className="policy-domain-picker-footer">
                   <button
                     type="button"
                     className="link-button"
-                    onClick={() => { setDomainMenuOpen(false); setIsCreateModalOpen(true) }}
+                    onClick={() => { setCreateKind('domain'); setDomainMenuOpen(false); setIsCreateModalOpen(true) }}
                   >
                     ＋ 新建域名列表...
+                  </button>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => { setCreateKind('ip'); setDomainMenuOpen(false); setIsCreateModalOpen(true) }}
+                  >
+                    ＋ 新建 IP 列表...
                   </button>
                 </div>
               </div>
@@ -284,7 +311,7 @@ export function PolicyWizard({
           {isCreateModalOpen ? (
             <SourceEditorModal
               deviceID={deviceID}
-              draft={defaultSourceDraft('')}
+              draft={defaultSourceDraft('', createKind)}
               egresses={overview.egresses}
               deferApply
               onClose={() => setIsCreateModalOpen(false)}

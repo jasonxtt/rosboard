@@ -31,6 +31,8 @@ type RuleType string
 const (
 	RuleTypeExact  RuleType = "DOMAIN"
 	RuleTypeSuffix RuleType = "DOMAIN-SUFFIX"
+	RuleTypeIPCIDR RuleType = "IP-CIDR"
+	RuleTypeIP6    RuleType = "IP-CIDR6"
 )
 
 type ParsedRule struct {
@@ -49,6 +51,16 @@ type ParseResult struct {
 // sources. Unsupported and malformed entries are reported in bounded summary
 // fields; structural errors fail the entire source.
 func ParseClashYAML(payload []byte) (ParseResult, error) {
+	return parseClashYAML(payload, KindDomain)
+}
+
+// ParseClashYAMLIP is the IP-list variant of ParseClashYAML: it extracts only
+// IP-CIDR / IP-CIDR6 rules from the same safe payload reading.
+func ParseClashYAMLIP(payload []byte) (ParseResult, error) {
+	return parseClashYAML(payload, KindIP)
+}
+
+func parseClashYAML(payload []byte, kind string) (ParseResult, error) {
 	result := ParseResult{Ignored: make(map[string]int)}
 	hash := sha256.Sum256(payload)
 	result.SHA256 = hex.EncodeToString(hash[:])
@@ -102,7 +114,14 @@ func ParseClashYAML(payload []byte) (ParseResult, error) {
 			addIgnored(&result, "invalid", "payload item is not a string")
 			continue
 		}
-		ruleType, domain, err := parseRule(item.Value)
+		var ruleType RuleType
+		var value string
+		var err error
+		if kind == KindIP {
+			ruleType, value, err = parseIPRule(item.Value)
+		} else {
+			ruleType, value, err = parseRule(item.Value)
+		}
 		if err != nil {
 			if ruleType != "" {
 				addIgnored(&result, string(ruleType), err.Error())
@@ -111,18 +130,21 @@ func ParseClashYAML(payload []byte) (ParseResult, error) {
 			}
 			continue
 		}
-		key := string(ruleType) + "\x00" + domain
+		key := string(ruleType) + "\x00" + value
 		if _, exists := seen[key]; exists {
 			addIgnored(&result, "duplicate", "duplicate rule")
 			continue
 		}
 		seen[key] = struct{}{}
-		result.Rules = append(result.Rules, ParsedRule{Type: ruleType, Domain: domain})
+		result.Rules = append(result.Rules, ParsedRule{Type: ruleType, Domain: value})
 		if len(result.Rules) > MaxSourceRules {
 			return result, fmt.Errorf("source contains more than %d valid rules", MaxSourceRules)
 		}
 	}
 	if len(result.Rules) == 0 {
+		if kind == KindIP {
+			return result, errors.New("source contains no valid IP rules")
+		}
 		return result, errors.New("source contains no valid domain rules")
 	}
 	return result, nil

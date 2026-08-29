@@ -150,7 +150,7 @@ func TestSourceFetcherPreviewBuildsPendingVersionAndSharesUploadPreparation(t *t
 		t.Fatalf("unexpected URL pending version: %#v %#v", version, rules)
 	}
 
-	upload, err := NewUploadService(t.TempDir()).Preview(context.Background(), "rules.yaml", bytes.NewReader(body))
+	upload, err := NewUploadService(t.TempDir()).Preview(context.Background(), "rules.yaml", bytes.NewReader(body), KindDomain)
 	if err != nil {
 		t.Fatalf("Upload Preview() error = %v", err)
 	}

@@ -10,7 +10,9 @@ export type PolicyFailureMode = 'strict' | 'fallback' | 'existing'
 
 export type PolicySourceType = 'url' | 'upload' | 'manual'
 
-export type PolicyRuleType = 'DOMAIN' | 'DOMAIN-SUFFIX'
+export type PolicySourceKind = 'domain' | 'ip'
+
+export type PolicyRuleType = 'DOMAIN' | 'DOMAIN-SUFFIX' | 'IP-CIDR' | 'IP-CIDR6'
 
 export type PolicyWANSource = '' | 'next-hop'
 
@@ -47,7 +49,7 @@ export type PolicyAckCode =
   | 'reuse_user_list' | 'adoption' | 'force_adoption' | 'managed_field_delta'
   | 'large_change' | 'source_shrink_review'
 
-export type PolicySection = 'settings' | 'sources'
+export type PolicySection = 'settings' | 'sources' | 'ip_sources'
 
 // ---- Egress family ----
 
@@ -112,6 +114,7 @@ export type PolicySource = {
   id: string
   egressId: string
   type: PolicySourceType | string
+  kind?: PolicySourceKind | string
   name: string
   url: string
   schedule: string
@@ -137,7 +140,8 @@ export type PolicySourceSaveResult = {
 
 export type PolicyPreviewRule = {
   type: PolicyRuleType | string
-  domain: string
+  domain?: string
+  address?: string
 }
 
 export type PolicyPreview = {
@@ -161,7 +165,8 @@ export type PolicyPreview = {
 
 export type PolicyRuleEntry = {
   type: PolicyRuleType | string
-  domain: string
+  domain?: string
+  address?: string
 }
 
 export type PolicyRulesPage = {
@@ -547,6 +552,7 @@ export type PolicySourceDraft = {
   id: string
   egressId: string
   type: PolicySourceType | string
+  kind?: PolicySourceKind | string
   name: string
   url: string
   schedule: string

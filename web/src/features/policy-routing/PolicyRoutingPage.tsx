@@ -119,6 +119,16 @@ export function PolicyRoutingPage({
             onEdit={(egress) => setWizardEgress(egress)}
           />
         </>
+      ) : section === 'ip_sources' ? (
+        <PolicySourcesPage
+          deviceID={deviceID}
+          overview={overview}
+          sources={overview.sources}
+          egresses={overview.egresses}
+          readOnly={readOnly}
+          kind="ip"
+          onChanged={reload}
+        />
       ) : (
         <PolicySourcesPage
           deviceID={deviceID}
@@ -126,6 +136,7 @@ export function PolicyRoutingPage({
           sources={overview.sources}
           egresses={overview.egresses}
           readOnly={readOnly}
+          kind="domain"
           onChanged={reload}
         />
       )}

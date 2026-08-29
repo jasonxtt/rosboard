@@ -6,6 +6,7 @@ import type {
   PolicyDiscovery,
   PolicySource,
   PolicySourceDraft,
+  PolicySourceKind,
 } from './types'
 
 export function defaultEgressDraft(): PolicyEgressDraft {
@@ -98,11 +99,12 @@ export function egressDraftFromEgress(egress: PolicyEgress): PolicyEgressDraft {
   }
 }
 
-export function defaultSourceDraft(egressId: string): PolicySourceDraft {
+export function defaultSourceDraft(egressId: string, kind: PolicySourceKind = 'domain'): PolicySourceDraft {
   return {
     id: '',
     egressId,
     type: 'url',
+    kind,
     name: '',
     url: '',
     schedule: '24h',
@@ -116,6 +118,7 @@ export function sourceDraftFromSource(source: PolicySource): PolicySourceDraft {
     id: source.id,
     egressId: source.egressId,
     type: source.type,
+    kind: source.kind === 'ip' ? 'ip' : 'domain',
     name: source.name,
     url: source.url,
     schedule: source.schedule,

@@ -32,10 +32,11 @@ func NewUploadService(tempDir string) *UploadService {
 	return &UploadService{tempDir: tempDir}
 }
 
-// Preview copies an upload to a random 0600 temporary file, validates it, and
-// removes that file on every exit path. The user filename is display metadata
-// only and is never used to construct a filesystem path.
-func (s *UploadService) Preview(ctx context.Context, filename string, source io.Reader) (UploadPreview, error) {
+// Preview copies an upload to a random 0600 temporary file, validates it with
+// the parser matching kind, and removes that file on every exit path. The user
+// filename is display metadata only and is never used to construct a
+// filesystem path.
+func (s *UploadService) Preview(ctx context.Context, filename string, source io.Reader, kind string) (UploadPreview, error) {
 	if s == nil || strings.TrimSpace(s.tempDir) == "" {
 		return UploadPreview{}, errors.New("upload temp directory is not configured")
 	}
@@ -75,7 +76,7 @@ func (s *UploadService) Preview(ctx context.Context, filename string, source io.
 	if err != nil {
 		return UploadPreview{}, fmt.Errorf("read upload temp file: %w", err)
 	}
-	prepared, err := PrepareSourceContent(body)
+	prepared, err := PrepareSourceContent(body, kind)
 	if err != nil {
 		return UploadPreview{}, err
 	}
@@ -87,8 +88,8 @@ func (s *UploadService) Preview(ctx context.Context, filename string, source io.
 }
 
 // PreviewMultipart accepts the multipart/form-data boundary used by the API
-// layer without binding this Phase 3 package to an HTTP server implementation.
-func (s *UploadService) PreviewMultipart(ctx context.Context, contentType string, body io.Reader) (UploadPreview, error) {
+// layer without binding this package to an HTTP server implementation.
+func (s *UploadService) PreviewMultipart(ctx context.Context, contentType string, body io.Reader, kind string) (UploadPreview, error) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
 		return UploadPreview{}, errors.New("upload request must be multipart/form-data")
@@ -122,7 +123,7 @@ func (s *UploadService) PreviewMultipart(ctx context.Context, contentType string
 			return UploadPreview{}, errors.New("upload contains more than one file")
 		}
 		found = true
-		preview, err = s.Preview(ctx, filename, part)
+		preview, err = s.Preview(ctx, filename, part, kind)
 		if err != nil {
 			return UploadPreview{}, err
 		}

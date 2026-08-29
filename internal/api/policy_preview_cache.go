@@ -13,6 +13,7 @@ const policyPreviewLifetime = 15 * time.Minute
 type policyPreviewEntry struct {
 	DeviceID     string
 	SourceType   string
+	Kind         string
 	URL          string
 	ETag         string
 	LastModified string

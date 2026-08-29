@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 
@@ -21,6 +22,8 @@ var managedMenus = []routeros.MutationMenu{
 	routeros.MenuRoutingRule,
 	routeros.MenuIPDNSForwarders,
 	routeros.MenuIPDNSStatic,
+	routeros.MenuIPFirewallAddressList,
+	routeros.MenuIPv6FirewallAddressList,
 	routeros.MenuIPFirewallMangle,
 	routeros.MenuIPv6FirewallMangle,
 	routeros.MenuIPFirewallNAT,
@@ -378,7 +381,28 @@ func equivalentRouterField(key, left, right string) bool {
 			return true
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(key), "address") && equivalentRouterAddress(left, right) {
+		return true
+	}
 	return equivalentRouterValue(left, right)
+}
+
+func equivalentRouterAddress(left, right string) bool {
+	leftPrefix, leftOK := routerAddressPrefix(left)
+	rightPrefix, rightOK := routerAddressPrefix(right)
+	return leftOK && rightOK && leftPrefix == rightPrefix
+}
+
+func routerAddressPrefix(value string) (netip.Prefix, bool) {
+	value = strings.TrimSpace(value)
+	if prefix, err := netip.ParsePrefix(value); err == nil {
+		return prefix.Masked(), true
+	}
+	address, err := netip.ParseAddr(value)
+	if err != nil || address.Zone() != "" {
+		return netip.Prefix{}, false
+	}
+	return netip.PrefixFrom(address, address.BitLen()), true
 }
 
 func equivalentRouterValue(left, right string) bool {

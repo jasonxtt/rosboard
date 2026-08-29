@@ -15,7 +15,7 @@ import (
 func TestUploadServicePreviewGzipHashAndPendingVersion(t *testing.T) {
 	tempDir := t.TempDir()
 	service := NewUploadService(tempDir)
-	preview, err := service.Preview(context.Background(), `../../outside.yaml`, strings.NewReader("payload:\n  - DOMAIN,Example.com\n"))
+	preview, err := service.Preview(context.Background(), `../../outside.yaml`, strings.NewReader("payload:\n  - DOMAIN,Example.com\n"), KindDomain)
 	if err != nil {
 		t.Fatalf("Preview() error = %v", err)
 	}
@@ -55,10 +55,10 @@ func TestUploadServicePreviewGzipHashAndPendingVersion(t *testing.T) {
 func TestUploadServiceRejectsSizeAndCleansTemporaryFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	service := NewUploadService(tempDir)
-	if _, err := service.Preview(context.Background(), "rules.yaml", bytes.NewReader(make([]byte, MaxSourceBytes+1))); err == nil {
+	if _, err := service.Preview(context.Background(), "rules.yaml", bytes.NewReader(make([]byte, MaxSourceBytes+1)), KindDomain); err == nil {
 		t.Fatal("oversize upload was accepted")
 	}
-	if _, err := service.Preview(context.Background(), "rules.txt", strings.NewReader("payload: []\n")); err == nil {
+	if _, err := service.Preview(context.Background(), "rules.txt", strings.NewReader("payload: []\n"), KindDomain); err == nil {
 		t.Fatal("non-YAML upload was accepted")
 	}
 	if entries, err := os.ReadDir(tempDir); err != nil {
@@ -68,7 +68,7 @@ func TestUploadServiceRejectsSizeAndCleansTemporaryFiles(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := service.Preview(ctx, "rules.yaml", strings.NewReader("payload:\n  - DOMAIN,example.com\n")); err == nil {
+	if _, err := service.Preview(ctx, "rules.yaml", strings.NewReader("payload:\n  - DOMAIN,example.com\n"), KindDomain); err == nil {
 		t.Fatal("cancelled upload was accepted")
 	}
 	if entries, err := os.ReadDir(tempDir); err != nil {
@@ -95,7 +95,7 @@ func TestUploadServicePreviewMultipartLimitsAndFilenameIsolation(t *testing.T) {
 
 	tempDir := t.TempDir()
 	service := NewUploadService(tempDir)
-	preview, err := service.PreviewMultipart(context.Background(), writer.FormDataContentType(), &body)
+	preview, err := service.PreviewMultipart(context.Background(), writer.FormDataContentType(), &body, KindDomain)
 	if err != nil {
 		t.Fatalf("PreviewMultipart() error = %v", err)
 	}
@@ -111,7 +111,7 @@ func TestUploadServicePreviewMultipartLimitsAndFilenameIsolation(t *testing.T) {
 		t.Fatalf("temporary multipart files were not cleaned up: %v", entries)
 	}
 
-	if _, err := service.PreviewMultipart(context.Background(), writer.FormDataContentType(), bytes.NewReader(make([]byte, maxMultipartBytes+1))); err == nil {
+	if _, err := service.PreviewMultipart(context.Background(), writer.FormDataContentType(), bytes.NewReader(make([]byte, maxMultipartBytes+1)), KindDomain); err == nil {
 		t.Fatal("oversize multipart body was accepted")
 	}
 }
