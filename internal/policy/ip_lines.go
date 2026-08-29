@@ -17,7 +17,7 @@ const (
 	KindIP     = "ip"
 )
 
-// ParseIPLines parses manually entered IP rules, one entry per line. A line
+// ParseIPLines parses IP rules from one-entry-per-line source content. A line
 // may be a bare IPv4/IPv6 address or CIDR, or the Clash single-line form with
 // an optional YAML list marker and trailing policy fields
 // ("- IP-CIDR,91.108.0.0/16,no-resolve"). IP-CIDR only accepts IPv4 and
@@ -36,7 +36,7 @@ func ParseIPLines(text string) (ParseResult, error) {
 	seen := make(map[string]struct{})
 	for _, raw := range strings.Split(text, "\n") {
 		line := stripDomainLineMarker(strings.TrimSpace(raw))
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		ruleType, address, err := parseIPLine(line)

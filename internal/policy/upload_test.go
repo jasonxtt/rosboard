@@ -58,8 +58,11 @@ func TestUploadServiceRejectsSizeAndCleansTemporaryFiles(t *testing.T) {
 	if _, err := service.Preview(context.Background(), "rules.yaml", bytes.NewReader(make([]byte, MaxSourceBytes+1)), KindDomain); err == nil {
 		t.Fatal("oversize upload was accepted")
 	}
-	if _, err := service.Preview(context.Background(), "rules.txt", strings.NewReader("payload: []\n"), KindDomain); err == nil {
-		t.Fatal("non-YAML upload was accepted")
+	if _, err := service.Preview(context.Background(), "rules.json", strings.NewReader("payload:\n  - DOMAIN,example.com\n"), KindDomain); err == nil {
+		t.Fatal("unsupported upload extension was accepted")
+	}
+	if _, err := service.Preview(context.Background(), "rules.txt", strings.NewReader("# only comments\nPROCESS-NAME,app\n"), KindDomain); err == nil {
+		t.Fatal("text upload without applicable rules was accepted")
 	}
 	if entries, err := os.ReadDir(tempDir); err != nil {
 		t.Fatal(err)
@@ -75,6 +78,24 @@ func TestUploadServiceRejectsSizeAndCleansTemporaryFiles(t *testing.T) {
 		t.Fatal(err)
 	} else if len(entries) != 0 {
 		t.Fatalf("temporary files remain after cancellation: %v", entries)
+	}
+}
+
+func TestUploadServiceAcceptsTextAndListFiles(t *testing.T) {
+	for _, filename := range []string{"rules.txt", "rules.list", "RULES.LIST"} {
+		t.Run(filename, func(t *testing.T) {
+			preview, err := NewUploadService(t.TempDir()).Preview(
+				context.Background(), filename,
+				strings.NewReader("# source\nIP-CIDR,192.0.2.9/24,no-resolve\n"),
+				KindIP,
+			)
+			if err != nil {
+				t.Fatalf("Preview() error = %v", err)
+			}
+			if preview.Filename != filename || len(preview.Rules) != 1 || preview.Rules[0].Domain != "192.0.2.0/24" {
+				t.Fatalf("unexpected text upload preview: %#v", preview)
+			}
+		})
 	}
 }
 

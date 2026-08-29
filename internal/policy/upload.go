@@ -146,8 +146,8 @@ func sanitizeUploadFilename(filename string) (string, error) {
 		return "", errors.New("upload filename is empty")
 	}
 	extension := strings.ToLower(filepath.Ext(filename))
-	if extension != ".yaml" && extension != ".yml" {
-		return "", errors.New("upload filename must end in .yaml or .yml")
+	if extension != ".yaml" && extension != ".yml" && extension != ".txt" && extension != ".list" {
+		return "", errors.New("upload filename must end in .yaml, .yml, .txt, or .list")
 	}
 	return filename, nil
 }

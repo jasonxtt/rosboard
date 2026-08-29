@@ -156,7 +156,7 @@ export function PolicyWizard({
   const renderSourceOption = (source: PolicySource) => {
     const selected = selectedDomainIds.includes(source.id)
     const boundElsewhere = Boolean(source.egressId && source.egressId !== egress?.id)
-    const location = source.type === 'url' ? source.url || '未填写 URL' : source.type === 'manual' ? '手动输入' : '本地上传 YAML'
+    const location = source.type === 'url' ? source.url || '未填写 URL' : source.type === 'manual' ? '手动输入' : '本地上传规则文件'
     return (
       <label key={source.id} className={`policy-domain-option${selected ? ' selected' : ''}${boundElsewhere ? ' disabled' : ''}`}>
         <input

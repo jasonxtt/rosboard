@@ -21,7 +21,7 @@ const errorCodeMessages: Record<string, string> = {
   gateway_required: '普通出口接口需要下一跳网关',
   gateway_ambiguous: '自动发现到多个下一跳网关',
   gateway_discovery_failed: '无法读取出口网关',
-  source_upstream_failed: '下载来源失败，请确认 URL 可公开访问且内容为 Clash YAML。',
+  source_upstream_failed: '下载来源失败，请确认 URL 可公开访问且内容为受支持的规则文件。',
   preview_expired: '解析预览已过期（15 分钟），请重新执行预览。',
   preview_mismatch: '预览与当前来源不匹配，请重新预览后再保存。',
   source_preview_required: '来源内容变化后必须先执行解析预览。',

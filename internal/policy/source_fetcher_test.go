@@ -159,7 +159,7 @@ func TestSourceFetcherPreviewBuildsPendingVersionAndSharesUploadPreparation(t *t
 	}
 }
 
-func TestSourceFetcherPreviewRejectsNonClashUTF8(t *testing.T) {
+func TestSourceFetcherPreviewRejectsTextWithoutApplicableRules(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("plain text is not a Clash source"))
@@ -168,7 +168,35 @@ func TestSourceFetcherPreviewRejectsNonClashUTF8(t *testing.T) {
 	resolver := &testResolver{answers: map[string][]netip.Addr{"source.test": {netip.MustParseAddr("93.184.216.34")}}}
 	fetcher := testFetcher(server, resolver, localDialer(server, new(string)))
 	if _, err := fetcher.Preview(context.Background(), testHTTPSURL(server, "source.test", "/not-clash"), FetchOptions{}); err == nil {
-		t.Fatal("non-Clash UTF-8 source was accepted as a preview")
+		t.Fatal("text source without applicable rules was accepted as a preview")
+	}
+}
+
+func TestSourceFetcherPreviewAcceptsLineListsAndFiltersByKind(t *testing.T) {
+	body := []byte("# source\nDOMAIN-SUFFIX,example.com\nIP-CIDR,192.0.2.9/24,no-resolve\n")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	resolver := &testResolver{answers: map[string][]netip.Addr{"source.test": {netip.MustParseAddr("93.184.216.34")}}}
+	fetcher := testFetcher(server, resolver, localDialer(server, new(string)))
+	url := testHTTPSURL(server, "source.test", "/rules.list")
+
+	domain, err := fetcher.Preview(context.Background(), url, FetchOptions{Kind: KindDomain})
+	if err != nil {
+		t.Fatalf("domain line-list preview error = %v", err)
+	}
+	if len(domain.Rules) != 1 || domain.Rules[0].Type != RuleTypeSuffix || domain.Rules[0].Domain != "example.com" {
+		t.Fatalf("domain preview rules = %#v", domain.Rules)
+	}
+
+	ip, err := fetcher.Preview(context.Background(), url, FetchOptions{Kind: KindIP})
+	if err != nil {
+		t.Fatalf("IP line-list preview error = %v", err)
+	}
+	if len(ip.Rules) != 1 || ip.Rules[0].Type != RuleTypeIPCIDR || ip.Rules[0].Domain != "192.0.2.0/24" {
+		t.Fatalf("IP preview rules = %#v", ip.Rules)
 	}
 }
 
