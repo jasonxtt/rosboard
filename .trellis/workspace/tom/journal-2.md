@@ -1707,3 +1707,36 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 89: 策略路由 IP 列表实现与修复
+
+**Date**: 2026-08-30
+**Task**: 策略路由 IP 列表实现与修复
+**Branch**: `main`
+
+### Summary
+
+完成现有 policy-routing V2 的 IP/CIDR source 支持；修复 RouterOS 将 /32、/128 主机地址规范化为裸地址后导致 verify-diff 不收敛的问题；完成自动化测试、部署与浏览器验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `295fd39` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
