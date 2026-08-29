@@ -29,7 +29,10 @@ type SourcePreview struct {
 	NotModified  bool
 }
 
-func PrepareSourceContent(body []byte) (PreparedSourceContent, error) {
+// PrepareSourceContent validates raw URL/upload content and parses it with the
+// parser matching the source kind ("domain" or "ip"); an empty kind reads as
+// domain for backward compatibility.
+func PrepareSourceContent(body []byte, kind string) (PreparedSourceContent, error) {
 	if len(body) > MaxSourceBytes {
 		return PreparedSourceContent{}, fmt.Errorf("source exceeds %d bytes", MaxSourceBytes)
 	}
@@ -39,7 +42,13 @@ func PrepareSourceContent(body []byte) (PreparedSourceContent, error) {
 	if bytes.IndexByte(body, 0) >= 0 {
 		return PreparedSourceContent{}, errors.New("source body contains binary NUL bytes")
 	}
-	parsed, err := ParseClashYAML(body)
+	var parsed ParseResult
+	var err error
+	if kind == KindIP {
+		parsed, err = ParseClashYAMLIP(body)
+	} else {
+		parsed, err = ParseClashYAML(body)
+	}
 	if err != nil {
 		return PreparedSourceContent{}, err
 	}

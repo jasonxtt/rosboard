@@ -9,7 +9,7 @@ import (
 	"rosboard/internal/routeros"
 )
 
-func TestEquivalentRouterFieldHandlesRouterOSOmittedBooleans(t *testing.T) {
+func TestEquivalentRouterFieldHandlesRouterOSCanonicalValues(t *testing.T) {
 	for _, test := range []struct {
 		key, actual, desired string
 		want                 bool
@@ -19,10 +19,42 @@ func TestEquivalentRouterFieldHandlesRouterOSOmittedBooleans(t *testing.T) {
 		{key: "match-subdomain", actual: "", desired: "no", want: true},
 		{key: "disabled", actual: "", desired: "no", want: true},
 		{key: "match-subdomain", actual: "", desired: "yes", want: false},
+		{key: "address", actual: "139.59.210.98", desired: "139.59.210.98/32", want: true},
+		{key: "address", actual: "2001:db8::1", desired: "2001:db8::1/128", want: true},
+		{key: "address", actual: "192.0.2.1/24", desired: "192.0.2.0/24", want: true},
+		{key: "address", actual: "192.0.2.1", desired: "2001:db8::1/128", want: false},
+		{key: "name", actual: "139.59.210.98", desired: "139.59.210.98/32", want: false},
 	} {
 		if got := equivalentRouterField(test.key, test.actual, test.desired); got != test.want {
 			t.Fatalf("%s actual=%q desired=%q got=%v want=%v", test.key, test.actual, test.desired, got, test.want)
 		}
+	}
+}
+
+func TestDiffDesiredTreatsHostAddressAndFullLengthCIDRAsEquivalent(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "addr:source:IP-CIDR:139.59.210.98/32",
+		Menu:      string(routeros.MenuIPFirewallAddressList),
+		Fields: map[string]string{
+			"list":    "manual_policy_lab",
+			"address": "139.59.210.98/32",
+			"comment": "rb_test | IP entry",
+		},
+	}}
+	actual := []ActualObject{{
+		LogicalID: desired[0].LogicalID,
+		Menu:      desired[0].Menu,
+		RouterID:  "*1",
+		Fields: map[string]string{
+			"list":    "manual_policy_lab",
+			"address": "139.59.210.98",
+			"comment": "rb_test | IP entry",
+		},
+	}}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(operations) != 0 || len(blockers) != 0 {
+		t.Fatalf("host address and full-length CIDR should converge: operations=%#v blockers=%#v", operations, blockers)
 	}
 }
 

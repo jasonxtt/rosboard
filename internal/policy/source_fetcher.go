@@ -39,6 +39,8 @@ type FetcherOptions struct {
 type FetchOptions struct {
 	ETag         string
 	LastModified string
+	// Kind selects the content parser ("domain" or "ip"); empty reads as domain.
+	Kind string
 }
 
 type FetchResult struct {
@@ -236,7 +238,7 @@ func (f *SourceFetcher) Preview(ctx context.Context, rawURL string, options Fetc
 	if result.NotModified {
 		return preview, nil
 	}
-	prepared, err := PrepareSourceContent(result.Body)
+	prepared, err := PrepareSourceContent(result.Body, options.Kind)
 	if err != nil {
 		return SourcePreview{}, fmt.Errorf("source preview rejected: %s", boundedSourceError(err))
 	}

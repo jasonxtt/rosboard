@@ -213,6 +213,7 @@ function parseSource(value: unknown): PolicySource {
     id: safeString(o.id ?? o.ID),
     egressId: safeString(o.egressId ?? o.EgressID),
     type: safeString(o.type ?? o.Type),
+    kind: safeString(o.kind ?? o.Kind) || 'domain',
     name: safeString(o.name ?? o.Name),
     url: safeString(o.url ?? o.URL),
     schedule: safeString(o.schedule ?? o.Schedule),
@@ -241,7 +242,7 @@ function parseSourceSaveResult(value: unknown): PolicySourceSaveResult {
 
 function parsePreviewRule(value: unknown): import('./types').PolicyPreviewRule {
   const o = safeObject(value)
-  return { type: safeString(o.type), domain: safeString(o.domain) }
+  return { type: safeString(o.type), domain: safeString(o.domain) || undefined, address: safeString(o.address) || undefined }
 }
 
 function parsePreview(value: unknown): PolicyPreview {
@@ -748,20 +749,21 @@ export function rollbackJob(deviceID: string, id: string, signal?: AbortSignal |
   return policyFetch(deviceID, `/jobs/${encodeURIComponent(id)}/rollback`, { method: 'POST', body: {}, signal }, (value) => parseJob(safeObject(value).job ?? value))
 }
 
-export function previewURL(deviceID: string, body: { url: string; etag?: string; lastModified?: string }, signal?: AbortSignal | null): Promise<PolicyPreview> {
+export function previewURL(deviceID: string, body: { url: string; etag?: string; lastModified?: string; kind?: string }, signal?: AbortSignal | null): Promise<PolicyPreview> {
   return policyFetch(deviceID, '/sources/url/preview', { method: 'POST', body, signal }, parsePreview)
 }
 
-export function previewUpload(deviceID: string, fileOrFormData: File | FormData, signal?: AbortSignal | null): Promise<PolicyPreview> {
+export function previewUpload(deviceID: string, fileOrFormData: File | FormData, kind?: string, signal?: AbortSignal | null): Promise<PolicyPreview> {
   const formData = fileOrFormData instanceof FormData ? fileOrFormData : (() => {
     const value = new FormData()
     value.append('file', fileOrFormData, fileOrFormData.name)
     return value
   })()
-  return policyFetch(deviceID, '/sources/upload/preview', { method: 'POST', formData, signal }, parsePreview)
+  const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+  return policyFetch(deviceID, `/sources/upload/preview${qs}`, { method: 'POST', formData, signal }, parsePreview)
 }
 
-export function previewManual(deviceID: string, body: { text: string }, signal?: AbortSignal | null): Promise<PolicyPreview> {
+export function previewManual(deviceID: string, body: { text: string; kind?: string }, signal?: AbortSignal | null): Promise<PolicyPreview> {
   return policyFetch(deviceID, '/sources/manual/preview', { method: 'POST', body, signal }, parsePreview)
 }
 

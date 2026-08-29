@@ -717,6 +717,7 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "type must be url, upload or manual"})
 		return
 	}
+	src.Kind = policyv2.NormalizeSourceKind(src.Kind)
 	var current policyv2.Source
 	if pathID != "" {
 		var err error
@@ -727,6 +728,10 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 		}
 		if current.Type != src.Type {
 			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "source type cannot be changed"})
+			return
+		}
+		if current.Kind != "" && current.Kind != src.Kind {
+			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "source kind cannot be changed"})
 			return
 		}
 	}
@@ -758,7 +763,7 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 	if contentChanged {
 		var found bool
 		preview, found = s.policyPreview(payload.PreviewID, device.device.ID)
-		if !found || preview.SourceType != src.Type {
+		if !found || preview.SourceType != src.Type || policyv2.NormalizeSourceKind(preview.Kind) != src.Kind {
 			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source_preview", "error": "a valid source preview is required"})
 			return
 		}
@@ -906,7 +911,11 @@ func (s *Server) servePolicySourceRules(writer http.ResponseWriter, request *htt
 	}
 	result := make([]map[string]any, 0, len(rules))
 	for _, rule := range rules {
-		result = append(result, map[string]any{"type": rule.RuleType, "domain": rule.Domain})
+		if src.Kind == policyv2.KindIP {
+			result = append(result, map[string]any{"type": rule.RuleType, "address": rule.Domain})
+		} else {
+			result = append(result, map[string]any{"type": rule.RuleType, "domain": rule.Domain})
+		}
 	}
 	nextCursor := ""
 	if hasNext && len(rules) > 0 {
@@ -933,7 +942,7 @@ func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *h
 	if fetcher == nil {
 		fetcher = policy.NewSourceFetcher(policy.FetcherOptions{})
 	}
-	result, err := fetcher.Preview(request.Context(), src.URL, policy.FetchOptions{ETag: src.ETag, LastModified: src.LastModified})
+	result, err := fetcher.Preview(request.Context(), src.URL, policy.FetchOptions{ETag: src.ETag, LastModified: src.LastModified, Kind: src.Kind})
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadGateway, map[string]any{"code": "fetch_failed", "error": err.Error()})
 		return
@@ -1104,12 +1113,14 @@ func (s *Server) servePolicyURLPreview(writer http.ResponseWriter, request *http
 		return
 	}
 	var payload struct {
-		URL string `json:"url"`
+		URL  string `json:"url"`
+		Kind string `json:"kind"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
+	kind := policyv2.NormalizeSourceKind(payload.Kind)
 	normalized, err := policy.NormalizeSourceURL(payload.URL)
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_url", "error": err.Error()})
@@ -1119,7 +1130,7 @@ func (s *Server) servePolicyURLPreview(writer http.ResponseWriter, request *http
 	if fetcher == nil {
 		fetcher = policy.NewSourceFetcher(policy.FetcherOptions{})
 	}
-	preview, err := fetcher.Preview(request.Context(), normalized, policy.FetchOptions{})
+	preview, err := fetcher.Preview(request.Context(), normalized, policy.FetchOptions{Kind: kind})
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadGateway, map[string]any{"code": "fetch_failed", "error": err.Error()})
 		return
@@ -1129,17 +1140,22 @@ func (s *Server) servePolicyURLPreview(writer http.ResponseWriter, request *http
 		if i >= 100 {
 			break
 		}
-		rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		if kind == policy.KindIP {
+			rules = append(rules, map[string]any{"type": string(r.Type), "address": r.Domain})
+		} else {
+			rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		}
 	}
 	previewID := ""
 	if !preview.NotModified {
 		previewID = s.savePolicyPreview(policyPreviewEntry{
-			DeviceID: device.device.ID, SourceType: "url", URL: preview.URL,
+			DeviceID: device.device.ID, SourceType: "url", Kind: kind, URL: preview.URL,
 			ETag: preview.ETag, LastModified: preview.LastModified, Content: preview.PreparedSourceContent,
 		})
 	}
 	writePolicyJson(writer, http.StatusOK, map[string]any{
 		"previewId": previewID,
+		"kind":      kind,
 		"url":       preview.URL, "statusCode": preview.StatusCode,
 		"etag": preview.ETag, "lastModified": preview.LastModified,
 		"contentType": preview.ContentType, "sha256": preview.SHA256,
@@ -1157,8 +1173,9 @@ func (s *Server) servePolicyUploadPreview(writer http.ResponseWriter, request *h
 	if !ok {
 		return
 	}
+	kind := policyv2.NormalizeSourceKind(request.URL.Query().Get("kind"))
 	uploadService := policy.NewUploadService(filepath.Join(strings.TrimSpace(s.configSnapshot().DataDir), "tmp"))
-	preview, err := uploadService.PreviewMultipart(request.Context(), request.Header.Get("Content-Type"), request.Body)
+	preview, err := uploadService.PreviewMultipart(request.Context(), request.Header.Get("Content-Type"), request.Body, kind)
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "upload_failed", "error": err.Error()})
 		return
@@ -1168,13 +1185,17 @@ func (s *Server) servePolicyUploadPreview(writer http.ResponseWriter, request *h
 		if i >= 100 {
 			break
 		}
-		rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		if kind == policy.KindIP {
+			rules = append(rules, map[string]any{"type": string(r.Type), "address": r.Domain})
+		} else {
+			rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		}
 	}
 	previewID := s.savePolicyPreview(policyPreviewEntry{
-		DeviceID: device.device.ID, SourceType: "upload", Content: preview.PreparedSourceContent,
+		DeviceID: device.device.ID, SourceType: "upload", Kind: kind, Content: preview.PreparedSourceContent,
 	})
 	writePolicyJson(writer, http.StatusOK, map[string]any{
-		"previewId": previewID, "filename": preview.Filename, "sha256": preview.SHA256, "size": preview.Size,
+		"previewId": previewID, "kind": kind, "filename": preview.Filename, "sha256": preview.SHA256, "size": preview.Size,
 		"validRules": len(preview.Rules), "ignored": preview.Ignored,
 		"errorSamples": preview.ErrorSamples,
 		"rules":        rules,
@@ -1191,12 +1212,20 @@ func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *h
 	request.Body = http.MaxBytesReader(writer, request.Body, policy.MaxSourceBytes+(64<<10))
 	var payload struct {
 		Text string `json:"text"`
+		Kind string `json:"kind"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	content, err := policy.PrepareDomainLines(payload.Text)
+	kind := policyv2.NormalizeSourceKind(payload.Kind)
+	var content policy.PreparedSourceContent
+	var err error
+	if kind == policy.KindIP {
+		content, err = policy.PrepareIPLines(payload.Text)
+	} else {
+		content, err = policy.PrepareDomainLines(payload.Text)
+	}
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_input", "error": err.Error()})
 		return
@@ -1206,13 +1235,17 @@ func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *h
 		if i >= 100 {
 			break
 		}
-		rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		if kind == policy.KindIP {
+			rules = append(rules, map[string]any{"type": string(r.Type), "address": r.Domain})
+		} else {
+			rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+		}
 	}
 	previewID := s.savePolicyPreview(policyPreviewEntry{
-		DeviceID: device.device.ID, SourceType: "manual", Content: content,
+		DeviceID: device.device.ID, SourceType: "manual", Kind: kind, Content: content,
 	})
 	writePolicyJson(writer, http.StatusOK, map[string]any{
-		"previewId": previewID, "filename": "手动输入", "sha256": content.SHA256, "size": content.Size,
+		"previewId": previewID, "kind": kind, "filename": "手动输入", "sha256": content.SHA256, "size": content.Size,
 		"validRules": len(content.Rules), "ignored": content.Ignored,
 		"errorSamples": content.ErrorSamples,
 		"rules":        rules,

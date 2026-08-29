@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS policy_v2_sources (
     id TEXT PRIMARY KEY,
     egress_id TEXT NOT NULL,
     type TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'domain',
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     schedule TEXT NOT NULL,
@@ -118,6 +119,9 @@ INSERT OR IGNORE INTO policy_v2_device_state (
 `)
 	if err != nil {
 		return fmt.Errorf("init policy v2 schema: %w", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE policy_v2_sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'domain'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add policy_v2_sources.kind: %w", err)
 	}
 	return nil
 }
@@ -259,7 +263,7 @@ func (r *PolicyRepository) DeleteEgress(ctx context.Context, id string, revision
 }
 
 func (r *PolicyRepository) ListSources(ctx context.Context, egressID string) ([]policyv2.Source, error) {
-	query := `SELECT id, egress_id, type, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources`
+	query := `SELECT id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources`
 	args := make([]any, 0, 1)
 	if egressID != "" {
 		query += ` WHERE egress_id = ?`
@@ -297,7 +301,7 @@ func (r *PolicyRepository) ListSources(ctx context.Context, egressID string) ([]
 }
 
 func (r *PolicyRepository) GetSource(ctx context.Context, id string) (policyv2.Source, error) {
-	row := r.store.db.QueryRowContext(ctx, `SELECT id, egress_id, type, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources WHERE id = ?`, id)
+	row := r.store.db.QueryRowContext(ctx, `SELECT id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources WHERE id = ?`, id)
 	source, err := scanSource(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return policyv2.Source{}, policyv2.ErrSourceNotFound
@@ -334,8 +338,8 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 	var current policyv2.Source
 	var currentRevision, currentNextRunAt, currentCreatedAt int64
 	var enabled, pendingDelete, applied int
-	err = tx.QueryRowContext(ctx, `SELECT egress_id, type, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at FROM policy_v2_sources WHERE id = ?`, source.ID).Scan(
-		&current.EgressID, &current.Type, &current.Name, &current.URL, &current.Schedule, &enabled, &current.ActiveVersionID, &current.PendingVersionID, &current.LastGoodVersionID, &current.ETag, &current.LastModified, &currentNextRunAt, &currentRevision, &pendingDelete, &applied, &currentCreatedAt,
+	err = tx.QueryRowContext(ctx, `SELECT egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at FROM policy_v2_sources WHERE id = ?`, source.ID).Scan(
+		&current.EgressID, &current.Type, &current.Kind, &current.Name, &current.URL, &current.Schedule, &enabled, &current.ActiveVersionID, &current.PendingVersionID, &current.LastGoodVersionID, &current.ETag, &current.LastModified, &currentNextRunAt, &currentRevision, &pendingDelete, &applied, &currentCreatedAt,
 	)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -344,6 +348,7 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 		}
 		source.Revision = 1
 		source.CreatedAt = now
+		source.Kind = policyv2.NormalizeSourceKind(source.Kind)
 	case err != nil:
 		return policyv2.Source{}, err
 	default:
@@ -351,6 +356,9 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 			return policyv2.Source{}, policyv2.ErrRevisionStale
 		}
 		source.Revision = currentRevision + 1
+		// Content kind is fixed at creation like the entry type; edits keep
+		// the stored value so legacy clients cannot flip it accidentally.
+		source.Kind = policyv2.NormalizeSourceKind(current.Kind)
 		source.ActiveVersionID = current.ActiveVersionID
 		source.PendingVersionID = current.PendingVersionID
 		source.LastGoodVersionID = current.LastGoodVersionID
@@ -367,10 +375,10 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 		source.CreatedAt = timeFromUnix(currentCreatedAt)
 	}
 	source.UpdatedAt = now
-	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_sources (id, egress_id, type, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET egress_id=excluded.egress_id, type=excluded.type, name=excluded.name, url=excluded.url, schedule=excluded.schedule, enabled=excluded.enabled, active_version_id=excluded.active_version_id, pending_version_id=excluded.pending_version_id, last_good_version_id=excluded.last_good_version_id, etag=excluded.etag, last_modified=excluded.last_modified, next_run_at=excluded.next_run_at, revision=excluded.revision, updated_at=excluded.updated_at`,
-		source.ID, source.EgressID, source.Type, source.Name, source.URL, source.Schedule, boolToInt(source.Enabled), source.ActiveVersionID, source.PendingVersionID, source.LastGoodVersionID, source.ETag, source.LastModified, unixTime(source.NextRunAt), source.Revision, boolToInt(source.Applied), unixTime(source.CreatedAt), unixTime(source.UpdatedAt))
+	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_sources (id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET egress_id=excluded.egress_id, type=excluded.type, kind=excluded.kind, name=excluded.name, url=excluded.url, schedule=excluded.schedule, enabled=excluded.enabled, active_version_id=excluded.active_version_id, pending_version_id=excluded.pending_version_id, last_good_version_id=excluded.last_good_version_id, etag=excluded.etag, last_modified=excluded.last_modified, next_run_at=excluded.next_run_at, revision=excluded.revision, updated_at=excluded.updated_at`,
+		source.ID, source.EgressID, source.Type, source.Kind, source.Name, source.URL, source.Schedule, boolToInt(source.Enabled), source.ActiveVersionID, source.PendingVersionID, source.LastGoodVersionID, source.ETag, source.LastModified, unixTime(source.NextRunAt), source.Revision, boolToInt(source.Applied), unixTime(source.CreatedAt), unixTime(source.UpdatedAt))
 	if err != nil {
 		return policyv2.Source{}, fmt.Errorf("save policy source: %w", err)
 	}
@@ -756,10 +764,11 @@ func scanSource(row rowScanner) (policyv2.Source, error) {
 	var source policyv2.Source
 	var enabled, pendingDelete, applied int
 	var nextRunAt, createdAt, updatedAt int64
-	err := row.Scan(&source.ID, &source.EgressID, &source.Type, &source.Name, &source.URL, &source.Schedule, &enabled, &source.ActiveVersionID, &source.PendingVersionID, &source.LastGoodVersionID, &source.ETag, &source.LastModified, &nextRunAt, &source.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
+	err := row.Scan(&source.ID, &source.EgressID, &source.Type, &source.Kind, &source.Name, &source.URL, &source.Schedule, &enabled, &source.ActiveVersionID, &source.PendingVersionID, &source.LastGoodVersionID, &source.ETag, &source.LastModified, &nextRunAt, &source.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
 	if err != nil {
 		return policyv2.Source{}, err
 	}
+	source.Kind = policyv2.NormalizeSourceKind(source.Kind)
 	source.Enabled = enabled != 0
 	source.PendingDeletion = pendingDelete != 0
 	source.Applied = applied != 0

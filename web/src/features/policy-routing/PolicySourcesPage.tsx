@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { PolicyEgress, PolicyOverview, PolicySource } from './types'
+import type { PolicyEgress, PolicyOverview, PolicySource, PolicySourceKind } from './types'
 import {
   deleteSource,
   fetchSource,
@@ -35,12 +35,55 @@ const manualDomainPlaceholder = [
   'mosdns：example.com 或 domain:netbird.io（后缀）；full:www.dingtalkcs.com（精确）',
 ].join('\n')
 
+const manualIPPlaceholder = [
+  '支持混合 IPv4/IPv6，每行一条，可混合以下写法：',
+  '裸地址：91.108.0.0/16、1.1.1.1、2001:67c:4e8::/48',
+  'Clash：- IP-CIDR,91.108.0.0/16,no-resolve；IP-CIDR6,2001:67c:4e8::/48,PROXY',
+  '行首 - 与尾部的策略名 / no-resolve 会被忽略；无效行在预览中提示。',
+].join('\n')
+
+function sourceKindLabels(kind: PolicySourceKind) {
+  const isIP = kind === 'ip'
+  return {
+    isIP,
+    title: isIP ? 'IP 列表' : '域名列表',
+    emptyTitle: isIP ? '尚未配置 IP 列表' : '尚未配置域名列表',
+    emptyDescription: isIP
+      ? '添加远程 URL、本地上传的 Clash YAML，或手动输入 IP/CIDR；同一列表可混合 IPv4 与 IPv6。内容变化先预览，确认保存后会自动同步到所选策略路由。'
+      : '添加远程 URL、本地上传的 Clash YAML，或手动输入域名；内容变化先预览，确认保存后会自动同步到所选策略路由。',
+    create: isIP ? '新建 IP 列表' : '新建域名列表',
+    add: isIP ? '增加 IP 列表' : '增加域名列表',
+    manualLabel: isIP ? 'IP 列表' : '域名列表',
+    manualEmptyHint: isIP ? '请输入至少一条 IP 或 CIDR' : '请输入至少一条域名',
+    manualHint: isIP
+      ? '每行一条；行首 - 符号与地址后的策略名 / no-resolve 会被忽略，无效行将被跳过并在预览中提示。'
+      : '每行一条；行首 - 符号与域名后的策略名（如 REJECT）会被忽略，无效行将被跳过并在预览中提示。',
+    textareaPlaceholder: isIP ? manualIPPlaceholder : manualDomainPlaceholder,
+    namePlaceholder: isIP ? '例如 Telegram IP' : '例如 OpenAI 域名',
+    manualTypeDescription: isIP
+      ? '在文本框中逐行输入 IP/CIDR，支持裸地址与 Clash IP-CIDR/IP-CIDR6 写法；重新编辑保存后更新。'
+      : '在文本框中逐行输入域名，支持 Clash 与 mosdns 两种写法；重新编辑保存后更新。',
+    egressHint: isIP
+      ? '一个 IP 列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。'
+      : '一个域名列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。',
+    uploadHint: isIP ? '解析顶层 payload 中的 IP-CIDR 与 IP-CIDR6 规则。' : '解析顶层 payload 中的 DOMAIN 与 DOMAIN-SUFFIX 规则。',
+    searchPlaceholder: isIP ? '搜索地址…' : '搜索域名…',
+    valueHeader: isIP ? '地址' : '域名',
+    deleteTitle: isIP ? '删除 IP 列表' : '删除域名列表',
+  }
+}
+
+function ruleValue(rule: { domain?: string; address?: string }): string {
+  return rule.address ?? rule.domain ?? ''
+}
+
 export function PolicySourcesPage({
   deviceID,
   overview,
   sources,
   egresses,
   readOnly,
+  kind = 'domain',
   onChanged,
 }: {
   deviceID: string
@@ -48,22 +91,25 @@ export function PolicySourcesPage({
   sources: PolicySource[]
   egresses: PolicyEgress[]
   readOnly: boolean
+  kind?: PolicySourceKind
   onChanged: () => void
 }) {
   const [editing, setEditing] = useState<PolicySourceDraft | null>(null)
   const [viewingRules, setViewingRules] = useState<PolicySource | null>(null)
   const [deleting, setDeleting] = useState<PolicySource | null>(null)
+  const labels = sourceKindLabels(kind === 'ip' ? 'ip' : 'domain')
+  const kindSources = sources.filter((src) => (src.kind ?? 'domain') === kind)
 
   return (
-    <section className="panel policy-panel" aria-label="域名列表">
+    <section className="panel policy-panel" aria-label={labels.title}>
       <div className="policy-panel-head">
-        <h3>域名列表</h3>
+        <h3>{labels.title}</h3>
       </div>
-      {sources.length === 0 ? (
+      {kindSources.length === 0 ? (
         <PolicyEmptyState
-          title="尚未配置域名列表"
-          description={readOnly ? '当前为只读状态。' : '添加远程 URL、本地上传的 Clash YAML，或手动输入域名；内容变化先预览，确认保存后会自动同步到所选策略路由。'}
-          action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>新建域名列表</button>}
+          title={labels.emptyTitle}
+          description={readOnly ? '当前为只读状态。' : labels.emptyDescription}
+          action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? '', kind))}>{labels.create}</button>}
         />
       ) : (
         <>
@@ -83,7 +129,7 @@ export function PolicySourcesPage({
                 </tr>
               </thead>
               <tbody>
-                {sources.map((src) => (
+                {kindSources.map((src) => (
                   <SourceRow
                     key={src.id}
                     source={src}
@@ -100,7 +146,7 @@ export function PolicySourcesPage({
           </div>
           {!readOnly ? (
             <div className="policy-panel-add-action">
-              <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>增加域名列表</button>
+              <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? '', kind))}>{labels.add}</button>
             </div>
           ) : null}
         </>
@@ -180,7 +226,7 @@ function SourceRow({
       </td>
       <td>{policySourceTypeLabel[source.type] ?? source.type}</td>
       <td>{egress ? <span>{egress.name}</span> : <PolicyStatusBadge tone="neutral">未分配</PolicyStatusBadge>}</td>
-      <td>{egress ? egress.listMode === 'dedicated' ? '专用（随本域名列表自动生成）' : <span className="mono">{egress.listName || '—'}</span> : '—'}</td>
+      <td>{egress ? egress.listMode === 'dedicated' ? '专用（随本列表自动生成）' : <span className="mono">{egress.listName || '—'}</span> : '—'}</td>
       <td>{source.type === 'url' ? policyScheduleLabel[source.schedule] ?? source.schedule : '手动更新'}</td>
       <td className="mono">{activeVersion ? activeVersion.id.slice(0, 12) : '—'}</td>
       <td className="policy-date-cell mono">{nextRun && Number.isFinite(nextRun.getTime()) ? formatPolicyDateTime(nextRun) : '—'}</td>
@@ -243,6 +289,8 @@ export function SourceEditorModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const typeLocked = Boolean(draft.id)
+  const draftKind: PolicySourceKind = draft.kind === 'ip' ? 'ip' : 'domain'
+  const labels = sourceKindLabels(draftKind)
 
   useEffect(() => {
     if (draft.type !== 'manual' || !draft.id) return
@@ -257,7 +305,11 @@ export function SourceEditorModal({
         for (let page = 0; page < 400; page += 1) {
           const result = await fetchSourceRules(deviceID, draft.id, { limit: 200, cursor, version: 'pending' })
           for (const rule of result.rules) {
-            lines.push(rule.type === 'DOMAIN' ? `full:${rule.domain}` : rule.domain)
+            if (draftKind === 'ip') {
+              lines.push(ruleValue(rule))
+            } else {
+              lines.push(rule.type === 'DOMAIN' ? `full:${ruleValue(rule)}` : ruleValue(rule))
+            }
           }
           if (!result.nextCursor) {
             loadedAll = true
@@ -281,7 +333,7 @@ export function SourceEditorModal({
       }
     })()
     return () => { cancelled = true }
-  }, [deviceID, draft.id, draft.type])
+  }, [deviceID, draft.id, draft.type, draftKind])
 
   const contentChanged = !draft.id
     || type !== draft.type
@@ -293,7 +345,7 @@ export function SourceEditorModal({
     : name.trim()
       ? type === 'url' && !url.trim() ? '请填写 Clash YAML 的 HTTPS 地址'
         : type === 'upload' && !draft.id && !file ? '请选择本地 YAML 文件'
-          : type === 'manual' && !loadingRules && !text.trim() ? '请输入至少一条域名'
+          : type === 'manual' && !loadingRules && !text.trim() ? labels.manualEmptyHint
             : null
       : '请填写列表名称'
 
@@ -303,15 +355,15 @@ export function SourceEditorModal({
     try {
       if (type === 'url') {
         if (!url.trim().startsWith('https://')) throw new Error('请填写 Clash YAML 的 HTTPS 地址')
-        const p = await previewURL(deviceID, { url })
+        const p = await previewURL(deviceID, { url, kind: draftKind })
         setPreview(p)
       } else if (type === 'manual') {
-        const p = await previewManual(deviceID, { text })
+        const p = await previewManual(deviceID, { text, kind: draftKind })
         setPreview(p)
       } else if (file) {
         const fd = new FormData()
         fd.append('file', file)
-        const p = await previewUpload(deviceID, fd)
+        const p = await previewUpload(deviceID, fd, draftKind)
         setPreview(p)
       }
     } catch (e) {
@@ -352,7 +404,7 @@ export function SourceEditorModal({
 
   return (
     <PolicyModal
-      title={draft.id ? `编辑列表：${draft.name}` : '新建域名列表'}
+      title={draft.id ? `编辑列表：${draft.name}` : labels.create}
       subtitle="内容变化会先解析预览；确认保存后，已归属启用策略的列表会自动同步到 RouterOS。"
       wide
       onClose={onClose}
@@ -360,7 +412,7 @@ export function SourceEditorModal({
       {error ? <PolicyErrorDisplay error={error} /> : null}
       <div className="policy-form">
         <PolicyField label="列表名称" htmlFor="policy-source-name">
-          <input id="policy-source-name" className="settings-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={128} placeholder="例如 OpenAI 域名" />
+          <input id="policy-source-name" className="settings-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={128} placeholder={labels.namePlaceholder} />
         </PolicyField>
         <PolicyField label="来源类型" htmlFor="policy-source-type">
           <div className="policy-choice-list" role="radiogroup" aria-label="来源类型">
@@ -382,7 +434,7 @@ export function SourceEditorModal({
               <input type="radio" name="policy-source-type" checked={type === 'manual'} disabled={typeLocked} onChange={() => { setType('manual'); setPreview(null); setFile(null) }} />
               <span>
                 <strong>手动添加</strong>
-                <small>在文本框中逐行输入域名，支持 Clash 与 mosdns 两种写法；重新编辑保存后更新。</small>
+                <small>{labels.manualTypeDescription}</small>
               </span>
             </label>
           </div>
@@ -399,25 +451,25 @@ export function SourceEditorModal({
             </PolicyField>
           </div>
         ) : type === 'upload' ? (
-          <PolicyField label="YAML 文件" htmlFor="policy-source-file" hint="解析顶层 payload 中的 DOMAIN 与 DOMAIN-SUFFIX 规则。">
+          <PolicyField label="YAML 文件" htmlFor="policy-source-file" hint={labels.uploadHint}>
             <input id="policy-source-file" type="file" className="settings-input" accept=".yaml,.yml" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null) }} />
           </PolicyField>
         ) : (
-          <PolicyField label="域名列表" htmlFor="policy-source-domains" hint="每行一条；行首 - 符号与域名后的策略名（如 REJECT）会被忽略，无效行将被跳过并在预览中提示。">
+          <PolicyField label={labels.manualLabel} htmlFor="policy-source-values" hint={labels.manualHint}>
             <textarea
-              id="policy-source-domains"
+              id="policy-source-values"
               className="settings-input policy-textarea"
               rows={9}
               spellCheck={false}
               disabled={loadingRules}
               value={text}
               onChange={(e) => { setText(e.target.value); setPreview(null) }}
-              placeholder={manualDomainPlaceholder}
+              placeholder={labels.textareaPlaceholder}
             />
             {loadingRules ? <p className="policy-hint">正在加载已有规则…</p> : null}
           </PolicyField>
         )}
-        <PolicyField label="归属策略路由" htmlFor="policy-source-egress" hint="一个域名列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。">
+        <PolicyField label="归属策略路由" htmlFor="policy-source-egress" hint={labels.egressHint}>
           <select id="policy-source-egress" className="settings-select" value={egressId} onChange={(e) => setEgressId(e.target.value)}>
             <option value="">未分配（不参与同步）</option>
             {egresses.map((eg) => <option key={eg.id} value={eg.id}>{eg.name}{eg.enabled && !eg.pendingDeletion ? '' : '（已停用/待删除）'}</option>)}
@@ -455,7 +507,7 @@ function SourcePreview({ preview }: { preview: import('./types').PolicyPreview }
       {preview.errorSamples.length ? <ul className="policy-preview-errors">{preview.errorSamples.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : null}
       {preview.rules.length ? (
         <div className="policy-preview-rules" aria-label="规则样本（前 100 条）">
-          {preview.rules.map((rule) => <code key={`${rule.type}:${rule.domain}`}>{rule.domain}</code>)}
+          {preview.rules.map((rule) => <code key={`${rule.type}:${ruleValue(rule)}`}>{ruleValue(rule)}</code>)}
           {preview.validRules > preview.rules.length ? <span>… 共 {preview.validRules} 条，仅显示前 {preview.rules.length} 条</span> : null}
         </div>
       ) : null}
@@ -475,10 +527,12 @@ function SourceRulesModal({ deviceID, source, onClose }: { deviceID: string; sou
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const { items, pageIndex, pageCount, loading, error, nextPage, prevPage } = useSourceRules(deviceID, source.id, true)
+  const isIP = (source.kind ?? 'domain') === 'ip'
+  const labels = sourceKindLabels(isIP ? 'ip' : 'domain')
 
-  const rules = items as Array<{ type: string; domain: string }>
+  const rules = items as Array<{ type: string; domain?: string; address?: string }>
   const filtered = query.trim()
-    ? rules.filter((r) => r.domain.toLowerCase().includes(query.toLowerCase()))
+    ? rules.filter((r) => ruleValue(r).toLowerCase().includes(query.toLowerCase()))
     : typeFilter
       ? rules.filter((r) => r.type === typeFilter)
       : rules
@@ -486,11 +540,20 @@ function SourceRulesModal({ deviceID, source, onClose }: { deviceID: string; sou
   return (
     <PolicyModal title={`规则列表 — ${source.name}`} wide onClose={onClose}>
       <div className="policy-rules-toolbar">
-        <input className="settings-input" placeholder="搜索域名…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input className="settings-input" placeholder={labels.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         <select className="select-control" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
           <option value="">全部类型</option>
-          <option value="DOMAIN">精确匹配</option>
-          <option value="DOMAIN-SUFFIX">后缀匹配</option>
+          {isIP ? (
+            <>
+              <option value="IP-CIDR">IPv4</option>
+              <option value="IP-CIDR6">IPv6</option>
+            </>
+          ) : (
+            <>
+              <option value="DOMAIN">精确匹配</option>
+              <option value="DOMAIN-SUFFIX">后缀匹配</option>
+            </>
+          )}
         </select>
       </div>
       {error ? <PolicyErrorDisplay error={error} /> : null}
@@ -499,15 +562,15 @@ function SourceRulesModal({ deviceID, source, onClose }: { deviceID: string; sou
           <thead>
             <tr>
               <th>类型</th>
-              <th>域名</th>
+              <th>{labels.valueHeader}</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length ? (
               filtered.map((r, i) => (
-                <tr key={`${r.domain}-${i}`}>
-                  <td><span className={`policy-rule-type ${r.type === 'DOMAIN' ? 'policy-rule-type-exact' : 'policy-rule-type-suffix'}`}>{r.type === 'DOMAIN' ? '精确' : '后缀'}</span></td>
-                  <td><code>{r.domain}</code></td>
+                <tr key={`${ruleValue(r)}-${i}`}>
+                  <td><span className={`policy-rule-type ${r.type === 'DOMAIN' ? 'policy-rule-type-exact' : 'policy-rule-type-suffix'}`}>{isIP ? (r.type === 'IP-CIDR6' ? 'IPv6' : 'IPv4') : r.type === 'DOMAIN' ? '精确' : '后缀'}</span></td>
+                  <td><code>{ruleValue(r)}</code></td>
                 </tr>
               ))
             ) : (
@@ -548,7 +611,7 @@ function SourceDeleteModal({ deviceID, source, onClose, onDone }: { deviceID: st
       : '该列表未分配给策略；确认后将立即删除 rosboard 中的定义与历史版本。此操作不可撤销。'
 
   return (
-    <PolicyModal title="删除域名列表" onClose={onClose}>
+    <PolicyModal title={(source.kind ?? 'domain') === 'ip' ? '删除 IP 列表' : '删除域名列表'} onClose={onClose}>
       {error ? <PolicyErrorDisplay error={error} /> : null}
       <p className="policy-hint">{message}</p>
       {source.revision ? <p className="policy-hint">修订版本：{source.revision}</p> : null}

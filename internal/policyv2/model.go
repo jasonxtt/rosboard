@@ -6,6 +6,9 @@ const (
 	ListModeShared    = "shared"
 	ListModeDedicated = "dedicated"
 
+	KindDomain = "domain"
+	KindIP     = "ip"
+
 	FamilyIPv4 AddressFamily = "ipv4"
 	FamilyIPv6 AddressFamily = "ipv6"
 )
@@ -46,6 +49,7 @@ type Source struct {
 	ID                string          `json:"id"`
 	EgressID          string          `json:"egressId"`
 	Type              string          `json:"type"`
+	Kind              string          `json:"kind"`
 	Name              string          `json:"name"`
 	URL               string          `json:"url,omitempty"`
 	Schedule          string          `json:"schedule"`
@@ -125,4 +129,13 @@ func (j ApplyJob) Terminal() bool {
 
 func (s DeviceState) Applied() bool {
 	return s.DesiredRevision > 0 && s.DesiredRevision == s.AppliedRevision
+}
+
+// NormalizeSourceKind maps a requested source content kind to the stored
+// value; empty and unknown legacy values read as domain.
+func NormalizeSourceKind(kind string) string {
+	if kind == KindIP {
+		return KindIP
+	}
+	return KindDomain
 }

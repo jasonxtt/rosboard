@@ -51,7 +51,7 @@ export function PolicyEgressTable({
                   <th>名称</th>
                   <th>策略接口</th>
                   <th>下一跳网关</th>
-                  <th>域名列表</th>
+                  <th>绑定列表</th>
                   <th>地址族</th>
                   <th>优先级</th>
                   <th>断线处理</th>
@@ -186,9 +186,9 @@ function EgressRow({
         <PolicyModal title="删除出口策略" onClose={() => setDeleteModal(false)}>
           {deleteError ? <PolicyErrorDisplay error={deleteError} /> : null}
           <p className="policy-hint">
-            {egress.pendingDeletion ? `继续清理出口策略「${egress.name}」在 RouterOS 中的受管对象？` : `确认删除出口策略「${egress.name}」？确认后将立即解除域名列表引用并清理 RouterOS 中属于该策略的对象。`}
+            {egress.pendingDeletion ? `继续清理出口策略「${egress.name}」在 RouterOS 中的受管对象？` : `确认删除出口策略「${egress.name}」？确认后将立即解除列表引用并清理 RouterOS 中属于该策略的对象。`}
           </p>
-          {egressSources.length ? <p className="policy-hint">当前绑定域名列表：{egressSources.map((source) => source.name).join('、')}。</p> : null}
+          {egressSources.length ? <p className="policy-hint">当前绑定列表：{egressSources.map((source) => source.name).join('、')}。</p> : null}
           {sharedListUsers.length ? <PolicyNotice tone="info" title="共享标记列表仍被其他出口使用">标记列表 {egress.listName} 仍被 {sharedListUsers.map((item) => item.name).join('、')} 使用；删除本出口不会删除或停用该共享列表。</PolicyNotice> : null}
           {egress.revision ? <p className="policy-hint">修订版本：{egress.revision}</p> : null}
           <div className="policy-form-actions">

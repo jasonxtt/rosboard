@@ -41,9 +41,19 @@ func ValidateFakeAliases(ctx context.Context, reader PolicyReader, repository Re
 		}
 	}
 	issues := make([]PlanIssue, 0)
+	sources, err := repository.ListSources(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	sourcesByEgress := enabledSourcesByEgress(sources)
 	used := make(map[netip.Addr]string)
 	for _, egress := range egresses {
 		if egress.PendingDeletion || strings.TrimSpace(egress.FakeAlias) == "" {
+			continue
+		}
+		// An IP-only egress materializes no DNS objects, so its persisted
+		// alias must not block the plan.
+		if !hasApplicableDomainSource(sourcesByEgress[egress.ID]) {
 			continue
 		}
 		alias, err := netip.ParseAddr(strings.TrimSpace(egress.FakeAlias))

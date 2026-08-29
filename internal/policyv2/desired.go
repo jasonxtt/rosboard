@@ -90,14 +90,6 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			result.Blockers = append(result.Blockers, issue("family_required", "", egress.ID, "至少启用一个地址族"))
 			continue
 		}
-		alias := firstNonEmptyString(egress.FakeAlias, deterministicFakeAlias(egress.ID))
-		upstream := firstNonEmptyString(egress.DNSUpstream, "1.1.1.1")
-		aliasIP, aliasErr := netip.ParseAddr(alias)
-		upstreamIP, upstreamErr := netip.ParseAddr(upstream)
-		if aliasErr != nil || upstreamErr != nil || aliasIP.Is4() != upstreamIP.Is4() {
-			result.Blockers = append(result.Blockers, issue("invalid_dns_transport", "", egress.ID, "Fake DNS 别名和 DNS 上游必须是同一地址族的 IP"))
-			continue
-		}
 		strategyLabel := "策略 " + cleanReadableLabel(egress.Name)
 		addEgress := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
 			addWithLabel(logicalID, menu, phase, strategyLabel+" · "+managedObjectPurpose(logicalID), fields)
@@ -111,12 +103,68 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 				listBySource[source.ID] = firstNonEmptyString(egress.ListName, SharedListName(egress.Name))
 			}
 		}
-		forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
-		addEgress("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias})
+
+		// DNS objects exist only while the egress has an applicable domain
+		// source; IP-only egresses route purely through static address-list
+		// entries and must not be blocked by DNS transport configuration.
+		dnsEnabled := hasApplicableDomainSource(sourcesByEgress[egress.ID])
+		if dnsEnabled {
+			alias := firstNonEmptyString(egress.FakeAlias, deterministicFakeAlias(egress.ID))
+			upstream := firstNonEmptyString(egress.DNSUpstream, "1.1.1.1")
+			aliasIP, aliasErr := netip.ParseAddr(alias)
+			upstreamIP, upstreamErr := netip.ParseAddr(upstream)
+			if aliasErr != nil || upstreamErr != nil || aliasIP.Is4() != upstreamIP.Is4() {
+				result.Blockers = append(result.Blockers, issue("invalid_dns_transport", "", egress.ID, "Fake DNS 别名和 DNS 上游必须是同一地址族的 IP"))
+				continue
+			}
+			forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
+			addEgress("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias})
+			for _, source := range sourcesByEgress[egress.ID] {
+				if source.Kind == KindIP {
+					continue
+				}
+				versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
+				if versionID == "" {
+					result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "域名来源尚无可应用版本：" + source.Name})
+					continue
+				}
+				rules, err := allRules(ctx, repository, versionID)
+				if err != nil {
+					return DesiredResult{}, err
+				}
+				for _, rule := range rules {
+					fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": listBySource[source.ID], "disabled": disabled, "match-subdomain": "no"}
+					if rule.RuleType == "DOMAIN-SUFFIX" {
+						fields["match-subdomain"] = "yes"
+					}
+					logicalID := "dns:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+					label := strategyLabel + " · 域名列表 " + cleanReadableLabel(source.Name) + " · DNS 静态规则"
+					addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", label, fields)
+				}
+			}
+			dnsTable := ""
+			for _, family := range families {
+				if aliasIP.Is4() == (family.Family == FamilyIPv4) {
+					dnsTable = firstNonEmptyString(family.RouteTable, DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family))
+					break
+				}
+			}
+			if dnsTable == "" {
+				result.Blockers = append(result.Blockers, issue("dns_transport_family_missing", "", egress.ID, "DNS 上游地址族没有对应的已启用出口"))
+				continue
+			}
+			addDNSTransport(addEgress, egress.ID, alias, upstream, dnsTable, aliasIP.Is4(), disabled)
+		}
+
+		// IP sources materialize as static address-list entries per enabled
+		// family; rules of a disabled family are ignored, not blockers.
 		for _, source := range sourcesByEgress[egress.ID] {
+			if source.Kind != KindIP {
+				continue
+			}
 			versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
 			if versionID == "" {
-				result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "域名来源尚无可应用版本：" + source.Name})
+				result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "IP 列表尚无可应用版本：" + source.Name})
 				continue
 			}
 			rules, err := allRules(ctx, repository, versionID)
@@ -124,27 +172,23 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 				return DesiredResult{}, err
 			}
 			for _, rule := range rules {
-				fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": listBySource[source.ID], "disabled": disabled, "match-subdomain": "no"}
-				if rule.RuleType == "DOMAIN-SUFFIX" {
-					fields["match-subdomain"] = "yes"
+				family := ipRuleFamily(rule.RuleType)
+				if family == "" || !familyEnabled(families, family) {
+					continue
 				}
-				logicalID := "dns:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
-				label := strategyLabel + " · 域名列表 " + cleanReadableLabel(source.Name) + " · DNS 静态规则"
-				addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", label, fields)
+				menu := routeros.MenuIPFirewallAddressList
+				if family == FamilyIPv6 {
+					menu = routeros.MenuIPv6FirewallAddressList
+				}
+				logicalID := "addr:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+				label := strategyLabel + " · IP 列表 " + cleanReadableLabel(source.Name) + " · 地址条目"
+				addWithLabel(logicalID, menu, "foundation", label, map[string]string{
+					"list":     listBySource[source.ID],
+					"address":  rule.Domain,
+					"disabled": disabled,
+				})
 			}
 		}
-		dnsTable := ""
-		for _, family := range families {
-			if aliasIP.Is4() == (family.Family == FamilyIPv4) {
-				dnsTable = firstNonEmptyString(family.RouteTable, DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family))
-				break
-			}
-		}
-		if dnsTable == "" {
-			result.Blockers = append(result.Blockers, issue("dns_transport_family_missing", "", egress.ID, "DNS 上游地址族没有对应的已启用出口"))
-			continue
-		}
-		addDNSTransport(addEgress, egress.ID, alias, upstream, dnsTable, aliasIP.Is4(), disabled)
 
 		for _, family := range families {
 			gateway := strings.TrimSpace(family.Gateway)
@@ -283,6 +327,43 @@ func enabledSourcesByEgress(sources []Source) map[string][]Source {
 		sort.Slice(result[id], func(i, j int) bool { return result[id][i].ID < result[id][j].ID })
 	}
 	return result
+}
+
+// hasApplicableDomainSource reports whether the egress still has an enabled
+// domain source with a pending or active version; only then are DNS objects
+// built for it.
+func hasApplicableDomainSource(sources []Source) bool {
+	for _, source := range sources {
+		if source.Kind == KindIP {
+			continue
+		}
+		if firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ipRuleFamily maps a stored IP rule type to its address family; an empty
+// result marks an unknown rule type that must not be materialized.
+func ipRuleFamily(ruleType string) AddressFamily {
+	switch ruleType {
+	case "IP-CIDR":
+		return FamilyIPv4
+	case "IP-CIDR6":
+		return FamilyIPv6
+	default:
+		return ""
+	}
+}
+
+func familyEnabled(families []EgressFamily, family AddressFamily) bool {
+	for _, candidate := range families {
+		if candidate.Family == family {
+			return true
+		}
+	}
+	return false
 }
 
 func enabledFamilies(families []EgressFamily) []EgressFamily {
@@ -434,6 +515,8 @@ func managedObjectPurpose(logicalID string) string {
 	switch prefix {
 	case "forwarder":
 		return "DNS 转发器"
+	case "addr":
+		return "地址列表条目"
 	case "dns-mark":
 		return "DNS 路由标记"
 	case "dns-dnat":

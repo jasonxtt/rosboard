@@ -314,7 +314,7 @@ func TestPolicyV2SourceSaveRequiresAndConsumesPreview(t *testing.T) {
 		t.Fatalf("missing preview status=%d body=%s", missing.Code, missing.Body.String())
 	}
 
-	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"))
+	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestPolicyV2AssignedSourceSaveStartsAutomaticApply(t *testing.T) {
 	if _, err := repository.SaveTrafficIngress(context.Background(), []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"))
+	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,5 +633,112 @@ func TestPolicyV2PlanAndApplyEndpointsMatchFrontendContract(t *testing.T) {
 	}
 	if accepted["jobId"] == "" || accepted["job"] == nil {
 		t.Fatalf("unexpected apply response: %#v", accepted)
+	}
+}
+
+func TestPolicyV2SourceKindIPManualPreviewSaveAndRules(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	preview := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview",
+		`{"text":"IP-CIDR,91.108.0.0/16\n2001:67c:4e8::/48\n1.1.1.1\nexample.com","kind":"ip"}`)
+	if preview.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	var previewPayload map[string]any
+	if err := json.Unmarshal(preview.Body.Bytes(), &previewPayload); err != nil {
+		t.Fatal(err)
+	}
+	if previewPayload["kind"] != "ip" || previewPayload["validRules"] != float64(3) {
+		t.Fatalf("unexpected preview payload: %#v", previewPayload)
+	}
+	rules := previewPayload["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["type"] != "IP-CIDR" || first["address"] != "91.108.0.0/16" || first["domain"] != nil {
+		t.Fatalf("IP preview rules must use the address field: %#v", rules)
+	}
+
+	save := policyV2Request(t, server, http.MethodPost, "/sources", `{
+		"name":"ip-list","type":"manual","kind":"ip","enabled":true,"egressId":"",
+		"previewId":"`+previewPayload["previewId"].(string)+`"
+	}`)
+	if save.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", save.Code, save.Body.String())
+	}
+	var saved policyv2.Source
+	if err := json.Unmarshal(save.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Kind != "ip" {
+		t.Fatalf("saved kind = %q, want ip", saved.Kind)
+	}
+
+	listRules := policyV2Request(t, server, http.MethodGet, "/sources/"+saved.ID+"/rules", "")
+	if listRules.Code != http.StatusOK {
+		t.Fatalf("rules status=%d body=%s", listRules.Code, listRules.Body.String())
+	}
+	var rulesPayload struct {
+		Rules []map[string]any `json:"rules"`
+	}
+	if err := json.Unmarshal(listRules.Body.Bytes(), &rulesPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(rulesPayload.Rules) != 3 {
+		t.Fatalf("rule count = %d: %#v", len(rulesPayload.Rules), rulesPayload.Rules)
+	}
+	for _, rule := range rulesPayload.Rules {
+		if rule["address"] == nil || rule["domain"] != nil {
+			t.Fatalf("IP rules contract broken: %#v", rule)
+		}
+	}
+
+	// Editing with the opposite kind must be rejected instead of silently flipping content.
+	rejected := policyV2Request(t, server, http.MethodPut, "/sources/"+saved.ID, `{"name":"ip-list","type":"manual","kind":"domain","enabled":true,"revision":1}`)
+	if rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("kind change status=%d body=%s", rejected.Code, rejected.Body.String())
+	}
+}
+
+func TestPolicyV2DomainSourceWithoutKindStaysDomain(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	preview := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview",
+		`{"text":"example.com"}`)
+	if preview.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	var previewPayload map[string]any
+	if err := json.Unmarshal(preview.Body.Bytes(), &previewPayload); err != nil {
+		t.Fatal(err)
+	}
+	if previewPayload["kind"] != "domain" {
+		t.Fatalf("legacy preview kind = %#v, want domain", previewPayload["kind"])
+	}
+	save := policyV2Request(t, server, http.MethodPost, "/sources", `{
+		"name":"legacy-list","type":"manual","enabled":true,"egressId":"",
+		"previewId":"`+previewPayload["previewId"].(string)+`"
+	}`)
+	if save.Code != http.StatusOK {
+		t.Fatalf("legacy save status=%d body=%s", save.Code, save.Body.String())
+	}
+	var saved policyv2.Source
+	if err := json.Unmarshal(save.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Kind != "domain" {
+		t.Fatalf("legacy source kind = %q, want domain", saved.Kind)
+	}
+	listRules := policyV2Request(t, server, http.MethodGet, "/sources/"+saved.ID+"/rules", "")
+	var rulesPayload struct {
+		Rules []map[string]any `json:"rules"`
+	}
+	if err := json.Unmarshal(listRules.Body.Bytes(), &rulesPayload); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range rulesPayload.Rules {
+		if rule["domain"] == nil {
+			t.Fatalf("domain rules contract broken: %#v", rule)
+		}
 	}
 }
