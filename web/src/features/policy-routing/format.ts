@@ -39,7 +39,7 @@ export const policyWANSourceLabel: Record<string, string> = {
 }
 
 export const policyRouteModeLabel: Record<string, string> = {
-  '': '跟随出口断线处理',
+  '': '跟随全局断线处理',
   strict: '严格绑定',
   fallback: '允许回落 main',
 }

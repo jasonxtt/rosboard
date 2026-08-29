@@ -53,7 +53,7 @@ import type {
   RouterOSCleanupResponse,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'chevronUp' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
@@ -452,6 +452,7 @@ function Icon(props: { name: IconName }) {
     route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
     settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
+    chevronUp: <path d="m6 15 6-6 6 6"/>,
     chevronDown: <path d="m6 9 6 6 6-6"/>,
     cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
     memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
@@ -799,7 +800,7 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 	</StartupCard>
 	return <StartupCard wide title="添加 RouterOS" description="填写连接信息，可选测试连接后直接保存；采集范围支持后续调整。" error={error}>
 		{message ? <div className="settings-message" role="status">{message}</div> : null}
-		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async () => { await loadSettings(); setEditorDeviceID(''); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可继续添加设备，全部确认后再完成设置。') }} onRestartingAction={onRestartingAction} /> : null}
+		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async () => { await loadSettings(); setEditorDeviceID(''); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可继续添加设备，全部确认后再完成设置。') }} onOrderChanged={loadSettings} onRestartingAction={onRestartingAction} /> : null}
 		<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button>{settings?.devices.some((device) => !device.archived) ? <button type="button" className="complete-setup-button" disabled={finishing} onClick={() => void finishSetup()}>{finishing ? '正在完成...' : '完成设置并进入面板'}</button> : null}</div>
 	</StartupCard>
 }
@@ -874,6 +875,25 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 		setSettings(await response.json() as SettingsResponse)
 		setSettingsError(null)
 		setDeviceChangesPending(true)
+	}
+
+	// Reordering only changes display order: refresh settings and the device
+	// list immediately without flagging pending device changes or touching the
+	// selected device.
+	const refreshDeviceOrder = async () => {
+		const [settingsResponse, devicesResponse] = await Promise.all([
+			fetch('/api/settings', { cache: 'no-store' }),
+			fetch('/api/devices', { cache: 'no-store' }),
+		])
+		if (!settingsResponse.ok) throw new Error(`HTTP ${settingsResponse.status}`)
+		if (!devicesResponse.ok) throw new Error(`HTTP ${devicesResponse.status}`)
+		const [nextSettings, payload] = await Promise.all([
+			settingsResponse.json() as Promise<SettingsResponse>,
+			devicesResponse.json() as Promise<{ devices: DeviceStatus[] }>,
+		])
+		setSettings(nextSettings)
+		setSettingsError(null)
+		setDevices(payload.devices ?? [])
 	}
 
   useEffect(() => {
@@ -1267,11 +1287,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const alertCount = Math.max(dashboard?.alerts?.length ?? 0, globalWarnings.length)
 
   if (activeView === 'fleet' && fleetOverview && fleetOverview.totalDevices === 0 && settings) {
-	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
+	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} onOrderChanged={refreshDeviceOrder} />
   }
 
   if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing') {
-	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} />
+	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
@@ -1676,7 +1696,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
             onSaveRecognition={saveRecognitionSettings}
-			onDeviceSaved={refreshSettingsAfterDeviceSave}
+            onDeviceSaved={refreshSettingsAfterDeviceSave}
+            onOrderChanged={refreshDeviceOrder}
 			username={props.username}
 			onAuthenticationChanged={props.onAuthenticationChanged}
             onSavePreferences={(preferences) => {
@@ -1792,7 +1813,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   )
 }
 
-function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onDeviceSaved: (deviceID: string) => Promise<void> }) {
+function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onDeviceSaved: (deviceID: string) => Promise<void>; onOrderChanged?: () => unknown }) {
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
@@ -1813,7 +1834,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
 			</nav>
 		</aside>
 		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }
@@ -1863,6 +1884,7 @@ function SettingsPage(props: {
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
   onSaveRecognition: (draft: RecognitionDraft) => Promise<void>
   onDeviceSaved: (deviceID: string) => Promise<void>
+  onOrderChanged?: () => unknown
   onSavePreferences: (preferences: PanelPreferences) => void
   onPreviewTheme: (theme: PanelTheme) => void
   onResetPreferences: () => void
@@ -1900,7 +1922,7 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <DeviceSettingsPanel settings={props.settings} deviceStatuses={props.deviceStatuses} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onSaved={props.onDeviceSaved} onRestartingAction={props.onRestartingAction} />
+          <DeviceSettingsPanel settings={props.settings} deviceStatuses={props.deviceStatuses} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onSaved={props.onDeviceSaved} onOrderChanged={props.onOrderChanged} onRestartingAction={props.onRestartingAction} />
         </section>
       ) : null}
 
@@ -2059,13 +2081,14 @@ function deviceDraft(device?: SettingsDevice): DeviceDraft {
   }
 }
 
-function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses?: DeviceStatus[]; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses?: DeviceStatus[]; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onOrderChanged?: () => unknown; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [savingAction, setSavingAction] = useState<'save' | null>(null)
 	const [message, setMessage] = useState<string | null>(null)
+	const [reordering, setReordering] = useState(false)
 	const [probeFeedback, setProbeFeedback] = useState<DeviceProbeFeedback | null>(null)
 	const [verification, setVerification] = useState<VerificationResponse | null>(null)
 	const [scopedDashboard, setScopedDashboard] = useState<Pick<DashboardResponse, 'trafficScope' | 'terminalScope'> | null>(null)
@@ -2163,6 +2186,26 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	const clearConnectionProbe = () => {
 		setVerification(null)
 		setProbeFeedback(null)
+	}
+	const reorderDevice = async (deviceID: string, direction: -1 | 1) => {
+		if (reordering) return
+		const index = available.findIndex((device) => device.id === deviceID)
+		const target = index + direction
+		if (index < 0 || target < 0 || target >= available.length) return
+		const next = available.slice()
+		const [moved] = next.splice(index, 1)
+		next.splice(target, 0, moved)
+		setReordering(true)
+		setMessage(null)
+		try {
+			await requestJSON('/api/devices/reorder', 'PUT', { deviceIds: next.map((device) => device.id) })
+			await props.onOrderChanged?.()
+			setMessage('设备顺序已更新，主页设备列表将按新顺序显示。')
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : '设备排序保存失败')
+		} finally {
+			setReordering(false)
+		}
 	}
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
@@ -2377,9 +2420,20 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
   return <div className="device-settings-workspace">
     <div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="pill pill--icon icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
-      {available.map((device) => {
+      {available.map((device, index) => {
         const status = settingsDeviceStatusPresentation(device, props.deviceStatuses ?? [])
-        return <button key={device.id} type="button" className={draft.id === device.id ? 'device-row active' : 'device-row'} onClick={() => choose(device)}><span><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span><i className={status.tone} role="img" aria-label={status.label} title={status.label} /></button>
+        return (
+          <div key={device.id} className={draft.id === device.id ? 'device-row active' : 'device-row'}>
+            <button type="button" className="device-row-main" aria-label={`选择设备 ${device.name}`} onClick={() => choose(device)}>
+              <span className="device-row-copy"><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span>
+              <i className={status.tone} role="img" aria-label={status.label} title={status.label} />
+            </button>
+            <span className="device-row-actions">
+              <button type="button" className="icon-button" disabled={index === 0 || reordering} aria-label={`上移设备 ${device.name}`} title="上移" onClick={() => void reorderDevice(device.id, -1)}><Icon name="chevronUp" /></button>
+              <button type="button" className="icon-button" disabled={index === available.length - 1 || reordering} aria-label={`下移设备 ${device.name}`} title="下移" onClick={() => void reorderDevice(device.id, 1)}><Icon name="chevronDown" /></button>
+            </span>
+          </div>
+        )
       })}
       {!available.length ? <p className="settings-empty">尚未添加设备</p> : null}
     </div>

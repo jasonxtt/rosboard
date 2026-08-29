@@ -136,6 +136,7 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	}
 	if existing != nil {
 		device.Archived = existing.Archived
+		device.SortOrder = existing.SortOrder
 		if existing.ManagedAccount != nil {
 			managedAccount := *existing.ManagedAccount
 			device.ManagedAccount = &managedAccount

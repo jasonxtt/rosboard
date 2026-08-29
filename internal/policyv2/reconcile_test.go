@@ -1,6 +1,9 @@
 package policyv2
 
 import (
+	"context"
+	"regexp"
+	"strings"
 	"testing"
 
 	"rosboard/internal/routeros"
@@ -188,18 +191,143 @@ func TestDiffDesiredMovesManagedObjectsToDesiredOrder(t *testing.T) {
 }
 
 func TestForeignMasqueradeIsNotManagedButLegacyOwnedMasqueradeIs(t *testing.T) {
-	prefix := managedCommentPrefix("manager", "edge")
 	foreign := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
-	if !isForeignMasquerade(routeros.MenuIPFirewallNAT, foreign, prefix, "") {
+	if !isForeignMasquerade(routeros.MenuIPFirewallNAT, foreign, "") {
 		t.Fatal("uncommented masquerade should remain outside policy ownership")
 	}
 	owned := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
-	ownedComment := managedComment(prefix, "masquerade:wan-a:ipv4")
-	if isForeignMasquerade(routeros.MenuIPFirewallNAT, owned, prefix, ownedComment) {
+	ownedComment := managedComment(managedCommentIdentityPrefix, "masquerade:wan-a:ipv4")
+	if isForeignMasquerade(routeros.MenuIPFirewallNAT, owned, ownedComment) {
+		t.Fatal("policy masquerade should remain discoverable for cleanup")
+	}
+	legacyComment := legacyManagedCommentPrefix("manager", "edge") + shortHash("masquerade:wan-a:ipv4", 16)
+	if isForeignMasquerade(routeros.MenuIPFirewallNAT, owned, legacyComment) {
 		t.Fatal("legacy policy masquerade should remain discoverable for cleanup")
 	}
 	nonMasquerade := routeros.RouterOSObject{"chain": "srcnat", "action": "src-nat"}
-	if isForeignMasquerade(routeros.MenuIPFirewallNAT, nonMasquerade, prefix, "") {
+	if isForeignMasquerade(routeros.MenuIPFirewallNAT, nonMasquerade, "") {
 		t.Fatal("non-masquerade NAT rule should not be classified as foreign masquerade")
+	}
+}
+
+type fakeScanRepository struct {
+	Repository
+	managerID string
+}
+
+func (r *fakeScanRepository) DeviceID() string { return "edge" }
+
+func (r *fakeScanRepository) ManagerInstanceID(context.Context) (string, error) {
+	return r.managerID, nil
+}
+
+type fakeScanMutation struct {
+	PolicyMutation
+	objects map[routeros.MutationMenu][]routeros.RouterOSObject
+}
+
+func (m *fakeScanMutation) List(_ context.Context, menu routeros.MutationMenu, _ routeros.MutationQuery) ([]routeros.RouterOSObject, error) {
+	return m.objects[menu], nil
+}
+
+func TestScanManagedMigratesLegacyCommentIdentityByPatch(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "route:wan-a:ipv4",
+		Menu:      string(routeros.MenuIPRoute),
+		Phase:     "routing",
+		Order:     1,
+		Fields:    map[string]string{"comment": managedComment(managedCommentIdentityPrefix, "route:wan-a:ipv4", "策略 主线 · 默认路由"), "gateway": "192.0.2.1"},
+	}}
+	legacyComment := legacyManagedCommentPrefix("manager", "edge") + shortHash("route:wan-a:ipv4", 16) + " | 策略 主线 · 默认路由"
+	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPRoute: {{"gateway": "192.0.2.1", "comment": legacyComment}},
+	}}
+	repository := &fakeScanRepository{managerID: "manager"}
+
+	actual, _, err := ScanManaged(context.Background(), mutation, repository, desired)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(actual) != 1 || actual[0].LogicalID != "route:wan-a:ipv4" {
+		t.Fatalf("legacy comment identity was not recognized: %#v", actual)
+	}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 || len(operations) != 1 {
+		t.Fatalf("legacy identity should patch in place: operations=%#v blockers=%#v", operations, blockers)
+	}
+	if operations[0].Action != "patch" || len(operations[0].After) != 1 || operations[0].After["comment"] != desired[0].Fields["comment"] {
+		t.Fatalf("migration must only rewrite the comment field: %#v", operations[0])
+	}
+}
+
+func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "rule",
+		Menu:      string(routeros.MenuIPFirewallMangle),
+		Fields:    map[string]string{"comment": managedComment(managedCommentIdentityPrefix, "rule", "策略 主线"), "chain": "prerouting"},
+	}}
+	currentLegacyComment := legacyManagedCommentPrefix("manager", "edge") + "aaaaaaaaaaaaaaaa"
+	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPFirewallMangle: {
+			{"chain": "prerouting", "comment": currentLegacyComment},
+			{"chain": "prerouting", "comment": "rb_ffffffff"},
+			{"chain": "prerouting", "comment": "rb_custom"},
+			{"chain": "prerouting", "comment": "我的自定义规则"},
+		},
+	}}
+	repository := &fakeScanRepository{managerID: "manager"}
+
+	actual, _, err := ScanManaged(context.Background(), mutation, repository, desired)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(actual) != 2 {
+		t.Fatalf("expected two recognized stale objects and two skipped foreign objects: %#v", actual)
+	}
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", blockers)
+	}
+	creates, deletes := 0, 0
+	for _, operation := range operations {
+		switch operation.Action {
+		case "create":
+			creates++
+		case "delete":
+			deletes++
+			if operation.Ownership != "owned" {
+				t.Fatalf("stale object must be deleted as owned: %#v", operation)
+			}
+		}
+	}
+	if creates != 1 || deletes != 2 {
+		t.Fatalf("expected one create and two stale deletes: operations=%#v", operations)
+	}
+}
+
+func TestManagedCommentShortFormat(t *testing.T) {
+	comment := managedComment(managedCommentIdentityPrefix, "traffic-ingress:list", "策略流量入口聚合列表")
+	if !regexp.MustCompile(`^rb_[0-9a-f]{8} \| 策略流量入口聚合列表$`).MatchString(comment) {
+		t.Fatalf("unexpected short comment format: %q", comment)
+	}
+	if legacy := legacyManagedCommentPrefix("manager", "edge"); !strings.HasPrefix(legacy, "rosboard:v2:") {
+		t.Fatalf("unexpected legacy prefix: %q", legacy)
+	}
+	for _, test := range []struct {
+		comment string
+		want    bool
+	}{
+		{comment: "rb_437614df | 标签", want: true},
+		{comment: "rb_437614df", want: true},
+		{comment: "rosboard:v2:deadbeefcafe:1234567890ab:437614df7720f810 | 标签", want: true},
+		{comment: "rb_custom", want: false},
+		{comment: "rosboard:v2:deadbeefcafe:1234567890ab:not-hex", want: false},
+		{comment: "lan", want: false},
+		{comment: "", want: false},
+	} {
+		if got := isManagedComment(test.comment); got != test.want {
+			t.Fatalf("isManagedComment(%q) = %v, want %v", test.comment, got, test.want)
+		}
 	}
 }

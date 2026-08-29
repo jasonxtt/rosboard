@@ -418,7 +418,7 @@ function EgressDraftForm({
             <PolicyField label="优先级" hint="数值越小越先匹配；不同出口的域名冲突会被阻止。">
               <input id="policy-egress-priority" className="settings-input" type="number" min={0} value={draft.priority} onChange={(e) => update({ priority: Number(e.target.value) || 0 })} />
             </PolicyField>
-            <PolicyField label="断线处理" hint={draft.failureMode === 'fallback' ? 'WAN 故障时回落 main 路由表，流量可能走非预期出口。' : '断线阻断会在 WAN 故障时丢弃流量，不泄漏到主线。'}>
+            <PolicyField label="断线处理（全局）" hint={draft.failureMode === 'fallback' ? 'WAN 故障时回落 main 路由表，流量可能走非预期出口。可在下方按已启用的地址族单独覆盖。' : '断线阻断会在 WAN 故障时丢弃流量，不泄漏到主线。可在下方按已启用的地址族单独覆盖。'}>
               <select id="policy-egress-failure" className="settings-select" value={draft.failureMode} onChange={(e) => update({ failureMode: e.target.value })}>
                 <option value="strict">断线阻断（drop 流量，不切换出口）（默认）</option>
                 <option value="fallback">切主线路（回落 main 路由表）</option>
@@ -570,9 +570,9 @@ function EgressFamilyAdvancedFields({
       <PolicyField label={`路由表（${familyName}）`} hint="留空时由 rosboard 创建专用 fib 表；填 main 表示复用主表。">
         <input id={`policy-table-${family.family}`} className="settings-input" value={family.routeTable} onChange={(event) => update({ routeTable: event.target.value })} placeholder="自动" />
       </PolicyField>
-      <PolicyField label={`路由模式（${familyName}）`}>
+      <PolicyField label={`断线处理覆盖（${familyName}）`} hint="留空时跟随上方断线处理（全局）设置。">
         <select id={`policy-route-mode-${family.family}`} className="settings-select" value={family.routeMode} onChange={(event) => update({ routeMode: event.target.value })}>
-          <option value="">跟随出口断线处理设置</option>
+          <option value="">跟随断线处理（全局）</option>
           <option value="strict">严格绑定</option>
           <option value="fallback">允许回落 main</option>
         </select>

@@ -214,7 +214,7 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 			writeJSON(writer, http.StatusOK, service.FleetOverview{Devices: []service.FleetDevice{}})
 			return
 		}
-		writeJSON(writer, http.StatusOK, s.manager.FleetOverview(time.Now()))
+		writeJSON(writer, http.StatusOK, s.manager.FleetOverview(time.Now(), s.configSnapshot().Devices))
 		return
 	}
 	if request.URL.Path == "/api/mosdns" {
@@ -578,7 +578,7 @@ type serviceOverview struct {
 
 func (s *Server) monitorFor(request *http.Request) (*service.Monitor, error) {
 	if s.manager != nil {
-		return s.manager.Monitor(strings.TrimSpace(request.URL.Query().Get("device")))
+		return s.manager.MonitorForDevices(strings.TrimSpace(request.URL.Query().Get("device")), s.configSnapshot().Devices)
 	}
 	if s.monitor != nil {
 		return s.monitor, nil
@@ -692,7 +692,11 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 			writeDeviceValidationError(writer, err)
 			return
 		}
-		if err := s.saveSettings(func(next *config.Config) { next.Devices = append(next.Devices, device) }); err != nil {
+		if err := s.saveSettings(func(next *config.Config) {
+			device.SortOrder = config.NextDeviceSortOrder(next.Devices)
+			next.Devices = append(next.Devices, device)
+			config.SortDevicesByDisplayOrder(next.Devices)
+		}); err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to save device")
 			return
 		}
@@ -714,6 +718,17 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 
 	relative := strings.TrimPrefix(request.URL.Path, "/api/devices/")
 	parts := strings.Split(relative, "/")
+
+	if len(parts) == 1 && parts[0] == "reorder" {
+		if request.Method != http.MethodPut {
+			writer.Header().Set("Allow", http.MethodPut)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.serveDeviceReorder(writer, request)
+		return
+	}
+
 	deviceID, err := url.PathUnescape(parts[0])
 	if err != nil || strings.TrimSpace(deviceID) == "" {
 		writeError(writer, http.StatusBadRequest, "invalid device id")
@@ -816,6 +831,9 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 					break
 				}
 			}
+			if found {
+				config.SortDevicesByDisplayOrder(next.Devices)
+			}
 		})
 		if err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to save device")
@@ -866,11 +884,15 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		err := s.saveSettings(func(next *config.Config) {
 			for index := range next.Devices {
 				if next.Devices[index].ID == deviceID {
+					// Restoring re-joins the device at the end of the current
+					// display order instead of reviving a stale position.
 					next.Devices[index].Archived = false
+					next.Devices[index].SortOrder = config.NextDeviceSortOrder(next.Devices)
 					found = true
 					break
 				}
 			}
+			config.SortDevicesByDisplayOrder(next.Devices)
 		})
 		if err != nil {
 			writeError(writer, http.StatusInternalServerError, "failed to restore device")
@@ -930,6 +952,74 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 		response["cleanup"] = cleanup
 	}
 	writeJSON(writer, http.StatusOK, response)
+}
+
+// serveDeviceReorder persists a user-defined display order for devices. The
+// request must list every non-archived device id exactly once in the desired
+// order; archived devices keep their relative positions after them. Validation
+// and the write happen inside the same config transaction, so a device archived
+// concurrently cannot be mistaken for an active one. Only ordering metadata
+// changes, so no monitor restart is scheduled.
+func (s *Server) serveDeviceReorder(writer http.ResponseWriter, request *http.Request) {
+	var payload struct {
+		DeviceIDs []string `json:"deviceIds"`
+	}
+	if err := decodeJSONBody(writer, request, &payload); err != nil {
+		return
+	}
+	seen := make(map[string]bool, len(payload.DeviceIDs))
+	for _, id := range payload.DeviceIDs {
+		if id == "" {
+			writeError(writer, http.StatusBadRequest, "deviceIds must not contain empty ids")
+			return
+		}
+		if seen[id] {
+			writeError(writer, http.StatusBadRequest, "deviceIds must not contain duplicates")
+			return
+		}
+		seen[id] = true
+	}
+
+	s.deviceSaveMu.Lock()
+	defer s.deviceSaveMu.Unlock()
+	validationFailed := ""
+	err := s.saveSettings(func(next *config.Config) {
+		active := make(map[string]config.DeviceConfig, len(next.Devices))
+		archived := make([]config.DeviceConfig, 0, len(next.Devices))
+		activeCount := 0
+		for _, device := range next.Devices {
+			if device.Archived || device.ID == "" {
+				archived = append(archived, device)
+				continue
+			}
+			active[device.ID] = device
+			activeCount++
+		}
+		if len(payload.DeviceIDs) != activeCount {
+			validationFailed = "deviceIds must include every non-archived device exactly once"
+			return
+		}
+		reordered := make([]config.DeviceConfig, 0, len(next.Devices))
+		for _, id := range payload.DeviceIDs {
+			device, ok := active[id]
+			if !ok {
+				validationFailed = "deviceIds must include every non-archived device exactly once"
+				return
+			}
+			device.SortOrder = len(reordered) + 1
+			reordered = append(reordered, device)
+		}
+		next.Devices = append(reordered, archived...)
+	})
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "failed to reorder devices")
+		return
+	}
+	if validationFailed != "" {
+		writeError(writer, http.StatusBadRequest, validationFailed)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "restarting": false})
 }
 
 func (s *Server) serveCollectionSettings(writer http.ResponseWriter, request *http.Request) {
