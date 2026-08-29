@@ -1565,3 +1565,36 @@ Reordered policy wizard steps, enabled direct step navigation, added edit-only s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 85: 策略路由自动同步与 RouterOS 对账修复
+
+**Date**: 2026-08-29
+**Task**: 策略路由自动同步与 RouterOS 对账修复
+**Branch**: `main`
+
+### Summary
+
+修复已绑定启用策略的域名列表保存后仍停留在 pending、必须二次应用的问题：保存和定时刷新自动同步，策略向导合并为一次同步，并清理普通流程待应用文案；同时修复 RouterOS 默认 disabled 字段导致的非法空值 patch。已通过 Go 全量测试/race/vet、前端 lint/build/audit，备份并部署 10.0.0.6，完成服务/API/嵌入资源验证及用户手动验收。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c53efae` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
