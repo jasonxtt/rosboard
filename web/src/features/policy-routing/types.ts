@@ -8,7 +8,7 @@ export type PolicyListMode = 'shared' | 'dedicated'
 
 export type PolicyFailureMode = 'strict' | 'fallback' | 'existing'
 
-export type PolicySourceType = 'url' | 'upload'
+export type PolicySourceType = 'url' | 'upload' | 'manual'
 
 export type PolicyRuleType = 'DOMAIN' | 'DOMAIN-SUFFIX'
 

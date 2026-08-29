@@ -392,6 +392,201 @@ func TestPolicyV2AssignedSourceSaveStartsAutomaticApply(t *testing.T) {
 	t.Fatalf("automatic apply did not reach a terminal state: %#v", job)
 }
 
+func TestPolicyV2ManualSourcePreviewAndSave(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	previewBody := `{"text":"- DOMAIN,ad.com,REJECT\n- DOMAIN-SUFFIX,google.com,auto\nfull:www.dingtalkcs.com\nkeyword:ads.example.com\nnot a domain"}`
+	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", previewBody)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview struct {
+		PreviewID    string                `json:"previewId"`
+		ValidRules   int                   `json:"validRules"`
+		Ignored      map[string]int        `json:"ignored"`
+		ErrorSamples []string              `json:"errorSamples"`
+		Rules        []policyv2.SourceRule `json:"rules"`
+	}
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.PreviewID == "" || preview.ValidRules != 3 || len(preview.Rules) != 3 {
+		t.Fatalf("unexpected preview: %#v", preview)
+	}
+	if preview.Ignored["keyword"] != 1 || preview.Ignored["DOMAIN-SUFFIX"] != 1 {
+		t.Fatalf("unexpected ignored summary: %#v", preview.Ignored)
+	}
+
+	saveBody, err := json.Marshal(map[string]any{
+		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := policyV2Request(t, server, http.MethodPost, "/sources", string(saveBody))
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var source policyv2.Source
+	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
+		t.Fatal(err)
+	}
+	if source.Schedule != "manual" || len(source.Versions) != 1 {
+		t.Fatalf("unexpected manual source: %#v", source)
+	}
+
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedRules, _, err := deviceStore.PolicyRepository().ListSourceRules(context.Background(), source.Versions[0].ID, policyv2.RuleQuery{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, rule := range storedRules {
+		got[rule.RuleType+":"+rule.Domain] = true
+	}
+	for _, key := range []string{"DOMAIN:ad.com", "DOMAIN-SUFFIX:google.com", "DOMAIN:www.dingtalkcs.com"} {
+		if !got[key] {
+			t.Errorf("stored rules missing %q: %#v", key, storedRules)
+		}
+	}
+}
+
+func TestPolicyV2ManualSourceSaveRejectsPreviewWithoutValidRules(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", `{"text":"keyword:ads.example.com"}`)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview struct {
+		PreviewID  string `json:"previewId"`
+		ValidRules int    `json:"validRules"`
+	}
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.ValidRules != 0 || preview.PreviewID == "" {
+		t.Fatalf("unexpected empty preview: %#v", preview)
+	}
+
+	saveBody, err := json.Marshal(map[string]any{
+		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := policyV2Request(t, server, http.MethodPost, "/sources", string(saveBody))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("save with rule-less preview status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestPolicyV2SourceTypeCannotChange(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", `{"text":"example.com"}`)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview struct {
+		PreviewID string `json:"previewId"`
+	}
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+
+	createBody, err := json.Marshal(map[string]any{
+		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := policyV2Request(t, server, http.MethodPost, "/sources", string(createBody))
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var source policyv2.Source
+	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
+		t.Fatal(err)
+	}
+
+	updateBody, err := json.Marshal(map[string]any{
+		"name": "manual-list", "type": "upload", "enabled": true, "revision": source.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := policyV2Request(t, server, http.MethodPut, "/sources/"+source.ID, string(updateBody))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("type change status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestPolicyV2SourceRulesCanSelectPendingVersion(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	source, err := repository.SaveSource(ctx, policyv2.Source{ID: "manual-source", Type: "manual", Name: "Manual", Schedule: "manual", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "active-version", SourceID: source.ID, SHA256: "active", CompressedYAML: []byte("yaml")}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "active.example"}}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitApply(ctx, state.DesiredRevision, "active-hash", policyv2.ApplyJob{ID: "active-job", PlanID: "active-plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "pending-version", SourceID: source.ID, SHA256: "pending", CompressedYAML: []byte("yaml")}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "pending.example"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	readPage := func(path string) (string, string) {
+		request := httptest.NewRequest(http.MethodGet, "/api/policy-routing"+path, nil)
+		response := httptest.NewRecorder()
+		server.servePolicyRoutingAPI(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("rules status=%d body=%s", response.Code, response.Body.String())
+		}
+		var page struct {
+			VersionID string `json:"versionId"`
+			Rules     []struct {
+				Domain string `json:"domain"`
+			} `json:"rules"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Rules) != 1 {
+			t.Fatalf("unexpected rules page: %#v", page)
+		}
+		return page.VersionID, page.Rules[0].Domain
+	}
+
+	activeVersion, activeDomain := readPage("/sources/manual-source/rules?device=edge")
+	pendingVersion, pendingDomain := readPage("/sources/manual-source/rules?device=edge&version=pending")
+	if activeVersion != "active-version" || activeDomain != "active.example" {
+		t.Fatalf("unexpected active rules: version=%q domain=%q", activeVersion, activeDomain)
+	}
+	if pendingVersion != "pending-version" || pendingDomain != "pending.example" {
+		t.Fatalf("unexpected pending rules: version=%q domain=%q", pendingVersion, pendingDomain)
+	}
+}
+
 func TestPolicyV2PlanAndApplyEndpointsMatchFrontendContract(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()

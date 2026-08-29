@@ -82,4 +82,8 @@ export const mockPolicyApi = {
   async previewUpload(_deviceID: string, _formData: FormData): Promise<PolicyPreview> {
     return { ...mockPreview, filename: 'upload.yaml', validRules: 10, rules: [{ type: 'DOMAIN-SUFFIX', domain: 'test.com' }] }
   },
+  async previewManual(_deviceID: string, body: { text: string }): Promise<PolicyPreview> {
+    const validRules = body.text.split(/\r?\n/).filter((line) => line.trim()).length
+    return { ...mockPreview, filename: '手动输入', validRules, rules: validRules ? [{ type: 'DOMAIN', domain: 'example.com' }] : [] }
+  },
 }
