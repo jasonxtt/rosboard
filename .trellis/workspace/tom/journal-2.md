@@ -1665,3 +1665,45 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 88: 识别设置全量按设备化（MosDNS/协议分析/特征库）
+
+**Date**: 2026-08-30
+**Task**: 识别设置全量按设备化（MosDNS/协议分析/特征库）
+**Branch**: `main`
+
+### Summary
+
+识别设置全部按设备独立并部署验收通过
+
+### Main Changes
+
+按用户确认的方案把识别设置（协议分析总开关、MosDNS 对接、协议特征库）从进程级全局配置改为全部按 RouterOS 设备独立：
+
+- config：三项设置全部下沉到 devices[]（protocol_analysis/feature_library/mosdns），移除全局段、ROSBOARD_MOSDNS_*/ROSBOARD_FEATURE_LIBRARY_* 环境变量与全部识别迁移逻辑；Config.ProtocolAnalysis 保留为 yaml:"-" 运行时载体以零侵入传入 Monitor。
+- store：DNS 表 + mosdns_state 进每个设备库（物理隔离）；版本化一次性清空旧全局 DNS 数据与遗留水位（dns_scope_migrated="2"）；purgeDNSData 接入 PurgeDevice 与 ResetAll（含未打开的设备库文件）；ForDevice 子库打开失败返回 nil 不再回退 owner 库。
+- service：每设备独立 MosDNS 同步器、特征库同步器（防碰撞独立缓存文件）与应用归因器；设备级 RecognitionStatus/MosDNSStatus；同步器初始化失败进入状态 LastError。
+- api：识别设置按设备保存（关总开关强制关子项、只动列出的设备）；设备编辑不携带识别字段则保留；/api/protocols 按设备门控且回退与 MonitorForDevices 一致；/api/recognition|mosdns|mosdns/observations 需 deviceId。
+- web：识别设置成为 主机设置 > 识别设置 二级子菜单（策略路由下方），页面跟随顶部设备切换器，只展示/保存当前设备；protocols 页面门控按选中设备且等 settings 加载后再重定向。
+
+过程：外部 agent review 发现 8 个问题（5 P1 + 3 P2）全部修复；一次部署事故（marker 唯一约束导致约 3 分钟重启循环）当场修复并补回归测试。部署全程按门禁执行（NAS 时间戳备份 20260829T154153Z-per-device-mosdns + iteration1-4 留档，干净基线构建避开并行会话的策略路由 WIP），用户已在 10.0.0.6 人工验收通过。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c808cb0` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
