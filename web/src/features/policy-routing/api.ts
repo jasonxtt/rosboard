@@ -12,6 +12,7 @@ import type {
   PolicyRulesPage,
   PolicySource,
   PolicySourceDraft,
+  PolicySourceSaveResult,
 } from './types'
 import { PolicyApiError } from './types'
 
@@ -225,6 +226,16 @@ function parseSource(value: unknown): PolicySource {
     pendingDeletion: safeBoolean(o.pendingDeletion ?? o.PendingDelete),
     versions: safeArray<unknown>(o.versions ?? o.Versions).map(parseSourceVersion),
     counts: numberRecord(o.counts ?? o.Counts),
+  }
+}
+
+function parseSourceSaveResult(value: unknown): PolicySourceSaveResult {
+  const o = safeObject(value)
+  const job = o.job ? parseJob(o.job) : undefined
+  return {
+    source: parseSource(o.source ?? value),
+    job,
+    jobId: safeString(o.jobId ?? job?.id),
   }
 }
 
@@ -674,11 +685,20 @@ export function deleteEgress(deviceID: string, id: string, revision: number, sig
   return policyFetch(deviceID, `/egresses/${encodeURIComponent(id)}?revision=${revision}`, { method: 'DELETE', signal }, parseApplyResult)
 }
 
-export function saveSource(deviceID: string, draft: PolicySourceDraft, extra?: { previewId?: string }, signal?: AbortSignal | null): Promise<PolicySource> {
+export function saveSource(
+  deviceID: string,
+  draft: PolicySourceDraft,
+  extra?: { previewId?: string; deferApply?: boolean },
+  signal?: AbortSignal | null,
+): Promise<PolicySourceSaveResult> {
   const method = draft.id ? 'PUT' : 'POST'
   const path = draft.id ? `/sources/${encodeURIComponent(draft.id)}` : '/sources'
-  const body = { ...draft, ...(extra?.previewId ? { previewId: extra.previewId } : {}) }
-  return policyFetch(deviceID, path, { method, body, signal }, parseSource)
+  const body = {
+    ...draft,
+    ...(extra?.previewId ? { previewId: extra.previewId } : {}),
+    ...(extra?.deferApply ? { deferApply: true } : {}),
+  }
+  return policyFetch(deviceID, path, { method, body, signal }, parseSourceSaveResult)
 }
 
 export function deleteSource(deviceID: string, id: string, revision: number, signal?: AbortSignal | null): Promise<PolicyApplyResult> {
@@ -702,6 +722,17 @@ export function fetchSourceRules(
 
 export function fetchJob(deviceID: string, id: string, signal?: AbortSignal | null): Promise<PolicyJob> {
   return policyFetch(deviceID, `/jobs/${encodeURIComponent(id)}`, { signal }, (value) => parseJob(safeObject(value).job ?? value))
+}
+
+export async function waitForPolicyJob(deviceID: string, id: string): Promise<PolicyJob> {
+  for (;;) {
+    const job = await fetchJob(deviceID, id)
+    if (job.state === 'committed') return job
+    if (['cancelled_before_write', 'committed_partial', 'failed', 'needs_decision', 'rolled_back', 'rollback_failed'].includes(job.state)) {
+      throw new Error(job.primaryError || job.error || 'RouterOS 同步失败')
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+  }
 }
 
 export function cancelJob(deviceID: string, id: string, signal?: AbortSignal | null): Promise<PolicyJob> {

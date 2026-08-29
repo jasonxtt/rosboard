@@ -5,6 +5,7 @@ import type {
   PolicyOverview,
   PolicyPreview,
   PolicySource,
+  PolicySourceSaveResult,
 } from '../types'
 
 const mockEgresses: PolicyEgress[] = [
@@ -70,8 +71,10 @@ export const mockPolicyApi = {
   async saveEgress(_deviceID: string, draft: import('../types').PolicyEgressDraft): Promise<PolicyEgress> {
     return { ...mockEgresses[0], ...draft, id: draft.id || 'mock-egress-new', applied: false, pendingDeletion: false, sources: [] }
   },
-  async saveSource(_deviceID: string, draft: import('../types').PolicySourceDraft): Promise<PolicySource> {
-    return { ...mockSources[0], ...draft, id: draft.id || 'mock-source-new', versions: [], pendingDeletion: false }
+  async saveSource(_deviceID: string, draft: import('../types').PolicySourceDraft): Promise<PolicySourceSaveResult> {
+    return {
+      source: { ...mockSources[0], ...draft, id: draft.id || 'mock-source-new', versions: [], pendingDeletion: false },
+    }
   },
   async previewURL(_deviceID: string, _body: { url: string }): Promise<PolicyPreview> {
     return { ...mockPreview, url: _body.url, validRules: 42, rules: [{ type: 'DOMAIN', domain: 'example.com' }] }

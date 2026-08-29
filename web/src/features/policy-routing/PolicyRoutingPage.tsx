@@ -43,8 +43,8 @@ export function PolicyRoutingPage({
     setWizardEgress(undefined)
     const jobID = result?.jobId ?? result?.job?.id
     setStatusMessage(jobID
-      ? `变更已提交，后台任务正在处理（任务 ${jobID.slice(0, 8)}）。RouterOS 写入是异步的，刷新可查看草稿状态。`
-      : '变更已提交，后台任务正在处理。RouterOS 写入是异步的，刷新可查看草稿状态。')
+      ? `变更已保存，正在同步 RouterOS（任务 ${jobID.slice(0, 8)}）。`
+      : '变更已保存，正在同步 RouterOS。')
     void reload()
   }, [reload])
 
@@ -70,11 +70,11 @@ export function PolicyRoutingPage({
 
       {setupState === 'manager_unavailable' ? (
         <PolicyNotice tone="warn" title="策略管理器不可用">
-          策略管理器未运行，当前仅展示已保存在面板的草稿与历史状态；扫描、计划与应用不可用。
+          策略管理器未运行，当前仅展示已保存在面板的草稿与历史状态；扫描和自动同步不可用。
         </PolicyNotice>
       ) : setupState === 'runtime_unavailable' ? (
         <PolicyNotice tone="warn" title="RouterOS 策略运行时不可用">
-          {overview.capability?.reason || '无法连接 RouterOS 策略运行时。'}草稿仍可编辑，预览与应用暂不可用。
+          {overview.capability?.reason || '无法连接 RouterOS 策略运行时。'}草稿仍可编辑，预览与自动同步暂不可用。
         </PolicyNotice>
       ) : setupState === 'write_access_required' ? (
         <PolicyNotice tone="warn" title="RouterOS 账号缺少写入权限">
@@ -84,7 +84,7 @@ export function PolicyRoutingPage({
 
       {readOnly && setupState === 'ready' ? (
         <PolicyNotice tone="info" title="当前为只读状态">
-          设备已停用、账号缺少写权限或策略运行时未就绪，草稿编辑、预览与应用暂不可用。
+          设备已停用、账号缺少写权限或策略运行时未就绪，草稿编辑、预览与自动同步暂不可用。
         </PolicyNotice>
       ) : null}
 

@@ -25,7 +25,17 @@
 - Dedicated address-list names contain a sanitized source-name keyword and a short stable suffix. Renaming a source may replace its dedicated list name but must preserve exact ownership and cleanup.
 - New egress drafts default to one shared mark list per egress, named from the egress name as `manual_<egress-name>_lab`; the name is generated and read-only. Dedicated mode remains available as an explicit opt-in, and existing egresses retain their stored list mode during edit.
 - Dynamic VPN ingress is included through a selected stable RouterOS interface list. WireGuard and other fixed interfaces may be selected directly; rosboard does not configure the VPN service itself.
-- Source schedules may create pending versions but never apply RouterOS changes automatically.
+- Ordinary saves for an enabled source assigned to an enabled egress automatically
+  generate and execute one synchronization job after the desired state is
+  persisted; the source editor waits for that job before showing the active
+  version.
+- The policy wizard defers its intermediate source rebinding writes and
+  automatically synchronizes once after all egress, ingress, and source changes
+  are saved. Blocked, takeover, and drift-recovery plans retain an explicit
+  confirmation flow.
+- Scheduled URL refreshes batch due source updates per device and automatically
+  synchronize assigned enabled sources. Unassigned sources and sources whose
+  egress is disabled may remain pending until a later eligible save.
 
 ### 4. Validation & Error Matrix
 

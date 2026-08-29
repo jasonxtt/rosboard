@@ -274,6 +274,7 @@ func (m *Manager) RefreshDue(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
+		needsApply := false
 		for _, source := range sources {
 			interval, ok := sourceScheduleInterval(source.Schedule)
 			if !ok || source.Type != "url" || !source.Enabled || source.PendingDeletion || source.PendingVersionID != "" {
@@ -287,12 +288,32 @@ func (m *Manager) RefreshDue(ctx context.Context, now time.Time) error {
 			if refreshErr != nil {
 				refresh = SourceRefresh{Version: &SourceVersion{ID: uuid.NewString(), SourceID: source.ID, State: "failed", Error: refreshErr.Error(), CreatedAt: now}}
 			}
-			if err := applier.Repo.SaveSourceRefresh(ctx, source, refresh, next); err != nil && !errors.Is(err, ErrRevisionStale) {
+			saveErr := applier.Repo.SaveSourceRefresh(ctx, source, refresh, next)
+			if saveErr != nil && !errors.Is(saveErr, ErrRevisionStale) {
+				return saveErr
+			}
+			if saveErr == nil && refresh.Version != nil && refresh.Version.State != "failed" && SourceAutoApplyEligible(ctx, applier.Repo, source) {
+				needsApply = true
+			}
+		}
+		if needsApply {
+			if _, err := m.GenerateAndApply(ctx, applier.Repo.DeviceID(), "source-refresh"); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// SourceAutoApplyEligible reports whether a source change should be reflected
+// in RouterOS immediately. Unassigned and disabled policy sources remain
+// drafts until a later binding or enable operation makes them relevant.
+func SourceAutoApplyEligible(ctx context.Context, repository Repository, source Source) bool {
+	if repository == nil || source.EgressID == "" || !source.Enabled || source.PendingDeletion {
+		return false
+	}
+	egress, err := repository.GetEgress(ctx, source.EgressID)
+	return err == nil && egress.Enabled && !egress.PendingDeletion
 }
 
 func sourceScheduleInterval(value string) (time.Duration, bool) {
