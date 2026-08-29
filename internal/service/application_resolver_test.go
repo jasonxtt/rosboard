@@ -24,7 +24,7 @@ func TestApplicationResolverMatchesRecentDNSObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer storage.Close()
-	feature, err := NewFeatureLibrarySynchronizer(config.FeatureLibraryConfig{Enabled: true, SourceURL: server.URL, RefreshIntervalHours: 1, MatchWindowMinutes: 30}, t.TempDir(), nil)
+	feature, err := NewFeatureLibrarySynchronizer(config.FeatureLibraryConfig{Enabled: true, SourceURL: server.URL, RefreshIntervalHours: 1, MatchWindowMinutes: 30}, t.TempDir(), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

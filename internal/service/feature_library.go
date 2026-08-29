@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -40,7 +42,10 @@ type FeatureLibrarySynchronizer struct {
 	status  FeatureLibraryStatus
 }
 
-func NewFeatureLibrarySynchronizer(cfg config.FeatureLibraryConfig, dataDir string, logger *log.Logger) (*FeatureLibrarySynchronizer, error) {
+// NewFeatureLibrarySynchronizer builds one library synchronizer per device.
+// Each device keeps its own cache file so independent source URLs, refresh
+// cycles, and rule sets never bleed across routers.
+func NewFeatureLibrarySynchronizer(cfg config.FeatureLibraryConfig, dataDir string, logger *log.Logger, deviceID string) (*FeatureLibrarySynchronizer, error) {
 	if !cfg.Configured() {
 		return nil, nil
 	}
@@ -57,7 +62,7 @@ func NewFeatureLibrarySynchronizer(cfg config.FeatureLibraryConfig, dataDir stri
 	synchronizer := &FeatureLibrarySynchronizer{
 		client:    &http.Client{Timeout: 30 * time.Second},
 		config:    cfg,
-		cachePath: filepath.Join(dataDir, "feature-library.yml"),
+		cachePath: featureLibraryCachePath(dataDir, deviceID),
 		logger:    logger,
 		interval:  time.Duration(cfg.RefreshIntervalHours) * time.Hour,
 		status: FeatureLibraryStatus{
@@ -76,6 +81,33 @@ func NewFeatureLibrarySynchronizer(cfg config.FeatureLibraryConfig, dataDir stri
 		}
 	}
 	return synchronizer, nil
+}
+
+// featureLibraryCachePath derives the per-device cache file name. The default
+// device keeps the legacy shared file name so existing caches remain valid.
+// Sanitized device IDs get a short hash suffix so two different IDs can never
+// collide on the same cache file (same strategy as device database names).
+func featureLibraryCachePath(dataDir, deviceID string) string {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" || deviceID == "default" {
+		return filepath.Join(dataDir, "feature-library.yml")
+	}
+	var builder strings.Builder
+	sanitized := true
+	for _, character := range deviceID {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.' {
+			builder.WriteRune(character)
+		} else {
+			builder.WriteByte('_')
+			sanitized = false
+		}
+	}
+	name := builder.String()
+	if !sanitized {
+		sum := sha256.Sum256([]byte(deviceID))
+		name = fmt.Sprintf("%s-%s", name, hex.EncodeToString(sum[:4]))
+	}
+	return filepath.Join(dataDir, "feature-library-"+name+".yml")
 }
 
 func (s *FeatureLibrarySynchronizer) Start(ctx context.Context) {

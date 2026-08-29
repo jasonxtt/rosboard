@@ -21,16 +21,18 @@ var (
 )
 
 type DeviceStatus struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Enabled    bool      `json:"enabled"`
-	Archived   bool      `json:"archived"`
-	Healthy    bool      `json:"healthy"`
-	Error      string    `json:"error,omitempty"`
-	RouterName string    `json:"routerName"`
-	Version    string    `json:"version"`
-	UpdatedAt  time.Time `json:"updatedAt"`
-	SortOrder  int       `json:"-"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Enabled        bool                  `json:"enabled"`
+	Archived       bool                  `json:"archived"`
+	Healthy        bool                  `json:"healthy"`
+	Error          string                `json:"error,omitempty"`
+	RouterName     string                `json:"routerName"`
+	Version        string                `json:"version"`
+	UpdatedAt      time.Time             `json:"updatedAt"`
+	SortOrder      int                   `json:"-"`
+	MosDNS         *MosDNSStatus         `json:"mosdns,omitempty"`
+	FeatureLibrary *FeatureLibraryStatus `json:"featureLibrary,omitempty"`
 }
 
 const fleetSnapshotStaleAfter = 90 * time.Second
@@ -77,55 +79,26 @@ type FleetDevice struct {
 }
 
 type managedMonitor struct {
-	device  config.DeviceConfig
-	monitor *Monitor
-	started bool
-	err     string
+	device         config.DeviceConfig
+	monitor        *Monitor
+	mosdns         *MosDNSSynchronizer
+	mosdnsInitErr  string
+	feature        *FeatureLibrarySynchronizer
+	featureInitErr string
+	started        bool
+	err            string
 }
 
 type MonitorManager struct {
-	mu               sync.RWMutex
-	items            map[string]*managedMonitor
-	order            []string
-	logger           *log.Logger
-	storage          *store.Store
-	mosdns           *MosDNSSynchronizer
-	mosdnsConfig     config.MosDNSConfig
-	mosdnsInitErr    string
-	feature          *FeatureLibrarySynchronizer
-	featureConfig    config.FeatureLibraryConfig
-	featureInitErr   string
-	resolver         *ApplicationResolver
-	protocolAnalysis bool
+	mu      sync.RWMutex
+	items   map[string]*managedMonitor
+	order   []string
+	logger  *log.Logger
+	storage *store.Store
 }
 
 func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) (*MonitorManager, error) {
-	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage, mosdnsConfig: cfg.MosDNS, featureConfig: cfg.FeatureLibrary, protocolAnalysis: cfg.ProtocolAnalysis.Enabled}
-	if manager.protocolAnalysis && cfg.MosDNS.Configured() {
-		mosdns, err := NewMosDNSSynchronizer(cfg.MosDNS, storage, logger, cfg.SampleRetentionHours)
-		if err != nil {
-			manager.mosdnsInitErr = err.Error()
-			if logger != nil {
-				logger.Printf("MosDNS sync disabled: %v", err)
-			}
-		} else {
-			manager.mosdns = mosdns
-		}
-	}
-	if manager.protocolAnalysis && cfg.FeatureLibrary.Configured() {
-		feature, err := NewFeatureLibrarySynchronizer(cfg.FeatureLibrary, cfg.DataDir, logger)
-		if err != nil {
-			manager.featureInitErr = err.Error()
-			if logger != nil {
-				logger.Printf("feature library disabled: %v", err)
-			}
-		} else {
-			manager.feature = feature
-		}
-	}
-	if manager.protocolAnalysis {
-		manager.resolver = NewApplicationResolver(storage, manager.feature, cfg.MosDNS.Configured(), cfg.FeatureLibrary.MatchWindowMinutes)
-	}
+	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage}
 	for _, device := range cfg.Devices {
 		if device.Archived {
 			continue
@@ -134,13 +107,36 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 		if device.Enabled && device.RouterOS.Configured() {
 			deviceConfig := cfg
 			deviceConfig.RouterOS = device.RouterOS
+			deviceConfig.ProtocolAnalysis = config.ProtocolAnalysisConfig{Enabled: device.ProtocolAnalysis}
 			client := routeros.NewClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password)
 			deviceStore, err := storage.OpenDevice(device.ID)
 			if err != nil {
 				return nil, fmt.Errorf("open store for device %s: %w", device.ID, err)
 			}
 			item.monitor = NewMonitor(deviceConfig, client, deviceStore, logger)
-			item.monitor.SetApplicationResolver(manager.resolver)
+			if device.ProtocolAnalysis {
+				feature, err := NewFeatureLibrarySynchronizer(device.FeatureLibrary, cfg.DataDir, logger, device.ID)
+				if err != nil {
+					item.featureInitErr = err.Error()
+					if logger != nil {
+						logger.Printf("device %s feature library disabled: %v", device.ID, err)
+					}
+				} else {
+					item.feature = feature
+				}
+				item.monitor.SetApplicationResolver(NewApplicationResolver(deviceStore, item.feature, device.MosDNS.Configured(), device.FeatureLibrary.MatchWindowMinutes))
+				if device.MosDNS.Configured() {
+					mosdns, err := NewMosDNSSynchronizer(device.MosDNS, deviceStore, logger, cfg.SampleRetentionHours)
+					if err != nil {
+						item.mosdnsInitErr = err.Error()
+						if logger != nil {
+							logger.Printf("device %s MosDNS sync disabled: %v", device.ID, err)
+						}
+					} else {
+						item.mosdns = mosdns
+					}
+				}
+			}
 		}
 		manager.items[device.ID] = item
 		manager.order = append(manager.order, device.ID)
@@ -149,22 +145,27 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 }
 
 func (m *MonitorManager) Start(ctx context.Context) {
-	if m.mosdns != nil {
-		go m.mosdns.Start(ctx)
-	}
-	if m.feature != nil {
-		go m.feature.Start(ctx)
-	}
-	var wait sync.WaitGroup
 	m.mu.RLock()
 	items := make([]*managedMonitor, 0, len(m.items))
 	for _, id := range m.order {
-		if item := m.items[id]; item != nil && item.monitor != nil {
+		if item := m.items[id]; item != nil {
 			items = append(items, item)
 		}
 	}
 	m.mu.RUnlock()
 	for _, item := range items {
+		if item.mosdns != nil {
+			go item.mosdns.Start(ctx)
+		}
+		if item.feature != nil {
+			go item.feature.Start(ctx)
+		}
+	}
+	var wait sync.WaitGroup
+	for _, item := range items {
+		if item.monitor == nil {
+			continue
+		}
 		wait.Add(1)
 		go func(item *managedMonitor) {
 			defer wait.Done()
@@ -176,45 +177,72 @@ func (m *MonitorManager) Start(ctx context.Context) {
 	wait.Wait()
 }
 
-func (m *MonitorManager) MosDNSStatus() MosDNSStatus {
-	if m == nil || !m.protocolAnalysis {
+// MosDNSStatus reports the per-device MosDNS recognition status. Devices
+// without their own MosDNS configuration report an empty status.
+func (m *MonitorManager) MosDNSStatus(deviceID string) MosDNSStatus {
+	if m == nil {
 		return MosDNSStatus{}
 	}
-	if m.mosdns != nil {
-		return m.mosdns.Status()
+	m.mu.RLock()
+	item := m.items[deviceID]
+	m.mu.RUnlock()
+	if item == nil || !item.device.ProtocolAnalysis {
+		return MosDNSStatus{}
 	}
-	status := MosDNSStatus{
-		Enabled:             m.mosdnsConfig.Configured(),
-		BaseURL:             m.mosdnsConfig.BaseURL,
-		SyncIntervalMinutes: m.mosdnsConfig.SyncIntervalMinutes,
-		LastError:           m.mosdnsInitErr,
+	if item.mosdns != nil {
+		return item.mosdns.Status()
 	}
-	return status
+	return MosDNSStatus{
+		Enabled:             item.device.MosDNS.Configured(),
+		BaseURL:             item.device.MosDNS.BaseURL,
+		SyncIntervalMinutes: item.device.MosDNS.SyncIntervalMinutes,
+		LastError:           item.mosdnsInitErr,
+	}
 }
 
 type RecognitionStatus struct {
-	MosDNS         MosDNSStatus         `json:"mosdns"`
-	FeatureLibrary FeatureLibraryStatus `json:"featureLibrary"`
+	ProtocolAnalysis bool                 `json:"protocolAnalysis"`
+	MosDNS           MosDNSStatus         `json:"mosdns"`
+	FeatureLibrary   FeatureLibraryStatus `json:"featureLibrary"`
 }
 
-func (m *MonitorManager) RecognitionStatus() RecognitionStatus {
-	if m == nil || !m.protocolAnalysis {
+// RecognitionStatus reports the full per-device recognition state (protocol
+// analysis master switch, MosDNS sync, feature library). Every field is
+// scoped to one RouterOS device; devices without configured monitors report
+// the stored configuration only.
+func (m *MonitorManager) RecognitionStatus(deviceID string) RecognitionStatus {
+	if m == nil {
 		return RecognitionStatus{}
 	}
-	mosStatus := m.MosDNSStatus()
-	if m.feature != nil {
-		return RecognitionStatus{MosDNS: mosStatus, FeatureLibrary: m.feature.Status()}
+	m.mu.RLock()
+	item := m.items[deviceID]
+	m.mu.RUnlock()
+	if item == nil {
+		return RecognitionStatus{}
 	}
-	return RecognitionStatus{
-		MosDNS: mosStatus,
-		FeatureLibrary: FeatureLibraryStatus{
-			Enabled:              m.featureConfig.Configured(),
-			SourceURL:            m.featureConfig.SourceURL,
-			RefreshIntervalHours: m.featureConfig.RefreshIntervalHours,
-			MatchWindowMinutes:   m.featureConfig.MatchWindowMinutes,
-			LastError:            m.featureInitErr,
-		},
+	status := RecognitionStatus{ProtocolAnalysis: item.device.ProtocolAnalysis}
+	if item.mosdns != nil {
+		status.MosDNS = item.mosdns.Status()
+	} else {
+		status.MosDNS = MosDNSStatus{
+			Enabled:             item.device.MosDNS.Configured(),
+			BaseURL:             item.device.MosDNS.BaseURL,
+			SyncIntervalMinutes: item.device.MosDNS.SyncIntervalMinutes,
+			LastError:           item.mosdnsInitErr,
+		}
 	}
+	if item.feature != nil {
+		status.FeatureLibrary = item.feature.Status()
+	} else {
+		status.FeatureLibrary = FeatureLibraryStatus{
+			Enabled:              item.device.FeatureLibrary.Configured(),
+			SourceURL:            item.device.FeatureLibrary.SourceURL,
+			RefreshIntervalHours: item.device.FeatureLibrary.RefreshIntervalHours,
+			MatchWindowMinutes:   item.device.FeatureLibrary.MatchWindowMinutes,
+			LastError:            item.featureInitErr,
+		}
+	}
+	return status
 }
 
 func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor, waitPhase bool) error {
@@ -371,6 +399,29 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 				status.RouterName = overview.RouterName
 				status.Version = overview.Version
 				status.UpdatedAt = overview.UpdatedAt
+			}
+			if device.ProtocolAnalysis {
+				mosStatus := MosDNSStatus{
+					Enabled:             device.MosDNS.Configured(),
+					BaseURL:             device.MosDNS.BaseURL,
+					SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
+					LastError:           item.mosdnsInitErr,
+				}
+				if item.mosdns != nil {
+					mosStatus = item.mosdns.Status()
+				}
+				status.MosDNS = &mosStatus
+				featureStatus := FeatureLibraryStatus{
+					Enabled:              device.FeatureLibrary.Configured(),
+					SourceURL:            device.FeatureLibrary.SourceURL,
+					RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
+					MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
+					LastError:            item.featureInitErr,
+				}
+				if item.feature != nil {
+					featureStatus = item.feature.Status()
+				}
+				status.FeatureLibrary = &featureStatus
 			}
 		}
 		result = append(result, status)

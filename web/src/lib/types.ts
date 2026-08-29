@@ -193,10 +193,37 @@ export type DHCPPoolStat = { name: string; ranges: string; total: number; used: 
 export type DHCPLeaseStat = { id: string; address: string; macAddress: string; hostName: string; comment: string; server: string; status: string; expiresAfter: number; lastSeen: number; dynamic: boolean; blocked: boolean; disabled: boolean }
 export type DHCPStat = { servers: DHCPServerStat[]; pools: DHCPPoolStat[]; leases: DHCPLeaseStat[] }
 
-export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string }
+export type MosDNSStatus = {
+  enabled: boolean
+  baseUrl: string
+  syncIntervalMinutes: number
+  lastAttempt?: string
+  lastSuccess?: string
+  lastImported: number
+  lastDuplicates: number
+  lastSkipped: number
+  watermark?: string
+  learnedFeatureCount: number
+  learnedFeatureLastSeen?: string
+  lastError?: string
+}
+export type FeatureLibraryStatus = {
+  enabled: boolean
+  sourceUrl: string
+  refreshIntervalHours: number
+  matchWindowMinutes: number
+  ruleCount: number
+  lastAttempt?: string
+  lastSuccess?: string
+  lastError?: string
+}
+export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string; mosdns?: MosDNSStatus; featureLibrary?: FeatureLibraryStatus }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
   username: string; passwordSet: boolean; cleanupAvailable: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
+  protocolAnalysis: boolean
+  featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
+  mosdns?: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
 }
 export type DeviceAccountStatus = {
   username: string
@@ -265,33 +292,6 @@ export type SettingsResponse = {
     realtimePollIntervalSeconds: number
     terminalPollIntervalSeconds: number
     sampleRetentionHours: number
-  }
-  protocolAnalysis?: {
-    enabled: boolean
-  }
-  mosdns: {
-    enabled: boolean
-    baseUrl: string
-    syncIntervalMinutes: number
-    lastAttempt?: string
-    lastSuccess?: string
-    lastImported: number
-    lastDuplicates: number
-    lastSkipped: number
-    watermark?: string
-    learnedFeatureCount: number
-    learnedFeatureLastSeen?: string
-    lastError?: string
-  }
-  featureLibrary: {
-    enabled: boolean
-    sourceUrl: string
-    refreshIntervalHours: number
-    matchWindowMinutes: number
-    ruleCount: number
-    lastAttempt?: string
-    lastSuccess?: string
-    lastError?: string
   }
   diagnostics: {
     routerName: string
@@ -400,7 +400,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'policy-routing'
+export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'policy-routing' | 'recognition'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

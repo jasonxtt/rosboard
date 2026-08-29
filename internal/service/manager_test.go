@@ -6,6 +6,7 @@ import (
 
 	"rosboard/internal/config"
 	"rosboard/internal/model"
+	"rosboard/internal/store"
 )
 
 func TestStatusesSortBySortOrderThenName(t *testing.T) {
@@ -127,19 +128,44 @@ func TestMonitorRetryDelayBacksOffAndCaps(t *testing.T) {
 	}
 }
 
-func TestProtocolAnalysisDisabledSkipsRecognitionServices(t *testing.T) {
-	manager, err := NewMonitorManager(config.Config{
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: false},
-		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 30},
-	}, nil, nil)
+func TestPerDeviceRecognitionServicesFollowDeviceSwitch(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.mosdns != nil || manager.feature != nil || manager.resolver != nil {
-		t.Fatalf("recognition services must stay nil when protocol analysis is disabled: %+v", manager)
+	defer storage.Close()
+	cfg := config.Config{
+		DataDir: t.TempDir(),
+		Devices: []config.DeviceConfig{
+			{
+				ID: "on", Name: "On", Enabled: true,
+				RouterOS:         config.RouterOSConfig{BaseURL: "http://on.test", Username: "u", Password: "p"},
+				ProtocolAnalysis: true,
+				FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 30},
+				MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+			},
+			{
+				ID: "off", Name: "Off", Enabled: true,
+				RouterOS: config.RouterOSConfig{BaseURL: "http://off.test", Username: "u", Password: "p"},
+			},
+		},
 	}
-	if manager.MosDNSStatus() != (MosDNSStatus{}) || manager.RecognitionStatus() != (RecognitionStatus{}) {
-		t.Fatalf("recognition status must be zero when protocol analysis is disabled: mosdns=%+v recognition=%+v", manager.MosDNSStatus(), manager.RecognitionStatus())
+	manager, err := NewMonitorManager(cfg, storage, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.items["on"].feature == nil || manager.items["on"].mosdns == nil {
+		t.Fatalf("enabled device must own its recognition services: %+v", manager.items["on"])
+	}
+	if manager.items["off"].feature != nil || manager.items["off"].mosdns != nil {
+		t.Fatalf("disabled device must not own recognition services: %+v", manager.items["off"])
+	}
+	onStatus := manager.RecognitionStatus("on")
+	if !onStatus.ProtocolAnalysis || !onStatus.MosDNS.Enabled || !onStatus.FeatureLibrary.Enabled {
+		t.Fatalf("enabled device recognition status incomplete: %+v", onStatus)
+	}
+	offStatus := manager.RecognitionStatus("off")
+	if offStatus.ProtocolAnalysis || offStatus.MosDNS.Enabled || offStatus.FeatureLibrary.Enabled {
+		t.Fatalf("disabled device recognition status must be off: %+v", offStatus)
 	}
 }
