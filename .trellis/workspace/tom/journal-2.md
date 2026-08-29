@@ -1773,3 +1773,36 @@ Deployed and user-accepted the integrated policy routing, naming, and device ord
 ### Next Steps
 
 - None - task complete
+
+
+## Session 91: 补全项目开发规范并归档初始化任务
+
+**Date**: 2026-08-30
+**Task**: 补全项目开发规范并归档初始化任务
+**Branch**: `main`
+
+### Summary
+
+依据当前 Go/React 代码补全 backend/frontend Trellis spec，记录目录、错误、日志、质量、Hook、状态和类型约定及真实示例；验证通过后归档 00-bootstrap-guidelines。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e59178a` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
