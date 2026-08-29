@@ -69,6 +69,14 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 			s.servePolicyUploadPreview(writer, request)
 			return
 		}
+		if len(parts) >= 2 && parts[1] == "manual" && len(parts) >= 3 && parts[2] == "preview" {
+			if request.Method != http.MethodPost {
+				writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+				return
+			}
+			s.servePolicyManualPreview(writer, request)
+			return
+		}
 		s.servePolicySource(writer, request, parts)
 	case "plans":
 		s.servePolicyPlans(writer, request, parts)
@@ -705,8 +713,8 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_source", "error": "name is required"})
 		return
 	}
-	if src.Type != "url" && src.Type != "upload" {
-		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "type must be url or upload"})
+	if src.Type != "url" && src.Type != "upload" && src.Type != "manual" {
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "type must be url, upload or manual"})
 		return
 	}
 	var current policyv2.Source
@@ -715,6 +723,10 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 		current, err = device.repository.GetSource(request.Context(), pathID)
 		if err != nil {
 			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
+			return
+		}
+		if current.Type != src.Type {
+			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "source type cannot be changed"})
 			return
 		}
 	}
@@ -731,12 +743,15 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 			src.NextRunAt = time.Now().UTC().Add(interval)
 		}
 	} else {
+		src.URL = ""
+		src.ETag = ""
+		src.LastModified = ""
 		src.Schedule = "manual"
 		src.NextRunAt = time.Unix(0, 0).UTC()
 	}
 	contentChanged := pathID == "" || payload.PreviewID != ""
 	if pathID != "" {
-		contentChanged = current.Type != src.Type || current.URL != src.URL
+		contentChanged = src.Type == "url" && current.URL != src.URL
 		contentChanged = contentChanged || payload.PreviewID != ""
 	}
 	var preview policyPreviewEntry
@@ -745,6 +760,10 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 		preview, found = s.policyPreview(payload.PreviewID, device.device.ID)
 		if !found || preview.SourceType != src.Type {
 			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source_preview", "error": "a valid source preview is required"})
+			return
+		}
+		if len(preview.Content.Rules) == 0 {
+			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source_preview", "error": "source preview contains no valid rules"})
 			return
 		}
 		if src.Type == "url" {
@@ -856,10 +875,6 @@ func (s *Server) servePolicySourceRules(writer http.ResponseWriter, request *htt
 		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
 		return
 	}
-	if src.ActiveVersionID == "" {
-		writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "rules": []any{}, "nextCursor": ""})
-		return
-	}
 	limit := 100
 	if l := request.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 1000 {
@@ -876,7 +891,15 @@ func (s *Server) servePolicySourceRules(writer http.ResponseWriter, request *htt
 		}
 		query.AfterType, query.AfterDomain = parts[0], parts[1]
 	}
-	rules, hasNext, err := device.repository.ListSourceRules(request.Context(), src.ActiveVersionID, query)
+	// Draft sources that were never applied (no egress assigned yet) keep
+	// their rules on the pending version; fall back so rules stay viewable.
+	versionID := src.ActiveVersionID
+	if request.URL.Query().Get("version") == "pending" && src.PendingVersionID != "" {
+		versionID = src.PendingVersionID
+	} else if versionID == "" {
+		versionID = src.PendingVersionID
+	}
+	rules, hasNext, err := device.repository.ListSourceRules(request.Context(), versionID, query)
 	if err != nil {
 		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "rules_unavailable", "error": err.Error()})
 		return
@@ -890,7 +913,7 @@ func (s *Server) servePolicySourceRules(writer http.ResponseWriter, request *htt
 		last := rules[len(rules)-1]
 		nextCursor = base64.RawURLEncoding.EncodeToString([]byte(last.RuleType + "\x00" + last.Domain))
 	}
-	writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "versionId": src.ActiveVersionID, "rules": result, "nextCursor": nextCursor})
+	writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "versionId": versionID, "rules": result, "nextCursor": nextCursor})
 }
 
 func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *http.Request, id string) {
@@ -1154,6 +1177,44 @@ func (s *Server) servePolicyUploadPreview(writer http.ResponseWriter, request *h
 		"previewId": previewID, "filename": preview.Filename, "sha256": preview.SHA256, "size": preview.Size,
 		"validRules": len(preview.Rules), "ignored": preview.Ignored,
 		"errorSamples": preview.ErrorSamples,
+		"rules":        rules,
+	})
+}
+
+// ---- Manual Preview ----
+
+func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *http.Request) {
+	device, ok := s.resolvePolicyDevice(writer, request)
+	if !ok {
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, policy.MaxSourceBytes+(64<<10))
+	var payload struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
+		return
+	}
+	content, err := policy.PrepareDomainLines(payload.Text)
+	if err != nil {
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_input", "error": err.Error()})
+		return
+	}
+	rules := make([]map[string]any, 0)
+	for i, r := range content.Rules {
+		if i >= 100 {
+			break
+		}
+		rules = append(rules, map[string]any{"type": string(r.Type), "domain": r.Domain})
+	}
+	previewID := s.savePolicyPreview(policyPreviewEntry{
+		DeviceID: device.device.ID, SourceType: "manual", Content: content,
+	})
+	writePolicyJson(writer, http.StatusOK, map[string]any{
+		"previewId": previewID, "filename": "手动输入", "sha256": content.SHA256, "size": content.Size,
+		"validRules": len(content.Rules), "ignored": content.Ignored,
+		"errorSamples": content.ErrorSamples,
 		"rules":        rules,
 	})
 }

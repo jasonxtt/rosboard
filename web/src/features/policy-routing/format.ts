@@ -31,6 +31,7 @@ export const policyFailureModeLabel: Record<string, string> = {
 export const policySourceTypeLabel: Record<string, string> = {
   url: '远程 URL',
   upload: '本地上传',
+  manual: '手动添加',
 }
 
 export const policyWANSourceLabel: Record<string, string> = {

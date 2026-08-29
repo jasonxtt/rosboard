@@ -708,7 +708,7 @@ export function deleteSource(deviceID: string, id: string, revision: number, sig
 export function fetchSourceRules(
   deviceID: string,
   id: string,
-  options: { cursor?: string; limit?: number; query?: string; type?: string },
+  options: { cursor?: string; limit?: number; query?: string; type?: string; version?: 'active' | 'pending' },
   signal?: AbortSignal | null,
 ): Promise<PolicyRulesPage> {
   const params = new URLSearchParams()
@@ -716,6 +716,7 @@ export function fetchSourceRules(
   if (options.cursor) params.set('cursor', options.cursor)
   if (options.query) params.set('query', options.query)
   if (options.type) params.set('type', options.type)
+  if (options.version) params.set('version', options.version)
   const qs = params.toString()
   return policyFetch(deviceID, `/sources/${encodeURIComponent(id)}/rules${qs ? `?${qs}` : ''}`, { signal }, parseRulesPage)
 }
@@ -758,6 +759,10 @@ export function previewUpload(deviceID: string, fileOrFormData: File | FormData,
     return value
   })()
   return policyFetch(deviceID, '/sources/upload/preview', { method: 'POST', formData, signal }, parsePreview)
+}
+
+export function previewManual(deviceID: string, body: { text: string }, signal?: AbortSignal | null): Promise<PolicyPreview> {
+  return policyFetch(deviceID, '/sources/manual/preview', { method: 'POST', body, signal }, parsePreview)
 }
 
 export function generatePlan(deviceID: string, kind: string, signal?: AbortSignal | null): Promise<PolicyPlanEnvelope> {

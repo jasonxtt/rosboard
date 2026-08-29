@@ -15,6 +15,7 @@ export const emptyPreviewState: PreviewState = {
 export function sourceTypeLabel(type: PolicySourceType | string): string {
   if (type === 'url') return '远程 URL'
   if (type === 'upload') return '本地上传'
+  if (type === 'manual') return '手动添加'
   return type
 }
 

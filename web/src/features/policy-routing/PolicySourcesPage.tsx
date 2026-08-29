@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PolicyEgress, PolicyOverview, PolicySource } from './types'
 import {
   deleteSource,
   fetchSource,
+  fetchSourceRules,
+  previewManual,
   previewUpload,
   previewURL,
   saveSource,
@@ -26,6 +28,12 @@ import {
 } from './format'
 import { defaultSourceDraft, sourceDraftFromSource } from './drafts'
 import type { PolicySourceDraft } from './types'
+
+const manualDomainPlaceholder = [
+  '支持两种格式，每行一条：',
+  'Clash：- DOMAIN,ad.com,REJECT（精确）；- DOMAIN-SUFFIX,google.com,auto（后缀）',
+  'mosdns：example.com 或 domain:netbird.io（后缀）；full:www.dingtalkcs.com（精确）',
+].join('\n')
 
 export function PolicySourcesPage({
   deviceID,
@@ -54,7 +62,7 @@ export function PolicySourcesPage({
       {sources.length === 0 ? (
         <PolicyEmptyState
           title="尚未配置域名列表"
-          description={readOnly ? '当前为只读状态。' : '添加远程 URL 或本地上传的 Clash YAML；内容变化先预览，确认保存后会自动同步到所选策略路由。'}
+          description={readOnly ? '当前为只读状态。' : '添加远程 URL、本地上传的 Clash YAML，或手动输入域名；内容变化先预览，确认保存后会自动同步到所选策略路由。'}
           action={readOnly ? undefined : <button type="button" className="primary-button" onClick={() => setEditing(defaultSourceDraft(egresses[0]?.id ?? ''))}>新建域名列表</button>}
         />
       ) : (
@@ -226,20 +234,68 @@ export function SourceEditorModal({
   const [schedule, setSchedule] = useState(draft.schedule)
   const [egressId, setEgressId] = useState(draft.egressId)
   const [file, setFile] = useState<File | null>(null)
+  const [text, setText] = useState('')
+  const [initialText, setInitialText] = useState('')
+  const [loadingRules, setLoadingRules] = useState(false)
+  const [rulesLoadFailed, setRulesLoadFailed] = useState(false)
   const [preview, setPreview] = useState<import('./types').PolicyPreview | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const typeLocked = Boolean(draft.id)
+
+  useEffect(() => {
+    if (draft.type !== 'manual' || !draft.id) return
+    let cancelled = false
+    setLoadingRules(true)
+    setRulesLoadFailed(false)
+    void (async () => {
+      const lines: string[] = []
+      let cursor: string | undefined
+      let loadedAll = false
+      try {
+        for (let page = 0; page < 400; page += 1) {
+          const result = await fetchSourceRules(deviceID, draft.id, { limit: 200, cursor, version: 'pending' })
+          for (const rule of result.rules) {
+            lines.push(rule.type === 'DOMAIN' ? `full:${rule.domain}` : rule.domain)
+          }
+          if (!result.nextCursor) {
+            loadedAll = true
+            break
+          }
+          cursor = result.nextCursor
+        }
+        if (!loadedAll) throw new Error('已有规则数量超出可编辑范围')
+        if (!cancelled) {
+          const joined = lines.join('\n')
+          setInitialText(joined)
+          setText(joined)
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setRulesLoadFailed(true)
+          setError(loadError instanceof Error ? loadError.message : '加载已有规则失败')
+        }
+      } finally {
+        if (!cancelled) setLoadingRules(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [deviceID, draft.id, draft.type])
 
   const contentChanged = !draft.id
     || type !== draft.type
     || (type === 'url' && url.trim() !== draft.url)
     || (type === 'upload' && file !== null)
-  const validationError = name.trim()
-    ? type === 'url' && !url.trim() ? '请填写 Clash YAML 的 HTTPS 地址'
-      : type === 'upload' && !draft.id && !file ? '请选择本地 YAML 文件'
-        : null
-    : '请填写列表名称'
+    || (type === 'manual' && text !== initialText)
+  const validationError = rulesLoadFailed
+    ? '已有规则加载失败，请关闭后重新打开列表'
+    : name.trim()
+      ? type === 'url' && !url.trim() ? '请填写 Clash YAML 的 HTTPS 地址'
+        : type === 'upload' && !draft.id && !file ? '请选择本地 YAML 文件'
+          : type === 'manual' && !loadingRules && !text.trim() ? '请输入至少一条域名'
+            : null
+      : '请填写列表名称'
 
   const handlePreview = async () => {
     setError(null)
@@ -248,6 +304,9 @@ export function SourceEditorModal({
       if (type === 'url') {
         if (!url.trim().startsWith('https://')) throw new Error('请填写 Clash YAML 的 HTTPS 地址')
         const p = await previewURL(deviceID, { url })
+        setPreview(p)
+      } else if (type === 'manual') {
+        const p = await previewManual(deviceID, { text })
         setPreview(p)
       } else if (file) {
         const fd = new FormData()
@@ -306,17 +365,24 @@ export function SourceEditorModal({
         <PolicyField label="来源类型" htmlFor="policy-source-type">
           <div className="policy-choice-list" role="radiogroup" aria-label="来源类型">
             <label className={`policy-choice${type === 'url' ? ' active' : ''}`}>
-              <input type="radio" name="policy-source-type" checked={type === 'url'} onChange={() => { setType('url'); setPreview(null); setFile(null) }} />
+              <input type="radio" name="policy-source-type" checked={type === 'url'} disabled={typeLocked} onChange={() => { setType('url'); setPreview(null); setFile(null) }} />
               <span>
                 <strong>远程 URL</strong>
                 <small>由 rosboard 主机下载公共 HTTPS Clash YAML；RouterOS 不保存 URL。</small>
               </span>
             </label>
             <label className={`policy-choice${type === 'upload' ? ' active' : ''}`}>
-              <input type="radio" name="policy-source-type" checked={type === 'upload'} onChange={() => { setType('upload'); setPreview(null) }} />
+              <input type="radio" name="policy-source-type" checked={type === 'upload'} disabled={typeLocked} onChange={() => { setType('upload'); setPreview(null) }} />
               <span>
                 <strong>本地上传</strong>
                 <small>上传浏览器本地 .yaml/.yml（不超过 5 MiB），仅重新上传时更新。</small>
+              </span>
+            </label>
+            <label className={`policy-choice${type === 'manual' ? ' active' : ''}`}>
+              <input type="radio" name="policy-source-type" checked={type === 'manual'} disabled={typeLocked} onChange={() => { setType('manual'); setPreview(null); setFile(null) }} />
+              <span>
+                <strong>手动添加</strong>
+                <small>在文本框中逐行输入域名，支持 Clash 与 mosdns 两种写法；重新编辑保存后更新。</small>
               </span>
             </label>
           </div>
@@ -332,9 +398,23 @@ export function SourceEditorModal({
               </select>
             </PolicyField>
           </div>
-        ) : (
+        ) : type === 'upload' ? (
           <PolicyField label="YAML 文件" htmlFor="policy-source-file" hint="解析顶层 payload 中的 DOMAIN 与 DOMAIN-SUFFIX 规则。">
             <input id="policy-source-file" type="file" className="settings-input" accept=".yaml,.yml" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null) }} />
+          </PolicyField>
+        ) : (
+          <PolicyField label="域名列表" htmlFor="policy-source-domains" hint="每行一条；行首 - 符号与域名后的策略名（如 REJECT）会被忽略，无效行将被跳过并在预览中提示。">
+            <textarea
+              id="policy-source-domains"
+              className="settings-input policy-textarea"
+              rows={9}
+              spellCheck={false}
+              disabled={loadingRules}
+              value={text}
+              onChange={(e) => { setText(e.target.value); setPreview(null) }}
+              placeholder={manualDomainPlaceholder}
+            />
+            {loadingRules ? <p className="policy-hint">正在加载已有规则…</p> : null}
           </PolicyField>
         )}
         <PolicyField label="归属策略路由" htmlFor="policy-source-egress" hint="一个域名列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。">
@@ -351,7 +431,7 @@ export function SourceEditorModal({
         {validationError ? <p className="policy-field-error">{validationError}</p> : null}
         <div className="policy-form-actions">
           <button type="button" className="close-button" onClick={onClose} disabled={saving}>取消</button>
-          <button type="button" className="primary-button" disabled={saving || previewing || Boolean(validationError)} onClick={() => { void handleSave() }}>
+          <button type="button" className="primary-button" disabled={saving || previewing || loadingRules || Boolean(validationError)} onClick={() => { void handleSave() }}>
             {saving ? '正在保存…' : previewing ? '正在解析…' : contentChanged ? preview?.previewId || preview?.notModified ? '保存' : '保存并预览' : '保存列表'}
           </button>
         </div>

@@ -1817,3 +1817,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @media (max-width:767px){.policy-egress-table thead th,.policy-source-table thead th,.policy-egress-table tbody td,.policy-source-table tbody td{padding:8px;font-size:var(--fs-caption)}.policy-egress-table th:last-child,.policy-egress-table td:last-child,.policy-source-table th:last-child,.policy-source-table td:last-child{min-width:110px;text-align:right;white-space:nowrap}.policy-egress-table .link-button,.policy-source-table .link-button{min-height:0;font-size:var(--fs-caption);line-height:1.2;white-space:nowrap}.policy-egress-table .action-links,.policy-source-table .action-links{align-items:center;display:inline-flex;justify-content:flex-end;flex-wrap:nowrap;gap:6px;white-space:nowrap}.policy-source-table .policy-date-cell{font-family:var(--font-mono);font-size:var(--fs-micro);line-height:1.2;white-space:nowrap}}
 
 .danger-button{color:var(--status-error);border-color:color-mix(in srgb,var(--status-error) 35%,var(--hairline))}
+
+.policy-form textarea.settings-input{height:auto;min-height:150px;padding:9px 12px;resize:vertical;line-height:1.55;font-family:var(--font-mono);font-size:var(--fs-caption)}
+.policy-form textarea.settings-input::placeholder{color:var(--muted);font-family:var(--font-sans)}
