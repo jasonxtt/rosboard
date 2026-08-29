@@ -3,9 +3,17 @@ package policyv2
 import (
 	"context"
 	"testing"
+	"time"
 
 	"rosboard/internal/routeros"
 )
+
+func TestSourceScheduleIntervalDefaultsToSevenDays(t *testing.T) {
+	interval, ok := sourceScheduleInterval("")
+	if !ok || interval != 7*24*time.Hour {
+		t.Fatalf("empty source schedule = %s, %v; want 7d, true", interval, ok)
+	}
+}
 
 type moveRecorder struct {
 	moves []routeros.MoveRequest

@@ -742,7 +742,7 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		if src.Schedule == "" {
-			src.Schedule = "24h"
+			src.Schedule = "7d"
 		}
 		if pathID == "" || current.Schedule != src.Schedule || current.NextRunAt.IsZero() {
 			src.NextRunAt = time.Now().UTC().Add(interval)
@@ -822,7 +822,9 @@ func policySourceSchedule(value string) (time.Duration, bool) {
 		return 6 * time.Hour, true
 	case "12h":
 		return 12 * time.Hour, true
-	case "", "24h":
+	case "":
+		return 7 * 24 * time.Hour, true
+	case "24h":
 		return 24 * time.Hour, true
 	case "7d":
 		return 7 * 24 * time.Hour, true

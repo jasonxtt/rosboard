@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -332,6 +333,85 @@ func TestPolicyV2SourceSaveRequiresAndConsumesPreview(t *testing.T) {
 	}
 	if _, ok := server.policyPreview(previewID, "edge"); ok {
 		t.Fatal("consumed preview remains available")
+	}
+}
+
+func TestPolicyV2URLSourceDefaultsToSevenDaySchedule(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewID := server.savePolicyPreview(policyPreviewEntry{
+		DeviceID:   "edge",
+		SourceType: "url",
+		URL:        "https://example.invalid/list.yaml",
+		Content:    prepared,
+	})
+	created := policyV2Request(t, server, http.MethodPost, "/sources", `{"name":"weekly-list","type":"url","url":"https://example.invalid/list.yaml","enabled":true,"previewId":"`+previewID+`"}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var source policyv2.Source
+	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
+		t.Fatal(err)
+	}
+	if source.Schedule != "7d" {
+		t.Fatalf("default URL source schedule = %q, want 7d", source.Schedule)
+	}
+	if source.NextRunAt.Before(time.Now().UTC().Add(6 * 24 * time.Hour)) {
+		t.Fatalf("default URL source next run is too soon: %s", source.NextRunAt)
+	}
+}
+
+func TestPolicyV2UploadPreviewSupportsLineListsBySelectedKind(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	server.cfg.DataDir = t.TempDir()
+
+	upload := func(kind string) map[string]any {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		part, err := writer.CreateFormFile("file", "rules.list")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = part.Write([]byte("# source\nDOMAIN-SUFFIX,example.com\nIP-CIDR,192.0.2.9/24,no-resolve\n"))
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/policy-routing/sources/upload/preview?device=edge&kind="+kind, &body)
+		request.Header.Set("Content-Type", writer.FormDataContentType())
+		response := httptest.NewRecorder()
+		server.servePolicyRoutingAPI(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s upload status=%d body=%s", kind, response.Code, response.Body.String())
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+
+	domain := upload("domain")
+	if domain["validRules"] != float64(1) || domain["kind"] != "domain" {
+		t.Fatalf("domain preview = %#v", domain)
+	}
+	domainRules := domain["rules"].([]any)
+	if len(domainRules) != 1 || domainRules[0].(map[string]any)["domain"] != "example.com" || domainRules[0].(map[string]any)["address"] != nil {
+		t.Fatalf("domain rule contract = %#v", domainRules)
+	}
+
+	ip := upload("ip")
+	if ip["validRules"] != float64(1) || ip["kind"] != "ip" {
+		t.Fatalf("IP preview = %#v", ip)
+	}
+	ipRules := ip["rules"].([]any)
+	if len(ipRules) != 1 || ipRules[0].(map[string]any)["address"] != "192.0.2.0/24" || ipRules[0].(map[string]any)["domain"] != nil {
+		t.Fatalf("IP rule contract = %#v", ipRules)
 	}
 }
 

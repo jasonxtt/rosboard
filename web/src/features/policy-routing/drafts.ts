@@ -107,7 +107,7 @@ export function defaultSourceDraft(egressId: string, kind: PolicySourceKind = 'd
     kind,
     name: '',
     url: '',
-    schedule: '24h',
+    schedule: '7d',
     enabled: true,
     revision: 0,
   }

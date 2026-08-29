@@ -49,12 +49,15 @@ function sourceKindLabels(kind: PolicySourceKind) {
     title: isIP ? 'IP 列表' : '域名列表',
     emptyTitle: isIP ? '尚未配置 IP 列表' : '尚未配置域名列表',
     emptyDescription: isIP
-      ? '添加远程 URL、本地上传的 Clash YAML，或手动输入 IP/CIDR；同一列表可混合 IPv4 与 IPv6。内容变化先预览，确认保存后会自动同步到所选策略路由。'
-      : '添加远程 URL、本地上传的 Clash YAML，或手动输入域名；内容变化先预览，确认保存后会自动同步到所选策略路由。',
+      ? '添加远程 URL、本地上传的规则文件，或手动输入 IP/CIDR；同一列表可混合 IPv4 与 IPv6。内容变化先预览，确认保存后会自动同步到所选策略路由。'
+      : '添加远程 URL、本地上传的规则文件，或手动输入域名；内容变化先预览，确认保存后会自动同步到所选策略路由。',
     create: isIP ? '新建 IP 列表' : '新建域名列表',
     add: isIP ? '增加 IP 列表' : '增加域名列表',
     manualLabel: isIP ? 'IP 列表' : '域名列表',
     manualEmptyHint: isIP ? '请输入至少一条 IP 或 CIDR' : '请输入至少一条域名',
+    uploadHint: isIP
+      ? '支持 Clash YAML、Clash 规则列表和纯文本 IP/CIDR；只提取 IP-CIDR 与 IP-CIDR6。'
+      : '支持 Clash YAML、Clash 规则列表和纯文本域名；只提取 DOMAIN 与 DOMAIN-SUFFIX。',
     manualHint: isIP
       ? '每行一条；行首 - 符号与地址后的策略名 / no-resolve 会被忽略，无效行将被跳过并在预览中提示。'
       : '每行一条；行首 - 符号与域名后的策略名（如 REJECT）会被忽略，无效行将被跳过并在预览中提示。',
@@ -66,7 +69,6 @@ function sourceKindLabels(kind: PolicySourceKind) {
     egressHint: isIP
       ? '一个 IP 列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。'
       : '一个域名列表最多归属一个策略路由；选择启用策略并保存后会自动同步，可先保存为未分配列表。',
-    uploadHint: isIP ? '解析顶层 payload 中的 IP-CIDR 与 IP-CIDR6 规则。' : '解析顶层 payload 中的 DOMAIN 与 DOMAIN-SUFFIX 规则。',
     searchPlaceholder: isIP ? '搜索地址…' : '搜索域名…',
     valueHeader: isIP ? '地址' : '域名',
     deleteTitle: isIP ? '删除 IP 列表' : '删除域名列表',
@@ -343,8 +345,8 @@ export function SourceEditorModal({
   const validationError = rulesLoadFailed
     ? '已有规则加载失败，请关闭后重新打开列表'
     : name.trim()
-      ? type === 'url' && !url.trim() ? '请填写 Clash YAML 的 HTTPS 地址'
-        : type === 'upload' && !draft.id && !file ? '请选择本地 YAML 文件'
+      ? type === 'url' && !url.trim() ? '请填写来源的 HTTPS 地址'
+        : type === 'upload' && !draft.id && !file ? '请选择本地规则文件'
           : type === 'manual' && !loadingRules && !text.trim() ? labels.manualEmptyHint
             : null
       : '请填写列表名称'
@@ -354,7 +356,7 @@ export function SourceEditorModal({
     setPreviewing(true)
     try {
       if (type === 'url') {
-        if (!url.trim().startsWith('https://')) throw new Error('请填写 Clash YAML 的 HTTPS 地址')
+        if (!url.trim().startsWith('https://')) throw new Error('请填写来源的 HTTPS 地址')
         const p = await previewURL(deviceID, { url, kind: draftKind })
         setPreview(p)
       } else if (type === 'manual') {
@@ -420,14 +422,14 @@ export function SourceEditorModal({
               <input type="radio" name="policy-source-type" checked={type === 'url'} disabled={typeLocked} onChange={() => { setType('url'); setPreview(null); setFile(null) }} />
               <span>
                 <strong>远程 URL</strong>
-                <small>由 rosboard 主机下载公共 HTTPS Clash YAML；RouterOS 不保存 URL。</small>
+                <small>由 rosboard 主机下载公共 HTTPS 规则文件（YAML/TXT/LIST）；RouterOS 不保存 URL。</small>
               </span>
             </label>
             <label className={`policy-choice${type === 'upload' ? ' active' : ''}`}>
               <input type="radio" name="policy-source-type" checked={type === 'upload'} disabled={typeLocked} onChange={() => { setType('upload'); setPreview(null) }} />
               <span>
                 <strong>本地上传</strong>
-                <small>上传浏览器本地 .yaml/.yml（不超过 5 MiB），仅重新上传时更新。</small>
+                <small>上传浏览器本地 .yaml/.yml/.txt/.list（不超过 5 MiB），仅重新上传时更新。</small>
               </span>
             </label>
             <label className={`policy-choice${type === 'manual' ? ' active' : ''}`}>
@@ -442,17 +444,17 @@ export function SourceEditorModal({
         {type === 'url' ? (
           <div className="policy-form-grid">
             <PolicyField label="来源 URL" htmlFor="policy-source-url" hint="仅接受公共 HTTPS；GitHub blob 地址会自动转换为 raw。">
-              <input id="policy-source-url" className="settings-input" type="url" value={url} onChange={(e) => { setUrl(e.target.value); setPreview(null) }} placeholder="https://example.com/rules.yaml" />
+              <input id="policy-source-url" className="settings-input" type="url" value={url} onChange={(e) => { setUrl(e.target.value); setPreview(null) }} placeholder="https://example.com/rules.list" />
             </PolicyField>
             <PolicyField label="更新计划" htmlFor="policy-source-schedule">
               <select id="policy-source-schedule" className="settings-select" value={schedule} onChange={(e) => setSchedule(e.target.value)}>
-                {scheduleOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.value === '24h' ? '每 24 小时（默认）' : opt.label}</option>)}
+                {scheduleOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.value === '7d' ? '每 7 天（默认）' : opt.label}</option>)}
               </select>
             </PolicyField>
           </div>
         ) : type === 'upload' ? (
-          <PolicyField label="YAML 文件" htmlFor="policy-source-file" hint={labels.uploadHint}>
-            <input id="policy-source-file" type="file" className="settings-input" accept=".yaml,.yml" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null) }} />
+          <PolicyField label="规则文件" htmlFor="policy-source-file" hint={labels.uploadHint}>
+            <input id="policy-source-file" type="file" className="settings-input" accept=".yaml,.yml,.txt,.list" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPreview(null) }} />
           </PolicyField>
         ) : (
           <PolicyField label={labels.manualLabel} htmlFor="policy-source-values" hint={labels.manualHint}>

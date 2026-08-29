@@ -324,7 +324,9 @@ func sourceScheduleInterval(value string) (time.Duration, bool) {
 		return 6 * time.Hour, true
 	case "12h":
 		return 12 * time.Hour, true
-	case "", "24h":
+	case "":
+		return 7 * 24 * time.Hour, true
+	case "24h":
 		return 24 * time.Hour, true
 	case "7d":
 		return 7 * 24 * time.Hour, true

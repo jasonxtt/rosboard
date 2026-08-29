@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-// ParseDomainLines parses manually entered domain rules, one entry per line.
+// ParseDomainLines parses domain rules from one-entry-per-line source content.
 // Each line may use the Clash payload form with an optional YAML list marker
 // and trailing policy name ("- DOMAIN,ad.com,REJECT"), or the mosdns form
 // (plain domain, "domain:example.com", "full:example.com"). Plain and
@@ -30,7 +30,7 @@ func ParseDomainLines(text string) (ParseResult, error) {
 	seen := make(map[string]struct{})
 	for _, raw := range strings.Split(text, "\n") {
 		line := stripDomainLineMarker(strings.TrimSpace(raw))
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		ruleType, domain, err := parseDomainLine(line)

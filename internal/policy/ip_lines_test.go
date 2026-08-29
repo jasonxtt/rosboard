@@ -11,6 +11,7 @@ import (
 
 func TestParseIPLinesMixedFormats(t *testing.T) {
 	text := strings.Join([]string{
+		"# NAME: source",
 		"IP-CIDR,91.108.0.0/16",
 		"IP-CIDR6,2001:67c:4e8::/48",
 		"91.108.0.0/16",

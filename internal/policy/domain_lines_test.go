@@ -52,7 +52,7 @@ func TestParseDomainLinesSupportsClashAndMosdnsForms(t *testing.T) {
 }
 
 func TestParseDomainLinesIgnoresBlankLinesAndEmptyInput(t *testing.T) {
-	result, err := ParseDomainLines("\n  \n\t\n")
+	result, err := ParseDomainLines("# NAME: source\n\n  \n\t\n# DOMAIN: 1\n")
 	if err != nil {
 		t.Fatalf("ParseDomainLines() error = %v", err)
 	}
