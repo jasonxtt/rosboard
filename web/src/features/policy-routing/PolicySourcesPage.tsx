@@ -175,7 +175,7 @@ function SourceRow({
       <td>{egress ? egress.listMode === 'dedicated' ? '专用（随本域名列表自动生成）' : <span className="mono">{egress.listName || '—'}</span> : '—'}</td>
       <td>{source.type === 'url' ? policyScheduleLabel[source.schedule] ?? source.schedule : '手动更新'}</td>
       <td className="mono">{activeVersion ? activeVersion.id.slice(0, 12) : '—'}</td>
-      <td className="mono">{nextRun && Number.isFinite(nextRun.getTime()) ? formatPolicyDateTime(nextRun) : '—'}</td>
+      <td className="policy-date-cell mono">{nextRun && Number.isFinite(nextRun.getTime()) ? formatPolicyDateTime(nextRun) : '—'}</td>
       <td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td>
       <td>
         <div className="action-links">

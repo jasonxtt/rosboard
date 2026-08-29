@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
   compareTerminal,
@@ -53,7 +53,7 @@ import type {
   RouterOSCleanupResponse,
 } from './lib/types'
 
-type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'chevronUp' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
+type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'gripVertical' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
 type SettingsSection = 'connection' | 'collection' | 'recognition' | 'ui' | 'account' | 'maintenance'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
@@ -452,7 +452,7 @@ function Icon(props: { name: IconName }) {
     route: <><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h3a4 4 0 0 0 4-4v-3a3 3 0 0 1 3-3"/></>,
     settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,
-    chevronUp: <path d="m6 15 6-6 6 6"/>,
+    gripVertical: <><circle cx="9" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1" fill="currentColor" stroke="none"/></>,
     chevronDown: <path d="m6 9 6 6 6-6"/>,
     cpu: <><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M9 1v3m6-3v3M9 20v3m6-3v3M20 9h3m-3 6h3M1 9h3m-3 6h3M10 10h4v4h-4z"/></>,
     memory: <><path d="M4 7h16v10H4zM7 4v3m4-3v3m4-3v3m3-3v3M7 17v3m4-3v3m4-3v3"/></>,
@@ -2089,6 +2089,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
   const [savingAction, setSavingAction] = useState<'save' | null>(null)
 	const [message, setMessage] = useState<string | null>(null)
 	const [reordering, setReordering] = useState(false)
+	const [draggedDeviceID, setDraggedDeviceID] = useState<string | null>(null)
+	const [dragOverDeviceID, setDragOverDeviceID] = useState<string | null>(null)
 	const [probeFeedback, setProbeFeedback] = useState<DeviceProbeFeedback | null>(null)
 	const [verification, setVerification] = useState<VerificationResponse | null>(null)
 	const [scopedDashboard, setScopedDashboard] = useState<Pick<DashboardResponse, 'trafficScope' | 'terminalScope'> | null>(null)
@@ -2187,11 +2189,11 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 		setVerification(null)
 		setProbeFeedback(null)
 	}
-	const reorderDevice = async (deviceID: string, direction: -1 | 1) => {
-		if (reordering) return
+	const reorderDevices = async (deviceID: string, targetDeviceID: string) => {
+		if (reordering || deviceID === targetDeviceID) return
 		const index = available.findIndex((device) => device.id === deviceID)
-		const target = index + direction
-		if (index < 0 || target < 0 || target >= available.length) return
+		const target = available.findIndex((device) => device.id === targetDeviceID)
+		if (index < 0 || target < 0) return
 		const next = available.slice()
 		const [moved] = next.splice(index, 1)
 		next.splice(target, 0, moved)
@@ -2206,6 +2208,28 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 		} finally {
 			setReordering(false)
 		}
+	}
+	const handleDragStart = (event: DragEvent<HTMLButtonElement>, deviceID: string) => {
+		if (reordering) {
+			event.preventDefault()
+			return
+		}
+		setDraggedDeviceID(deviceID)
+		event.dataTransfer.effectAllowed = 'move'
+		event.dataTransfer.setData('text/plain', deviceID)
+	}
+	const handleDragOver = (event: DragEvent<HTMLDivElement>, deviceID: string) => {
+		if (!draggedDeviceID || draggedDeviceID === deviceID || reordering) return
+		event.preventDefault()
+		event.dataTransfer.dropEffect = 'move'
+		setDragOverDeviceID(deviceID)
+	}
+	const handleDrop = (event: DragEvent<HTMLDivElement>, targetDeviceID: string) => {
+		event.preventDefault()
+		const deviceID = event.dataTransfer.getData('text/plain') || draggedDeviceID
+		setDraggedDeviceID(null)
+		setDragOverDeviceID(null)
+		if (deviceID) void reorderDevices(deviceID, targetDeviceID)
 	}
 	const testConnection = async () => {
 		setTesting(true); setMessage(null); setVerification(null)
@@ -2420,18 +2444,20 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
   return <div className="device-settings-workspace">
     <div className="device-settings-list">
       <div className="device-settings-list-head"><strong>设备</strong><button type="button" className="pill pill--icon icon-button" aria-label="添加设备" title="添加设备" onClick={() => choose()}><span aria-hidden="true">+</span></button></div>
-      {available.map((device, index) => {
+      {available.map((device) => {
         const status = settingsDeviceStatusPresentation(device, props.deviceStatuses ?? [])
         return (
-          <div key={device.id} className={draft.id === device.id ? 'device-row active' : 'device-row'}>
+          <div
+            key={device.id}
+            className={`${draft.id === device.id ? 'device-row active' : 'device-row'}${dragOverDeviceID === device.id ? ' drag-over' : ''}`}
+            onDragOver={(event) => handleDragOver(event, device.id)}
+            onDrop={(event) => handleDrop(event, device.id)}
+          >
+            <button type="button" className="device-row-handle" draggable={!reordering} aria-label={`拖拽排序设备 ${device.name}`} title="按住拖拽排序" onDragStart={(event) => handleDragStart(event, device.id)} onDragEnd={() => { setDraggedDeviceID(null); setDragOverDeviceID(null) }}><Icon name="gripVertical" /></button>
             <button type="button" className="device-row-main" aria-label={`选择设备 ${device.name}`} onClick={() => choose(device)}>
               <span className="device-row-copy"><strong>{device.name}</strong><small>{device.host}:{device.port}</small></span>
-              <i className={status.tone} role="img" aria-label={status.label} title={status.label} />
             </button>
-            <span className="device-row-actions">
-              <button type="button" className="icon-button" disabled={index === 0 || reordering} aria-label={`上移设备 ${device.name}`} title="上移" onClick={() => void reorderDevice(device.id, -1)}><Icon name="chevronUp" /></button>
-              <button type="button" className="icon-button" disabled={index === available.length - 1 || reordering} aria-label={`下移设备 ${device.name}`} title="下移" onClick={() => void reorderDevice(device.id, 1)}><Icon name="chevronDown" /></button>
-            </span>
+            <i className={status.tone === 'online' ? 'online' : 'offline'} role="img" aria-label={status.label} title={status.label} />
           </div>
         )
       })}
