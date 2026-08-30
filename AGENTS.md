@@ -20,17 +20,22 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
-## Deployment acceptance gate
+## Machines: test vs production delivery
 
-For every change that modifies the runnable program:
+- **Test machine `10.0.0.60`** — disposable LXC Debian 12 (x86_64, systemd). SSH: `ssh rosboard-test` (alias in `~/.ssh/config`, key auth configured; fallback `sshpass -p '1234567a' ssh root@10.0.0.60`). The user may freely install, break, reset, and redeploy anything here: experimental builds, destructive tests, and scratch data need **no backup and no acceptance gate**. Never point it at production RouterOS credentials or the production SQLite data; give it its own config/data directory.
+- **Production delivery machine `10.0.0.6`** (`ssh net`) — the user's live instance under `/opt/rosboard`. Every deployment there must follow the acceptance gate below.
 
-1. Finish automated checks and local visual/runtime verification.
+## Deployment acceptance gate (production `10.0.0.6` only)
+
+For every change that modifies the runnable program and is meant for the live instance:
+
+1. Finish automated checks and local/runtime verification; exercise risky or destructive changes on `10.0.0.60` first.
 2. Before replacing the build on `10.0.0.6`, preserve a timestamped backup of the existing binary, configuration, SQLite data, and service unit under the local NAS path `/Users/tom/nas/wyp/github/rosboard/backups/<timestamp>-<label>/`. Confirm that the NAS path is mounted and writable first; do not store development rollback backups on `10.0.0.6` (including `/opt/rosboard/backups`). Keep at most 10 backup directories; before creating the 11th, remove only the oldest timestamped backup directory.
 3. Verify the remote systemd service, health endpoint, affected API contracts, and embedded frontend assets.
 4. Wait for the user to manually inspect the deployed instance and explicitly approve it.
 5. Only after that approval, create the work commit and continue with Trellis task archival/session recording.
 
-Do not commit program changes before the remote manual-acceptance gate. Documentation-only or planning-only changes do not require deployment.
+Do not commit program changes before the remote manual-acceptance gate. Documentation-only or planning-only changes do not require deployment. Test-machine deployments (`10.0.0.60`) do not require backups or manual acceptance, but still require the automated checks to pass first.
 
 ## Mac development directory backup
 

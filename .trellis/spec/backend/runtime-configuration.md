@@ -165,6 +165,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - JSON shape: empty string slices serialize as arrays, not `null`.
 - Frontend: production TypeScript build and oxlint pass.
 - Live: local service serves `/`, `/api/dashboard` when configured, and `/api/settings`; saving a connection restarts the process under systemd.
+- Test deployments: risky, experimental, or destructive verification runs on the disposable test machine `10.0.0.60` (`ssh rosboard-test`, LXC Debian 12, free to break) with its own config/data directory — no backup or acceptance gate. The backup + manual-acceptance gate applies only to the production instance `10.0.0.6` (see AGENTS.md).
 - Restart regression: save multiple traffic interfaces, observe the waiting state through restart, and confirm the dashboard automatically returns to healthy without a blank page or a `null.filter` runtime error.
 
 ### 7. Wrong vs Correct
