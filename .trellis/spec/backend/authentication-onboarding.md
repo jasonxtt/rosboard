@@ -14,7 +14,7 @@
 - Setup/auth: `POST /api/setup/admin`, `POST /api/auth/login`, `POST /api/auth/logout`, `PUT /api/account`, and `POST /api/setup/complete`.
 - Verification: `POST /api/devices/test-connection` -> one-use `verificationToken`, identity, interfaces, CIDR candidates, warnings, and expiry.
 - Device writes: `POST /api/devices` and `PUT /api/devices/{id}` accept `verificationToken`, `completeOnboarding`, and optional `deferRestart` in addition to device fields.
-- Quick provisioning: `POST /api/device-onboarding/sessions` creates a 15-minute in-memory session; `POST /api/device-onboarding/sessions/{id}/complete` accepts `completeOnboarding` and optional `deferRestart`.
+- Quick provisioning: `POST /api/device-onboarding/sessions` creates a 15-minute in-memory session; `POST /api/device-onboarding/sessions/{id}/preview` verifies the generated account and returns the same connection/scope preview as manual setup; `POST /api/device-onboarding/sessions/{id}/complete` accepts the preview `verificationToken`, scope overrides, `completeOnboarding`, and optional `deferRestart`.
 - Local recovery: `rosboard admin reset-password -config <path>`.
 - Destructive reset: `POST /api/settings/full-reset {"confirmed":true}`.
 
@@ -26,9 +26,9 @@
 - Allowed CIDRs are checked before setup/auth. Authenticated write requests must be same-origin.
 - RouterOS connection fields are tested before collection fields are available. Required probes must pass; optional probe failures become warnings.
 - Verification tokens are memory-only, expire after 15 minutes, bind to normalized endpoint/username/password fingerprints, and are consumed only after successful YAML persistence.
-- Device saves require at least one verified traffic interface and one canonical IPv4/IPv6 CIDR. Normalized endpoints are unique across active, disabled, and archived devices.
+- Device saves require at least one verified traffic interface and one canonical IPv4/IPv6 CIDR. Normalized endpoints are unique across non-archived devices; archiving releases the endpoint for reuse.
 - `deferRestart=true` saves YAML and updates the server snapshot without restarting unless `completeOnboarding=true`. This supports batched new-device creation both during onboarding and from ready-phase device management.
-- Existing-device edits use normal restart semantics in the frontend. After one or more ready-phase additions, the UI must expose an explicit apply action that restarts once for the batch.
+- Existing-device edits and ready-phase additions use normal restart semantics in the frontend: the confirmation step saves the device and restarts immediately. The API still accepts `deferRestart=true` for compatible non-UI clients that intentionally batch changes.
 - `completeOnboarding=true` saves the current new or existing device, sets onboarding complete, and schedules one restart. `POST /api/setup/complete {"skipRouterOS":false}` also restarts when saved devices exist; explicit empty-device skip does not need a restart.
 - Full reset deletes the configured YAML plus all administrator, session, setup, device-history, and monitoring state, clears verification tickets/cookie, and restarts into `needs_admin`.
 

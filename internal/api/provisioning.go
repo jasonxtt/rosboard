@@ -19,7 +19,6 @@ import (
 
 	"rosboard/internal/config"
 	"rosboard/internal/routeros"
-	"rosboard/internal/service"
 )
 
 const provisioningSessionLifetime = 15 * time.Minute
@@ -361,8 +360,11 @@ func (s *Server) serveCreateProvisioningSession(writer http.ResponseWriter, requ
 }
 
 type completeProvisioningRequest struct {
-	CompleteOnboarding bool `json:"completeOnboarding"`
-	DeferRestart       bool `json:"deferRestart"`
+	VerificationToken  string                     `json:"verificationToken"`
+	TrafficScope       config.TrafficScopeConfig  `json:"trafficScope"`
+	TerminalScope      config.TerminalScopeConfig `json:"terminalScope"`
+	CompleteOnboarding bool                       `json:"completeOnboarding"`
+	DeferRestart       bool                       `json:"deferRestart"`
 }
 
 type completeProvisioningResponse struct {
@@ -372,6 +374,74 @@ type completeProvisioningResponse struct {
 	Warnings   []routeros.VerificationWarning `json:"warnings,omitempty"`
 }
 
+type provisioningPreviewRequest struct {
+	TrafficScope  config.TrafficScopeConfig  `json:"trafficScope"`
+	TerminalScope config.TerminalScopeConfig `json:"terminalScope"`
+}
+
+func (s *Server) provisioningSessionID(path, suffix string) (string, error) {
+	path = strings.TrimPrefix(path, "/api/device-onboarding/sessions/")
+	path = strings.TrimSuffix(path, suffix)
+	sessionID := strings.Trim(strings.TrimSpace(path), "/")
+	if sessionID == "" {
+		return "", errors.New("session ID is required")
+	}
+	if _, err := provisioningSessionHash(sessionID); err != nil {
+		return "", errors.New("invalid session ID")
+	}
+	return sessionID, nil
+}
+
+func (s *Server) serveProvisioningPreview(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		methodNotAllowed(writer, http.MethodPost)
+		return
+	}
+	sessionID, err := s.provisioningSessionID(request.URL.Path, "/preview")
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_session", err.Error())
+		return
+	}
+	session, ok := s.provisioning.get(sessionID)
+	if !ok {
+		writeAPIError(writer, http.StatusGone, "provisioning_expired", "接入脚本已过期，请重新生成。")
+		return
+	}
+	var payload provisioningPreviewRequest
+	if err := decodeJSONBody(writer, request, &payload); err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 25*time.Second)
+	defer cancel()
+	result, err := routeros.NewClient(session.baseURL, session.username, session.password).Verify(ctx)
+	if err != nil {
+		var verificationErr *routeros.VerificationError
+		if errors.As(err, &verificationErr) {
+			writeAPIError(writer, http.StatusBadGateway, "routeros_"+verificationErr.Kind, verificationErr.Message)
+		} else {
+			writeAPIError(writer, http.StatusBadGateway, "routeros_connection", "无法连接 RouterOS。请检查 IP、协议、端口以及 RouterOS 的 www/www-ssl 服务。")
+		}
+		return
+	}
+	_, _, terminalScope, trafficScope, err := verificationScopes(result, payload.TrafficScope, payload.TerminalScope)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+		return
+	}
+	fingerprint := connectionFingerprint(session.baseURL, session.username, session.password)
+	token, expiresAt, err := s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
+	if err != nil {
+		writeAPIError(writer, http.StatusInternalServerError, "verification_failed", "failed to create verification ticket")
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, http.StatusOK, deviceVerificationResponse{
+		VerificationToken: token, ExpiresAt: expiresAt, Identity: result.Identity,
+		Interfaces: result.Interfaces, CIDRCandidates: result.CIDRCandidates,
+		TrafficScope: trafficScope, TerminalScope: terminalScope, Warnings: result.Warnings,
+	})
+}
+
 func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		methodNotAllowed(writer, http.MethodPost)
@@ -379,17 +449,9 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 	}
 
 	// Extract sessionId from path: /api/device-onboarding/sessions/{sessionId}/complete
-	path := strings.TrimPrefix(request.URL.Path, "/api/device-onboarding/sessions/")
-	path = strings.TrimSuffix(path, "/complete")
-	sessionID := strings.TrimSpace(path)
-	if sessionID == "" {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_session", "session ID is required")
-		return
-	}
-
-	// Validate session ID format before looking up
-	if _, err := provisioningSessionHash(sessionID); err != nil {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_session", "invalid session ID")
+	sessionID, err := s.provisioningSessionID(request.URL.Path, "/complete")
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_session", err.Error())
 		return
 	}
 
@@ -404,41 +466,59 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 		return
 	}
 
-	// Step 1: Connect and verify
-	ctx, cancel := context.WithTimeout(request.Context(), 25*time.Second)
-	defer cancel()
-	client := routeros.NewClient(session.baseURL, session.username, session.password)
-	result, err := client.Verify(ctx)
-	if err != nil {
-		var verificationErr *routeros.VerificationError
-		if errors.As(err, &verificationErr) {
-			writeAPIError(writer, http.StatusBadGateway, "routeros_"+verificationErr.Kind, verificationErr.Message)
-		} else {
-			writeAPIError(writer, http.StatusBadGateway, "routeros_connection", "无法连接 RouterOS。请检查 IP、协议、端口以及 RouterOS 的 www/www-ssl 服务。")
+	ctx := request.Context()
+	var result routeros.VerificationResult
+	var trafficConfig config.TrafficScopeConfig
+	var terminalConfig config.TerminalScopeConfig
+	var token string
+	if strings.TrimSpace(payload.VerificationToken) != "" {
+		trafficConfig, err = canonicalTrafficScope(payload.TrafficScope)
+		if err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+			return
 		}
-		return // Don't consume session — user can retry
-	}
-
-	// Step 2: Create default auto scope configuration
-	trafficConfig := config.TrafficScopeConfig{Mode: "auto"}
-	terminalConfig := config.TerminalScopeConfig{Mode: "auto"}
-
-	// Step 3: Preview scopes
-	previewConfig := config.RouterOSConfig{TrafficScope: trafficConfig, TerminalScope: terminalConfig}
-	_, trafficScope := service.PreviewScopes(previewConfig, result.Topology)
-
-	// Step 4: Ensure at least one ISP traffic interface was identified
-	if len(trafficScope.Interfaces) == 0 {
-		writeAPIError(writer, http.StatusBadGateway, "routeros_no_traffic", "账号已连接成功，但无法自动识别上网线路。请改用手动添加并在高级设置中指定采集接口。")
-		return // Don't consume session
-	}
-
-	// Step 5: Generate verification ticket
-	fingerprint := connectionFingerprint(session.baseURL, session.username, session.password)
-	token, _, err := s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
-	if err != nil {
-		writeAPIError(writer, http.StatusInternalServerError, "verification_failed", "failed to create verification ticket")
-		return
+		terminalConfig, err = canonicalTerminalScope(payload.TerminalScope)
+		if err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+			return
+		}
+		if _, err := s.tickets.validate(payload.VerificationToken, connectionFingerprint(session.baseURL, session.username, session.password)); err != nil {
+			writeAPIError(writer, http.StatusConflict, "verification_required", err.Error())
+			return
+		}
+		token = payload.VerificationToken
+	} else {
+		// Legacy API callers can still complete a session in one request. The
+		// frontend uses /preview first so the RouterOS probe is not repeated.
+		verifyCtx, cancel := context.WithTimeout(request.Context(), 25*time.Second)
+		result, err = routeros.NewClient(session.baseURL, session.username, session.password).Verify(verifyCtx)
+		cancel()
+		if err != nil {
+			var verificationErr *routeros.VerificationError
+			if errors.As(err, &verificationErr) {
+				writeAPIError(writer, http.StatusBadGateway, "routeros_"+verificationErr.Kind, verificationErr.Message)
+			} else {
+				writeAPIError(writer, http.StatusBadGateway, "routeros_connection", "无法连接 RouterOS。请检查 IP、协议、端口以及 RouterOS 的 www/www-ssl 服务。")
+			}
+			return // Don't consume session — user can retry
+		}
+		trafficConfig = config.TrafficScopeConfig{Mode: "auto"}
+		terminalConfig = config.TerminalScopeConfig{Mode: "auto"}
+		_, _, _, trafficScope, err := verificationScopes(result, trafficConfig, terminalConfig)
+		if err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+			return
+		}
+		if len(trafficScope.Interfaces) == 0 {
+			writeAPIError(writer, http.StatusBadGateway, "routeros_no_traffic", "账号已连接成功，但无法自动识别上网线路。请改用手动添加并在高级设置中指定采集接口。")
+			return // Don't consume session
+		}
+		fingerprint := connectionFingerprint(session.baseURL, session.username, session.password)
+		token, _, err = s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
+		if err != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "verification_failed", "failed to create verification ticket")
+			return
+		}
 	}
 
 	// Step 6: Build device settings request
@@ -454,6 +534,7 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 		TerminalScope:      terminalConfig,
 		VerificationToken:  token,
 		CompleteOnboarding: payload.CompleteOnboarding,
+		DeferRestart:       payload.DeferRestart,
 	}
 
 	// Step 7: Prepare device (with deviceSaveMu lock)
@@ -472,9 +553,11 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 			devicePayload.Name = current.Name
 			devicePayload.Enabled = current.Enabled
 			devicePayload.TrafficInterfaces = current.RouterOS.TrafficInterfaces
-			devicePayload.TrafficScope = current.RouterOS.TrafficScope
-			devicePayload.TerminalCIDRs = current.RouterOS.TerminalCIDRs
-			devicePayload.TerminalScope = current.RouterOS.TerminalScope
+			if strings.TrimSpace(payload.VerificationToken) == "" {
+				devicePayload.TrafficScope = current.RouterOS.TrafficScope
+				devicePayload.TerminalCIDRs = current.RouterOS.TerminalCIDRs
+				devicePayload.TerminalScope = current.RouterOS.TerminalScope
+			}
 		}
 		device, consumeTicket, err := s.prepareDevice(ctx, deviceID, devicePayload, existing)
 		if err != nil {
@@ -534,12 +617,18 @@ func (s *Server) serveCompleteProvisioning(writer http.ResponseWriter, request *
 	writeJSON(writer, http.StatusCreated, completeProvisioningResponse{
 		ID:         deviceID,
 		Restarting: !deferRestart && s.restart != nil,
-		Identity: &routeros.VerificationIdentity{
-			RouterName: result.Identity.RouterName,
-			Version:    result.Identity.Version,
-			Platform:   result.Identity.Platform,
-			BoardName:  result.Identity.BoardName,
-		},
-		Warnings: result.Warnings,
+		Identity: func() *routeros.VerificationIdentity {
+			if strings.TrimSpace(payload.VerificationToken) != "" {
+				return nil
+			}
+			identity := result.Identity
+			return &identity
+		}(),
+		Warnings: func() []routeros.VerificationWarning {
+			if strings.TrimSpace(payload.VerificationToken) != "" {
+				return nil
+			}
+			return result.Warnings
+		}(),
 	})
 }

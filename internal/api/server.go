@@ -189,11 +189,19 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if strings.HasPrefix(request.URL.Path, "/api/device-onboarding/sessions/") {
-		s.serveCompleteProvisioning(writer, request)
+		if strings.HasSuffix(request.URL.Path, "/preview") {
+			s.serveProvisioningPreview(writer, request)
+		} else {
+			s.serveCompleteProvisioning(writer, request)
+		}
 		return
 	}
 	if request.URL.Path == "/api/devices/test-connection" {
 		s.serveDeviceConnectionTest(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/devices/preview-scope" {
+		s.serveDeviceScopePreview(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/devices" || strings.HasPrefix(request.URL.Path, "/api/devices/") {

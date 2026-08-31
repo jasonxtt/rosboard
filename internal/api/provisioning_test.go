@@ -506,6 +506,66 @@ func TestCompleteProvisioningCanSaveWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestProvisioningPreviewFeedsConfirmedSaveWithoutRepeatingVerification(t *testing.T) {
+	interfaceCalls := 0
+	router := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/system/resource":
+			_, _ = writer.Write([]byte(`{"board-name":"CCR","version":"7.20","platform":"MikroTik"}`))
+		case "/rest/interface":
+			interfaceCalls++
+			_, _ = writer.Write([]byte(`[{"name":"bridge","type":"bridge","running":"true"},{"name":"ether1","type":"ether","running":"true"}]`))
+		case "/rest/ip/address", "/rest/ipv6/address", "/rest/ip/dhcp-server/lease", "/rest/ip/arp", "/rest/ip/firewall/connection":
+			_, _ = writer.Write([]byte(`[]`))
+		case "/rest/ip/dhcp-client":
+			_, _ = writer.Write([]byte(`[{"interface":"ether1","status":"bound","add-default-route":"true"}]`))
+		default:
+			http.Error(writer, "optional unavailable", http.StatusForbidden)
+		}
+	}))
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	path := t.TempDir() + "/config.yaml"
+	server := NewServerWithRestart(config.Config{Path: path}, nil, nil, func() {})
+	sessionID, _, _, err := server.provisioning.create("", "Edge", scheme, host, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	preview := serveJSON(server, http.MethodPost, "/api/device-onboarding/sessions/"+sessionID+"/preview", `{"trafficScope":{"mode":"auto"},"terminalScope":{"mode":"auto"}}`)
+	if preview.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	var result deviceVerificationResponse
+	if err := json.Unmarshal(preview.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.VerificationToken == "" || len(result.TrafficScope.Interfaces) != 1 || result.TrafficScope.Interfaces[0].Name != "ether1" {
+		t.Fatalf("unexpected preview result: %#v", result)
+	}
+	if len(result.TerminalScope.Interfaces) != 2 || len(server.configSnapshot().Devices) != 0 {
+		t.Fatalf("preview should expose LAN/WAN without saving: %#v devices=%#v", result.TerminalScope, server.configSnapshot().Devices)
+	}
+	if interfaceCalls != 1 {
+		t.Fatalf("preview should verify interfaces once, calls=%d", interfaceCalls)
+	}
+
+	commit := serveJSON(server, http.MethodPost, "/api/device-onboarding/sessions/"+sessionID+"/complete", `{"verificationToken":"`+result.VerificationToken+`","trafficScope":{"mode":"auto"},"terminalScope":{"mode":"auto"},"deferRestart":true}`)
+	if commit.Code != http.StatusCreated {
+		t.Fatalf("commit status=%d body=%s", commit.Code, commit.Body.String())
+	}
+	if len(server.configSnapshot().Devices) != 1 || interfaceCalls != 1 {
+		t.Fatalf("confirmed save repeated RouterOS verification or did not save: devices=%#v interfaceCalls=%d", server.configSnapshot().Devices, interfaceCalls)
+	}
+	if _, ok := server.provisioning.get(sessionID); ok {
+		t.Fatal("provisioning session should be consumed after save")
+	}
+	if _, err := server.tickets.lookup(result.VerificationToken); err == nil {
+		t.Fatal("verification ticket should be consumed after save")
+	}
+}
+
 func TestProvisioningFullResetClearsSessions(t *testing.T) {
 	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
 	server := NewServerWithProvisioning(config.Config{}, monitor, nil, nil)
