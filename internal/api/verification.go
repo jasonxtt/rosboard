@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"rosboard/internal/config"
+	"rosboard/internal/model"
 	"rosboard/internal/routeros"
 	"rosboard/internal/service"
 )
@@ -78,6 +79,21 @@ func (t *verificationTickets) validate(token string, fingerprint [32]byte) (veri
 	return ticket, nil
 }
 
+func (t *verificationTickets) lookup(token string) (verificationTicket, error) {
+	tokenHash, err := verificationTokenHash(token)
+	if err != nil {
+		return verificationTicket{}, errVerificationRequired
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pruneLocked()
+	ticket, ok := t.items[tokenHash]
+	if !ok || !ticket.expiresAt.After(t.now().UTC()) {
+		return verificationTicket{}, errVerificationRequired
+	}
+	return ticket, nil
+}
+
 func (t *verificationTickets) consume(token string) {
 	tokenHash, err := verificationTokenHash(token)
 	if err != nil {
@@ -126,6 +142,17 @@ type connectionTestRequest struct {
 	TerminalScope config.TerminalScopeConfig `json:"terminalScope"`
 }
 
+type deviceVerificationResponse struct {
+	VerificationToken string                           `json:"verificationToken"`
+	ExpiresAt         time.Time                        `json:"expiresAt"`
+	Identity          routeros.VerificationIdentity    `json:"identity"`
+	Interfaces        []routeros.VerificationInterface `json:"interfaces"`
+	CIDRCandidates    []routeros.CIDRCandidate         `json:"cidrCandidates"`
+	TrafficScope      model.TrafficScope               `json:"trafficScope"`
+	TerminalScope     model.TerminalScope              `json:"terminalScope"`
+	Warnings          []routeros.VerificationWarning   `json:"warnings"`
+}
+
 func (s *Server) serveDeviceConnectionTest(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		methodNotAllowed(writer, http.MethodPost)
@@ -153,33 +180,69 @@ func (s *Server) serveDeviceConnectionTest(writer http.ResponseWriter, request *
 		}
 		return
 	}
-	trafficConfig, err := canonicalTrafficScope(payload.TrafficScope)
+	_, _, terminalScope, trafficScope, err := verificationScopes(result, payload.TrafficScope, payload.TerminalScope)
 	if err != nil {
 		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
 		return
 	}
-	terminalConfig, err := canonicalTerminalScope(payload.TerminalScope)
-	if err != nil {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
-		return
-	}
-	allowed := verificationInterfaceSet(result.Interfaces)
-	if err := validateTrafficScopeInterfaces(trafficConfig, allowed); err != nil {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
-		return
-	}
-	previewConfig := config.RouterOSConfig{TrafficScope: trafficConfig, TerminalScope: terminalConfig}
-	terminalScope, trafficScope := service.PreviewScopes(previewConfig, result.Topology)
 	fingerprint := connectionFingerprint(baseURL, payload.Username, password)
 	token, expiresAt, err := s.tickets.issueWithTopology(fingerprint, result.Interfaces, result.Topology)
 	if err != nil {
 		writeAPIError(writer, http.StatusInternalServerError, "verification_failed", "failed to create verification ticket")
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{
-		"verificationToken": token, "expiresAt": expiresAt, "identity": result.Identity,
-		"interfaces": result.Interfaces, "cidrCandidates": result.CIDRCandidates, "trafficScope": trafficScope, "terminalScope": terminalScope, "warnings": result.Warnings,
+	writeJSON(writer, http.StatusOK, deviceVerificationResponse{
+		VerificationToken: token, ExpiresAt: expiresAt, Identity: result.Identity,
+		Interfaces: result.Interfaces, CIDRCandidates: result.CIDRCandidates,
+		TrafficScope: trafficScope, TerminalScope: terminalScope, Warnings: result.Warnings,
 	})
+}
+
+func verificationScopes(result routeros.VerificationResult, trafficConfig config.TrafficScopeConfig, terminalConfig config.TerminalScopeConfig) (config.TrafficScopeConfig, config.TerminalScopeConfig, model.TerminalScope, model.TrafficScope, error) {
+	var err error
+	if trafficConfig, err = canonicalTrafficScope(trafficConfig); err != nil {
+		return config.TrafficScopeConfig{}, config.TerminalScopeConfig{}, model.TerminalScope{}, model.TrafficScope{}, err
+	}
+	if terminalConfig, err = canonicalTerminalScope(terminalConfig); err != nil {
+		return config.TrafficScopeConfig{}, config.TerminalScopeConfig{}, model.TerminalScope{}, model.TrafficScope{}, err
+	}
+	if err := validateTrafficScopeInterfaces(trafficConfig, verificationInterfaceSet(result.Interfaces)); err != nil {
+		return config.TrafficScopeConfig{}, config.TerminalScopeConfig{}, model.TerminalScope{}, model.TrafficScope{}, err
+	}
+	terminalScope, trafficScope := service.PreviewScopes(config.RouterOSConfig{TrafficScope: trafficConfig, TerminalScope: terminalConfig}, result.Topology)
+	return trafficConfig, terminalConfig, terminalScope, trafficScope, nil
+}
+
+type scopePreviewRequest struct {
+	VerificationToken string                     `json:"verificationToken"`
+	TrafficScope      config.TrafficScopeConfig  `json:"trafficScope"`
+	TerminalScope     config.TerminalScopeConfig `json:"terminalScope"`
+}
+
+func (s *Server) serveDeviceScopePreview(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		methodNotAllowed(writer, http.MethodPost)
+		return
+	}
+	var payload scopePreviewRequest
+	if err := decodeJSONBody(writer, request, &payload); err != nil {
+		return
+	}
+	ticket, err := s.tickets.lookup(payload.VerificationToken)
+	if err != nil {
+		writeAPIError(writer, http.StatusConflict, "verification_required", err.Error())
+		return
+	}
+	result := routeros.VerificationResult{Interfaces: make([]routeros.VerificationInterface, 0, len(ticket.interfaces)), Topology: ticket.topology}
+	for name := range ticket.interfaces {
+		result.Interfaces = append(result.Interfaces, routeros.VerificationInterface{Name: name})
+	}
+	_, _, terminalScope, trafficScope, err := verificationScopes(result, payload.TrafficScope, payload.TerminalScope)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"trafficScope": trafficScope, "terminalScope": terminalScope})
 }
 
 func (s *Server) resolveTestConnection(payload connectionTestRequest) (string, string, error) {

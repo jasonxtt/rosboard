@@ -45,11 +45,12 @@ import type {
   TerminalScopeSummary,
   TerminalScope,
   TrafficScope,
+  TerminalScopeConfig,
+  TrafficScopeConfig,
   TerminalSortKey,
   TerminalTab,
   VerificationResponse,
   ProvisioningSessionResponse,
-  ProvisioningCompleteResponse,
   RouterOSCleanupResponse,
 } from './lib/types'
 
@@ -772,8 +773,6 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 	const [stage, setStage] = useState<'choice' | 'editor'>('choice')
 	const [editorDeviceID, setEditorDeviceID] = useState('')
 	const [editorVersion, setEditorVersion] = useState(0)
-	const [message, setMessage] = useState<string | null>(null)
-	const [finishing, setFinishing] = useState(false)
 	const loadSettings = async () => {
 		const response = await fetch('/api/settings', { cache: 'no-store' })
 		if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -785,28 +784,17 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 		await action()
 		try { await waitForPanelRestart(onOffline) } finally { props.onComplete() }
 	}
-	const finishSetup = async () => {
-		setFinishing(true)
-		setError(null)
-		try {
-			await onRestartingAction(() => postJSON('/api/setup/complete', { skipRouterOS: false }).then(() => undefined), () => setError('面板正在启动，恢复后将自动进入面板...'))
-		} catch (finishError) {
-			setError(finishError instanceof Error ? finishError.message : '完成设置失败')
-			setFinishing(false)
-		}
-	}
 	useEffect(() => { void loadSettings().catch((loadError) => setError(loadError instanceof Error ? loadError.message : '设置读取失败')) }, [])
 	if (stage === 'choice') return <StartupCard title="开始使用 Rosboard" description="管理员已创建。现在可以添加第一台 RouterOS，也可以稍后再配置。" error={error}>
 		<div className="onboarding-choice">
-			<button type="button" className="onboarding-choice-card primary-choice" onClick={() => { setEditorDeviceID(''); setEditorVersion((value) => value + 1); setStage('editor') }}><Icon name="router" /><span><strong>添加 ROS 设备</strong><small>测试连接并设置采集接口与本地 CIDR</small></span></button>
+			<button type="button" className="onboarding-choice-card primary-choice" onClick={() => { setEditorDeviceID(''); setEditorVersion((value) => value + 1); setStage('editor') }}><Icon name="router" /><span><strong>添加 ROS 设备</strong><small>自动检测连接并确认 WAN、LAN 与本地网段</small></span></button>
 			<button type="button" className="onboarding-choice-card" onClick={async () => { try { const hasDevices = Boolean(settings?.devices.length); if (hasDevices) await onRestartingAction(() => postJSON('/api/setup/complete', { skipRouterOS: false }).then(() => undefined), () => setError('面板正在启动，恢复后将自动进入面板...')); else { await postJSON('/api/setup/complete', { skipRouterOS: true }); props.onComplete() } } catch (skipError) { setError(skipError instanceof Error ? skipError.message : '进入面板失败') } }}><Icon name="overview" /><span><strong>{settings?.devices.length ? '进入面板' : '跳过并进入面板'}</strong><small>{settings?.devices.length ? '重启采集服务并进入监控面板' : '稍后可在设备管理中添加 RouterOS'}</small></span></button>
 		</div>
 	</StartupCard>
-	return <StartupCard wide title="添加 RouterOS" description="填写连接信息，可选测试连接后直接保存；采集范围支持后续调整。" error={error}>
-		{message ? <div className="settings-message" role="status">{message}</div> : null}
-		{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onSaved={async () => { await loadSettings(); setEditorDeviceID(''); setEditorVersion((value) => value + 1); setMessage('设备已保存，面板未重启。可继续添加设备，全部确认后再完成设置。') }} onOrderChanged={loadSettings} onRestartingAction={onRestartingAction} /> : null}
-		<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button>{settings?.devices.some((device) => !device.archived) ? <button type="button" className="complete-setup-button" disabled={finishing} onClick={() => void finishSetup()}>{finishing ? '正在完成...' : '完成设置并进入面板'}</button> : null}</div>
-	</StartupCard>
+		return <StartupCard wide title="添加 RouterOS" description="保存前自动验证连接并展示 LAN/WAN 识别结果，确认后保存并启动采集。" error={error}>
+			{settings ? <DeviceSettingsPanel key={editorVersion} onboarding initialDeviceID={editorDeviceID} settings={settings} selectedDeviceID="" interfaces={[]} onOrderChanged={loadSettings} onRestartingAction={onRestartingAction} /> : null}
+			<div className="setup-back"><button type="button" className="toolbar-button" onClick={() => setStage('choice')}>返回上一步</button></div>
+		</StartupCard>
 }
 
 function PanelApp(props: { username: string; onAuthenticationChanged: () => void }) {
@@ -819,8 +807,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [error, setError] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsResponse | null>(null)
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [deviceChangesPending, setDeviceChangesPending] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
+	const [settingsSection, setSettingsSection] = useState<SettingsSection>('connection')
   const [collectionSaving, setCollectionSaving] = useState(false)
   const [collectionMessage, setCollectionMessage] = useState<string | null>(null)
   const [recognitionSaving, setRecognitionSaving] = useState(false)
@@ -874,14 +861,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const previewPanelTheme = useCallback((theme: PanelTheme) => setThemePreview(theme), [])
   const hasDashboard = dashboard !== null
   const protocolAnalysisEnabled = settings?.devices.find((device) => device.id === selectedDeviceID)?.protocolAnalysis === true
-
-	const refreshSettingsAfterDeviceSave = async () => {
-		const response = await fetch('/api/settings', { cache: 'no-store' })
-		if (!response.ok) throw new Error(`HTTP ${response.status}`)
-		setSettings(await response.json() as SettingsResponse)
-		setSettingsError(null)
-		setDeviceChangesPending(true)
-	}
 
 	// Reordering only changes display order: refresh settings and the device
 	// list immediately without flagging pending device changes or touching the
@@ -1295,11 +1274,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const alertCount = Math.max(dashboard?.alerts?.length ?? 0, globalWarnings.length)
 
   if (activeView === 'fleet' && fleetOverview && fleetOverview.totalDevices === 0 && settings) {
-	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} onOrderChanged={refreshDeviceOrder} />
+	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
   }
 
   if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing') {
-	if (devicesLoaded && (deviceChangesPending || devices.filter((device) => device.enabled && !device.archived).length === 0) && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onDeviceSaved={refreshSettingsAfterDeviceSave} onOrderChanged={refreshDeviceOrder} />
+	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
         <div className="loading-card">
@@ -1719,8 +1698,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             restartSaving={restartSaving}
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
-            onDeviceSaved={refreshSettingsAfterDeviceSave}
-            onOrderChanged={refreshDeviceOrder}
+	            onOrderChanged={refreshDeviceOrder}
 			username={props.username}
 			onAuthenticationChanged={props.onAuthenticationChanged}
             onSavePreferences={(preferences) => {
@@ -1836,7 +1814,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   )
 }
 
-function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onDeviceSaved: (deviceID: string) => Promise<void>; onOrderChanged?: () => unknown }) {
+function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onOrderChanged?: () => unknown }) {
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
@@ -1857,7 +1835,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
 			</nav>
 		</aside>
 		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>可连续添加设备，全部保存后再统一应用并启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onSaved={props.onDeviceSaved} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }
@@ -1903,8 +1881,7 @@ function SettingsPage(props: {
   restartSaving: boolean
   restartMessage: string | null
   onSaveCollection: (draft: CollectionDraft) => Promise<void>
-  onDeviceSaved: (deviceID: string) => Promise<void>
-  onOrderChanged?: () => unknown
+	  onOrderChanged?: () => unknown
   onSavePreferences: (preferences: PanelPreferences) => void
   onPreviewTheme: (theme: PanelTheme) => void
   onResetPreferences: () => void
@@ -1942,7 +1919,7 @@ function SettingsPage(props: {
 
       {props.settings && props.activeSection === 'connection' ? (
         <section className="panel settings-panel">
-          <DeviceSettingsPanel settings={props.settings} deviceStatuses={props.deviceStatuses} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onSaved={props.onDeviceSaved} onOrderChanged={props.onOrderChanged} onRestartingAction={props.onRestartingAction} />
+          <DeviceSettingsPanel settings={props.settings} deviceStatuses={props.deviceStatuses} selectedDeviceID={props.selectedDeviceID} interfaces={props.dashboard.interfaces ?? []} terminalScope={props.dashboard.terminalScope} trafficScope={props.dashboard.trafficScope} onOrderChanged={props.onOrderChanged} onRestartingAction={props.onRestartingAction} />
         </section>
       ) : null}
 
@@ -2084,6 +2061,119 @@ function RouterOSCleanupCard(props: { cleanup: RouterOSCleanupResponse; onClose:
 
 type DeviceDraft = ConnectionDraft & { id: string; name: string; enabled: boolean; trafficInterfaces: string; trafficMode: '' | 'auto'; trafficIncludeInterfaces: string; trafficExcludeInterfaces: string; terminalCidrs: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
 type DeviceProbeFeedback = { tone: 'success' | 'error' | 'pending'; message: string }
+type ScopeOverrideDraft = { trafficIncludeInterfaces: string; trafficExcludeInterfaces: string; includeInterfaces: string; excludeInterfaces: string; includeCidrs: string; excludeCidrs: string }
+
+const emptyScopeOverrideDraft: ScopeOverrideDraft = { trafficIncludeInterfaces: '', trafficExcludeInterfaces: '', includeInterfaces: '', excludeInterfaces: '', includeCidrs: '', excludeCidrs: '' }
+
+function scopeOverrideDraftFromDevice(draft: DeviceDraft): ScopeOverrideDraft {
+  return {
+    trafficIncludeInterfaces: draft.trafficIncludeInterfaces,
+    trafficExcludeInterfaces: draft.trafficExcludeInterfaces,
+    includeInterfaces: draft.includeInterfaces,
+    excludeInterfaces: draft.excludeInterfaces,
+    includeCidrs: draft.includeCidrs,
+    excludeCidrs: draft.excludeCidrs,
+  }
+}
+
+function scopeConfigsFromOverrides(value: ScopeOverrideDraft, trafficMode: '' | 'auto' = 'auto') {
+  return {
+    trafficScope: {
+      mode: trafficMode === 'auto' ? 'auto' : undefined,
+      include_interfaces: parseSettingList(value.trafficIncludeInterfaces),
+      exclude_interfaces: parseSettingList(value.trafficExcludeInterfaces),
+    } satisfies TrafficScopeConfig,
+    terminalScope: {
+      mode: 'auto',
+      include_interfaces: parseSettingList(value.includeInterfaces),
+      exclude_interfaces: parseSettingList(value.excludeInterfaces),
+      include_cidrs: parseSettingList(value.includeCidrs),
+      exclude_cidrs: parseSettingList(value.excludeCidrs),
+    } satisfies TerminalScopeConfig,
+  }
+}
+
+function deviceScopeConfigs(draft: DeviceDraft) {
+  return scopeConfigsFromOverrides(scopeOverrideDraftFromDevice(draft), draft.trafficMode)
+}
+
+function ScopeOverrideFields(props: { value: ScopeOverrideDraft; onChange: (field: keyof ScopeOverrideDraft, value: string) => void; idPrefix: string }) {
+  const field = (name: keyof ScopeOverrideDraft, label: string, placeholder?: string) => (
+    <label key={name} htmlFor={`${props.idPrefix}-${name}`}><span>{label}</span><textarea id={`${props.idPrefix}-${name}`} rows={2} value={props.value[name]} placeholder={placeholder} onChange={(event) => props.onChange(name, event.target.value)} /></label>
+  )
+  return <>
+    <p className="scope-override-help">留空使用自动识别；每行一项。修改后会自动更新下面的预览。</p>
+    <section className="scope-override-section" aria-labelledby={`${props.idPrefix}-traffic-title`}>
+      <h4 id={`${props.idPrefix}-traffic-title`}>流量采集覆盖</h4>
+      <div className="scope-override-grid">
+        {field('trafficIncludeInterfaces', '强制纳入采集接口')}
+        {field('trafficExcludeInterfaces', '强制排除采集接口')}
+      </div>
+    </section>
+    <section className="scope-override-section" aria-labelledby={`${props.idPrefix}-terminal-title`}>
+      <h4 id={`${props.idPrefix}-terminal-title`}>终端范围覆盖</h4>
+      <div className="scope-override-grid">
+        {field('includeInterfaces', '强制纳入 LAN 接口')}
+        {field('excludeInterfaces', '强制排除接口')}
+        {field('includeCidrs', '额外纳入 CIDR', '10.0.0.0/24')}
+        {field('excludeCidrs', '排除 CIDR')}
+      </div>
+    </section>
+  </>
+}
+
+function VerificationResultSummary(props: { result: VerificationResponse }) {
+  const traffic = props.result.trafficScope
+  const terminal = props.result.terminalScope
+  const interfaces = props.result.interfaces ?? []
+  const cidrCandidates = props.result.cidrCandidates ?? []
+  const wanInterfaces = traffic?.interfaces ?? []
+  const lanInterfaces = (terminal?.interfaces ?? []).filter((item) => item.role === 'lan')
+  const warnings = Array.from(new Set([
+    ...(props.result.warnings ?? []).map((item) => item.message),
+    ...(traffic?.warnings ?? []),
+    ...(terminal?.warnings ?? []),
+  ].filter(Boolean)))
+  return <div className="verification-summary">
+    <div className="verification-identity-grid">
+      <div><span>RouterOS</span><strong>{props.result.identity.routerName || props.result.identity.boardName || '已连接'}</strong><small>{[props.result.identity.platform, props.result.identity.version].filter(Boolean).join(' · ') || '身份信息不可用'}</small></div>
+      <div><span>识别结果</span><strong>{wanInterfaces.length} 条 WAN · {lanInterfaces.length} 个 LAN</strong><small>{terminal?.prefixes?.length ?? 0} 个本地网段</small></div>
+    </div>
+    <div className="verification-scope-grid">
+      <section className="verification-scope-card" aria-labelledby="verification-wan-title">
+        <div className="scope-result-head"><h4 id="verification-wan-title">WAN / 上网线路</h4><small>{wanInterfaces.length} 条</small></div>
+        {wanInterfaces.length ? <div className="scope-result-list">{wanInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>{item.kind} · {item.disabled ? '已禁用' : item.running ? '运行中' : '当前断开'}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}</div> : <p className="scope-empty">未识别到 WAN；可在高级设置中强制纳入采集接口。</p>}
+      </section>
+      <section className="verification-scope-card" aria-labelledby="verification-lan-title">
+        <div className="scope-result-head"><h4 id="verification-lan-title">LAN / 本地终端</h4><small>{lanInterfaces.length} 个接口</small></div>
+        {lanInterfaces.length ? <div className="scope-result-list">{lanInterfaces.map((item) => <div className="scope-result-row" key={item.name}><span><strong>{item.name}</strong><small>置信度：{item.confidence}</small></span><small className="scope-result-reason">{(item.reasons ?? []).join('、')}</small></div>)}</div> : <p className="scope-empty">未识别到 LAN 接口；可在高级设置中强制纳入。</p>}
+      </section>
+    </div>
+		{(interfaces.length || cidrCandidates.length) ? <details className="verification-details">
+      <summary>查看原始检测结果</summary>
+			{interfaces.length ? <div className="verification-detail-block"><strong>RouterOS 接口</strong><div className="verification-interface-list">{interfaces.map((item) => <span key={item.name}>{item.name} · {item.type}{item.addresses?.length ? ` · ${item.addresses.join(', ')}` : ''}</span>)}</div></div> : null}
+			{cidrCandidates.length ? <div className="verification-detail-block"><strong>CIDR 候选</strong><div className="verification-interface-list">{cidrCandidates.map((item) => <span key={`${item.family}-${item.cidr}-${item.interface}`}>{item.cidr} · {item.interface || '未关联接口'}</span>)}</div></div> : null}
+    </details> : null}
+    {warnings.length ? <div className="verification-warning-list" role="status">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
+  </div>
+}
+
+function VerificationDialog(props: { result: VerificationResponse; scopeDraft: ScopeOverrideDraft; scopePreviewing: boolean; busy: boolean; error: string | null; onScopeChange: (field: keyof ScopeOverrideDraft, value: string) => void; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="device-verification-title">
+    <div className="remark-modal device-verification-modal">
+      <div className="dialog-head"><div><h3 id="device-verification-title">连接验证结果</h3><p className="muted-text">确认检测到的 WAN / LAN 范围后保存设备。</p></div><button type="button" className="close-button" disabled={props.busy} onClick={props.onCancel}>关闭</button></div>
+      <div className="remark-modal-body verification-modal-body">
+        <VerificationResultSummary result={props.result} />
+        <details className="verification-details verification-advanced">
+          <summary><span className="verification-advanced-summary"><strong>高级设置</strong><small>自动识别不符合实际拓扑时，在这里添加或排除接口、CIDR</small></span><small className="verification-advanced-status">{props.scopePreviewing ? '正在更新预览…' : '已自动预览'}</small></summary>
+          <div className="device-advanced-body"><ScopeOverrideFields value={props.scopeDraft} onChange={props.onScopeChange} idPrefix="verification" /></div>
+        </details>
+        {props.error ? <div className="settings-message" role="alert">{props.error}</div> : null}
+        <div className="remark-modal-actions"><button type="button" className="close-button modal-action-button" disabled={props.busy} onClick={props.onCancel}>返回修改</button><button type="button" className="primary-button modal-action-button" disabled={props.busy || props.scopePreviewing} onClick={props.onConfirm}>{props.busy ? '正在保存并启动…' : '确认保存并启动采集'}</button></div>
+      </div>
+    </div>
+  </div>
+}
 
 function deviceDraft(device?: SettingsDevice): DeviceDraft {
   return {
@@ -2095,7 +2185,7 @@ function deviceDraft(device?: SettingsDevice): DeviceDraft {
   }
 }
 
-function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses?: DeviceStatus[]; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onSaved?: (deviceID: string) => Promise<void>; onOrderChanged?: () => unknown; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
+function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses?: DeviceStatus[]; selectedDeviceID: string; interfaces: InterfaceStatus[]; terminalScope?: TerminalScope; trafficScope?: TrafficScope; onboarding?: boolean; initialDeviceID?: string; onOrderChanged?: () => unknown; onRestartingAction: (action: () => Promise<void>, onOffline: () => void) => Promise<void> }) {
   const { settings } = props
   const available = settings.devices.filter((device) => !device.archived)
   const [draft, setDraft] = useState<DeviceDraft>(() => deviceDraft(props.initialDeviceID === undefined ? available[0] : available.find((device) => device.id === props.initialDeviceID)))
@@ -2113,7 +2203,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	const [testing, setTesting] = useState(false)
 	const saving = savingAction !== null
 	// Quick provisioning state
-	const [provisioningMode, setProvisioningMode] = useState<'quick' | 'manual'>('manual')
+	const [provisioningMode, setProvisioningMode] = useState<'quick' | 'manual'>(() => available.length ? 'manual' : 'quick')
 	const [provisioningSession, setProvisioningSession] = useState<ProvisioningSessionResponse | null>(null)
 	const [provisioningScriptVisible, setProvisioningScriptVisible] = useState(false)
 	const [quickName, setQuickName] = useState('')
@@ -2124,9 +2214,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	const [quickCompleting, setQuickCompleting] = useState(false)
 	const [quickCopied, setQuickCopied] = useState(false)
 	const [quickError, setQuickError] = useState<string | null>(null)
-	const [quickMessage, setQuickMessage] = useState<string | null>(null)
-	const [pendingDeviceChanges, setPendingDeviceChanges] = useState(false)
-	const [applyingDeviceChanges, setApplyingDeviceChanges] = useState(false)
+	const [quickScopeDraft, setQuickScopeDraft] = useState<ScopeOverrideDraft>(emptyScopeOverrideDraft)
+	const [verificationDialogMode, setVerificationDialogMode] = useState<'manual' | 'quick' | null>(null)
+	const [verificationDialogError, setVerificationDialogError] = useState<string | null>(null)
+	const [scopePreviewing, setScopePreviewing] = useState(false)
+	const scopePreviewTimer = useRef<number | null>(null)
+	const scopePreviewSequence = useRef(0)
 	const [cleanup, setCleanup] = useState<RouterOSCleanupResponse | null>(() => consumePendingRouterOSCleanup())
 	const [accountStatus, setAccountStatus] = useState<DeviceAccountStatus | null>(null)
 	const [accountLoading, setAccountLoading] = useState(false)
@@ -2143,6 +2236,9 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	const scopeInterfaces = terminalScope?.interfaces ?? []
 	const scopePrefixes = terminalScope?.prefixes ?? []
 	const scopeWarnings = terminalScope?.warnings ?? []
+	useEffect(() => () => {
+		if (scopePreviewTimer.current !== null) window.clearTimeout(scopePreviewTimer.current)
+	}, [])
 	useEffect(() => {
 		if (!draft.id) {
 			setScopedDashboard(null)
@@ -2188,9 +2284,9 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	}, [draft.id])
   const choose = (device?: SettingsDevice) => {
 	setDraft(deviceDraft(device)); setPasswordVisible(false); setMessage(null);
-	setProbeFeedback(null); setVerification(null); setScopedDashboard(null); setScopeError(null);
-	setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false);
-	setProvisioningMode('manual')
+	setProbeFeedback(null); setVerification(null); setVerificationDialogMode(null); setVerificationDialogError(null); setScopedDashboard(null); setScopeError(null);
+	setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft)
+	setProvisioningMode(device ? 'manual' : 'quick')
 	setReplacementSession(null); setReplacementError(null); setReplacementCopied(false)
 	if (!device) {
 	  setQuickName('')
@@ -2202,6 +2298,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	const clearConnectionProbe = () => {
 		setVerification(null)
 		setProbeFeedback(null)
+		setVerificationDialogMode(null)
+		setVerificationDialogError(null)
 	}
 	const reorderDevices = async (deviceID: string, targetDeviceID: string) => {
 		if (reordering || deviceID === targetDeviceID) return
@@ -2245,48 +2343,88 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 		setDragOverDeviceID(null)
 		if (deviceID) void reorderDevices(deviceID, targetDeviceID)
 	}
-	const testConnection = async () => {
-		setTesting(true); setMessage(null); setVerification(null)
-		setProbeFeedback({ tone: 'pending', message: '正在探测 RouterOS 连接…' })
+	const queueScopePreview = (next: ScopeOverrideDraft, trafficMode: '' | 'auto' = 'auto') => {
+		const token = verification?.verificationToken
+		if (!token || !verificationDialogMode) return
+		if (scopePreviewTimer.current !== null) window.clearTimeout(scopePreviewTimer.current)
+		const sequence = scopePreviewSequence.current + 1
+		scopePreviewSequence.current = sequence
+		setScopePreviewing(true)
+		scopePreviewTimer.current = window.setTimeout(() => {
+			void (async () => {
+				try {
+					const scopes = scopeConfigsFromOverrides(next, trafficMode)
+					const response = await requestJSON('/api/devices/preview-scope', 'POST', { verificationToken: token, ...scopes })
+					const result = await response.json() as Pick<VerificationResponse, 'trafficScope' | 'terminalScope'>
+					if (scopePreviewSequence.current !== sequence) return
+					setVerification((current) => current ? { ...current, trafficScope: result.trafficScope, terminalScope: result.terminalScope } : current)
+					setVerificationDialogError(null)
+				} catch (error) {
+					if (scopePreviewSequence.current === sequence) setVerificationDialogError(error instanceof Error ? error.message : '范围预览失败')
+				} finally {
+					if (scopePreviewSequence.current === sequence) setScopePreviewing(false)
+				}
+			})()
+		}, 350)
+	}
+	const handleScopeOverrideChange = (field: keyof ScopeOverrideDraft, value: string) => {
+		if (verificationDialogMode === 'quick') {
+			const next = { ...quickScopeDraft, [field]: value }
+			setQuickScopeDraft(next)
+			queueScopePreview(next)
+			return
+		}
+		const next = { ...draft, [field]: value }
+		setDraft(next)
+			queueScopePreview(scopeOverrideDraftFromDevice(next), draft.trafficMode)
+	}
+	const verifyConnection = async () => {
+		setTesting(true); setMessage(null); setVerification(null); setVerificationDialogMode(null); setVerificationDialogError(null)
+		setProbeFeedback({ tone: 'pending', message: '正在检测 RouterOS 连接与拓扑…' })
 		try {
-			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } })
+			const scopes = deviceScopeConfigs(draft)
+			const response = await requestJSON('/api/devices/test-connection', 'POST', { deviceId: draft.id, scheme: draft.scheme, host: draft.host, port: draft.port, username: draft.username, password: draft.password, ...scopes })
 			const result = await response.json() as VerificationResponse
 			setVerification(result)
+			setVerificationDialogMode('manual')
 			const identity = [result.identity.routerName || result.identity.boardName || 'RouterOS 设备', result.identity.version].filter(Boolean).join(' ')
-			setProbeFeedback({ tone: 'success', message: `🟢 连接成功: ${identity}` })
+			setProbeFeedback({ tone: 'success', message: `🟢 检测完成: ${identity}` })
 			setMessage(result.warnings?.length ? `连接成功，但有 ${result.warnings.length} 项可选能力不可用。` : null)
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : 'RouterOS 连接测试失败'
-			setProbeFeedback({ tone: 'error', message: `🔴 连接失败: ${detail}` })
+			setProbeFeedback({ tone: 'error', message: `🔴 检测失败: ${detail}` })
 		} finally { setTesting(false) }
 	}
-  const request = async (path: string, method: string, body?: unknown) => {
-	setSavingAction('save'); setMessage(null)
-    try {
-	  if (props.onboarding || !draft.id) {
-		const response = await requestJSON(path, method, body)
-		const result = await response.json() as { id?: string }
-		await props.onSaved?.(result.id || draft.id)
-		if (!props.onboarding) {
-			setDraft(deviceDraft())
-			setVerification(null)
-			setProbeFeedback(null)
-			setPendingDeviceChanges(true)
-			setMessage('设备已保存，尚未重启采集。可继续添加设备，全部确认后再统一应用。')
+	const devicePayload = () => {
+		const scopes = deviceScopeConfigs(draft)
+		return { ...draft, completeOnboarding: Boolean(props.onboarding), deferRestart: false, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, ...scopes, terminalCidrs: parseSettingList(draft.terminalCidrs) }
+	}
+	const commitDevice = async () => {
+		if (!verification?.verificationToken) {
+			setVerificationDialogError('请先完成连接检测，检测结果有效后才能保存。')
+			return
 		}
-		setSavingAction(null)
-		return
-	  }
-      setMessage('已保存，面板正在重启，请保持此页面打开...')
-      await props.onRestartingAction(() => requestJSON(path, method, body).then(() => undefined), () => setMessage('面板正在启动，恢复后将自动刷新...'))
-    } catch (error) { setMessage(error instanceof Error ? error.message : '设备设置保存失败'); setSavingAction(null) }
-  }
-  const saveDevice = () => {
+		setSavingAction('save')
+		setVerificationDialogError(null)
+		setMessage('已确认，设备正在保存并启动采集，请保持此页面打开…')
+		try {
+			await props.onRestartingAction(
+				() => requestJSON(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', devicePayload()).then(() => undefined),
+				() => setMessage('设备已保存，面板正在启动并重新连接…'),
+			)
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : '设备设置保存失败'
+			setVerificationDialogError(detail)
+			setMessage(detail)
+			setSavingAction(null)
+		}
+	}
+	const saveDevice = () => {
 		if (!draft.name.trim() || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)) {
 			setMessage('请填写设备名称、IP 地址或主机名、REST 用户名和密码。')
 			return
 		}
-		return request(draft.id ? `/api/devices/${encodeURIComponent(draft.id)}` : '/api/devices', draft.id ? 'PUT' : 'POST', { ...draft, completeOnboarding: false, deferRestart: props.onboarding || !draft.id, verificationToken: verification?.verificationToken || '', trafficInterfaces: draft.trafficMode === 'auto' ? [] : trafficInterfaces, trafficScope: { mode: draft.trafficMode === 'auto' ? 'auto' : undefined, include_interfaces: parseSettingList(draft.trafficIncludeInterfaces), exclude_interfaces: parseSettingList(draft.trafficExcludeInterfaces) }, terminalCidrs: parseSettingList(draft.terminalCidrs), terminalScope: { mode: 'auto', include_interfaces: parseSettingList(draft.includeInterfaces), exclude_interfaces: parseSettingList(draft.excludeInterfaces), include_cidrs: parseSettingList(draft.includeCidrs), exclude_cidrs: parseSettingList(draft.excludeCidrs) } })
+		return verifyConnection()
 	}
   const cancelEditing = () => choose(draft.id ? original : undefined)
   const isAddingNew = !draft.id
@@ -2305,10 +2443,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
     if (!quickName.trim() || !quickHost.trim()) return
     setQuickGenerating(true)
     setQuickError(null)
-	setQuickMessage(null)
-    setProvisioningSession(null)
+	    setProvisioningSession(null)
 	setProvisioningScriptVisible(false)
-    setQuickCopied(false)
+	    setQuickCopied(false)
+	    setQuickScopeDraft(emptyScopeOverrideDraft)
+	    setVerification(null)
+	    setVerificationDialogMode(null)
     try {
       const response = await requestJSON('/api/device-onboarding/sessions', 'POST', {
         name: quickName.trim(),
@@ -2325,55 +2465,49 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
     }
   }
 
-  const completeQuickProvisioning = async () => {
+  const previewQuickProvisioning = async () => {
     if (!provisioningSession) return
     setQuickCompleting(true)
     setQuickError(null)
-	setQuickMessage(null)
+    setVerificationDialogError(null)
     try {
-      const path = `/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`
-	  const response = await requestJSON(path, 'POST', { completeOnboarding: false, deferRestart: true })
-	  const result = await response.json() as ProvisioningCompleteResponse
-	  await props.onSaved?.(result.id)
-	  setProvisioningSession(null)
-	  setProvisioningScriptVisible(false)
-	  setQuickCopied(false)
-	  setQuickName('')
-	  setQuickHost('10.0.0.1')
-	  setQuickScheme('http')
-	  setQuickPort(80)
-	  if (!props.onboarding) {
-		setPendingDeviceChanges(true)
-		setQuickMessage('设备已保存，尚未重启采集。可继续添加设备，全部确认后再统一应用。')
-	  }
+      const path = `/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/preview`
+      const response = await requestJSON(path, 'POST', scopeConfigsFromOverrides(quickScopeDraft))
+      const result = await response.json() as VerificationResponse
+      setVerification(result)
+      setVerificationDialogMode('quick')
     } catch (error) {
       if (error instanceof APIRequestError && error.code === 'provisioning_expired') {
         setProvisioningSession(null)
         setQuickCopied(false)
       }
-      setQuickError(error instanceof Error ? error.message : '接入失败')
+      setQuickError(error instanceof Error ? error.message : 'RouterOS 连接检测失败')
     } finally {
       setQuickCompleting(false)
     }
   }
 
-	const applyDeviceChanges = async () => {
-		setApplyingDeviceChanges(true)
-		setQuickError(null)
-		setMessage('正在重启面板并应用全部设备配置...')
-		setQuickMessage('正在重启面板并应用全部设备配置...')
-		try {
-			await props.onRestartingAction(() => postJSON('/api/settings/restart').then(() => undefined), () => {
-				setMessage('面板正在启动，恢复后将自动刷新...')
-				setQuickMessage('面板正在启动，恢复后将自动刷新...')
-			})
-		} catch (error) {
-			const failure = error instanceof Error ? error.message : '应用设备配置失败'
-			setMessage(failure)
-			setQuickMessage(failure)
-			setApplyingDeviceChanges(false)
-		}
-	}
+  const commitQuickProvisioning = async () => {
+    if (!provisioningSession || !verification?.verificationToken) {
+      setVerificationDialogError('请先完成连接检测，检测结果有效后才能保存。')
+      return
+    }
+    setQuickCompleting(true)
+    setQuickError(null)
+    setVerificationDialogError(null)
+    try {
+      const path = `/api/device-onboarding/sessions/${encodeURIComponent(provisioningSession.sessionId)}/complete`
+      await props.onRestartingAction(
+        () => requestJSON(path, 'POST', { verificationToken: verification.verificationToken, ...scopeConfigsFromOverrides(quickScopeDraft), completeOnboarding: Boolean(props.onboarding), deferRestart: false }).then(() => undefined),
+        () => setQuickError('设备已保存，面板正在启动并重新连接…'),
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '接入失败'
+      setQuickError(detail)
+      setVerificationDialogError(detail)
+      setQuickCompleting(false)
+    }
+  }
 
   const copyScript = async () => {
     if (!provisioningSession) return
@@ -2481,8 +2615,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
     {cleanup ? <RouterOSCleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
     {isAddingNew ? (
       <div className="provisioning-mode-toggle" role="tablist" aria-label="接入方式">
-        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>快速接入（推荐）</button>
-        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>手动添加</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'quick'} className={provisioningMode === 'quick' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('quick'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>快速接入（推荐）</button>
+        <button type="button" role="tab" aria-selected={provisioningMode === 'manual'} className={provisioningMode === 'manual' ? 'pill provisioning-mode-button active' : 'pill provisioning-mode-button'} onClick={() => { setProvisioningMode('manual'); setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>手动添加</button>
       </div>
     ) : null}
     {showQuick ? (
@@ -2509,29 +2643,31 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
             <div className="settings-actions">
               <button type="submit" className="primary-button" disabled={quickGenerating || !quickName.trim() || !quickHost.trim()}>{quickGenerating ? '正在生成...' : '生成接入脚本'}</button>
             </div>
-			{quickMessage ? <div className="settings-message" role="status">{quickMessage}</div> : null}
             {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
           </form>
         ) : (
           <div className="provisioning-step">
             <div className="provisioning-step-card">
-			  <div className="provisioning-step-head"><strong>步骤 1：复制脚本</strong><button type="button" className="toolbar-button provisioning-script-toggle" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button></div>
+			  <div className="provisioning-step-head"><strong>步骤 1：复制脚本</strong></div>
 			  <p>直接复制完整脚本，无需查看内容；需要核对时可展开。</p>
+			  <div className="provisioning-script-actions">
+				<button type="button" className="toolbar-button" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button>
+				<button type="button" className="toolbar-button" disabled={quickGenerating || quickCompleting} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>重新生成脚本</button>
+				<button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
+			  </div>
 			  {provisioningScriptVisible ? <div className="provisioning-script-area">
 				<textarea readOnly value={provisioningSession.script} rows={14} spellCheck={false} aria-label="RouterOS 接入脚本" />
 			  </div> : null}
-			  <button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
             </div>
             <div className="provisioning-step-card">
               <strong>步骤 2：在 RouterOS 执行</strong>
               <p>打开 WinBox/WebFig/SSH 中的 Terminal，以管理员账号登录，把整段脚本粘贴并执行。看到 "rosboard account ready" 后再返回本页。</p>
             </div>
             <div className="provisioning-step-card">
-              <strong>步骤 3：完成接入</strong>
-              <p className="provisioning-expiry">脚本将在 {new Date(provisioningSession.expiresAt).toLocaleString('zh-CN')} 过期，请在此之前完成。</p>
+              <strong>步骤 3：检测并确认</strong>
+	              <p className="provisioning-expiry">脚本将在 {new Date(provisioningSession.expiresAt).toLocaleString('zh-CN')} 过期。检测完成后会弹窗展示 WAN/LAN 和高级设置。</p>
               <div className="settings-actions">
-				<button type="button" className="primary-button" disabled={quickCompleting} onClick={() => void completeQuickProvisioning()}>{quickCompleting ? '正在验证 RouterOS...' : '验证并保存设备'}</button>
-				<button type="button" className="toolbar-button" disabled={quickGenerating} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickMessage(null); setQuickCopied(false) }}>重新生成脚本</button>
+					<button type="button" className="primary-button" disabled={quickCompleting} onClick={() => void previewQuickProvisioning()}>{quickCompleting ? '正在检测 RouterOS...' : '添加设备'}</button>
               </div>
             </div>
             {quickError ? <div className="settings-message" role="alert">{quickError}</div> : null}
@@ -2541,24 +2677,12 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
     ) : null}
     {showManual ? (
     <form className="settings-form device-editor" onSubmit={(event) => { event.preventDefault(); if (event.currentTarget.reportValidity()) void saveDevice() }}>
-      <section className="device-form-card device-access-card wide" aria-labelledby="device-access-title">
-        <div className="device-access-copy">
-          <div className="device-card-title-row"><h3 id="device-access-title">设备接入状态</h3><span className={draft.enabled ? 'device-access-status enabled' : 'device-access-status disabled'}>{draft.enabled ? '已启用' : '已停用'}</span></div>
-          <p>停用后将暂停该设备的监控采集与策略下发，且无法在顶部切换栏管理该设备。</p>
-        </div>
-        <label className="device-switch">
-          <input type="checkbox" role="switch" aria-label="切换设备接入状态" aria-checked={draft.enabled} checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
-          <span className="device-switch-track" aria-hidden="true"><span /></span>
-          <span className={draft.enabled ? 'device-switch-label enabled' : 'device-switch-label disabled'}>{draft.enabled ? '已启用' : '已停用'}</span>
-        </label>
-      </section>
-
       <section className="device-form-card device-basic-card wide" aria-labelledby="device-basic-title">
         <div className="device-form-card-head"><div><h3 id="device-basic-title">基础连接参数</h3><p>配置 rosboard 访问 RouterOS REST API 所需的连接信息。</p></div></div>
         <div className="device-basic-grid">
           <label><span>设备名称</span><input className="settings-input" required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-          <div className="device-form-field"><span>协议 / 端口</span><div className="device-protocol-control"><select className="select-control settings-select" aria-label="协议" value={draft.scheme} onChange={(event) => { const scheme = event.target.value === 'https' ? 'https' : 'http'; setDraft((current) => ({ ...current, scheme, port: current.port === 80 || current.port === 443 ? (scheme === 'https' ? 443 : 80) : current.port })); clearConnectionProbe() }}><option value="http">HTTP</option><option value="https">HTTPS</option></select><input className="settings-input" aria-label="REST 端口" required type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); clearConnectionProbe() }} /></div></div>
           <label><span>IP 地址或主机名</span><input className="settings-input" required value={draft.host} onChange={(event) => { setDraft((current) => ({ ...current, host: event.target.value })); clearConnectionProbe() }} /></label>
+          <div className="device-form-field"><span>协议 / 端口</span><div className="device-protocol-control"><select className="select-control settings-select" aria-label="协议" value={draft.scheme} onChange={(event) => { const scheme = event.target.value === 'https' ? 'https' : 'http'; setDraft((current) => ({ ...current, scheme, port: current.port === 80 || current.port === 443 ? (scheme === 'https' ? 443 : 80) : current.port })); clearConnectionProbe() }}><option value="http">HTTP</option><option value="https">HTTPS</option></select><input className="settings-input" aria-label="REST 端口" required type="number" min={1} max={65535} value={draft.port} onChange={(event) => { setDraft((current) => ({ ...current, port: Number(event.target.value) })); clearConnectionProbe() }} /></div></div>
         </div>
       </section>
 
@@ -2573,7 +2697,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
         {accountStatus?.error ? <small className="settings-message" role="alert">{accountStatus.error}</small> : null}
       </section>
 
-      <section className="device-form-card device-topology-card wide" aria-labelledby="device-topology-title">
+	      {draft.id ? <section className="device-form-card device-topology-card wide" aria-labelledby="device-topology-title">
         <div className="device-form-card-head device-topology-head"><div><h3 id="device-topology-title">拓扑与范围</h3><p>系统根据 RouterOS 拓扑自动识别采集线路、LAN 接口与终端网段。</p></div><strong className="device-scope-summary">{scopeLoading ? '正在读取…' : scopeError ? '范围读取失败' : `${trafficScopeInterfaces.length} 条上网线路 · ${scopeInterfaces.filter((item) => item.role === 'lan').length} 个 LAN 接口 · ${scopePrefixes.length} 个网段`}</strong></div>
         {scopeLoading ? <p className="settings-message">正在读取当前设备的自动识别范围…</p> : null}
         {scopeError ? <p className="settings-message" role="alert">无法读取当前设备的自动识别范围：{scopeError}</p> : null}
@@ -2620,11 +2744,11 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
             </section>
           </div>
         </details>
-      </section>
+      </section> : null}
 
       <div className="device-form-footer wide">
-        <div className="device-form-footer-left"><button type="button" className="toolbar-button" disabled={testing || !draft.host.trim() || !draft.username.trim() || (!draft.id && !draft.password)} onClick={() => void testConnection()}>{testing ? '测试中…' : '测试连接'}</button>{probeFeedback ? <span className={`device-probe-feedback ${probeFeedback.tone}`} role={probeFeedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{probeFeedback.message}</span> : <span className="device-probe-feedback idle">可选：测试连接不会影响保存。</span>}</div>
-        <div className="device-form-footer-actions">{draft.id && !props.onboarding ? <button type="button" className="link-button link-button--danger device-archive-button" disabled={saving} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}<button type="button" className="close-button" disabled={saving} onClick={cancelEditing}>取消</button><button type="submit" className="primary-button" disabled={saving}>{savingAction === 'save' ? '保存中...' : props.onboarding || draft.id ? '保存设备' : '添加设备'}</button></div>
+        <div className="device-form-footer-left">{probeFeedback ? <span className={`device-probe-feedback ${probeFeedback.tone}`} role={probeFeedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{probeFeedback.message}</span> : <span className="device-probe-feedback idle">点击“保存设备”后自动检测连接和 LAN/WAN 范围。</span>}</div>
+        <div className="device-form-footer-actions">{draft.id && !props.onboarding ? <button type="button" className="link-button link-button--danger device-archive-button" disabled={saving || testing} onClick={() => void archiveDevice()}>{saving ? '处理中...' : '归档设备'}</button> : null}<button type="button" className="close-button" disabled={saving || testing} onClick={cancelEditing}>取消</button><button type="submit" className="primary-button" disabled={saving || testing}>{testing ? '正在检测…' : savingAction === 'save' ? '保存中...' : props.onboarding || draft.id ? '保存设备' : '添加设备'}</button></div>
       </div>
       {message ? <div className="settings-message wide" role="status">{message}</div> : null}
     </form>
@@ -2641,8 +2765,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 				</div>
 			</div>
 		</div>
-	) : null}
-	{pendingDeviceChanges && !props.onboarding ? <div className="pending-device-actions" role="status"><span>设备配置已保存但尚未应用，可继续添加其他设备。</span><button type="button" className="complete-setup-button" disabled={applyingDeviceChanges} onClick={() => void applyDeviceChanges()}>{applyingDeviceChanges ? '正在应用...' : '应用全部设备并重启'}</button></div> : null}
+		) : null}
+	{verificationDialogMode && verification ? <VerificationDialog result={verification} scopeDraft={verificationDialogMode === 'quick' ? quickScopeDraft : scopeOverrideDraftFromDevice(draft)} scopePreviewing={scopePreviewing} busy={saving || quickCompleting} error={verificationDialogError} onScopeChange={handleScopeOverrideChange} onCancel={() => { if (!saving && !quickCompleting) { setVerificationDialogMode(null); setVerificationDialogError(null) } }} onConfirm={() => void (verificationDialogMode === 'quick' ? commitQuickProvisioning() : commitDevice())} /> : null}
     </div>
   </div>
 }

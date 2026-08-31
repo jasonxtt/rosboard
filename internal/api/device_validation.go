@@ -63,7 +63,7 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	allowed := make(map[string]struct{})
 	consumeTicket := false
 	var verifiedTicket verificationTicket
-	if connectionChanged {
+	if strings.TrimSpace(payload.VerificationToken) != "" {
 		ticket, err := s.tickets.validate(payload.VerificationToken, connectionFingerprint(baseURL, username, password))
 		if err == nil {
 			allowed = ticket.interfaces
@@ -72,19 +72,20 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 		} else if !errors.Is(err, errVerificationRequired) {
 			return config.DeviceConfig{}, false, err
 		} else {
-			// Saving does not require a separate UI probe. Verify the endpoint just
-			// enough to validate explicit interface overrides; the monitor will
-			// perform the complete topology discovery after the configuration is saved.
-			verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			interfaces, verifyErr := routeros.NewClient(baseURL, username, password).Interfaces(verifyCtx)
-			cancel()
-			if verifyErr != nil {
-				return config.DeviceConfig{}, false, errors.New("unable to verify RouterOS connection")
-			}
-			for _, item := range interfaces {
-				if name := strings.TrimSpace(item.Name); name != "" {
-					allowed[name] = struct{}{}
-				}
+			return config.DeviceConfig{}, false, errVerificationRequired
+		}
+	} else if connectionChanged {
+		// Keep the legacy API path usable for callers that do not yet perform a
+		// full preview. The frontend always sends a verification ticket.
+		verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		interfaces, verifyErr := routeros.NewClient(baseURL, username, password).Interfaces(verifyCtx)
+		cancel()
+		if verifyErr != nil {
+			return config.DeviceConfig{}, false, errors.New("unable to verify RouterOS connection")
+		}
+		for _, item := range interfaces {
+			if name := strings.TrimSpace(item.Name); name != "" {
+				allowed[name] = struct{}{}
 			}
 		}
 	} else {
@@ -255,7 +256,7 @@ func normalizedStrings(values []string) []string {
 
 func (s *Server) rejectDuplicateEndpoint(id, baseURL string) error {
 	for _, candidate := range s.configSnapshot().Devices {
-		if candidate.ID == id {
+		if candidate.ID == id || candidate.Archived {
 			continue
 		}
 		scheme, host, port := routerOSConnectionParts(candidate.RouterOS.BaseURL)

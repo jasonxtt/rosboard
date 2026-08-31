@@ -183,7 +183,7 @@ func TestUnsavedDeviceCanCompleteOnboardingDirectly(t *testing.T) {
 	}
 }
 
-func TestDeviceCreateRejectsEndpointUsedByArchivedDevice(t *testing.T) {
+func TestDeviceCreateAllowsEndpointUsedByArchivedDevice(t *testing.T) {
 	router := newDeviceTestRouter(t)
 	defer router.Close()
 	scheme, host, port := testConnectionParts(t, router.URL)
@@ -199,7 +199,7 @@ func TestDeviceCreateRejectsEndpointUsedByArchivedDevice(t *testing.T) {
 	}
 	body := `{"name":"New","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"other","password":"secret","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.0/24"],"verificationToken":"` + token + `"}`
 	response := serveJSON(server, http.MethodPost, "/api/devices", body)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "already uses") {
+	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
@@ -259,6 +259,49 @@ func TestDeviceConnectionTestRejectsUnavailableTrafficScopeInclude(t *testing.T)
 	response := serveJSON(server, http.MethodPost, "/api/devices/test-connection", body)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `traffic scope include interface \"pppoe-不存在\" is unavailable`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceScopePreviewUsesVerificationTopology(t *testing.T) {
+	server := NewServer(config.Config{}, nil, nil)
+	baseURL := "http://router.test:80"
+	topology := routeros.TopologySnapshot{
+		Interfaces:  []routeros.Interface{{Name: "bridge", Type: "bridge", Running: "true"}, {Name: "ether1", Type: "ether", Running: "true"}},
+		DHCPClients: []routeros.DHCPClient{{Interface: "ether1", Status: "bound", AddDefaultRoute: "true"}},
+	}
+	token, _, err := server.tickets.issueWithTopology(connectionFingerprint(baseURL, "admin", "secret"), []routeros.VerificationInterface{{Name: "bridge"}, {Name: "ether1"}}, topology)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := serveJSON(server, http.MethodPost, "/api/devices/preview-scope", `{"verificationToken":"`+token+`","trafficScope":{"mode":"auto","include_interfaces":["ether1"]},"terminalScope":{"mode":"auto","include_interfaces":["bridge"]}}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		TrafficScope struct {
+			Interfaces []struct{ Name string } `json:"interfaces"`
+		} `json:"trafficScope"`
+		TerminalScope struct {
+			Interfaces []struct {
+				Name string
+				Role string
+			} `json:"interfaces"`
+		} `json:"terminalScope"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.TrafficScope.Interfaces) != 1 || result.TrafficScope.Interfaces[0].Name != "ether1" {
+		t.Fatalf("unexpected traffic preview: %#v", result.TrafficScope)
+	}
+	foundLAN := false
+	for _, item := range result.TerminalScope.Interfaces {
+		if item.Name == "bridge" && item.Role == "lan" {
+			foundLAN = true
+		}
+	}
+	if !foundLAN {
+		t.Fatalf("unexpected terminal preview: %#v", result.TerminalScope)
 	}
 }
 
