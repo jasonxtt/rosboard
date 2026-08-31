@@ -1839,3 +1839,36 @@ Added YAML/TXT/LIST and local-upload parsing with selected domain/IP filtering; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 93: 完成 RouterOS 设备接入流程审核
+
+**Date**: 2026-08-31
+**Task**: 完成 RouterOS 设备接入流程审核
+**Branch**: `main`
+
+### Summary
+
+用户确认设备接入相关改动通过；提交统一的快速/手动接入验证确认流程、维护设置归档设备可见性，以及归档 RouterOS endpoint 可复用修复。已在 10.0.0.60:80 验证，18080 保持停止。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9e7708` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
