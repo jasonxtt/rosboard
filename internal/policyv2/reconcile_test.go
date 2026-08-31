@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/routeros"
 )
 
@@ -335,6 +336,39 @@ func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T
 	}
 	if creates != 1 || deletes != 2 {
 		t.Fatalf("expected one create and two stale deletes: operations=%#v", operations)
+	}
+}
+
+func TestScanManagedBlocksForeignAccessNamespaces(t *testing.T) {
+	foreignAccess := accesscontrol.LegacyV1ManagedComment("other-manager", "edge", "access:rule-a:ipv4:jump-out")
+	currentAccess := accesscontrol.LegacyV1ManagedComment("manager", "other-device", "access:rule-b:ipv4:jump-out")
+	migrationLike := "ra_12345678"
+	migrationLikeV2 := "ra_v1_123456789abc_abcdefabcdef_1234567890abcdef"
+	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPFirewallFilter: {
+			{"chain": "forward", "action": "jump", "comment": foreignAccess},
+			{"chain": "forward", "action": "jump", "comment": currentAccess},
+			{"chain": "forward", "action": "jump", "comment": migrationLike},
+			{"chain": "forward", "action": "jump", "comment": migrationLikeV2},
+		},
+	}}
+	repository := &fakeScanRepository{managerID: "manager"}
+
+	actual, _, err := ScanManaged(context.Background(), mutation, repository, nil)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(actual) != 4 {
+		t.Fatalf("foreign or unowned access comments must be surfaced for a safety blocker: %#v", actual)
+	}
+	for _, object := range actual {
+		if object.Ownership != "foreign" {
+			t.Fatalf("foreign access object lost its ownership marker: %#v", object)
+		}
+	}
+	operations, blockers := DiffDesired(nil, actual)
+	if len(operations) != 0 || len(blockers) != 4 {
+		t.Fatalf("foreign access objects must block without becoming deletable: operations=%#v blockers=%#v", operations, blockers)
 	}
 }
 

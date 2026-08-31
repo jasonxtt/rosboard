@@ -400,7 +400,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'policy-routing' | 'recognition'
+export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'policy-routing' | 'access-control' | 'recognition'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

@@ -367,6 +367,9 @@ func (s *Store) initSchema() error {
 	if err := s.initAuthSchema(); err != nil {
 		return err
 	}
+	if err := s.initAccessControlSchema(); err != nil {
+		return err
+	}
 	return s.initPolicySchema()
 }
 
@@ -421,6 +424,9 @@ func (s *Store) initDeviceSchema() error {
 	}
 	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("checkpoint device schema: %w", err)
+	}
+	if err := s.initAccessControlSchema(); err != nil {
+		return err
 	}
 	return s.initPolicySchema()
 }
@@ -1216,6 +1222,44 @@ func mergeTerminalTx(ctx context.Context, tx *sql.Tx, deviceID, fromID, toID str
 	if _, err := tx.ExecContext(ctx, `UPDATE connection_state SET terminal_id = ? WHERE device_id = ? AND terminal_id = ?`, toID, deviceID, fromID); err != nil {
 		return fmt.Errorf("move connection state: %w", err)
 	}
+	accessChanged := false
+	result, err := tx.ExecContext(ctx, `DELETE FROM access_rule_members AS source
+		WHERE source.device_id = ? AND source.terminal_id = ?
+		AND EXISTS (SELECT 1 FROM access_rule_members AS target WHERE target.device_id = source.device_id AND target.rule_id = source.rule_id AND target.terminal_id = ?)`, deviceID, fromID, toID)
+	if err != nil {
+		return fmt.Errorf("deduplicate merged access rule members: %w", err)
+	}
+	rows, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		return fmt.Errorf("read merged access member delete result: %w", rowsErr)
+	}
+	if rows > 0 {
+		accessChanged = true
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE access_rule_members SET terminal_id = ? WHERE device_id = ? AND terminal_id = ?`, toID, deviceID, fromID)
+	if err != nil {
+		return fmt.Errorf("move access rule member identity: %w", err)
+	}
+	rows, rowsErr = result.RowsAffected()
+	if rowsErr != nil {
+		return fmt.Errorf("read merged access member update result: %w", rowsErr)
+	}
+	if rows > 0 {
+		accessChanged = true
+	}
+	if accessChanged {
+		result, err := tx.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = desired_revision + 1 WHERE device_id = ?`, deviceID)
+		if err != nil {
+			return fmt.Errorf("bump merged access-control revision: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read merged access-control revision result: %w", err)
+		}
+		if rows != 1 {
+			return errors.New("access-control state is missing")
+		}
+	}
 	_, _ = tx.ExecContext(ctx, `DELETE FROM terminals WHERE device_id = ? AND id = ?`, deviceID, fromID)
 	return nil
 }
@@ -1596,10 +1640,14 @@ func (s *Store) purgeDeviceData(ctx context.Context, deviceID string) error {
 	for _, table := range []string{
 		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
+		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {
 			return fmt.Errorf("purge device from %s: %w", table, err)
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = 0, applied_revision = 0, applied_at = 0 WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("reset access-control state: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit purge device: %w", err)
@@ -1642,10 +1690,14 @@ func (s *Store) ResetAll(ctx context.Context) error {
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
 		"auth_sessions", "admin_account", "app_state",
 		"dns_observations", "dns_features", "mosdns_state",
+		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
 			return fmt.Errorf("reset %s: %w", table, err)
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = 0, applied_revision = 0, applied_at = 0`); err != nil {
+		return fmt.Errorf("reset access-control state: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit full reset: %w", err)
@@ -1666,11 +1718,18 @@ func (s *Store) resetClosedDeviceDatabase(ctx context.Context, path string) erro
 		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
 		"dns_observations", "dns_features", "mosdns_state",
+		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
 	}
 	for _, table := range tables {
 		if _, err := db.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			if strings.HasPrefix(table, "access_") && strings.Contains(strings.ToLower(err.Error()), "no such table") {
+				continue
+			}
 			return fmt.Errorf("reset %s in %s: %w", table, filepath.Base(path), err)
 		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = 0, applied_revision = 0, applied_at = 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table") {
+		return fmt.Errorf("reset access-control state in %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

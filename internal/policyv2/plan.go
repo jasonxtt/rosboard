@@ -1,6 +1,10 @@
 package policyv2
 
-import "time"
+import (
+	"time"
+
+	"rosboard/internal/accesscontrol"
+)
 
 type DesiredObject struct {
 	LogicalID string
@@ -16,6 +20,7 @@ type ActualObject struct {
 	RouterID  string
 	Position  int
 	Fields    map[string]string
+	Ownership string
 }
 
 type PlanIssue struct {
@@ -71,24 +76,27 @@ type PlanSummary struct {
 }
 
 type Plan struct {
-	PlanID            string                `json:"planID"`
-	DeviceID          string                `json:"deviceID"`
-	Kind              string                `json:"kind"`
-	Lifecycle         string                `json:"lifecycle"`
-	CreatedAt         time.Time             `json:"createdAt"`
-	ExpiresAt         time.Time             `json:"expiresAt"`
-	DesiredRevision   int64                 `json:"desiredRevision"`
-	DesiredHash       string                `json:"desiredHash,omitempty"`
-	ActualFingerprint string                `json:"actualFingerprint"`
-	Blockers          []PlanIssue           `json:"blockers"`
-	FamilyBlockers    []PlanIssue           `json:"familyBlockers,omitempty"`
-	Warnings          []PlanIssue           `json:"warnings"`
-	Acknowledgements  []PlanAcknowledgement `json:"acknowledgements"`
-	OwnershipStrict   bool                  `json:"ownershipStrict"`
-	Summary           PlanSummary           `json:"summary"`
-	Operations        []PlanOperation       `json:"operations"`
-	PlanHash          string                `json:"planHash"`
-	State             string                `json:"state"`
+	PlanID                   string                                             `json:"planID"`
+	DeviceID                 string                                             `json:"deviceID"`
+	Kind                     string                                             `json:"kind"`
+	Lifecycle                string                                             `json:"lifecycle"`
+	CreatedAt                time.Time                                          `json:"createdAt"`
+	ExpiresAt                time.Time                                          `json:"expiresAt"`
+	DesiredRevision          int64                                              `json:"desiredRevision"`
+	AccessRevision           int64                                              `json:"accessRevision,omitempty"`
+	AccessResolutionCount    int                                                `json:"accessResolutionCount,omitempty"`
+	InternetEgressCandidates map[string][]accesscontrol.InternetEgressCandidate `json:"internetEgressCandidates,omitempty"`
+	DesiredHash              string                                             `json:"desiredHash,omitempty"`
+	ActualFingerprint        string                                             `json:"actualFingerprint"`
+	Blockers                 []PlanIssue                                        `json:"blockers"`
+	FamilyBlockers           []PlanIssue                                        `json:"familyBlockers,omitempty"`
+	Warnings                 []PlanIssue                                        `json:"warnings"`
+	Acknowledgements         []PlanAcknowledgement                              `json:"acknowledgements"`
+	OwnershipStrict          bool                                               `json:"ownershipStrict"`
+	Summary                  PlanSummary                                        `json:"summary"`
+	Operations               []PlanOperation                                    `json:"operations"`
+	PlanHash                 string                                             `json:"planHash"`
+	State                    string                                             `json:"state"`
 }
 
 type PlanEnvelope struct {
@@ -98,7 +106,9 @@ type PlanEnvelope struct {
 }
 
 type cachedPlan struct {
-	Plan    Plan
-	Desired []DesiredObject
-	Actual  []ActualObject
+	Plan              Plan
+	Desired           []DesiredObject
+	Actual            []ActualObject
+	AccessResolutions []accesscontrol.MemberResolution
+	InternetEgresses  map[string][]string
 }

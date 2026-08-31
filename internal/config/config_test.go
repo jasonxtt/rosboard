@@ -356,3 +356,38 @@ func TestLoadPreservesExplicitSortOrder(t *testing.T) {
 		t.Fatalf("reordering must not mix up device payloads, got %+v", cfg.Devices)
 	}
 }
+
+func TestLoadApplicationCatalogConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.yaml")
+	payload := []byte("application_catalog:\n  source: /tmp/open-app-filter.tar.gz\n  refresh_interval_hours: 24\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ApplicationCatalog.Source != "/tmp/open-app-filter.tar.gz" || cfg.ApplicationCatalog.RefreshIntervalHours != 24 {
+		t.Fatalf("unexpected application catalog config: %+v", cfg.ApplicationCatalog)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "application_catalog:") || !strings.Contains(string(saved), "refresh_interval_hours: 24") {
+		t.Fatalf("application catalog config was not persisted: %s", saved)
+	}
+}
+
+func TestValidateRejectsNegativeApplicationCatalogRefreshInterval(t *testing.T) {
+	cfg := Config{
+		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		ApplicationCatalog: ApplicationCatalogConfig{RefreshIntervalHours: -1},
+	}
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "application_catalog.refresh_interval_hours") {
+		t.Fatalf("expected application catalog interval validation error, got %v", err)
+	}
+}

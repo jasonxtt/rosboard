@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"rosboard/internal/api"
+	"rosboard/internal/applicationcatalog"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
 	"rosboard/internal/policyv2"
@@ -74,14 +75,21 @@ func main() {
 		logger.Print("routeros is not configured, serving setup UI")
 	}
 	policyManager := policyv2.NewManager(logger)
-	if err := assemblePolicyRuntimes(cfg, storage, policyManager); err != nil {
+	if err := assemblePolicyRuntimes(cfg, storage, manager, policyManager); err != nil {
 		log.Fatalf("assemble policy runtimes: %v", err)
 	}
 	go policyManager.Start(ctx)
+	catalog := applicationcatalog.New(
+		cfg.ApplicationCatalog.Source,
+		time.Duration(cfg.ApplicationCatalog.RefreshIntervalHours)*time.Hour,
+	)
+	go catalog.Start(ctx)
+	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, func() { os.Exit(0) }, policyManager)
+	apiServer.SetApplicationCatalog(catalog)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           api.NewServerWithPolicyManager(cfg, manager, storage, assets, func() { os.Exit(0) }, policyManager),
+		Handler:           apiServer,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

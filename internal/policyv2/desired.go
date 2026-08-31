@@ -5,24 +5,42 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"sort"
 	"strings"
 	"unicode"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/routeros"
 )
 
 type DesiredResult struct {
-	Revision int64
-	Hash     string
-	Objects  []DesiredObject
-	Blockers []PlanIssue
-	Warnings []PlanIssue
+	Revision                 int64
+	AccessRevision           int64
+	AccessSourceIDs          []string
+	InternetEgressCandidates map[string][]accesscontrol.InternetEgressCandidate
+	Hash                     string
+	Objects                  []DesiredObject
+	Blockers                 []PlanIssue
+	Warnings                 []PlanIssue
+	AccessResolutions        []accesscontrol.MemberResolution
 }
 
 func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
+	return BuildDesiredWithAccess(ctx, repository, reader, nil, nil, nil)
+}
+
+type TerminalResolver func() []accesscontrol.Terminal
+
+type ScopeResolver func() accesscontrol.Scope
+
+func BuildDesiredWithAccess(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver) (DesiredResult, error) {
+	return BuildDesiredWithAccessOptions(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, nil)
+}
+
+func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver, selectedInternetEgresses map[string][]string) (DesiredResult, error) {
 	state, err := repository.GetDeviceState(ctx)
 	if err != nil {
 		return DesiredResult{}, err
@@ -39,9 +57,50 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 	if err != nil {
 		return DesiredResult{}, err
 	}
+	accessRules := []accesscontrol.AccessRule{}
+	accessMembers := []accesscontrol.RuleMember{}
+	// -1 means this is a policy-only plan without the access-control
+	// repository. Zero is a real access-control revision for an empty device
+	// and must still participate in the commit race check.
+	accessRevision := int64(-1)
+	if accessRepository != nil {
+		accessRules, err = accessRepository.ListRules(ctx)
+		if err != nil {
+			return DesiredResult{}, err
+		}
+		accessMembers, err = accessRepository.ListMembers(ctx)
+		if err != nil {
+			return DesiredResult{}, err
+		}
+		accessState, stateErr := accessRepository.GetState(ctx)
+		if stateErr != nil {
+			return DesiredResult{}, stateErr
+		}
+		accessRevision = accessState.DesiredRevision
+	}
+	accessSources := make(map[string]bool)
+	for _, rule := range accessRules {
+		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeSources {
+			continue
+		}
+		for _, sourceID := range rule.SourceIDs {
+			accessSources[sourceID] = true
+		}
+	}
+	accessSourceIDList := make([]string, 0, len(accessSources))
+	for sourceID := range accessSources {
+		accessSourceIDList = append(accessSourceIDList, sourceID)
+	}
+	sort.Strings(accessSourceIDList)
+	accessSourceDisabled := make(map[string]bool)
+	for _, source := range sources {
+		if accessSources[source.ID] && !source.Enabled {
+			accessSourceDisabled[source.ID] = true
+		}
+	}
 	sourcesByEgress := enabledSourcesByEgress(sources)
 	prefix := managedCommentIdentityPrefix
-	result := DesiredResult{Revision: state.DesiredRevision, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}}
+	result := DesiredResult{Revision: state.DesiredRevision, AccessRevision: accessRevision, AccessSourceIDs: accessSourceIDList, InternetEgressCandidates: map[string][]accesscontrol.InternetEgressCandidate{}, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}, AccessResolutions: []accesscontrol.MemberResolution{}}
 	order := 0
 	addWithLabel := func(logicalID string, menu routeros.MutationMenu, phase, label string, fields map[string]string) {
 		order++
@@ -49,6 +108,30 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			fields["comment"] = managedComment(prefix, logicalID, label)
 		}
 		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Fields: fields, Phase: phase, Order: order})
+	}
+	egressByID := make(map[string]Egress, len(egresses))
+	for _, egress := range egresses {
+		egressByID[egress.ID] = egress
+	}
+	sourceLists := make(map[string]string, len(sources))
+	accessSourceLists := make(map[string]string, len(sources))
+	sourceByID := make(map[string]Source, len(sources))
+	for _, source := range sources {
+		sourceLists[source.ID] = SourceListName(managerID, repository.DeviceID(), source)
+		if !source.PendingDeletion && source.ActiveVersionID != "" {
+			accessSourceLists[source.ID] = sourceLists[source.ID]
+		}
+		sourceByID[source.ID] = source
+	}
+	accessForwarder := ""
+	if needsAccessForwarder(accessRules, sourceByID, egressByID) {
+		upstream, upstreamErr := accessDNSUpstream(ctx, reader)
+		if upstreamErr != nil {
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "access_dns_upstream_unavailable", Status: "blocker", Reason: upstreamErr.Error()})
+		} else {
+			accessForwarder = "rosboard_access_" + shortHash("access-forwarder:"+managerID+":"+repository.DeviceID(), 10)
+			addWithLabel("access-forwarder", routeros.MenuIPDNSForwarders, "dns", "访问控制 DNS 转发器", map[string]string{"name": accessForwarder, "dns-servers": upstream})
+		}
 	}
 	ingressList := ManagedIngressListName(managerID, repository.DeviceID())
 	hasEgress := hasEnabledEgress(egresses)
@@ -97,11 +180,7 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 
 		listBySource := make(map[string]string)
 		for _, source := range sourcesByEgress[egress.ID] {
-			if mode == ListModeDedicated {
-				listBySource[source.ID] = dedicatedListName(source)
-			} else {
-				listBySource[source.ID] = firstNonEmptyString(egress.ListName, SharedListName(egress.Name))
-			}
+			listBySource[source.ID] = sourceLists[source.ID]
 		}
 
 		// DNS objects exist only while the egress has an applicable domain
@@ -120,6 +199,9 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
 			addEgress("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias})
 			for _, source := range sourcesByEgress[egress.ID] {
+				if accessSources[source.ID] && !egress.Enabled {
+					continue
+				}
 				if source.Kind == KindIP {
 					continue
 				}
@@ -159,6 +241,9 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 		// IP sources materialize as static address-list entries per enabled
 		// family; rules of a disabled family are ignored, not blockers.
 		for _, source := range sourcesByEgress[egress.ID] {
+			if accessSources[source.ID] && !egress.Enabled {
+				continue
+			}
 			if source.Kind != KindIP {
 				continue
 			}
@@ -173,14 +258,14 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			}
 			for _, rule := range rules {
 				family := ipRuleFamily(rule.RuleType)
-				if family == "" || !familyEnabled(families, family) {
+				if family == "" || (!accessSources[source.ID] && !familyEnabled(families, family)) {
 					continue
 				}
 				menu := routeros.MenuIPFirewallAddressList
 				if family == FamilyIPv6 {
 					menu = routeros.MenuIPv6FirewallAddressList
 				}
-				logicalID := "addr:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+				logicalID := "source-addr:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
 				label := strategyLabel + " · IP 列表 " + cleanReadableLabel(source.Name) + " · 地址条目"
 				addWithLabel(logicalID, menu, "foundation", label, map[string]string{
 					"list":     listBySource[source.ID],
@@ -213,15 +298,154 @@ func BuildDesired(ctx context.Context, repository Repository, reader PolicyReade
 			buildFamily(&result, addEgress, egress, family, gateway, listBySource, ingressList, managerID, repository.DeviceID(), disabled)
 		}
 	}
+
+	for _, source := range sources {
+		if !accessSources[source.ID] || source.PendingDeletion || accessSourceLists[source.ID] == "" {
+			continue
+		}
+		if egress, ok := egressByID[source.EgressID]; ok && !egress.PendingDeletion && egress.Enabled && source.Enabled {
+			continue
+		}
+		// The complete policy graph must be able to activate a pending source
+		// even when its egress is disabled. Access-only plans are blocked while
+		// policy revisions are pending, so they cannot apply this pending data
+		// without the policy promotion path.
+		versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
+		if versionID == "" {
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "access_source_has_no_version", Status: "blocker", Reason: "访问控制来源尚无可应用版本：" + source.Name})
+			continue
+		}
+		rules, err := allRules(ctx, repository, versionID)
+		if err != nil {
+			return DesiredResult{}, err
+		}
+		sourceDisabled := "no"
+		if !source.Enabled {
+			sourceDisabled = "yes"
+		}
+		for _, rule := range rules {
+			if source.Kind == KindIP {
+				family := ipRuleFamily(rule.RuleType)
+				if family == "" {
+					continue
+				}
+				menu := routeros.MenuIPFirewallAddressList
+				if family == FamilyIPv6 {
+					menu = routeros.MenuIPv6FirewallAddressList
+				}
+				logicalID := "source-addr:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+				addWithLabel(logicalID, menu, "foundation", "访问控制 IP 列表 "+cleanReadableLabel(source.Name)+" · 地址条目", map[string]string{
+					"list": sourceLists[source.ID], "address": rule.Domain, "disabled": sourceDisabled,
+				})
+				continue
+			}
+			if accessForwarder == "" {
+				continue
+			}
+			fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": accessForwarder, "address-list": sourceLists[source.ID], "disabled": sourceDisabled, "match-subdomain": "no"}
+			if rule.RuleType == "DOMAIN-SUFFIX" {
+				fields["match-subdomain"] = "yes"
+			}
+			logicalID := "dns:access:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+			addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", "访问控制域名列表 "+cleanReadableLabel(source.Name)+" · DNS 静态规则", fields)
+		}
+	}
+
+	terminals := []accesscontrol.Terminal{}
+	if terminalResolver != nil {
+		terminals = terminalResolver()
+	}
+	scope := accesscontrol.Scope{}
+	if scopeResolver != nil {
+		scope = scopeResolver()
+	}
+	internetEgresses := map[string][]string{}
+	internetEgressIssues := map[string]string{}
+	if hasInternetAccessRules(accessRules) {
+		discovery := discoverInternetEgressesDetailed(ctx, reader, scope)
+		internetEgresses, internetEgressIssues = discovery.Egresses, discovery.Issues
+		result.InternetEgressCandidates = discovery.Candidates
+		if selectedInternetEgresses != nil {
+			internetEgresses, internetEgressIssues = selectInternetEgresses(discovery, selectedInternetEgresses)
+		}
+	}
+	accessDesired := accesscontrol.BuildDesired(accesscontrol.DesiredInput{
+		ManagerID: managerID, DeviceID: repository.DeviceID(), Rules: accessRules, Members: accessMembers,
+		Terminals: terminals, SourceList: accessSourceLists, SourceDisabled: accessSourceDisabled, Scope: scope,
+		InternetEgresses: internetEgresses, InternetEgressIssues: internetEgressIssues,
+	})
+	result.AccessResolutions = append(result.AccessResolutions, accessDesired.Resolutions...)
+	for _, blocker := range accessDesired.Blockers {
+		result.Blockers = append(result.Blockers, PlanIssue{Code: blocker.Code, Status: "blocker", Family: blocker.Family, LogicalID: blocker.RuleID, Reason: blocker.Reason})
+	}
+	for _, issue := range accessDesired.Issues {
+		result.Warnings = append(result.Warnings, PlanIssue{Code: issue.Code, Status: "warning", LogicalID: issue.RuleID, Reason: issue.Reason})
+	}
+	for _, object := range accessDesired.Objects {
+		order++
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: object.LogicalID, Menu: string(object.Menu), Fields: object.Fields, Phase: object.Phase, Order: order})
+	}
 	appendDNSCacheWarning(&result)
 	sort.SliceStable(result.Objects, func(i, j int) bool { return result.Objects[i].Order < result.Objects[j].Order })
-	payload, err := json.Marshal(result.Objects)
+	payload, err := json.Marshal(struct {
+		Objects           []DesiredObject
+		AccessResolutions []accesscontrol.MemberResolution
+	}{result.Objects, result.AccessResolutions})
 	if err != nil {
 		return DesiredResult{}, err
 	}
 	digest := sha256.Sum256(payload)
 	result.Hash = hex.EncodeToString(digest[:])
 	return result, nil
+}
+
+func needsAccessForwarder(rules []accesscontrol.AccessRule, sources map[string]Source, egresses map[string]Egress) bool {
+	for _, rule := range rules {
+		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeSources {
+			continue
+		}
+		for _, sourceID := range rule.SourceIDs {
+			source, ok := sources[sourceID]
+			if !ok || source.Kind == KindIP || source.PendingDeletion {
+				continue
+			}
+			if !source.Enabled {
+				return true
+			}
+			egress, assigned := egresses[source.EgressID]
+			if !assigned || egress.PendingDeletion || !egress.Enabled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasInternetAccessRules(rules []accesscontrol.AccessRule) bool {
+	for _, rule := range rules {
+		if rule.TargetScope == accesscontrol.TargetScopeInternet {
+			return true
+		}
+	}
+	return false
+}
+
+func accessDNSUpstream(ctx context.Context, reader PolicyReader) (string, error) {
+	objects, err := reader.PolicyList(ctx, routeros.ReadMenuIPDNS, []string{"servers", "dynamic-servers"})
+	if err != nil {
+		return "", fmt.Errorf("读取 RouterOS DNS 上游失败: %w", err)
+	}
+	for _, field := range []string{"servers", "dynamic-servers"} {
+		for _, object := range objects {
+			for _, candidate := range strings.Split(object[field], ",") {
+				address, parseErr := netip.ParseAddr(strings.TrimSpace(candidate))
+				if parseErr == nil && address.Zone() == "" && !address.IsUnspecified() && !address.IsLoopback() && !address.IsMulticast() {
+					return address.String(), nil
+				}
+			}
+		}
+	}
+	return "", errors.New("RouterOS /ip/dns 未提供可用的 servers 或 dynamic-servers")
 }
 
 func appendDNSCacheWarning(result *DesiredResult) {
@@ -289,8 +513,12 @@ func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, 
 	if family.Family == FamilyIPv6 {
 		mangleMenu = routeros.MenuIPv6FirewallMangle
 	}
-	lists := uniqueSortedValues(listBySource)
-	for _, listName := range lists {
+	if firstNonEmptyString(egress.ListMode, ListModeShared) == ListModeShared {
+		buildSharedFamily(add, egress, familyName, mangleMenu, listBySource, lanList, table, disabled)
+		return
+	}
+	for _, sourceID := range sortedKeys(listBySource) {
+		listName := listBySource[sourceID]
 		identity := egress.ID + ":" + familyName + ":" + listName
 		connectionMark := "rb_" + shortHash("connection:"+identity, 12)
 		add("lan-connection:"+identity, mangleMenu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": connectionMark, "passthrough": "yes", "disabled": disabled})
@@ -301,6 +529,33 @@ func buildFamily(result *DesiredResult, add func(string, routeros.MutationMenu, 
 			add("router-routing:"+identity, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
 		}
 	}
+}
+
+// buildSharedFamily 为 shared 模式生成“多来源共用一个连接标记”的 mangle 规则。
+// 标记身份只绑定出口与地址族（与可编辑的列表名无关），
+// 因此重命名列表不会重建连接标记规则。
+func buildSharedFamily(add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, familyName string, menu routeros.MutationMenu, listBySource map[string]string, lanList, table, disabled string) {
+	if len(listBySource) == 0 {
+		return
+	}
+	identity := egress.ID + ":" + familyName
+	connectionMark := "rb_" + shortHash("connection:"+identity, 12)
+	for _, sourceID := range sortedKeys(listBySource) {
+		listName := listBySource[sourceID]
+		sourceIdentity := identity + ":" + sourceID
+		add("lan-source-connection:"+sourceIdentity, menu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": connectionMark, "passthrough": "yes", "disabled": disabled})
+	}
+	add("lan-routing:"+identity, menu, "activation", map[string]string{"chain": "prerouting", "in-interface-list": lanList, "dst-address-type": "!local", "connection-mark": connectionMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
+	if !egress.RouterOutput {
+		return
+	}
+	routerMark := "rb_" + shortHash("router:"+identity, 12)
+	for _, sourceID := range sortedKeys(listBySource) {
+		listName := listBySource[sourceID]
+		sourceIdentity := identity + ":" + sourceID
+		add("router-source-connection:"+sourceIdentity, menu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": listName, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": disabled})
+	}
+	add("router-routing:"+identity, menu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled})
 }
 
 func addDNSTransport(add func(string, routeros.MutationMenu, string, map[string]string), egressID, alias, upstream, routeTable string, ipv4 bool, disabled string) {
@@ -399,6 +654,14 @@ func dedicatedListName(source Source) string {
 	return "manual_" + readableNameKey(source.Name, "source", 12) + "_" + shortHash("source:"+source.ID, 6) + "_lab"
 }
 
+// SourceListName returns the physical address-list shared by policy routing
+// and access control for one source on one RouterOS device. The readable
+// source name belongs in object comments; keeping it out of the list identity
+// makes source renames non-disruptive.
+func SourceListName(managerID, deviceID string, source Source) string {
+	return "rb_src_" + shortHash("source-list:"+managerID+":"+deviceID+":"+source.ID, 12)
+}
+
 func deterministicFakeAlias(egressID string) string {
 	digest := sha256.Sum256([]byte("fake-alias:" + egressID))
 	return fmt.Sprintf("192.0.2.%d", int(digest[0])%254+1)
@@ -414,6 +677,15 @@ func uniqueSortedValues(values map[string]string) []string {
 	result := make([]string, 0, len(seen))
 	for value := range seen {
 		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func sortedKeys(values map[string]string) []string {
+	result := make([]string, 0, len(values))
+	for key := range values {
+		result = append(result, key)
 	}
 	sort.Strings(result)
 	return result
@@ -453,6 +725,10 @@ func legacyManagedCommentPrefix(managerID, deviceID string) string {
 // policy-routing identity shape.
 func isManagedComment(comment string) bool {
 	identity := managedCommentIdentity(comment)
+	if strings.HasPrefix(identity, managedCommentIdentityPrefix+"v1_") {
+		parts := strings.Split(strings.TrimPrefix(identity, managedCommentIdentityPrefix+"v1_"), "_")
+		return len(parts) == 3 && hasLowerHex(parts[0], 12) && hasLowerHex(parts[1], 12) && hasLowerHex(parts[2], 8)
+	}
 	if strings.HasPrefix(identity, managedCommentIdentityPrefix) {
 		return hasLowerHex(strings.TrimPrefix(identity, managedCommentIdentityPrefix), 8)
 	}
@@ -461,6 +737,22 @@ func isManagedComment(comment string) bool {
 	}
 	parts := strings.Split(strings.TrimPrefix(identity, legacyManagedCommentNamespace), ":")
 	return len(parts) == 3 && hasLowerHex(parts[0], 12) && hasLowerHex(parts[1], 12) && hasLowerHex(parts[2], 16)
+}
+
+func legacyManagedCommentPrefixV1(managerID, deviceID string) string {
+	return managedCommentIdentityPrefix + "v1_" + shortHash("manager:"+managerID, 12) + "_" + shortHash("device:"+deviceID, 12) + "_"
+}
+
+func isManagedCommentFor(managerID, deviceID, comment string) bool {
+	identity := managedCommentIdentity(comment)
+	if strings.HasPrefix(identity, legacyManagedCommentPrefixV1(managerID, deviceID)) {
+		return isManagedComment(identity)
+	}
+	if strings.HasPrefix(identity, managedCommentIdentityPrefix) && !strings.HasPrefix(identity, managedCommentIdentityPrefix+"v1_") {
+		return isManagedComment(identity)
+	}
+	legacyPrefix := legacyManagedCommentPrefix(managerID, deviceID)
+	return strings.HasPrefix(identity, legacyPrefix) && hasLowerHex(strings.TrimPrefix(identity, legacyPrefix), 16)
 }
 
 func hasLowerHex(value string, length int) bool {
@@ -517,6 +809,8 @@ func managedObjectPurpose(logicalID string) string {
 		return "DNS 转发器"
 	case "addr":
 		return "地址列表条目"
+	case "source-addr":
+		return "来源地址列表条目"
 	case "dns-mark":
 		return "DNS 路由标记"
 	case "dns-dnat":
@@ -531,10 +825,14 @@ func managedObjectPurpose(logicalID string) string {
 		return "主线路回落规则"
 	case "lan-connection":
 		return "入口连接标记"
+	case "lan-source-connection":
+		return "来源入口连接标记"
 	case "lan-routing":
 		return "入口路由标记"
 	case "router-connection":
 		return "路由器连接标记"
+	case "router-source-connection":
+		return "来源路由器连接标记"
 	case "router-routing":
 		return "路由器路由标记"
 	case "masquerade":

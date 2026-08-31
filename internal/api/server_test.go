@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"rosboard/internal/applicationcatalog"
 	"rosboard/internal/config"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
@@ -60,6 +61,46 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 	server.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/api/fleet-overview", nil))
 	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Allow") != http.MethodGet {
 		t.Fatalf("POST status=%d allow=%q", postResponse.Code, postResponse.Header().Get("Allow"))
+	}
+}
+
+func TestApplicationCatalogStatusRoute(t *testing.T) {
+	server := NewServer(config.Config{}, nil, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/application-catalog", nil))
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"lastSuccess"`) {
+		t.Fatalf("unconfigured catalog status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	path := filepath.Join(t.TempDir(), "feature.cfg")
+	if err := os.WriteFile(path, []byte(`#version v1
+#format v3.0
+1101 Example:[tcp;;;example.com;;]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := applicationcatalog.New(path, time.Hour)
+	if err := catalog.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	server.SetApplicationCatalog(catalog)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/application-catalog", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("catalog status=%d body=%s", response.Code, response.Body.String())
+	}
+	var status applicationcatalog.CatalogStatus
+	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Source != path || status.LastSuccess == nil || status.Version != "v1" || status.ApplicationCount != 1 || status.DomainCount != 1 {
+		t.Fatalf("unexpected catalog status: %+v", status)
+	}
+
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/application-catalog", nil))
+	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("POST catalog status=%d allow=%q", response.Code, response.Header().Get("Allow"))
 	}
 }
 

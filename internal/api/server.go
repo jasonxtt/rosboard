@@ -17,6 +17,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"rosboard/internal/accesscontrol"
+	"rosboard/internal/applicationcatalog"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
 	"rosboard/internal/policy"
@@ -33,6 +35,7 @@ type Server struct {
 	monitor       *service.Monitor
 	manager       *service.MonitorManager
 	policy        *policyv2.Manager
+	catalog       *applicationcatalog.Catalog
 	store         *store.Store
 	assets        fs.FS
 	allowedCIDRs  []*net.IPNet
@@ -42,8 +45,11 @@ type Server struct {
 	tickets       *verificationTickets
 	provisioning  *provisioningSessions
 	sourceFetcher *policy.SourceFetcher
-	previewMu     sync.Mutex
-	previews      map[string]policyPreviewEntry
+	// accessTerminalsFn lets tests inject a terminal snapshot; nil means the
+	// live monitor snapshot is used.
+	accessTerminalsFn func(deviceID string) []accesscontrol.Terminal
+	previewMu         sync.Mutex
+	previews          map[string]policyPreviewEntry
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
@@ -110,6 +116,10 @@ func NewServerWithAuth(cfg config.Config, manager *service.MonitorManager, stora
 	return server
 }
 
+func (s *Server) SetApplicationCatalog(catalog *applicationcatalog.Catalog) {
+	s.catalog = catalog
+}
+
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if strings.HasPrefix(request.URL.Path, "/api/") {
 		setSecurityHeaders(writer)
@@ -156,12 +166,29 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 	if s.serveAuthAPI(writer, request) {
 		return
 	}
+	if isAccessControlPath(request.URL.Path) {
+		s.serveAccessControlAPI(writer, request)
+		return
+	}
 	if isPolicyRoutingPath(request.URL.Path) {
 		s.servePolicyRoutingAPI(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/settings/connection" {
 		s.serveConnectionSettings(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/application-catalog" {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.catalog == nil {
+			writeJSON(writer, http.StatusOK, applicationcatalog.CatalogStatus{})
+			return
+		}
+		writeJSON(writer, http.StatusOK, s.catalog.Status())
 		return
 	}
 	if request.URL.Path == "/api/settings/collection" {
@@ -1492,7 +1519,7 @@ func (s *Server) serveApp(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	if _, err := fs.Stat(s.assets, cleanPath); err == nil {
-		if cleanPath == "index.html" {
+		if cleanPath == "index.html" || strings.HasPrefix(cleanPath, "assets/") {
 			writer.Header().Set("Cache-Control", "no-cache")
 		}
 		s.fileServer.ServeHTTP(writer, request)

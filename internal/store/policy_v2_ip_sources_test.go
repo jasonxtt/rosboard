@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rosboard/internal/policyv2"
@@ -105,18 +106,18 @@ func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndFiltersFamily(t *testing.T
 			t.Fatalf("IP-only desired created DNS objects on %s", menu)
 		}
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "addr:wan-ip:ip-a:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:ip-a:")
 	if len(addr) != 1 {
 		t.Fatalf("expected exactly one IPv4 address entry, got %#v", addr)
 	}
-	if addr[0].Menu != string(routeros.MenuIPFirewallAddressList) || addr[0].Fields["address"] != "91.108.0.0/16" || addr[0].Fields["list"] != "route_wan_ip" {
+	if addr[0].Menu != string(routeros.MenuIPFirewallAddressList) || addr[0].Fields["address"] != "91.108.0.0/16" || !strings.HasPrefix(addr[0].Fields["list"], "rb_src_") {
 		t.Fatalf("unexpected IPv4 address entry: %#v", addr[0])
 	}
 	if len(desiredObjectsByMenu(desired.Objects, routeros.MenuIPv6FirewallAddressList)) != 0 {
 		t.Fatal("disabled IPv6 family must not materialize address entries")
 	}
 	mangle := desiredObjectsByMenu(desired.Objects, routeros.MenuIPFirewallMangle)
-	if !hasDesiredField(mangle, "dst-address-list", "route_wan_ip") {
+	if !hasDesiredField(mangle, "dst-address-list", addr[0].Fields["list"]) {
 		t.Fatalf("business mangle missing for shared IP list: %#v", mangle)
 	}
 	routes := desiredObjectsByLogicalPrefix(desired.Objects, "route:wan-ip:")
@@ -166,12 +167,12 @@ func TestPolicyV2DesiredDomainAndIPSharedUseOneListAndMangleSet(t *testing.T) {
 	if len(statics) != 1 || statics[0].Fields["name"] != "api.example.com" {
 		t.Fatalf("unexpected DNS static rules: %#v", statics)
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "addr:wan-both:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:")
 	if len(addr) != 2 {
 		t.Fatalf("expected IPv4+IPv6 entries, got %#v", addr)
 	}
-	if !hasDesiredField(addr, "list", "route_both") || !hasDesiredField(addr, "address", "91.108.0.0/16") || !hasDesiredField(addr, "address", "2001:67c:4e8::/48") {
-		t.Fatalf("IP entries must share the egress list: %#v", addr)
+	if !hasDesiredField(addr, "address", "91.108.0.0/16") || !hasDesiredField(addr, "address", "2001:67c:4e8::/48") {
+		t.Fatalf("IP entries must materialize in the source list: %#v", addr)
 	}
 	if hasDesiredField(desiredObjectsByMenu(desired.Objects, routeros.MenuIPv6FirewallAddressList), "address", "91.108.0.0/16") {
 		t.Fatal("IPv4 entry leaked into the IPv6 address-list menu")
@@ -179,16 +180,18 @@ func TestPolicyV2DesiredDomainAndIPSharedUseOneListAndMangleSet(t *testing.T) {
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallMangle, routeros.MenuIPv6FirewallMangle} {
 		markConnection := 0
 		lanRouting := 0
+		connectionMarks := map[string]bool{}
 		for _, object := range desiredObjectsByMenu(desired.Objects, menu) {
-			if object.Fields["dst-address-list"] == "route_both" && object.Fields["action"] == "mark-connection" {
+			if strings.HasPrefix(object.Fields["dst-address-list"], "rb_src_") && object.Fields["action"] == "mark-connection" {
 				markConnection++
+				connectionMarks[object.Fields["new-connection-mark"]] = true
 			}
 			if len(object.LogicalID) >= len("lan-routing:") && object.LogicalID[:len("lan-routing:")] == "lan-routing:" {
 				lanRouting++
 			}
 		}
-		if markConnection != 1 || lanRouting != 1 {
-			t.Fatalf("shared domain+IP must keep one mangle set per family (%s): connection=%d routing=%d", menu, markConnection, lanRouting)
+		if markConnection != 2 || len(connectionMarks) != 1 || lanRouting != 1 {
+			t.Fatalf("shared domain+IP must use source matchers with one shared mark and routing rule per family (%s): connection=%d marks=%v routing=%d", menu, markConnection, connectionMarks, lanRouting)
 		}
 	}
 }
@@ -221,7 +224,7 @@ func TestPolicyV2DesiredDomainAndIPDedicatedKeepSharedRouteTable(t *testing.T) {
 	if len(desired.Blockers) != 0 {
 		t.Fatalf("dedicated desired is blocked: %#v", desired.Blockers)
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "addr:wan-ded:ip-a:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:ip-a:")
 	if len(addr) != 1 {
 		t.Fatalf("missing dedicated IP entry: %#v", addr)
 	}
@@ -267,7 +270,7 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 	if len(withDomain.Objects) == 0 || len(desiredObjectsByMenu(withDomain.Objects, routeros.MenuIPDNSForwarders)) != 1 {
 		t.Fatal("domain+ip start state must contain DNS objects")
 	}
-	addrBefore := desiredObjectsByLogicalPrefix(withDomain.Objects, "addr:wan-mix:")
+	addrBefore := desiredObjectsByLogicalPrefix(withDomain.Objects, "source-addr:ip-a:")
 
 	stale, err := repository.GetSource(ctx, domain.ID)
 	if err != nil {
@@ -286,11 +289,11 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 		len(desiredObjectsByLogicalPrefix(withoutDomain.Objects, "dns-dnat:")) != 0 {
 		t.Fatal("removing the last domain source must clean up all DNS objects")
 	}
-	addrAfter := desiredObjectsByLogicalPrefix(withoutDomain.Objects, "addr:wan-mix:")
+	addrAfter := desiredObjectsByLogicalPrefix(withoutDomain.Objects, "source-addr:ip-a:")
 	if len(addrAfter) != len(addrBefore) {
 		t.Fatalf("IP routing chain must survive domain removal: before=%d after=%d", len(addrBefore), len(addrAfter))
 	}
-	if !hasDesiredField(desiredObjectsByMenu(withoutDomain.Objects, routeros.MenuIPFirewallMangle), "dst-address-list", "route_mix") {
+	if len(addrAfter) != 1 || !hasDesiredField(desiredObjectsByMenu(withoutDomain.Objects, routeros.MenuIPFirewallMangle), "dst-address-list", addrAfter[0].Fields["list"]) {
 		t.Fatal("business mangle must survive domain removal")
 	}
 
@@ -302,7 +305,7 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 	if len(desiredObjectsByMenu(withDomainAgain.Objects, routeros.MenuIPDNSForwarders)) != 1 {
 		t.Fatal("adding a domain source must rebuild DNS objects")
 	}
-	addrAgain := desiredObjectsByLogicalPrefix(withDomainAgain.Objects, "addr:wan-mix:")
+	addrAgain := desiredObjectsByLogicalPrefix(withDomainAgain.Objects, "source-addr:ip-a:")
 	if len(addrAgain) != len(addrBefore) {
 		t.Fatalf("adding a domain source must keep IP entries stable: before=%d after=%d", len(addrBefore), len(addrAgain))
 	}
@@ -333,7 +336,7 @@ func TestPolicyV2DesiredSharedIPSourceDeleteKeepsOtherSourcesAndMangle(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(desiredObjectsByLogicalPrefix(before.Objects, "addr:wan-del:")) != 2 {
+	if len(desiredObjectsByLogicalPrefix(before.Objects, "source-addr:")) != 2 {
 		t.Fatalf("expected entries from both IP sources: %#v", before.Objects)
 	}
 	staleB, err := repository.GetSource(ctx, ipB.ID)
@@ -347,11 +350,11 @@ func TestPolicyV2DesiredSharedIPSourceDeleteKeepsOtherSourcesAndMangle(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	remaining := desiredObjectsByLogicalPrefix(after.Objects, "addr:wan-del:")
+	remaining := desiredObjectsByLogicalPrefix(after.Objects, "source-addr:")
 	if len(remaining) != 1 || remaining[0].Fields["address"] != "91.108.0.0/16" {
 		t.Fatalf("deleting one IP source must keep the other source's entries: %#v", remaining)
 	}
-	if !hasDesiredField(desiredObjectsByMenu(after.Objects, routeros.MenuIPFirewallMangle), "dst-address-list", "route_del") {
+	if !hasDesiredField(desiredObjectsByMenu(after.Objects, routeros.MenuIPFirewallMangle), "dst-address-list", remaining[0].Fields["list"]) {
 		t.Fatal("deleting one IP source must not remove the shared business mangle")
 	}
 }

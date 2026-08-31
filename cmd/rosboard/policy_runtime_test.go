@@ -25,7 +25,7 @@ func TestAssemblePolicyRuntimesScopesEnabledUnarchivedDevices(t *testing.T) {
 		{ID: "no-access", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://no-access.invalid"}},
 	}}
 	manager := policyv2.NewManager(log.New(io.Discard, "", 0))
-	if err := assemblePolicyRuntimes(cfg, storage, manager); err != nil {
+	if err := assemblePolicyRuntimes(cfg, storage, nil, manager); err != nil {
 		t.Fatal(err)
 	}
 	for _, deviceID := range []string{"edge-a", "edge-b"} {
@@ -59,7 +59,7 @@ func TestAssemblePolicyRuntimePreservesInstallationIdentity(t *testing.T) {
 		RouterOS: config.RouterOSConfig{BaseURL: "http://router.invalid", Username: "device", Password: "secret"},
 	}}}
 	manager := policyv2.NewManager(log.New(io.Discard, "", 0))
-	if err := assemblePolicyRuntimes(cfg, storage, manager); err != nil {
+	if err := assemblePolicyRuntimes(cfg, storage, nil, manager); err != nil {
 		t.Fatal(err)
 	}
 	applier := manager.ApplierFor(config.DefaultDeviceID)

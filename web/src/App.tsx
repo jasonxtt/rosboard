@@ -78,6 +78,7 @@ type RecognitionDraft = {
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
 const PolicyRoutingPage = lazy(() => import('./features/policy-routing/PolicyRoutingPage').then((module) => ({ default: module.PolicyRoutingPage })))
+const AccessControlPage = lazy(() => import('./features/access-control/AccessControlPage').then((module) => ({ default: module.AccessControlPage })))
 
 const panelPreferenceKey = 'rosboard:panel-preferences'
 const selectedDeviceKey = 'rosboard:selected-device'
@@ -221,7 +222,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'policy-routing']
+const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'policy-routing', 'access-control']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -1016,12 +1017,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing' || activeView === 'recognition') return
+    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition') return
     setStatusExpanded(true)
   }, [activeView])
 
   useEffect(() => {
-    if (activeView === 'policy-routing') setHostSettingsExpanded(true)
+    if (activeView === 'policy-routing' || activeView === 'access-control') setHostSettingsExpanded(true)
   }, [activeView])
 
   useEffect(() => {
@@ -1031,7 +1032,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [activeView, policySection])
 
   useEffect(() => {
-    if (activeView === 'fleet' || activeView === 'policy-routing') return
+    if (activeView === 'fleet' || activeView === 'policy-routing' || activeView === 'access-control') return
     let cancelled = false
     let refreshing = false
 
@@ -1277,7 +1278,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
   }
 
-  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing') {
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing' && activeView !== 'access-control') {
 	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
@@ -1344,7 +1345,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings' || activeView === 'policy-routing' || activeView === 'recognition'
+        : activeView === 'settings' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1458,13 +1459,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <div className="menu-group">
             <button
               type="button"
-              className={activeView === 'policy-routing' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
+              className={activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostSettingsExpanded}
               aria-controls="host-settings-menu"
               onClick={() => {
-                const alreadyInPolicyRouting = activeView === 'policy-routing'
-                setHostSettingsExpanded((value) => alreadyInPolicyRouting ? !value : true)
-                if (!alreadyInPolicyRouting) setActiveView('policy-routing')
+                const alreadyInHostSettings = activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
+                setHostSettingsExpanded((value) => alreadyInHostSettings ? !value : true)
+                if (!alreadyInHostSettings) setActiveView('policy-routing')
                 setSelectedTerminalID(null)
                 setSidebarOpen(false)
               }}
@@ -1483,6 +1484,18 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 }}
               >
                 <NavLabel icon="route" label="策略路由" />
+              </button>
+              <button
+                type="button"
+                className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'}
+                onClick={() => {
+                  setHostSettingsExpanded(true)
+                  setActiveView('access-control')
+                  setSelectedTerminalID(null)
+                  setSidebarOpen(false)
+                }}
+              >
+                <NavLabel icon="shield" label="访问控制" />
               </button>
               <button
                 type="button"
@@ -1563,6 +1576,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                     ? `状态监控 > 终端监控 > ${detailScope === 'all' ? '全部终端' : detailScope.toUpperCase()}`
                     : activeView === 'fleet'
                       ? '多设备运行概览'
+                      : activeView === 'access-control'
+                        ? currentDevice?.name || selectedDeviceID
                       : `系统正常 · 更新于 ${formatDateTime(dashboard?.overview.updatedAt ?? '')}`}
                 </p>
               </div>
@@ -1577,12 +1592,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               {activeView === 'overview' && !detailMode ? (
                 <OverviewRangePills value={trafficWindow} onChange={setTrafficWindow} />
               ) : null}
-              {activeView !== 'fleet' && globalWarnings.length ? (
+              {activeView !== 'fleet' && activeView !== 'access-control' && globalWarnings.length ? (
                 <button type="button" className="pill pill--pad-sm system-ok system-alerting global-warning-toggle" aria-expanded={warningsExpanded} aria-controls="global-warning-list" onClick={() => setWarningsExpanded((value) => !value)}><i /><span className="status-label">{alertCount} 项告警</span><span className="status-count" aria-hidden="true">{alertCount}</span></button>
-              ) : activeView !== 'fleet' ? (
+              ) : activeView !== 'fleet' && activeView !== 'access-control' ? (
                 <span className={dashboard?.alerts?.length ? 'system-ok system-alerting' : 'system-ok'}><i /><span className="status-label">{dashboard?.alerts?.length ? `${dashboard.alerts.length} 项告警` : '系统正常'}</span></span>
               ) : null}
-              {activeView !== 'fleet' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
+              {activeView !== 'fleet' && activeView !== 'access-control' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
               <div className="topbar-refresh-controls">
                 {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
                 {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
@@ -1600,7 +1615,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                {activeView === 'policy-routing' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                {activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
                   <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
                   <ChoiceMenu
                     value={dashboardRefreshMs}
@@ -1675,6 +1690,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 setSettingsExpanded(true)
               }}
             />
+          </Suspense>
+        ) : null}
+        {activeView === 'access-control' ? (
+          <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载访问控制…</p></div></main>}>
+            <AccessControlPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} />
           </Suspense>
         ) : null}
         {activeView === 'dhcp' && dashboard ? <DHCPPage dhcp={dashboard.dhcp ?? { servers: [], pools: [] }} /> : null}

@@ -427,6 +427,23 @@ function parsePlan(value: unknown): PolicyPlan {
     createdAt: safeString(o.createdAt),
     expiresAt: safeString(o.expiresAt),
     desiredRevision: safeNumber(o.desiredRevision),
+    internetEgressCandidates: (() => {
+      const result: Record<string, Array<{ interface: string; type: string; running: boolean; reason?: string }>> = {}
+      for (const [family, values] of Object.entries(safeObject(o.internetEgressCandidates))) {
+        if (!Array.isArray(values)) continue
+        const candidates = values.map((value) => {
+          const candidate = safeObject(value)
+          return {
+            interface: safeString(candidate.interface),
+            type: safeString(candidate.type),
+            running: safeBoolean(candidate.running),
+            reason: safeString(candidate.reason) || undefined,
+          }
+        }).filter((candidate) => candidate.interface)
+        if (candidates.length) result[family] = candidates
+      }
+      return result
+    })(),
     desiredHash: safeString(o.desiredHash),
     actualFingerprint: safeString(o.actualFingerprint),
     capabilities: stringRecord(o.capabilities),

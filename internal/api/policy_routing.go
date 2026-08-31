@@ -94,8 +94,9 @@ func writePolicyJSON(writer http.ResponseWriter, status int, data any) {
 }
 
 type policyDeviceContext struct {
-	device     config.DeviceConfig
-	repository *store.PolicyRepository
+	device           config.DeviceConfig
+	repository       *store.PolicyRepository
+	accessRepository *store.AccessRepository
 }
 
 func (s *Server) resolvePolicyDevice(writer http.ResponseWriter, request *http.Request) (policyDeviceContext, bool) {
@@ -116,7 +117,7 @@ func (s *Server) resolvePolicyDevice(writer http.ResponseWriter, request *http.R
 		return policyDeviceContext{}, false
 	}
 	repo = child.PolicyRepository()
-	return policyDeviceContext{device: device, repository: repo}, true
+	return policyDeviceContext{device: device, repository: repo, accessRepository: child.AccessRepository()}, true
 }
 
 func (s *Server) policySetupState(device config.DeviceConfig) string {
@@ -801,7 +802,7 @@ func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 	}
-	if !payload.DeferApply && s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src) {
+	if !payload.DeferApply && s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src, device.accessRepository) {
 		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-save")
 		if err != nil {
 			status, code := policyPlanApplyError(err)
@@ -856,7 +857,11 @@ func (s *Server) deletePolicySource(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	if err := device.repository.DeleteSource(request.Context(), id, revision); err != nil {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "revision_stale", "error": err.Error()})
+		code := "revision_stale"
+		if errors.Is(err, policyv2.ErrSourceInUse) {
+			code = "source_in_use"
+		}
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": code, "error": err.Error()})
 		return
 	}
 	if !source.Applied {
@@ -969,7 +974,7 @@ func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *h
 		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "load_failed", "error": err.Error()})
 		return
 	}
-	if s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src) {
+	if s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src, device.accessRepository) {
 		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-refresh")
 		if err != nil {
 			status, code := policyPlanApplyError(err)
@@ -1002,13 +1007,14 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		var payload struct {
-			Kind string `json:"kind"`
+			Kind             string              `json:"kind"`
+			InternetEgresses map[string][]string `json:"internetEgresses"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 			return
 		}
-		envelope, err := s.policy.GeneratePlan(request.Context(), device.device.ID, payload.Kind)
+		envelope, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, payload.Kind, policyv2.PlanOptions{InternetEgresses: payload.InternetEgresses})
 		if err != nil {
 			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "plan_generation_failed", "error": err.Error(), "details": map[string]any{}})
 			return

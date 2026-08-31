@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 )
@@ -22,6 +24,345 @@ type policyV2FakeRouter struct {
 	dnsCacheSize string
 	failAt       int
 	writes       int
+}
+
+func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	source, err := policyRepository.SaveSource(ctx, policyv2.Source{ID: "blocked-service", Type: "manual", Kind: policyv2.KindIP, Name: "Blocked service", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policyRepository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "blocked-version", SourceID: source.ID, SHA256: "blocked", CompressedYAML: []byte("blocked")}, []policyv2.SourceRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	policyManager := policyv2.NewManager(nil)
+	if err := policyManager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository}); err != nil {
+		t.Fatal(err)
+	}
+	policyJob, err := policyManager.GenerateAndApply(ctx, "default", "source-initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policyJob = waitPolicyV2Job(t, policyRepository, policyJob.ID); policyJob.State != "committed" {
+		t.Fatalf("initial source activation failed: %#v", policyJob)
+	}
+	rule, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{
+		ID: "deny-a", Name: "阻断测试", TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{source.ID}, Enabled: true,
+	}, []accesscontrol.RuleMember{{
+		RuleID: "deny-a", TerminalID: "addr:10.0.0.20", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"},
+	}}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router.objects[routeros.MenuIPFirewallFilter] = map[string]routeros.RouterOSObject{
+		"*f": {".id": "*f", "chain": "forward", "action": "accept", "comment": "existing broad accept"},
+	}
+	router.order[routeros.MenuIPFirewallFilter] = []string{"*f"}
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := manager.GeneratePlan(ctx, "default", "access-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Blockers) != 0 {
+		t.Fatalf("access plan blocked: %#v", plan.Plan.Blockers)
+	}
+	job, err := manager.ApplyPlan(ctx, "default", plan.PlanID)
+	if err != nil {
+		t.Fatalf("apply plan: %v blockers=%#v", err, plan.Plan.Blockers)
+	}
+	job = waitPolicyV2Job(t, policyRepository, job.ID)
+	if job.State != "committed" {
+		t.Fatalf("access apply failed: %#v", job)
+	}
+
+	filters, err := router.List(ctx, routeros.MenuIPFirewallFilter, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filters) != 6 || filters[0]["action"] != "jump" || filters[1]["action"] != "jump" || filters[2]["comment"] != "existing broad accept" {
+		t.Fatalf("managed jumps are not the first forward rules: %#v", filters)
+	}
+	if filters[3]["action"] != "reject" || filters[3]["reject-with"] != "tcp-reset" || filters[4]["action"] != "drop" || filters[5]["action"] != "drop" {
+		t.Fatalf("permanent deny chain actions are incomplete: %#v", filters)
+	}
+	state, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := accessRepository.ListRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != rule.ID {
+		t.Fatalf("access rule was not loaded back: %#v", rules)
+	}
+	if !state.Applied() {
+		t.Fatalf("access desired state was not committed: state=%#v", state)
+	}
+	second, err := manager.GeneratePlan(ctx, "default", "access-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Plan.Operations) != 0 {
+		t.Fatalf("access reconcile is not idempotent: %#v", second.Plan.Operations)
+	}
+	router.mu.Lock()
+	router.removeFromOrder(routeros.MenuIPFirewallFilter, "*f")
+	router.order[routeros.MenuIPFirewallFilter] = append([]string{"*f"}, router.order[routeros.MenuIPFirewallFilter]...)
+	router.mu.Unlock()
+	driftPlan, err := manager.GeneratePlan(ctx, "default", "access-order-drift")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if driftPlan.Plan.Summary.Move != 2 {
+		t.Fatalf("absolute filter-order drift did not produce two planned moves: %#v", driftPlan.Plan.Operations)
+	}
+	if err := manager.ReconcileAccess(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deviceState, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciled := waitPolicyV2Job(t, policyRepository, deviceState.Job.ID); reconciled.State != "committed" {
+		t.Fatalf("periodic access reconcile failed: %#v", reconciled)
+	}
+	filters, err = router.List(ctx, routeros.MenuIPFirewallFilter, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filters[0]["action"] != "jump" || filters[1]["action"] != "jump" || filters[2]["comment"] != "existing broad accept" {
+		t.Fatalf("periodic reconcile did not restore absolute jump order: %#v", filters)
+	}
+	if err := policyRepository.DeleteSource(ctx, source.ID, source.Revision+1); !errors.Is(err, policyv2.ErrSourceInUse) {
+		t.Fatalf("source referenced by access control was deletable: %v", err)
+	}
+}
+
+func TestAccessReconcileDoesNotApplyDeferredPolicyChanges(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	source, err := policyRepository.SaveSource(ctx, policyv2.Source{ID: "deferred-source", Type: "manual", Kind: policyv2.KindIP, Name: "Deferred source", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policyRepository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "deferred-version", SourceID: source.ID, SHA256: "deferred", CompressedYAML: []byte("deferred")}, []policyv2.SourceRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{ID: "access-deferred", Name: "Deferred access", TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{source.ID}, Enabled: true}, []accesscontrol.RuleMember{{RuleID: "access-deferred", TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := manager.GeneratePlan(ctx, "default", "access-rule-save")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPolicyV2Blocker(plan.Plan.Blockers, "policy_changes_pending") {
+		t.Fatalf("access plan must remain blocked while policy changes are deferred: %#v", plan.Plan.Blockers)
+	}
+	if err := manager.ReconcileAccess(ctx); err != nil {
+		t.Fatal(err)
+	}
+	loadedSource, err := policyRepository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedSource.ActiveVersionID != "" || loadedSource.PendingVersionID != "deferred-version" {
+		t.Fatalf("access reconcile applied a deferred policy source: %#v", loadedSource)
+	}
+	state, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Job.ID != "" {
+		t.Fatalf("access reconcile created a RouterOS job for a deferred policy change: %#v", state.Job)
+	}
+}
+
+func TestAccessOnlyApplyDoesNotPromotePolicySources(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	source, err := policyRepository.SaveSource(ctx, policyv2.Source{ID: "active-source", Type: "manual", Kind: policyv2.KindIP, Name: "Active source", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policyRepository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "active-version", SourceID: source.ID, SHA256: "active", CompressedYAML: []byte("active")}, []policyv2.SourceRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	policyManager := policyv2.NewManager(nil)
+	if err := policyManager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := policyManager.GenerateAndApply(ctx, "default", "source-activate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
+		t.Fatalf("initial policy source activation failed: %#v", job)
+	}
+	stateBefore, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessRepository := storage.AccessRepository()
+	if _, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{ID: "access-only", Name: "Access only", TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{source.ID}, Enabled: true}, []accesscontrol.RuleMember{{RuleID: "access-only", TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	accessManager := policyv2.NewManager(nil)
+	if err := accessManager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	accessJob, err := accessManager.GenerateAndApply(ctx, "default", "access-rule-save")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessJob = waitPolicyV2Job(t, policyRepository, accessJob.ID); accessJob.State != "committed" {
+		t.Fatalf("access-only apply failed: %#v", accessJob)
+	}
+	stateAfter, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateAfter.DesiredRevision != stateBefore.DesiredRevision || stateAfter.AppliedRevision != stateBefore.AppliedRevision {
+		t.Fatalf("access-only apply changed policy revision state: before=%#v after=%#v", stateBefore, stateAfter)
+	}
+	loadedSource, err := policyRepository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedSource.ActiveVersionID != "active-version" || loadedSource.PendingVersionID != "" {
+		t.Fatalf("access-only apply changed policy source promotion: %#v", loadedSource)
+	}
+}
+
+func TestAccessSourceOnDisabledEgressIsMaterializedOnlyByAccessProjection(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	if _, err := policyRepository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := policyRepository.SaveEgress(ctx, policyv2.Egress{
+		ID: "disabled-wan", Name: "Disabled WAN", ListMode: policyv2.ListModeShared, ListName: "disabled_mark",
+		DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.90", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "wan4", Gateway: "198.51.100.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source := saveIPSource(t, policyRepository, "access-ip", "disabled-wan", "Access IP", []policyv2.SourceRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}})
+	router := newPolicyV2FakeRouter()
+	policyManager := policyv2.NewManager(nil)
+	if err := policyManager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialDesired, err := policyv2.BuildDesired(ctx, policyRepository, router)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialDesired.Blockers) != 0 {
+		t.Fatalf("initial source desired is blocked: %#v", initialDesired.Blockers)
+	}
+	initialPlan, err := policyManager.GeneratePlan(ctx, "default", "activate-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialPlan.Plan.Blockers) != 0 {
+		t.Fatalf("initial source plan is blocked: %#v", initialPlan.Plan.Blockers)
+	}
+	job, err := policyManager.ApplyPlan(ctx, "default", initialPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
+		t.Fatalf("initial source apply failed: %#v", job)
+	}
+	egress, err := policyRepository.GetEgress(ctx, "disabled-wan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	egress.Enabled = false
+	if _, err := policyRepository.SaveEgress(ctx, egress); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{
+		ID: "access-rule", Name: "Access rule", TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{source.ID}, Enabled: true,
+	}, []accesscontrol.RuleMember{{RuleID: "access-rule", TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	desired, err := policyv2.BuildDesiredWithAccess(ctx, policyRepository, router, accessRepository, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("disabled-egress access projection is blocked: %#v", desired.Blockers)
+	}
+	entries := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:"+source.ID+":")
+	if len(entries) != 1 {
+		t.Fatalf("disabled-egress access source must have one address projection, got %#v", entries)
+	}
+	if entries[0].Fields["disabled"] != "no" {
+		t.Fatalf("access source projection must remain enabled on a disabled egress: %#v", entries[0])
+	}
+}
+
+func hasPolicyV2Blocker(blockers []policyv2.PlanIssue, code string) bool {
+	for _, blocker := range blockers {
+		if blocker.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func routerHasList(router *policyV2FakeRouter, menu routeros.MutationMenu, list string) bool {
+	for _, object := range router.objects[menu] {
+		if object["list"] == list {
+			return true
+		}
+	}
+	return false
+}
+
+func routerHasDestinationList(router *policyV2FakeRouter, menu routeros.MutationMenu, list string) bool {
+	for _, object := range router.objects[menu] {
+		if object["dst-address-list"] == list {
+			return true
+		}
+	}
+	return false
 }
 
 func newPolicyV2FakeRouter() *policyV2FakeRouter {
@@ -156,6 +497,10 @@ func (r *policyV2FakeRouter) FlushDNSCache(context.Context) error {
 	r.mu.Lock()
 	r.flushes++
 	r.mu.Unlock()
+	return nil
+}
+
+func (r *policyV2FakeRouter) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
 	return nil
 }
 
@@ -408,8 +753,8 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 		t.Fatalf("dual/dedicated objects missing: ipv6=%v ipv4-return-guard=%v ipv6-return-guard=%v lists=%v", hasIPv6Route, hasIPv4ReturnGuard, hasIPv6ReturnGuard, lists)
 	}
 	for listName := range lists {
-		if !strings.HasPrefix(listName, "manual_") || !strings.HasSuffix(listName, "_lab") || strings.Count(listName, "_") < 3 {
-			t.Fatalf("dedicated list name is not readable and collision-safe: %q", listName)
+		if !strings.HasPrefix(listName, "rb_src_") {
+			t.Fatalf("dedicated source list name is not stable and source-scoped: %q", listName)
 		}
 	}
 	if !hasReadableStrategyComment || !hasReadableSourceComment {
@@ -725,6 +1070,88 @@ func TestPolicyV2ScheduledRefreshAutoAppliesAssignedSource(t *testing.T) {
 	}
 	if loaded.ActiveVersionID != "scheduled-assigned-version" || loaded.PendingVersionID != "" {
 		t.Fatalf("scheduled source version was not activated: %#v", loaded)
+	}
+}
+
+func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	source, err := policyRepository.SaveSource(ctx, policyv2.Source{ID: "source-a", Type: "manual", Kind: policyv2.KindIP, Name: "Source A", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policyRepository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "version-a", SourceID: source.ID, SHA256: "source-a", CompressedYAML: []byte("source-a")}, []policyv2.SourceRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	policyManager := policyv2.NewManager(nil)
+	if err := policyManager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialJob, err := policyManager.GenerateAndApply(ctx, "default", "source-initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialJob = waitPolicyV2Job(t, policyRepository, initialJob.ID); initialJob.State != "committed" {
+		t.Fatalf("initial source activation failed: %#v", initialJob)
+	}
+	if _, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{ID: "rule-a", Name: "Access A", TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{source.ID}, Enabled: true}, []accesscontrol.RuleMember{{RuleID: "rule-a", TerminalID: "t1", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.GenerateAndApply(ctx, "default", "source-initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
+		t.Fatalf("initial access source apply failed: %#v", job)
+	}
+
+	source, err = policyRepository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Enabled = false
+	source, err = policyRepository.SaveSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !policyv2.SourceAutoApplyEligible(ctx, policyRepository, source, accessRepository) {
+		t.Fatal("disabling a source referenced by an enabled access rule must trigger auto-apply")
+	}
+	job, err = manager.GenerateAndApply(ctx, "default", "source-disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
+		t.Fatalf("disabled access source apply failed: %#v", job)
+	}
+	managerID, err := policyRepository.ManagerInstanceID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listName := policyv2.SourceListName(managerID, policyRepository.DeviceID(), source)
+	objects, err := router.List(ctx, routeros.MenuIPFirewallAddressList, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundDisabled := false
+	for _, object := range objects {
+		if object["list"] == listName && object["address"] == "203.0.113.0/24" {
+			foundDisabled = object["disabled"] == "true" || object["disabled"] == "yes"
+		}
+	}
+	if !foundDisabled {
+		t.Fatalf("disabled source must leave its shared address-list projection disabled, not stale and active: %#v", objects)
 	}
 }
 

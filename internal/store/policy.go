@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/policyv2"
 )
 
@@ -408,6 +409,13 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	if revision != currentRevision {
 		return policyv2.ErrRevisionStale
 	}
+	var accessReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE device_id = ? AND source_id = ?`, r.store.deviceID, id).Scan(&accessReferences); err != nil {
+		return fmt.Errorf("check access-control source references: %w", err)
+	}
+	if accessReferences > 0 {
+		return policyv2.ErrSourceInUse
+	}
 	if applied != 0 || activeVersion != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE policy_v2_sources SET egress_id = '', enabled = 0, pending_delete = 1, revision = revision + 1, updated_at = ? WHERE id = ?`, unixTime(time.Now().UTC()), id)
 	} else {
@@ -671,7 +679,7 @@ func (r *PolicyRepository) GetApplyJob(ctx context.Context, id string) (policyv2
 	return state.Job, nil
 }
 
-func (r *PolicyRepository) CommitApply(ctx context.Context, desiredRevision int64, appliedHash string, job policyv2.ApplyJob) error {
+func (r *PolicyRepository) CommitApply(ctx context.Context, desiredRevision, accessRevision int64, appliedHash string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, applyPolicy bool) error {
 	tx, err := r.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -684,31 +692,68 @@ func (r *PolicyRepository) CommitApply(ctx context.Context, desiredRevision int6
 	if currentRevision != desiredRevision {
 		return policyv2.ErrRevisionStale
 	}
+	if accessRevision >= 0 {
+		var currentAccessRevision int64
+		if err := tx.QueryRowContext(ctx, `SELECT desired_revision FROM access_control_state WHERE device_id = ?`, r.store.deviceID).Scan(&currentAccessRevision); err != nil {
+			return err
+		}
+		if currentAccessRevision != accessRevision {
+			return policyv2.ErrRevisionStale
+		}
+	}
 	now := time.Now().UTC()
-	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_source_versions SET state = 'success' WHERE id IN (SELECT pending_version_id FROM policy_v2_sources WHERE pending_version_id <> '')`); err != nil {
-		return err
+	if applyPolicy {
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_source_versions SET state = 'success' WHERE id IN (SELECT pending_version_id FROM policy_v2_sources WHERE pending_version_id <> '')`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET active_version_id = pending_version_id, last_good_version_id = pending_version_id, pending_version_id = '', applied = 1, updated_at = ? WHERE pending_version_id <> ''`, unixTime(now)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_sources WHERE pending_delete = 1`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_egresses WHERE pending_delete = 1`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET applied = 1`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_egresses SET applied = 1`); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET active_version_id = pending_version_id, last_good_version_id = pending_version_id, pending_version_id = '', applied = 1, updated_at = ? WHERE pending_version_id <> ''`, unixTime(now)); err != nil {
-		return err
+	for _, resolution := range resolutions {
+		if err := saveMemberResolutionTx(ctx, tx, r.store.deviceID, resolution); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_sources WHERE pending_delete = 1`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_egresses WHERE pending_delete = 1`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET applied = 1`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_egresses SET applied = 1`); err != nil {
-		return err
+	if accessRevision >= 0 {
+		result, err := tx.ExecContext(ctx, `UPDATE access_control_state SET applied_revision = desired_revision, applied_at = ? WHERE device_id = ?`, unixTime(now), r.store.deviceID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read access-control state update result: %w", err)
+		}
+		if rows != 1 {
+			return errors.New("access-control state is missing")
+		}
 	}
 	job.State = "committed"
 	job.Phase = "committed"
 	job.FinishedAt = now
-	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET applied_revision = ?, applied_hash = ?, applied_at = ?, job_id = ?, job_plan_id = ?, job_state = ?, job_phase = ?, job_progress = ?, job_error = ?, job_created_at = ?, job_started_at = ?, job_finished_at = ? WHERE id = 1`,
-		desiredRevision, appliedHash, unixTime(now), job.ID, job.PlanID, job.State, job.Phase, job.Progress, job.Error, unixTime(job.CreatedAt), unixTime(job.StartedAt), unixTime(job.FinishedAt)); err != nil {
+	result, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET applied_revision = ?, applied_hash = ?, applied_at = ?, job_id = ?, job_plan_id = ?, job_state = ?, job_phase = ?, job_progress = ?, job_error = ?, job_created_at = ?, job_started_at = ?, job_finished_at = ? WHERE id = 1`,
+		desiredRevision, appliedHash, unixTime(now), job.ID, job.PlanID, job.State, job.Phase, job.Progress, job.Error, unixTime(job.CreatedAt), unixTime(job.StartedAt), unixTime(job.FinishedAt))
+	if err != nil {
 		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read policy device state update result: %w", err)
+	}
+	if rows != 1 {
+		return errors.New("policy device state is missing")
 	}
 	return tx.Commit()
 }
@@ -790,8 +835,18 @@ func activeSourceCounts(source policyv2.Source) map[string]int {
 }
 
 func bumpDesiredRevision(ctx context.Context, tx *sql.Tx) error {
-	_, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET desired_revision = desired_revision + 1 WHERE id = 1`)
-	return err
+	result, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET desired_revision = desired_revision + 1 WHERE id = 1`)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read policy desired revision update result: %w", err)
+	}
+	if rows != 1 {
+		return errors.New("policy device state is missing")
+	}
+	return nil
 }
 
 func nonNilCounts(counts map[string]int) map[string]int {

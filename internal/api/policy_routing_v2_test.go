@@ -56,6 +56,9 @@ func (policyV2Router) Move(context.Context, routeros.MutationMenu, routeros.Move
 }
 func (policyV2Router) SetDNSSettings(context.Context, routeros.RouterOSFields) error { return nil }
 func (policyV2Router) FlushDNSCache(context.Context) error                           { return nil }
+func (policyV2Router) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
+	return nil
+}
 
 func newPolicyV2APIServer(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
@@ -74,7 +77,7 @@ func newPolicyV2APIServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatal(err)
 	}
 	router := policyV2Router{}
-	if err := manager.RegisterApplier("edge", &policyv2.Applier{Reader: router, Mutation: router, Repo: deviceStore.PolicyRepository()}); err != nil {
+	if err := manager.RegisterApplier("edge", &policyv2.Applier{Reader: router, Mutation: router, Repo: deviceStore.PolicyRepository(), Access: deviceStore.AccessRepository()}); err != nil {
 		storage.Close()
 		t.Fatal(err)
 	}
@@ -628,7 +631,7 @@ func TestPolicyV2SourceRulesCanSelectPendingVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.CommitApply(ctx, state.DesiredRevision, "active-hash", policyv2.ApplyJob{ID: "active-job", PlanID: "active-plan"}); err != nil {
+	if err := repository.CommitApply(ctx, state.DesiredRevision, 0, "active-hash", policyv2.ApplyJob{ID: "active-job", PlanID: "active-plan"}, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "pending-version", SourceID: source.ID, SHA256: "pending", CompressedYAML: []byte("yaml")}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "pending.example"}}); err != nil {

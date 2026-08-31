@@ -563,6 +563,59 @@ func TestMutationWriteProbeFailsClosedForReadOnlyAndCleanup(t *testing.T) {
 	}
 }
 
+func TestMutationAccessCapabilityProbeCoversBothFirewallFamilies(t *testing.T) {
+	var creates []map[string]any
+	var deleted []string
+	nextID := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && (r.URL.Path == "/rest/ip/firewall/filter" || r.URL.Path == "/rest/ipv6/firewall/filter") {
+			var fields map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+				t.Fatalf("invalid capability probe body: %v", err)
+			}
+			creates = append(creates, fields)
+			nextID++
+			_, _ = io.WriteString(w, fmt.Sprintf(`{".id":"*%x"}`, nextID))
+			return
+		}
+		if r.Method == http.MethodDelete && (strings.HasPrefix(r.URL.Path, "/rest/ip/firewall/filter/*") || strings.HasPrefix(r.URL.Path, "/rest/ipv6/firewall/filter/*")) {
+			deleted = append(deleted, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter, MenuIPv6FirewallFilter}); err != nil {
+		t.Fatalf("access capability probe failed: %v", err)
+	}
+	if len(creates) != 10 || len(deleted) != 10 {
+		t.Fatalf("capability probe did not create/delete all inert rules: creates=%d deletes=%d", len(creates), len(deleted))
+	}
+	seenActions := map[string]bool{}
+	for _, fields := range creates {
+		if fields["disabled"] != "yes" || fields["comment"] == nil {
+			t.Fatalf("capability probe must be disabled and labelled: %#v", fields)
+		}
+		seenActions[fmt.Sprint(fields["action"])] = true
+	}
+	for _, action := range []string{"return", "jump", "reject", "drop"} {
+		if !seenActions[action] {
+			t.Fatalf("capability probe did not cover action %q: %#v", action, creates)
+		}
+	}
+	for _, fields := range creates {
+		if fields["action"] == "jump" && (fields["jump-target"] == nil || fields["src-address-list"] == nil || fields["dst-address-list"] == nil) {
+			t.Fatalf("jump capability probe omitted required address-list fields: %#v", fields)
+		}
+		if fields["action"] == "reject" && (fields["protocol"] != "tcp" || fields["reject-with"] != "tcp-reset") {
+			t.Fatalf("reject capability probe omitted TCP reset fields: %#v", fields)
+		}
+	}
+}
+
 func TestMutationCommandFieldAllowLists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/export" || r.Method != http.MethodPost {
