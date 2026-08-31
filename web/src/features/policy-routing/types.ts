@@ -427,6 +427,7 @@ export type PolicyPlan = {
   createdAt: string
   expiresAt?: string
   desiredRevision: number
+  internetEgressCandidates?: Record<string, Array<{ interface: string; type: string; running: boolean; reason?: string }>>
   desiredHash: string
   actualFingerprint: string
   capabilities: Record<string, string>

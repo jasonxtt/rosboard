@@ -366,7 +366,10 @@ func (c *Client) do(req *http.Request, out any) error {
 	if err != nil {
 		return fmt.Errorf("request %s: %w", req.URL.Path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+		c.httpClient.CloseIdleConnections()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &HTTPError{

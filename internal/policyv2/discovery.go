@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,11 +88,11 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", err)
 	}
 	warnings := make([]string, 0)
-	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "disabled", "dynamic"})
+	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic"})
 	if err != nil {
 		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", err)
 	}
-	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "routing-table", "distance", "active", "disabled", "dynamic"})
+	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic"})
 	if ipv6RouteErr != nil {
 		warnings = append(warnings, "IPv6 默认路由发现失败："+ipv6RouteErr.Error())
 		ipv6Routes = nil
@@ -168,7 +169,10 @@ func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute 
 		}
 		gateway := strings.TrimSpace(object["gateway"])
 		immediate := strings.TrimSpace(object["immediate-gw"])
-		iface := routeInterface(immediate)
+		iface := routeInterface(object["immediate-interface"])
+		if iface == "" {
+			iface = routeInterface(immediate)
+		}
 		if iface == "" {
 			iface = routeInterface(gateway)
 		}
@@ -509,10 +513,13 @@ func discoveryFingerprint(groups ...[]routeros.RouterOSObject) (string, error) {
 
 func routeInterface(value string) string {
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
 	if index := strings.LastIndex(value, "%"); index >= 0 {
 		return value[index+1:]
 	}
-	if strings.Contains(value, ".") || strings.Contains(value, ":") {
+	if _, err := netip.ParseAddr(value); err == nil || strings.Contains(value, ":") {
 		return ""
 	}
 	return value

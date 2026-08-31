@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"rosboard/internal/accesscontrol"
 )
 
 var (
@@ -11,6 +13,7 @@ var (
 	ErrSourceNotFound = errors.New("policy source not found")
 	ErrRevisionStale  = errors.New("policy object revision is stale")
 	ErrEgressInUse    = errors.New("policy egress still has assigned sources")
+	ErrSourceInUse    = errors.New("policy source is used by access control")
 	ErrJobNotFound    = errors.New("policy apply job not found")
 )
 
@@ -44,5 +47,5 @@ type Repository interface {
 	SaveTrafficIngress(context.Context, []byte) (DeviceState, error)
 	SaveApplyJob(context.Context, ApplyJob) error
 	GetApplyJob(context.Context, string) (ApplyJob, error)
-	CommitApply(context.Context, int64, string, ApplyJob) error
+	CommitApply(context.Context, int64, int64, string, ApplyJob, []accesscontrol.MemberResolution, bool) error
 }

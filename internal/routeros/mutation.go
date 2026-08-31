@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -321,6 +322,56 @@ func (c *MutationClient) WriteProbe(ctx context.Context) error {
 	return nil
 }
 
+// VerifyAccessControlCapabilities proves that each firewall family accepts the
+// exact disabled rule shapes emitted by the access-control planner. RouterOS
+// REST does not expose a capability endpoint, so this uses a create/delete
+// round trip for inert rules and fails closed if either side is rejected.
+func (c *MutationClient) VerifyAccessControlCapabilities(ctx context.Context, menus []MutationMenu) error {
+	for _, menu := range menus {
+		if menu != MenuIPFirewallFilter && menu != MenuIPv6FirewallFilter {
+			return fmt.Errorf("unsupported access-control capability menu %q", menu)
+		}
+		suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+		if menu == MenuIPv6FirewallFilter {
+			suffix += "6"
+		}
+		chain := "rosboard_access_probe_" + suffix
+		addressList := "__rosboard_access_probe_" + suffix
+		comment := "rosboard access capability probe (inert; safe to remove) " + suffix
+		probes := []RouterOSFields{
+			{"comment": comment + " chain-return", "chain": chain, "action": "return", "disabled": "yes"},
+			{"comment": comment + " jump", "chain": "output", "src-address-list": addressList, "dst-address-list": addressList, "action": "jump", "jump-target": chain, "disabled": "yes"},
+			{"comment": comment + " address-return", "chain": chain, "src-address-list": addressList, "dst-address-list": addressList, "action": "return", "disabled": "yes"},
+			{"comment": comment + " tcp-reject", "chain": chain, "src-address-list": addressList, "dst-address-list": addressList, "protocol": "tcp", "action": "reject", "reject-with": "tcp-reset", "disabled": "yes"},
+			{"comment": comment + " other-drop", "chain": chain, "action": "drop", "disabled": "yes"},
+		}
+		ids := make([]string, 0, len(probes))
+		cleanup := func() error {
+			var cleanupErr error
+			for index := len(ids) - 1; index >= 0; index-- {
+				if err := c.Delete(ctx, menu, ids[index]); err != nil {
+					cleanupErr = errors.Join(cleanupErr, err)
+				}
+			}
+			return cleanupErr
+		}
+		for index, fields := range probes {
+			probe, err := c.Create(ctx, menu, fields)
+			if err != nil {
+				return fmt.Errorf("RouterOS %s access-control capability probe %d failed: %w (cleanup: %v)", menu, index+1, err, cleanup())
+			}
+			if probe.ID() == "" {
+				return fmt.Errorf("RouterOS %s access-control capability probe %d returned no object id (cleanup: %v)", menu, index+1, cleanup())
+			}
+			ids = append(ids, probe.ID())
+		}
+		if err := cleanup(); err != nil {
+			return fmt.Errorf("RouterOS %s access-control capability probe cleanup failed: %w", menu, err)
+		}
+	}
+	return nil
+}
+
 func (c *MutationClient) SetDNSSettings(ctx context.Context, fields RouterOSFields) error {
 	_, err := c.command(ctx, MenuIPDNS, CommandDNSSettingsSet, fields)
 	return err
@@ -339,14 +390,33 @@ func (c *MutationClient) Export(ctx context.Context, fields RouterOSFields) ([]b
 // request from a *url.URL so a RouterOS object id preserved in RawPath stays
 // literal in the request-target (see objectEndpoint).
 func (c *MutationClient) executeURL(ctx context.Context, method string, target *url.URL, fields RouterOSFields, responseLimit int64, policy mutationRetryPolicy) ([]byte, error) {
+	if c == nil {
+		return nil, errors.New("RouterOS mutation client is not initialized")
+	}
+	return c.executeURLWithTimeout(ctx, method, target, fields, responseLimit, policy, c.requestTimeout)
+}
+
+func (c *MutationClient) executeURLWithTimeout(ctx context.Context, method string, target *url.URL, fields RouterOSFields, responseLimit int64, policy mutationRetryPolicy, requestTimeout time.Duration) ([]byte, error) {
 	if c == nil || c.initErr != nil {
 		if c != nil && c.initErr != nil {
 			return nil, c.initErr
 		}
 		return nil, errors.New("RouterOS mutation client is not initialized")
 	}
+	if requestTimeout <= 0 {
+		requestTimeout = defaultMutationRequestTimeout
+	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	httpClient := c.httpClient
+	if httpClient == nil {
+		return nil, errors.New("RouterOS mutation HTTP client is not initialized")
+	}
+	if httpClient.Timeout > 0 && httpClient.Timeout < requestTimeout {
+		clientCopy := *httpClient
+		clientCopy.Timeout = requestTimeout
+		httpClient = &clientCopy
 	}
 
 	var requestBody []byte
@@ -382,7 +452,7 @@ func (c *MutationClient) executeURL(ctx context.Context, method string, target *
 		if requestBody != nil {
 			request.Header.Set("Content-Type", "application/json")
 		}
-		response, err := c.httpClient.Do(request)
+		response, err := httpClient.Do(request)
 		if err != nil {
 			cancel()
 			if policy == mutationRetryRead && shouldRetryMutationNetworkError(ctx, err) && attempt < c.maxRetries {
@@ -402,7 +472,7 @@ func (c *MutationClient) executeURL(ctx context.Context, method string, target *
 		// http.Client, never leave an idle keep-alive connection pooled between
 		// mutation requests. The next mutation (e.g. the WriteProbe DELETE
 		// after its CREATE) therefore always starts on a fresh connection.
-		c.httpClient.CloseIdleConnections()
+		httpClient.CloseIdleConnections()
 		cancel()
 		if readErr != nil {
 			if policy == mutationNoRetryMutation {

@@ -12,16 +12,17 @@ import (
 )
 
 type Config struct {
-	Path                        string         `yaml:"-"`
-	ListenAddress               string         `yaml:"listen_address"`
-	DataDir                     string         `yaml:"data_dir"`
-	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
-	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
+	Path                        string                   `yaml:"-"`
+	ListenAddress               string                   `yaml:"listen_address"`
+	DataDir                     string                   `yaml:"data_dir"`
+	PollIntervalSeconds         int                      `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int                      `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int                      `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int                      `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string                 `yaml:"allowed_cidrs"`
+	RouterOS                    RouterOSConfig           `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig           `yaml:"devices,omitempty"`
+	ApplicationCatalog          ApplicationCatalogConfig `yaml:"application_catalog,omitempty"`
 
 	// ProtocolAnalysis is runtime-only (see ProtocolAnalysisConfig).
 	ProtocolAnalysis ProtocolAnalysisConfig `yaml:"-"`
@@ -31,6 +32,11 @@ type MosDNSConfig struct {
 	Enabled             bool   `yaml:"enabled" json:"enabled"`
 	BaseURL             string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	SyncIntervalMinutes int    `yaml:"sync_interval_minutes,omitempty" json:"sync_interval_minutes,omitempty"`
+}
+
+type ApplicationCatalogConfig struct {
+	Source               string `yaml:"source,omitempty"`
+	RefreshIntervalHours int    `yaml:"refresh_interval_hours,omitempty"`
 }
 
 // ProtocolAnalysisConfig is a runtime-only carrier: recognition settings live
@@ -223,6 +229,9 @@ func (c Config) validate() error {
 	}
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
+	}
+	if c.ApplicationCatalog.RefreshIntervalHours < 0 {
+		return errors.New("application_catalog.refresh_interval_hours must not be negative")
 	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {

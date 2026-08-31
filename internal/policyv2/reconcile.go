@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/routeros"
 )
 
@@ -24,6 +25,8 @@ var managedMenus = []routeros.MutationMenu{
 	routeros.MenuIPDNSStatic,
 	routeros.MenuIPFirewallAddressList,
 	routeros.MenuIPv6FirewallAddressList,
+	routeros.MenuIPFirewallFilter,
+	routeros.MenuIPv6FirewallFilter,
 	routeros.MenuIPFirewallMangle,
 	routeros.MenuIPv6FirewallMangle,
 	routeros.MenuIPFirewallNAT,
@@ -43,7 +46,11 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 		if object.Menu == string(routeros.MenuRoutingTable) {
 			logicalByTable[object.Fields["name"]] = object.LogicalID
 		} else {
-			logicalByComment[managedCommentIdentity(object.Fields["comment"])] = object.LogicalID
+			commentIdentity := managedCommentIdentity(object.Fields["comment"])
+			logicalByComment[commentIdentity] = object.LogicalID
+			logicalByComment[accesscontrol.LegacyV1ManagedComment(managerID, repository.DeviceID(), object.LogicalID)] = object.LogicalID
+			logicalByComment[accesscontrol.LegacyManagedComment(managerID, repository.DeviceID(), object.LogicalID)] = object.LogicalID
+			logicalByComment[legacyManagedCommentPrefixV1(managerID, repository.DeviceID())+shortHash(object.LogicalID, 8)] = object.LogicalID
 			// Also accept the pre-shortening identity so existing RouterOS
 			// entries migrate by patching only the comment field.
 			logicalByComment[legacyPrefix+shortHash(object.LogicalID, 16)] = object.LogicalID
@@ -58,10 +65,26 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 		for position, object := range objects {
 			comment := strings.TrimSpace(object["comment"])
 			commentIdentity := managedCommentIdentity(comment)
+			logicalID := ""
+			if menu != routeros.MenuRoutingTable {
+				logicalID = logicalByComment[commentIdentity]
+				if logicalID == "" && accesscontrol.IsLegacyManagedComment(comment) && !accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
+					fields := make(map[string]string, len(object))
+					for key, value := range object {
+						if structuralRouterField(key) {
+							fields[key] = value
+						}
+					}
+					result = append(result, ActualObject{
+						LogicalID: "foreign-access:" + commentIdentity, Menu: string(menu), RouterID: object.ID(), Position: position,
+						Fields: fields, Ownership: "foreign",
+					})
+					continue
+				}
+			}
 			if isForeignMasquerade(menu, object, commentIdentity) {
 				continue
 			}
-			logicalID := ""
 			if menu == routeros.MenuRoutingTable {
 				name := strings.TrimSpace(object["name"])
 				if !strings.HasPrefix(name, tablePrefix) {
@@ -72,10 +95,16 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 					logicalID = "stale-table:" + name
 				}
 			} else {
-				if !isManagedComment(comment) {
+				logicalID = logicalByComment[commentIdentity]
+				if logicalID == "" && isManagedCommentFor(managerID, repository.DeviceID(), comment) {
+					logicalID = "stale:" + commentIdentity
+				}
+				if logicalID == "" && accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
+					logicalID = "stale:" + commentIdentity
+				}
+				if logicalID == "" && !isManagedCommentFor(managerID, repository.DeviceID(), comment) && !accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
 					continue
 				}
-				logicalID = logicalByComment[commentIdentity]
 				if logicalID == "" {
 					logicalID = "stale:" + commentIdentity
 				}
@@ -86,7 +115,7 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 					fields[key] = value
 				}
 			}
-			result = append(result, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: object.ID(), Position: position, Fields: fields})
+			result = append(result, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: object.ID(), Position: position, Fields: fields, Ownership: "owned"})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -110,6 +139,9 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 	})
 	actualByKey := make(map[string][]ActualObject)
 	for _, object := range actual {
+		if object.Ownership == "foreign" {
+			continue
+		}
 		key := object.Menu + "\x00" + object.LogicalID
 		actualByKey[key] = append(actualByKey[key], object)
 	}
@@ -134,6 +166,10 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 		}
 	}
 	for _, object := range actual {
+		if object.Ownership == "foreign" {
+			blockers = append(blockers, PlanIssue{Code: "foreign_access_object", Status: "blocker", LogicalID: object.LogicalID, Reason: "发现不属于当前设备实例的 AccessRule RouterOS 对象，已阻止继续同步"})
+			continue
+		}
 		key := object.Menu + "\x00" + object.LogicalID
 		if used[key] {
 			continue
@@ -141,6 +177,11 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 		operations = append(operations, PlanOperation{Phase: "cleanup", Action: "delete", Menu: object.Menu, LogicalID: object.LogicalID, RouterID: object.RouterID, Ownership: "owned", Before: cloneStrings(object.Fields)})
 	}
 	operations = append(operations, desiredOrderMoves(orderedDesired, actual)...)
+	sortPlanOperations(operations)
+	return operations, blockers
+}
+
+func sortPlanOperations(operations []PlanOperation) {
 	phaseOrder := map[string]int{"foundation": 1, "routing": 2, "dns": 3, "activation": 4, "cleanup": 5}
 	actionOrder := map[string]int{"create": 1, "patch": 2, "move": 3, "delete": 4}
 	sort.SliceStable(operations, func(i, j int) bool {
@@ -167,7 +208,6 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 	for index := range operations {
 		operations[index].Seq = index + 1
 	}
-	return operations, blockers
 }
 
 func dnsDependencyOrder(operation PlanOperation) int {
@@ -264,8 +304,9 @@ var managedRouterFields = map[string]bool{
 	"forward-to": true, "gateway": true, "in-interface": true, "in-interface-list": true,
 	"include": true, "interface": true, "list": true, "match-subdomain": true,
 	"name": true, "new-connection-mark": true, "new-routing-mark": true,
-	"out-interface": true, "passthrough": true, "protocol": true, "routing-mark": true,
-	"routing-table": true, "table": true, "to-address": true, "to-addresses": true,
+	"out-interface": true, "out-interface-list": true, "passthrough": true, "protocol": true, "routing-mark": true,
+	"reject-with": true, "routing-table": true, "src-address-list": true, "jump-target": true,
+	"table": true, "to-address": true, "to-addresses": true,
 	"to-ports": true, "type": true,
 }
 
@@ -283,13 +324,13 @@ var movablePolicyMenus = map[string]bool{
 func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOperation {
 	actualByMenu := make(map[string][]ActualObject)
 	for _, object := range actual {
-		if movablePolicyMenus[object.Menu] {
+		if movablePolicyMenus[object.Menu] && !isAccessFilterFields(object.Menu, object.Fields) {
 			actualByMenu[object.Menu] = append(actualByMenu[object.Menu], object)
 		}
 	}
 	desiredByMenu := make(map[string][]DesiredObject)
 	for _, object := range desired {
-		if movablePolicyMenus[object.Menu] {
+		if movablePolicyMenus[object.Menu] && !isAccessFilterFields(object.Menu, object.Fields) {
 			desiredByMenu[object.Menu] = append(desiredByMenu[object.Menu], object)
 		}
 	}
@@ -301,7 +342,13 @@ func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOpe
 	}
 	sort.Strings(menus)
 	for _, menu := range menus {
-		desiredObjects := desiredByMenu[menu]
+		desiredObjects := append([]DesiredObject(nil), desiredByMenu[menu]...)
+		sort.SliceStable(desiredObjects, func(i, j int) bool {
+			if desiredObjects[i].Order != desiredObjects[j].Order {
+				return desiredObjects[i].Order < desiredObjects[j].Order
+			}
+			return desiredObjects[i].LogicalID < desiredObjects[j].LogicalID
+		})
 		if len(desiredObjects) < 2 {
 			continue
 		}
@@ -342,6 +389,16 @@ func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOpe
 		}
 	}
 	return result
+}
+
+func isAccessJumpFields(menu string, fields map[string]string) bool {
+	return isAccessFilterFields(menu, fields) && fields["action"] == "jump"
+}
+
+func isAccessFilterFields(menu string, fields map[string]string) bool {
+	return (menu == string(routeros.MenuIPFirewallFilter) || menu == string(routeros.MenuIPv6FirewallFilter)) &&
+		fields["chain"] == "forward" && accesscontrol.IsManagedComment(fields["comment"]) &&
+		(fields["action"] == "jump" || strings.Contains(fields["comment"], "访问控制"))
 }
 
 func moveLogicalIDBefore(values []string, source, target string) []string {

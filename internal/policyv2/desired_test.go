@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/routeros"
 )
 
@@ -51,6 +52,82 @@ func TestSharedListNameUsesEgressName(t *testing.T) {
 				t.Fatalf("SharedListName(%q)=%q, want %q", test.name, got, test.want)
 			}
 		})
+	}
+}
+
+func TestSourceListNameIsStableAcrossRenameAndScopedToDevice(t *testing.T) {
+	first := SourceListName("manager-a", "router-a", Source{ID: "source-a", Name: "Bilibili"})
+	renamed := SourceListName("manager-a", "router-a", Source{ID: "source-a", Name: "哔哩哔哩"})
+	otherSource := SourceListName("manager-a", "router-a", Source{ID: "source-b", Name: "Bilibili"})
+	otherDevice := SourceListName("manager-a", "router-b", Source{ID: "source-a", Name: "Bilibili"})
+
+	if first != renamed {
+		t.Fatalf("source rename changed stable list name: %q != %q", first, renamed)
+	}
+	if first == otherSource || first == otherDevice {
+		t.Fatalf("source list name is not scoped to source/device: first=%q source=%q device=%q", first, otherSource, otherDevice)
+	}
+	if !strings.HasPrefix(first, "rb_src_") {
+		t.Fatalf("unexpected source list prefix: %q", first)
+	}
+}
+
+func TestNeedsAccessForwarderForDisabledDomainSource(t *testing.T) {
+	rules := []accesscontrol.AccessRule{{
+		ID: "rule-a", Enabled: true, TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{"source-a"},
+	}}
+	sources := map[string]Source{
+		"source-a": {ID: "source-a", Kind: KindDomain, Enabled: false, ActiveVersionID: "version-a"},
+	}
+	if !needsAccessForwarder(rules, sources, nil) {
+		t.Fatal("a disabled domain source referenced by access control still needs the device-level access DNS forwarder")
+	}
+}
+
+func TestSharedBuildFamilyUsesOneConnectionMarkAndOneRoutingRule(t *testing.T) {
+	result := DesiredResult{}
+	add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+	}
+
+	buildFamily(&result, add, Egress{ID: "wan-a", ListMode: ListModeShared, ListName: "legacy-shared", FailureMode: "strict"}, EgressFamily{
+		Family: FamilyIPv4, Enabled: true, WANInterface: "ether1", RouteTable: "wan-a-table",
+	}, "198.51.100.1", map[string]string{"source-a": "rb_src_a", "source-b": "rb_src_b"}, "rosboard-lan", "manager", "device", "no")
+
+	connectionMarks := map[string]bool{}
+	routingRules := 0
+	connectionRules := 0
+	for _, object := range result.Objects {
+		if object.Menu != string(routeros.MenuIPFirewallMangle) || object.Fields["chain"] != "prerouting" {
+			continue
+		}
+		switch object.Fields["action"] {
+		case "mark-connection":
+			connectionRules++
+			connectionMarks[object.Fields["new-connection-mark"]] = true
+		case "mark-routing":
+			routingRules++
+		}
+	}
+	if connectionRules != 2 || len(connectionMarks) != 1 || routingRules != 1 {
+		t.Fatalf("shared egress must use two source matchers, one connection mark and one routing rule: rules=%d marks=%v routing=%d objects=%#v", connectionRules, connectionMarks, routingRules, result.Objects)
+	}
+}
+
+func TestSharedBuildFamilySkipsEmptySourceSet(t *testing.T) {
+	result := DesiredResult{}
+	add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+	}
+
+	buildFamily(&result, add, Egress{ID: "wan-a", ListMode: ListModeShared, FailureMode: "strict"}, EgressFamily{
+		Family: FamilyIPv4, Enabled: true, WANInterface: "ether1", RouteTable: "wan-a-table",
+	}, "198.51.100.1", nil, "rosboard-lan", "manager", "device", "no")
+
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPFirewallMangle) {
+			t.Fatalf("shared egress without source lists must not create dangling mangle rules: %#v", result.Objects)
+		}
 	}
 }
 
