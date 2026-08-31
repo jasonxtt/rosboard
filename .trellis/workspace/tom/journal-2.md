@@ -1872,3 +1872,36 @@ Added YAML/TXT/LIST and local-upload parsing with selected domain/IP filtering; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 94: 完成 RouterOS 策略批量应用与 ssjy 全量重建验收
+
+**Date**: 2026-09-01
+**Task**: 完成 RouterOS 策略批量应用与 ssjy 全量重建验收
+**Branch**: `main`
+
+### Summary
+
+为策略路由增加 RouterOS DNS static 分批脚本创建、批量启停、分阶段激活、有限校验重试与失败作业落库；在 10.0.0.60 完成测试，在 10.0.0.6 按 NAS 备份门禁部署，删除并重建 ssjy 受管规则后验证 1014/1014、operations=0、job committed，DNS static 972/968 managed/0 disabled。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `389c576` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

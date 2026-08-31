@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Verify application targets remain in the shared policy graph and preserve source/internet semantics."}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Verify protocol-analysis-off and attribution compatibility."}
+{"file": ".trellis/tasks/09-01-oaf-application-catalog/research/routeros-matchers.md", "reason": "Verify matcher support decisions and unsupported cases."}
+{"file": ".trellis/tasks/09-01-oaf-application-catalog/research/oaf-format-license.md", "reason": "Verify provenance and no unauthorized vendoring."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check additive migration and historical compatibility."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Check fail-closed catalog/matcher error behavior."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check focused tests and no unrelated cleanup."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Check API/UI type compatibility."}
