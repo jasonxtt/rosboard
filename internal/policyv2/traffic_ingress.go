@@ -68,6 +68,20 @@ func MarshalTrafficIngressScope(scope TrafficIngressScope) ([]byte, error) {
 	return json.Marshal(scope)
 }
 
+func NormalizeTrafficIngressScopeUnvalidated(scope TrafficIngressScope) TrafficIngressScope {
+	return TrafficIngressScope{InterfaceLists: normalizedNames(scope.InterfaceLists), Interfaces: normalizedNames(scope.Interfaces)}
+}
+
+func HasTrafficIngress(scope TrafficIngressScope) bool {
+	return len(scope.InterfaceLists) > 0 || len(scope.Interfaces) > 0
+}
+
+func TrafficIngressScopeKey(scope TrafficIngressScope) string {
+	scope = NormalizeTrafficIngressScopeUnvalidated(scope)
+	payload, _ := json.Marshal(scope)
+	return string(payload)
+}
+
 func ManagedIngressListName(managerID, deviceID string) string {
 	return ManagedTablePrefix(managerID, deviceID) + "ingress"
 }
@@ -122,13 +136,12 @@ func NormalizeTrafficIngressScope(scope TrafficIngressScope, candidates []Traffi
 }
 
 func ValidateTrafficIngress(ctx context.Context, reader PolicyReader, repository Repository) ([]PlanIssue, error) {
-	state, err := repository.GetDeviceState(ctx)
+	scopes, err := trafficIngressScopesForValidation(ctx, repository)
 	if err != nil {
 		return nil, err
 	}
-	scope, err := ParseTrafficIngressScope(state.TrafficIngress)
-	if err != nil {
-		return nil, nil // BuildDesired reports the payload error as a blocker.
+	if len(scopes) == 0 {
+		return nil, nil
 	}
 	lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
 	if err != nil {
@@ -159,25 +172,114 @@ func ValidateTrafficIngress(ctx context.Context, reader PolicyReader, repository
 		}
 	}
 	issues := make([]PlanIssue, 0)
-	for _, name := range scope.InterfaceLists {
-		if !existingLists[name] {
-			issues = append(issues, PlanIssue{Code: "traffic_ingress_list_not_found", Status: "blocker", Reason: "策略流量入口列表不存在：" + name})
+	for _, item := range scopes {
+		for _, name := range item.Scope.InterfaceLists {
+			if !existingLists[name] {
+				issues = append(issues, PlanIssue{Code: "traffic_ingress_list_not_found", Status: "blocker", LogicalID: item.LogicalID, Reason: "策略流量入口列表不存在：" + name})
+			}
 		}
-	}
-	for _, name := range scope.Interfaces {
-		object, ok := existingInterfaces[name]
-		switch {
-		case !ok:
-			issues = append(issues, PlanIssue{Code: "traffic_ingress_interface_not_found", Status: "blocker", Reason: "策略流量入口接口不存在：" + name})
-		case routerBool(object["disabled"], false):
-			issues = append(issues, PlanIssue{Code: "traffic_ingress_interface_disabled", Status: "blocker", Reason: "策略流量入口接口已禁用：" + name})
-		case routerBool(object["dynamic"], false):
-			issues = append(issues, PlanIssue{Code: "traffic_ingress_dynamic_interface", Status: "blocker", Reason: "动态 VPN 接口不能直接选择，请通过专用 interface list 纳入：" + name})
-		case wanInterfaces[name]:
-			issues = append(issues, PlanIssue{Code: "traffic_ingress_is_wan", Status: "blocker", Reason: "策略出口接口不能同时作为流量入口：" + name})
+		for _, name := range item.Scope.Interfaces {
+			object, ok := existingInterfaces[name]
+			switch {
+			case !ok:
+				issues = append(issues, PlanIssue{Code: "traffic_ingress_interface_not_found", Status: "blocker", LogicalID: item.LogicalID, Reason: "策略流量入口接口不存在：" + name})
+			case routerBool(object["disabled"], false):
+				issues = append(issues, PlanIssue{Code: "traffic_ingress_interface_disabled", Status: "blocker", LogicalID: item.LogicalID, Reason: "策略流量入口接口已禁用：" + name})
+			case routerBool(object["dynamic"], false):
+				issues = append(issues, PlanIssue{Code: "traffic_ingress_dynamic_interface", Status: "blocker", LogicalID: item.LogicalID, Reason: "动态 VPN 接口不能直接选择，请通过专用 interface list 纳入：" + name})
+			case wanInterfaces[name]:
+				issues = append(issues, PlanIssue{Code: "traffic_ingress_is_wan", Status: "blocker", LogicalID: item.LogicalID, Reason: "策略出口接口不能同时作为流量入口：" + name})
+			}
 		}
 	}
 	return issues, nil
+}
+
+type trafficIngressValidationScope struct {
+	LogicalID string
+	Scope     TrafficIngressScope
+}
+
+func trafficIngressScopesForValidation(ctx context.Context, repository Repository) ([]trafficIngressValidationScope, error) {
+	routingRepository, ok := repository.(RoutingRuleRepository)
+	if !ok {
+		state, err := repository.GetDeviceState(ctx)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := ParseTrafficIngressScope(state.TrafficIngress)
+		if err != nil {
+			return nil, nil // BuildDesired reports the payload error as a blocker.
+		}
+		if !HasTrafficIngress(scope) {
+			return nil, nil
+		}
+		return []trafficIngressValidationScope{{Scope: scope}}, nil
+	}
+	authority, err := routingRepository.RoutingAuthority(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if authority != RoutingRuleAuthorityV1 {
+		state, err := repository.GetDeviceState(ctx)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := ParseTrafficIngressScope(state.TrafficIngress)
+		if err != nil {
+			return nil, nil
+		}
+		if !HasTrafficIngress(scope) {
+			return nil, nil
+		}
+		return []trafficIngressValidationScope{{Scope: scope}}, nil
+	}
+	rules, err := routingRepository.ListRoutingRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]trafficIngressValidationScope, 0)
+	seen := make(map[string]bool)
+	for _, rule := range rules {
+		if !rule.Enabled || (rule.Subject.Mode != SubjectModeAll && rule.Subject.Mode != SubjectModeExcluded) {
+			continue
+		}
+		scope := NormalizeTrafficIngressScopeUnvalidated(rule.Ingress)
+		if !HasTrafficIngress(scope) {
+			continue // The desired builder reports the required-scope blocker.
+		}
+		key := TrafficIngressScopeKey(scope)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, trafficIngressValidationScope{LogicalID: rule.ID, Scope: scope})
+	}
+	return result, nil
+}
+
+func routingRulesRequireTrafficIngress(ctx context.Context, repository Repository) (bool, error) {
+	routingRepository, ok := repository.(RoutingRuleRepository)
+	if !ok {
+		return true, nil
+	}
+	authority, err := routingRepository.RoutingAuthority(ctx)
+	if err != nil {
+		return false, err
+	}
+	if authority != RoutingRuleAuthorityV1 {
+		return true, nil
+	}
+	rules, err := routingRepository.ListRoutingRules(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, rule := range rules {
+		if rule.Enabled && (rule.Subject.Mode == SubjectModeAll || rule.Subject.Mode == SubjectModeExcluded) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func normalizedNames(values []string) []string {

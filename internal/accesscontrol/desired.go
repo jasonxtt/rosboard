@@ -40,13 +40,11 @@ type DesiredInput struct {
 	Rules     []AccessRule
 	Members   []RuleMember
 	Terminals []Terminal
-	// SourceList maps sourceID to its materialized RouterOS address-list name.
-	SourceList map[string]string
-	// SourceDisabled marks source lists that must not be matched by access
-	// control while their policy source is disabled. The list may still contain
-	// stale RouterOS entries until DNS TTL/cleanup catches up, so disabling the
-	// access jumps is part of the safety boundary.
-	SourceDisabled map[string]bool
+	// TargetList maps canonical TargetList IDs to an access-consumer-specific
+	// RouterOS address-list name. It is intentionally separate from the
+	// routing projection even when both consumers use the same TargetList.
+	TargetList         map[string]string
+	TargetListDisabled map[string]bool
 	// Scope carries local-network evidence used to reject a local interface as
 	// an internet egress. Internet rules themselves use the route-derived
 	// interfaces below.
@@ -80,7 +78,7 @@ func BuildDesired(input DesiredInput) DesiredResult {
 			continue
 		}
 		members := membersByRule[rule.ID]
-		if len(members) == 0 {
+		if rule.Subject.Mode != "all" && len(members) == 0 && len(rule.Subject.Prefixes) == 0 {
 			result.Blockers = append(result.Blockers, Issue{Code: "access_rule_without_members", RuleID: rule.ID, Reason: "规则没有任何受控设备"})
 			continue
 		}
@@ -89,11 +87,19 @@ func BuildDesired(input DesiredInput) DesiredResult {
 				result.Blockers = append(result.Blockers, Issue{Code: "invalid_access_member", RuleID: rule.ID, Reason: err.Error()})
 			}
 		}
-		if rule.TargetScope == TargetScopeSources {
+		if rule.TargetScope != TargetScopeInternet && rule.TargetScope != TargetScopeTargets {
+			result.Blockers = append(result.Blockers, Issue{Code: "access_canonical_rule_required", RuleID: rule.ID, Reason: "访问规则必须先迁移为 internet 或 targets"})
+			continue
+		}
+		if rule.TargetScope == TargetScopeTargets && rule.Enabled {
 			available := true
-			for _, sourceID := range rule.SourceIDs {
-				if strings.TrimSpace(input.SourceList[sourceID]) == "" {
-					result.Blockers = append(result.Blockers, Issue{Code: "access_source_unavailable", RuleID: rule.ID, Reason: "来源 " + sourceID + " 的地址列表不可用"})
+			for _, targetID := range sortedUniqueStrings(rule.TargetListIDs) {
+				list := strings.TrimSpace(input.TargetList[AccessTargetKey(rule.ID, targetID)])
+				if list == "" {
+					list = strings.TrimSpace(input.TargetList[targetID])
+				}
+				if list == "" {
+					result.Blockers = append(result.Blockers, Issue{Code: "access_target_unavailable", RuleID: rule.ID, Reason: "目标列表 " + targetID + " 的访问投影不可用"})
 					available = false
 				}
 			}
@@ -116,29 +122,47 @@ func BuildDesired(input DesiredInput) DesiredResult {
 			}
 		}
 		ipv4, ipv6 := ruleAddresses(evaluations)
+		if rule.Subject.Mode == "all" {
+			var ipv4Trusted, ipv6Trusted bool
+			ipv4, ipv4Trusted = input.Scope.PrefixesForFamily(FamilyIPv4)
+			ipv6, ipv6Trusted = input.Scope.PrefixesForFamily(FamilyIPv6)
+			if !ipv4Trusted {
+				result.Issues = append(result.Issues, Issue{Code: "access_subject_scope_unavailable", RuleID: rule.ID, Family: FamilyIPv4, Reason: "没有可证明的 IPv4 本地可信网络范围，未生成该地址族的宽泛访问阻断规则"})
+			}
+			if !ipv6Trusted {
+				result.Issues = append(result.Issues, Issue{Code: "access_subject_scope_unavailable", RuleID: rule.ID, Family: FamilyIPv6, Reason: "没有可证明的 IPv6 本地可信网络范围，未生成该地址族的宽泛访问阻断规则"})
+			}
+		} else {
+			prefixIPv4, prefixIPv6 := subjectPrefixAddresses(rule.Subject.Prefixes)
+			ipv4 = appendUnique(ipv4, prefixIPv4...)
+			ipv6 = appendUnique(ipv6, prefixIPv6...)
+		}
+		if rule.Subject.Mode == "all" && len(ipv4)+len(ipv6) == 0 {
+			result.Blockers = append(result.Blockers, Issue{Code: "access_subject_scope_unavailable", RuleID: rule.ID, Reason: "没有可证明的本地可信网络范围，未生成宽泛访问阻断规则"})
+			continue
+		}
 		if len(ipv4)+len(ipv6) == 0 {
 			// 无任何可投影地址：成员级 degraded 已上报，但绝不因此阻断
 			// 本设备其他规则的同步。
 			continue
 		}
 		ruleList := RuleMemberListName(input.ManagerID, input.DeviceID, rule.ID)
-		for _, address := range append(append([]string{}, ipv4...), ipv6...) {
-			parsed, _ := netip.ParseAddr(address)
-			menu := routeros.MenuIPFirewallAddressList
-			family := FamilyIPv4
-			if parsed.Is6() {
-				menu = routeros.MenuIPv6FirewallAddressList
-				family = FamilyIPv6
+		for _, familyAddresses := range []struct {
+			family    string
+			addresses []string
+			menu      routeros.MutationMenu
+		}{{FamilyIPv4, ipv4, routeros.MenuIPFirewallAddressList}, {FamilyIPv6, ipv6, routeros.MenuIPv6FirewallAddressList}} {
+			for _, address := range familyAddresses.addresses {
+				logicalID := "access-member:" + rule.ID + ":" + familyAddresses.family + ":" + address
+				key := string(familyAddresses.menu) + "\x00" + logicalID
+				if addedAddresses[key] {
+					continue
+				}
+				addedAddresses[key] = true
+				result.Objects = append(result.Objects, desiredObject(input, logicalID, familyAddresses.menu, "foundation", "访问控制成员地址", map[string]string{
+					"list": ruleList, "address": address, "disabled": "no",
+				}))
 			}
-			logicalID := "access-member:" + rule.ID + ":" + family + ":" + address
-			key := string(menu) + "\x00" + logicalID
-			if addedAddresses[key] {
-				continue
-			}
-			addedAddresses[key] = true
-			result.Objects = append(result.Objects, desiredObject(input, logicalID, menu, "foundation", "访问控制成员地址", map[string]string{
-				"list": ruleList, "address": address, "disabled": "no",
-			}))
 		}
 		for _, family := range []struct {
 			name      string
@@ -167,8 +191,8 @@ func BuildDesired(input DesiredInput) DesiredResult {
 					ensureInternetEgressList(input, family.name, egresses, &result)
 				}
 				result.Objects = append(result.Objects, internetFilterObjects(input, rule, family.menu, ruleList, egresses, family.name)...)
-			} else {
-				result.Objects = append(result.Objects, sourcesFilterObjects(input, rule, family.menu, ruleList, input.SourceList, input.SourceDisabled, addedAddresses, family.name)...)
+			} else if rule.TargetScope == TargetScopeTargets {
+				result.Objects = append(result.Objects, targetFilterObjects(input, rule, family.menu, ruleList, family.name)...)
 			}
 		}
 	}
@@ -224,30 +248,33 @@ func ruleAddresses(evaluations []MemberEvaluation) (ipv4, ipv6 []string) {
 	return ipv4, ipv6
 }
 
-func sourcesFilterObjects(input DesiredInput, rule AccessRule, menu routeros.MutationMenu, ruleList string, sourceList map[string]string, sourceDisabled map[string]bool, added map[string]bool, family string) []DesiredObject {
+func targetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.MutationMenu, ruleList, family string) []DesiredObject {
 	disabled := "no"
 	if !rule.Enabled {
 		disabled = "yes"
 	}
 	chain := RuleChainName(input.ManagerID, input.DeviceID, rule.ID)
 	prefix := "access:" + rule.ID + ":" + family + ":"
-	objects := make([]DesiredObject, 0, 2*len(rule.SourceIDs)+3)
-	for _, sourceID := range rule.SourceIDs {
-		list := strings.TrimSpace(sourceList[sourceID])
+	objects := make([]DesiredObject, 0, 2*len(rule.TargetListIDs)+3)
+	for _, targetID := range sortedUniqueStrings(rule.TargetListIDs) {
+		key := AccessTargetKey(rule.ID, targetID)
+		list := strings.TrimSpace(input.TargetList[key])
 		if list == "" {
-			// 由调用方统一上报 access_source_unavailable，这里跳过避免半套规则。
+			list = strings.TrimSpace(input.TargetList[targetID])
+		}
+		if list == "" {
 			continue
 		}
-		sourceJumpDisabled := disabled
-		if sourceDisabled[sourceID] {
-			sourceJumpDisabled = "yes"
+		targetDisabled := disabled
+		if input.TargetListDisabled[key] || input.TargetListDisabled[targetID] {
+			targetDisabled = "yes"
 		}
 		objects = append(objects,
-			desiredObject(input, prefix+"jump-out:"+sourceID, menu, "activation", "访问控制出站入口", map[string]string{
-				"chain": "forward", "src-address-list": ruleList, "dst-address-list": list, "action": "jump", "jump-target": chain, "disabled": sourceJumpDisabled,
+			desiredObject(input, prefix+"jump-out:target:"+targetID, menu, "activation", "访问控制目标出站入口", map[string]string{
+				"chain": "forward", "src-address-list": ruleList, "dst-address-list": list, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
 			}),
-			desiredObject(input, prefix+"jump-in:"+sourceID, menu, "activation", "访问控制回程入口", map[string]string{
-				"chain": "forward", "src-address-list": list, "dst-address-list": ruleList, "action": "jump", "jump-target": chain, "disabled": sourceJumpDisabled,
+			desiredObject(input, prefix+"jump-in:target:"+targetID, menu, "activation", "访问控制目标回程入口", map[string]string{
+				"chain": "forward", "src-address-list": list, "dst-address-list": ruleList, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
 			}),
 		)
 	}
@@ -344,7 +371,37 @@ func sortedUniqueStrings(values []string) []string {
 	return result
 }
 
-// chainDenyObjects builds the dedicated sub-chain body for source-list rules.
+func subjectPrefixAddresses(prefixes []string) (ipv4, ipv6 []string) {
+	for _, value := range prefixes {
+		parsed, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			continue
+		}
+		if parsed.Addr().Is4() {
+			ipv4 = append(ipv4, parsed.Masked().String())
+		} else {
+			ipv6 = append(ipv6, parsed.Masked().String())
+		}
+	}
+	return sortedUniqueStrings(ipv4), sortedUniqueStrings(ipv6)
+}
+
+func appendUnique(values []string, additions ...string) []string {
+	seen := make(map[string]bool, len(values)+len(additions))
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, value := range additions {
+		if !seen[value] {
+			seen[value] = true
+			values = append(values, value)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+// chainDenyObjects builds the dedicated sub-chain body for target-list rules.
 // TCP is reset with the official reject-with=tcp-reset, UDP and every other
 // protocol are dropped.
 func chainDenyObjects(input DesiredInput, menu routeros.MutationMenu, chain, prefix, disabled string) []DesiredObject {
@@ -373,6 +430,10 @@ const (
 
 func RuleMemberListName(managerID, deviceID, ruleID string) string {
 	return "rbac_rule_" + shortHash("rule:"+managerID+":"+deviceID+":"+ruleID, 10)
+}
+
+func AccessTargetKey(ruleID, targetID string) string {
+	return strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(targetID)
 }
 
 func LocalPrefixListName(managerID, deviceID string) string {

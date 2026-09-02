@@ -107,6 +107,7 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	}
 	ipv4DHCP := readOptional(routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv4 DHCP Client")
 	ipv6DHCP := readOptional(routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv6 DHCP Client")
+	pppoeClients := readOptional(routeros.ReadMenuPPPoEClient, []string{"interface", "disabled", "invalid", "running"}, "PPPoE Client")
 	lists := readOptional(routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"}, "interface list")
 	members := readOptional(routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"}, "interface list member")
 	bridgePorts, bridgePortsAvailable := readOptionalWithStatus(s.reader, ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"}, "bridge port", &warnings)
@@ -117,9 +118,10 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
 	routes = append(routes, dhcpClientRoutes(ipv6DHCP, "ipv6")...)
 	lanInterfaces := explicitLANInterfaceMembers(lists, members, interfaces)
+	pppoeParents := pppoeParentInterfaces(pppoeClients)
 	wans := buildWANCandidates(interfaces, routes, lanInterfaces)
-	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans)
-	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, lists, members, bridgePorts)
+	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans, pppoeParents)
+	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, pppoeClients, lists, members, bridgePorts)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -212,6 +214,19 @@ func dhcpClientRoutes(objects []routeros.RouterOSObject, family string) []WANRou
 	return result
 }
 
+func pppoeParentInterfaces(clients []routeros.RouterOSObject) map[string]bool {
+	result := make(map[string]bool)
+	for _, client := range clients {
+		if routerBool(client["disabled"], false) || routerBool(client["invalid"], false) {
+			continue
+		}
+		if name := strings.TrimSpace(client["interface"]); name != "" {
+			result[name] = true
+		}
+	}
+	return result
+}
+
 func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute, excluded map[string]bool) []WANCandidate {
 	byName := make(map[string]routeros.RouterOSObject, len(interfaces))
 	for _, object := range interfaces {
@@ -297,18 +312,27 @@ func explicitLANInterfaceMembers(lists, members, interfaces []routeros.RouterOSO
 	}
 	resolved := resolveInterfaceLists(lists, membersByList, interfaceByName)
 	result := make(map[string]bool)
-	for listName, listMembers := range resolved {
-		if !strings.EqualFold(strings.TrimSpace(listName), "LAN") {
+	for _, list := range lists {
+		if !isTrafficIngressInterfaceList(list) {
 			continue
 		}
-		for _, name := range listMembers {
+		for _, name := range resolved[list["name"]] {
 			result[name] = true
 		}
 	}
 	return result
 }
 
-func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate) []TrafficIngressCandidate {
+func isTrafficIngressInterfaceList(list routeros.RouterOSObject) bool {
+	name := strings.TrimSpace(list["name"])
+	if strings.EqualFold(name, "LAN") {
+		return true
+	}
+	comment := strings.TrimSpace(list["comment"])
+	return isManagedComment(comment) && (strings.Contains(comment, "策略流量入口") || strings.HasSuffix(strings.ToLower(name), "_ingress"))
+}
+
+func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool) []TrafficIngressCandidate {
 	membersByList := make(map[string][]string)
 	dynamicByList := make(map[string]bool)
 	for _, member := range members {
@@ -349,7 +373,7 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	}
 	wanNames := make(map[string]bool)
 	for _, wan := range wans {
-		if wan.Proven {
+		if wan.Proven || len(wan.Routes) > 0 {
 			wanNames[wan.Interface] = true
 		}
 	}
@@ -361,7 +385,7 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	}
 	for _, object := range interfaces {
 		name := strings.TrimSpace(object["name"])
-		if name == "" || wanNames[name] || routerBool(object["disabled"], false) || routerBool(object["dynamic"], false) {
+		if name == "" || wanNames[name] || nonIngress[name] || routerBool(object["disabled"], false) || routerBool(object["dynamic"], false) {
 			continue
 		}
 		kind := trafficIngressInterfaceKind(object["type"])

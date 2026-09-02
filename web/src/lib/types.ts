@@ -183,7 +183,7 @@ export type Terminal = {
 }
 
 export type CapabilityNote = { area: string; item: string; status: string; details: string }
-export type ProtocolStat = { name: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean; source?: string }
+export type ProtocolStat = { name: string; applicationId?: string; service?: string; kind: string; connections: number; uploadBps: number; downloadBps: number; uploadBytes: number; downloadBytes: number; estimated: boolean; source?: string }
 export type ProtocolHistorySample = { timestamp: string; name: string; kind: string; connections: number; uploadBps: number; downloadBps: number }
 export type ProtocolResponse = { protocols: ProtocolStat[]; history: ProtocolHistorySample[]; enabled?: boolean }
 export type PolicyStat = { kind: string; name: string; target: string; mark: string; rate: string; bytes: number; packets: number; disabled: boolean }
@@ -197,6 +197,7 @@ export type MosDNSStatus = {
   enabled: boolean
   baseUrl: string
   syncIntervalMinutes: number
+  matchWindowMinutes: number
   lastAttempt?: string
   lastSuccess?: string
   lastImported: number
@@ -207,23 +208,12 @@ export type MosDNSStatus = {
   learnedFeatureLastSeen?: string
   lastError?: string
 }
-export type FeatureLibraryStatus = {
-  enabled: boolean
-  sourceUrl: string
-  refreshIntervalHours: number
-  matchWindowMinutes: number
-  ruleCount: number
-  lastAttempt?: string
-  lastSuccess?: string
-  lastError?: string
-}
-export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string; mosdns?: MosDNSStatus; featureLibrary?: FeatureLibraryStatus }
+export type DeviceStatus = { id: string; name: string; enabled: boolean; archived: boolean; healthy: boolean; error?: string; routerName: string; version: string; updatedAt: string; mosdns?: MosDNSStatus }
 export type SettingsDevice = {
   id: string; name: string; enabled: boolean; archived: boolean; scheme: 'http' | 'https'; host: string; port: number
   username: string; passwordSet: boolean; cleanupAvailable: boolean; trafficInterfaces: string[]; trafficScope?: TrafficScopeConfig; terminalCidrs: string[]; terminalScope?: TerminalScopeConfig
   protocolAnalysis: boolean
-  featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
-  mosdns?: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
+  mosdns?: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number; matchWindowMinutes: number }
 }
 export type DeviceAccountStatus = {
   username: string
@@ -342,7 +332,9 @@ export type AlertEvent = { id: string; level: 'warning' | 'error'; source: strin
 export type TerminalConnection = {
   key: string
   family: string
+  applicationId?: string
   application: string
+  service?: string
   matchedDomain?: string
   applicationSource?: string
   protocol: string
@@ -400,7 +392,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'policy-routing' | 'access-control' | 'recognition'
+export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'target-library' | 'policy-routing' | 'access-control' | 'recognition'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

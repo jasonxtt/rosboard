@@ -28,6 +28,7 @@ type EgressFamily struct {
 
 type Egress struct {
 	ID              string         `json:"id"`
+	Origin          EgressOrigin   `json:"origin,omitempty"`
 	Name            string         `json:"name"`
 	Priority        int            `json:"priority"`
 	ListMode        string         `json:"listMode"`
@@ -50,6 +51,7 @@ type Source struct {
 	EgressID          string          `json:"egressId"`
 	Type              string          `json:"type"`
 	Kind              string          `json:"kind"`
+	PresetID          string          `json:"presetId,omitempty"`
 	Name              string          `json:"name"`
 	URL               string          `json:"url,omitempty"`
 	Schedule          string          `json:"schedule"`

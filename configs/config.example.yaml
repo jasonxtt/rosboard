@@ -4,22 +4,18 @@ poll_interval_seconds: 10
 realtime_poll_interval_seconds: 1
 terminal_poll_interval_seconds: 5
 sample_retention_hours: 48
-# 识别设置（协议分析 / MosDNS / 特征库）全部按设备配置：
+# 识别设置（协议分析 / MosDNS）全部按设备配置：
 # devices:
 #   - id: ros-a
 #     name: ROS A
 #     enabled: true
 #     routeros: { ... }
 #     protocol_analysis: true
-#     feature_library:
-#       enabled: true
-#       source_url: "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
-#       refresh_interval_hours: 168
-#       match_window_minutes: 30
 #     mosdns:
 #       enabled: true
 #       base_url: "http://10.0.0.3"
 #       sync_interval_minutes: 30
+#       match_window_minutes: 30
 allowed_cidrs:
   - "127.0.0.0/8"
   - "::1/128"

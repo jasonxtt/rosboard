@@ -12,17 +12,16 @@ import (
 )
 
 type Config struct {
-	Path                        string                   `yaml:"-"`
-	ListenAddress               string                   `yaml:"listen_address"`
-	DataDir                     string                   `yaml:"data_dir"`
-	PollIntervalSeconds         int                      `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int                      `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int                      `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int                      `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string                 `yaml:"allowed_cidrs"`
-	RouterOS                    RouterOSConfig           `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig           `yaml:"devices,omitempty"`
-	ApplicationCatalog          ApplicationCatalogConfig `yaml:"application_catalog,omitempty"`
+	Path                        string         `yaml:"-"`
+	ListenAddress               string         `yaml:"listen_address"`
+	DataDir                     string         `yaml:"data_dir"`
+	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
+	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
 
 	// ProtocolAnalysis is runtime-only (see ProtocolAnalysisConfig).
 	ProtocolAnalysis ProtocolAnalysisConfig `yaml:"-"`
@@ -32,11 +31,7 @@ type MosDNSConfig struct {
 	Enabled             bool   `yaml:"enabled" json:"enabled"`
 	BaseURL             string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	SyncIntervalMinutes int    `yaml:"sync_interval_minutes,omitempty" json:"sync_interval_minutes,omitempty"`
-}
-
-type ApplicationCatalogConfig struct {
-	Source               string `yaml:"source,omitempty"`
-	RefreshIntervalHours int    `yaml:"refresh_interval_hours,omitempty"`
+	MatchWindowMinutes  int    `yaml:"match_window_minutes,omitempty" json:"match_window_minutes,omitempty"`
 }
 
 // ProtocolAnalysisConfig is a runtime-only carrier: recognition settings live
@@ -47,6 +42,8 @@ type ProtocolAnalysisConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
+// FeatureLibraryConfig is retained only so legacy per-device YAML can be
+// decoded and preserved while its match window migrates to MosDNS.
 type FeatureLibraryConfig struct {
 	Enabled              bool   `yaml:"enabled" json:"enabled"`
 	SourceURL            string `yaml:"source_url,omitempty" json:"source_url,omitempty"`
@@ -55,8 +52,6 @@ type FeatureLibraryConfig struct {
 }
 
 const DefaultDeviceID = "default"
-
-const defaultFeatureLibrarySourceURL = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
 
 type DeviceConfig struct {
 	ID               string                  `yaml:"id"`
@@ -230,9 +225,6 @@ func (c Config) validate() error {
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
 	}
-	if c.ApplicationCatalog.RefreshIntervalHours < 0 {
-		return errors.New("application_catalog.refresh_interval_hours must not be negative")
-	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {
 		if strings.TrimSpace(device.ID) == "" {
@@ -257,13 +249,8 @@ func (c Config) validate() error {
 		if device.MosDNS.Configured() && device.MosDNS.SyncIntervalMinutes <= 0 {
 			return fmt.Errorf("devices[%d].mosdns.sync_interval_minutes must be positive", index)
 		}
-		if device.FeatureLibrary.Configured() {
-			if device.FeatureLibrary.RefreshIntervalHours <= 0 {
-				return fmt.Errorf("devices[%d].feature_library.refresh_interval_hours must be positive", index)
-			}
-			if device.FeatureLibrary.MatchWindowMinutes <= 0 {
-				return fmt.Errorf("devices[%d].feature_library.match_window_minutes must be positive", index)
-			}
+		if device.MosDNS.Configured() && device.MosDNS.MatchWindowMinutes <= 0 {
+			return fmt.Errorf("devices[%d].mosdns.match_window_minutes must be positive", index)
 		}
 	}
 	if len(c.Devices) == 0 {
@@ -289,24 +276,6 @@ func NormalizeMosDNSBaseURL(value string) string {
 
 func (c MosDNSConfig) Configured() bool {
 	return c.Enabled && strings.TrimSpace(c.BaseURL) != ""
-}
-
-// normalizeFeatureLibraryConfig fills the per-device feature library defaults
-// so an operator-entered URL alone is enough to enable matching.
-func normalizeFeatureLibraryConfig(config *FeatureLibraryConfig) {
-	if strings.TrimSpace(config.SourceURL) == "" {
-		config.SourceURL = defaultFeatureLibrarySourceURL
-	}
-	if config.RefreshIntervalHours == 0 {
-		config.RefreshIntervalHours = 168
-	}
-	if config.MatchWindowMinutes == 0 {
-		config.MatchWindowMinutes = 30
-	}
-}
-
-func (c FeatureLibraryConfig) Configured() bool {
-	return c.Enabled && strings.TrimSpace(c.SourceURL) != ""
 }
 
 func (scope TrafficScopeConfig) validate() error {
@@ -382,16 +351,13 @@ func (c Config) Device(id string) (DeviceConfig, bool) {
 func (c *Config) normalizeDevices() {
 	if len(c.Devices) == 0 {
 		if c.RouterOS.Configured() {
-			featureLibrary := FeatureLibraryConfig{}
-			normalizeFeatureLibraryConfig(&featureLibrary)
 			c.Devices = []DeviceConfig{{
-				ID:             DefaultDeviceID,
-				Name:           "RouterOS",
-				Enabled:        true,
-				SortOrder:      1,
-				RouterOS:       c.RouterOS,
-				FeatureLibrary: featureLibrary,
-				MosDNS:         MosDNSConfig{SyncIntervalMinutes: 30},
+				ID:        DefaultDeviceID,
+				Name:      "RouterOS",
+				Enabled:   true,
+				SortOrder: 1,
+				RouterOS:  c.RouterOS,
+				MosDNS:    MosDNSConfig{SyncIntervalMinutes: 30, MatchWindowMinutes: 30},
 			}}
 		}
 		return
@@ -403,7 +369,12 @@ func (c *Config) normalizeDevices() {
 		if c.Devices[index].MosDNS.SyncIntervalMinutes == 0 {
 			c.Devices[index].MosDNS.SyncIntervalMinutes = 30
 		}
-		normalizeFeatureLibraryConfig(&c.Devices[index].FeatureLibrary)
+		if c.Devices[index].MosDNS.MatchWindowMinutes == 0 {
+			c.Devices[index].MosDNS.MatchWindowMinutes = c.Devices[index].FeatureLibrary.MatchWindowMinutes
+			if c.Devices[index].MosDNS.MatchWindowMinutes <= 0 {
+				c.Devices[index].MosDNS.MatchWindowMinutes = 30
+			}
+		}
 		if c.Devices[index].SortOrder < 0 {
 			c.Devices[index].SortOrder = 0
 		}

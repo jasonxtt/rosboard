@@ -22,6 +22,7 @@ type MosDNSStatus struct {
 	Enabled                bool      `json:"enabled"`
 	BaseURL                string    `json:"baseUrl"`
 	SyncIntervalMinutes    int       `json:"syncIntervalMinutes"`
+	MatchWindowMinutes     int       `json:"matchWindowMinutes"`
 	LastAttempt            time.Time `json:"lastAttempt,omitempty"`
 	LastSuccess            time.Time `json:"lastSuccess,omitempty"`
 	LastImported           int       `json:"lastImported"`
@@ -68,6 +69,7 @@ func NewMosDNSSynchronizer(cfg config.MosDNSConfig, storage *store.Store, logger
 			Enabled:             true,
 			BaseURL:             cfg.BaseURL,
 			SyncIntervalMinutes: cfg.SyncIntervalMinutes,
+			MatchWindowMinutes:  cfg.MatchWindowMinutes,
 		},
 	}, nil
 }

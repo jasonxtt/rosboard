@@ -1,0 +1,15 @@
+{"file":".trellis/spec/backend/policy-routing.md","reason":"Existing policy-v2 desired/reconcile, ownership, source versioning and RouterOS apply contracts that the refactor must preserve."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"SQLite migration, transaction, rollback and persistence rules for in-place TargetList evolution and RoutingRule schema migration."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Explicit blocker/degraded/error contracts for migration, subject resolution, target availability and DNS projection limitations."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend testing, surgical-change and validation requirements."}
+{"file":".trellis/spec/backend/monitoring-contracts.md","reason":"Traffic attribution and MosDNS/monitor compatibility when replacing OAF catalog lookup with preset-domain metadata."}
+{"file":".trellis/spec/backend/runtime-configuration.md","reason":"Configuration ownership and safe retirement of OAF application-catalog runtime settings."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Target Library, shared TargetSelector/SubjectSelector and rule-wizard component conventions."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Canonical TargetList/RoutingRule/AccessRule API type migration and removal of legacy application/source ownership fields."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Local wizard/selector state boundaries without creating a generic rule state framework."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend validation and regression expectations for the final UI cutover."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Enforce reuse of existing fetch/parser/version/member/reconcile code and prevent parallel subsystems."}
+{"file":".trellis/tasks/09-01-unified-target-policy-model/research/current-architecture.md","reason":"Audited current Source/Egress/store/parser/AccessRule/OAF/UI coupling and reuse points."}
+{"file":".trellis/tasks/09-01-unified-target-policy-model/research/ui-flow-and-api.md","reason":"User-first Target Library, RoutingRule, AccessRule and shared selector flows that define canonical backend needs."}
+{"file":".trellis/tasks/09-01-unified-target-policy-model/research/migration-and-presets.md","reason":"Existing-data migration, consumer-specific projection, BM7 ApplicationPreset and traffic-attribution decisions."}
+{"file":".trellis/tasks/09-01-unified-target-policy-model/research/routeros-domain-projection.md","reason":"Official RouterOS DNS Static ordering/matcher constraint behind the domain multi-Egress projection capability blocker."}

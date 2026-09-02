@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { PolicyApiError } from './types'
-import { policyErrorDescription } from './planIssues'
 
 // ---- Icon ----
 
@@ -47,7 +45,7 @@ export function PolicyEmptyState({ title, description, action }: { title: string
 
 export function PolicyErrorDisplay({ error }: { error: unknown }) {
   if (!error) return null
-  const message = error instanceof PolicyApiError ? policyErrorDescription(error) : error instanceof Error ? error.message : String(error)
+  const message = error instanceof Error ? error.message : String(error)
   return (
     <div className="policy-notice policy-notice-error" role="alert">
       <PolicyIcon name="alert" />

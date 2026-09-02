@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "FROZEN / SUPERSEDED. Implementation and 10.0.0.60 runtime acceptance previously passed. Never deployed to production. Superseded by 09-01-unified-target-policy-model. Do not continue implementation and do not archive yet.",
   "meta": {}
 }

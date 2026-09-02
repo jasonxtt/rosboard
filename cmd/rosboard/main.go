@@ -18,7 +18,6 @@ import (
 	"golang.org/x/term"
 
 	"rosboard/internal/api"
-	"rosboard/internal/applicationcatalog"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
 	"rosboard/internal/policyv2"
@@ -79,13 +78,7 @@ func main() {
 		log.Fatalf("assemble policy runtimes: %v", err)
 	}
 	go policyManager.Start(ctx)
-	catalog := applicationcatalog.New(
-		cfg.ApplicationCatalog.Source,
-		time.Duration(cfg.ApplicationCatalog.RefreshIntervalHours)*time.Hour,
-	)
-	go catalog.Start(ctx)
 	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, func() { os.Exit(0) }, policyManager)
-	apiServer.SetApplicationCatalog(catalog)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,

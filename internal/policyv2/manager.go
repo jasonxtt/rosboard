@@ -19,6 +19,11 @@ import (
 	"rosboard/internal/routeros"
 )
 
+// applicationListPrefix is retained only so reconciliation can recognize and
+// retire the pre-Slice-3 OAF access projection. Canonical desired state never
+// creates this identity.
+const applicationListPrefix = "rb_app_"
+
 type PolicyReader interface {
 	PolicyList(ctx context.Context, menu routeros.ReadMenu, proplist []string) ([]routeros.RouterOSObject, error)
 }
@@ -60,20 +65,27 @@ type Applier struct {
 
 type PlanOptions struct {
 	InternetEgresses map[string][]string
+	Proposal         *PolicyProposal
+	AccessProposal   *AccessProposal
+	Domain           PolicyDomain
+	// TargetListIDs limits pending-version promotion and content selection to
+	// the target mutation that triggered a normal target-list reconcile.
+	TargetListIDs []string
 }
 
 type SourceRefresher func(context.Context, Source) (SourceRefresh, error)
 
 type Manager struct {
-	logger   *log.Logger
-	mu       sync.RWMutex
-	appliers map[string]*Applier
-	plans    map[string]cachedPlan
-	gate     *routeros.DeviceWriteGate
+	logger        *log.Logger
+	mu            sync.RWMutex
+	appliers      map[string]*Applier
+	plans         map[string]cachedPlan
+	followUpPlans map[string][]string
+	gate          *routeros.DeviceWriteGate
 }
 
 func NewManager(logger *log.Logger) *Manager {
-	return &Manager{logger: logger, appliers: make(map[string]*Applier), plans: make(map[string]cachedPlan), gate: routeros.NewDeviceWriteGate()}
+	return &Manager{logger: logger, appliers: make(map[string]*Applier), plans: make(map[string]cachedPlan), followUpPlans: make(map[string][]string), gate: routeros.NewDeviceWriteGate()}
 }
 
 func (m *Manager) Enabled() bool { return m != nil }
@@ -114,11 +126,12 @@ func (m *Manager) ApplierFor(deviceID string) *Applier {
 }
 
 var (
-	ErrPlanNotFound = errors.New("policy plan not found")
-	ErrPlanExpired  = errors.New("policy plan expired")
-	ErrPlanStale    = errors.New("policy plan is stale")
-	ErrPlanBlocked  = errors.New("policy plan is blocked")
-	ErrDeviceBusy   = errors.New("policy device already has an active apply")
+	ErrPlanNotFound            = errors.New("policy plan not found")
+	ErrPlanExpired             = errors.New("policy plan expired")
+	ErrPlanStale               = errors.New("policy plan is stale")
+	ErrPlanBlocked             = errors.New("policy plan is blocked")
+	ErrDeviceBusy              = errors.New("policy device already has an active apply")
+	ErrTargetListSplitRequired = errors.New("target list is consumed by both policy domains and requires separate applies")
 )
 
 func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (PlanEnvelope, error) {
@@ -130,40 +143,99 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	if applier == nil {
 		return PlanEnvelope{}, errors.New("policy runtime is unavailable")
 	}
-	accessOnlyPlan := isAccessOnlyPlanKind(kind)
-	desired, err := BuildDesiredWithAccessOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, options.InternetEgresses)
+	domain := options.Domain
+	var err error
+	if domain == "" {
+		domain, err = resolvePolicyDomain(ctx, applier, kind)
+	}
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
-	if accessOnlyPlan {
-		policyState, stateErr := applier.Repo.GetDeviceState(ctx)
-		if stateErr != nil {
-			return PlanEnvelope{}, stateErr
+	accessOnlyPlan := domain == PolicyDomainAccess
+	planningRepository := applier.Repo
+	baseDesiredRevision := int64(-1)
+	proposalHash := ""
+	proposal := options.Proposal
+	accessProposal := options.AccessProposal
+	if proposal != nil && accessProposal != nil {
+		return PlanEnvelope{}, errors.New("routing and access proposals cannot be combined")
+	}
+	if proposal != nil {
+		// A proposal is the routing-policy bundle. Keep it out of the legacy
+		// combined compatibility path even when an older caller uses a generic
+		// plan kind.
+		domain = PolicyDomainRouting
+		proposal = clonePolicyProposal(proposal)
+		if proposal == nil {
+			return PlanEnvelope{}, errors.New("policy proposal could not be cloned")
 		}
-		if policyState.DesiredRevision != policyState.AppliedRevision {
-			desired.Blockers = append(desired.Blockers, PlanIssue{
-				Code:   "policy_changes_pending",
-				Status: "blocker",
-				Reason: "策略路由仍有待应用变更，访问控制同步不会替代策略路由应用。",
-			})
+		if accessOnlyPlan || proposal.Empty() {
+			return PlanEnvelope{}, errors.New("a policy proposal is not valid for this plan")
+		}
+		state, err := applier.Repo.GetDeviceState(ctx)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		baseDesiredRevision = state.DesiredRevision
+		if err := CaptureProposalDependencies(ctx, applier.Repo, proposal); err != nil {
+			return PlanEnvelope{}, err
+		}
+		planningRepository, err = newProposalRepository(ctx, applier.Repo, *proposal)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		proposalHash, err = ProposalHash(*proposal)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+	} else if accessProposal != nil {
+		domain = PolicyDomainAccess
+		accessProposal = cloneAccessProposal(accessProposal)
+		if accessProposal == nil || accessProposal.Empty() {
+			return PlanEnvelope{}, errors.New("an access proposal is not valid for this plan")
+		}
+		if applier.Access == nil {
+			return PlanEnvelope{}, errors.New("access repository is unavailable")
+		}
+		if migrator, ok := applier.Access.(CanonicalAccessMigrator); ok {
+			if err := migrator.EnsureCanonicalAccessMigrated(ctx); err != nil {
+				return PlanEnvelope{}, err
+			}
+		}
+		state, err := applier.Access.GetState(ctx)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		baseDesiredRevision = state.DesiredRevision
+		if err := CaptureAccessProposalDependencies(ctx, applier.Repo, accessProposal); err != nil {
+			return PlanEnvelope{}, err
+		}
+		planningRepository, err = newProposalRepository(ctx, applier.Repo, PolicyProposal{TargetLists: accessProposal.TargetLists})
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		proposalHash, err = AccessProposalHash(*accessProposal)
+		if err != nil {
+			return PlanEnvelope{}, err
 		}
 	}
-	aliasBlockers, err := ValidateFakeAliases(ctx, applier.Reader, applier.Repo)
+	planningAccessRepository := applier.Access
+	if accessProposal != nil {
+		planningAccessRepository, err = newAccessProposalRepository(ctx, applier.Access, *accessProposal)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+	}
+	targetScope := targetScopeMap(options.TargetListIDs)
+	desired, err := buildPlanDesiredWithAccessRepository(ctx, applier, planningRepository, planningAccessRepository, domain, options.InternetEgresses, targetScope)
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
-	desired.Blockers = append(desired.Blockers, aliasBlockers...)
-	tableBlockers, tableWarnings, err := ValidateRouteTables(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		return PlanEnvelope{}, err
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		if err := appendRoutingValidation(ctx, applier.Reader, planningRepository, &desired); err != nil {
+			return PlanEnvelope{}, err
+		}
 	}
-	desired.Blockers = append(desired.Blockers, tableBlockers...)
-	desired.Warnings = append(desired.Warnings, tableWarnings...)
-	ingressBlockers, err := ValidateTrafficIngress(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		return PlanEnvelope{}, err
-	}
-	desired.Blockers = append(desired.Blockers, ingressBlockers...)
 	preflightRelease, acquired := m.gate.TryAcquire(deviceID)
 	if !acquired {
 		return PlanEnvelope{}, ErrDeviceBusy
@@ -174,37 +246,39 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		return PlanEnvelope{}, err
 	}
 	desired.Blockers = append(desired.Blockers, capabilityBlockers...)
-	actual, fingerprint, err := ScanManaged(ctx, applier.Mutation, applier.Repo, desired.Objects)
+	actual, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
 	operations, diffBlockers := DiffDesired(desired.Objects, actual)
-	accessOrderOperations, err := planAccessJumpsFirst(ctx, applier.Mutation, desired.Objects, actual)
-	if err != nil {
-		return PlanEnvelope{}, err
-	}
-	operations = append(operations, accessOrderOperations...)
-	sortPlanOperations(operations)
-	if accessOnlyPlan {
-		for _, operation := range operations {
-			if isAccessPlanOperation(operation, desired.AccessSourceIDs) {
-				continue
-			}
-			diffBlockers = append(diffBlockers, PlanIssue{
-				Code:      "policy_drift_requires_policy_apply",
-				Status:    "blocker",
-				LogicalID: operation.LogicalID,
-				Reason:    "访问控制同步发现 RouterOS 上有未纳入当前策略配置的策略对象。请先登录 RouterOS 手动确认并清理旧版 rosboard 对象，完成后再重新应用访问控制；若对象属于当前策略配置，再从策略路由页面生成并应用完整计划。",
-			})
-			break
+	if domain == PolicyDomainAccess {
+		accessOrderOperations, orderErr := planAccessJumpsFirst(ctx, applier.Mutation, desired.Objects, actual)
+		if orderErr != nil {
+			return PlanEnvelope{}, orderErr
 		}
+		operations = append(operations, accessOrderOperations...)
 	}
+	sortPlanOperations(operations)
 	blockers := append(append([]PlanIssue{}, desired.Blockers...), diffBlockers...)
 	now := time.Now().UTC()
+	planDesiredRevision := desired.Revision
+	if domain == PolicyDomainAccess {
+		planDesiredRevision = desired.AccessRevision
+	}
+	if proposal != nil {
+		// CommitPolicyProposal bumps the canonical revision once for the whole
+		// bundle. The plan exposes the post-approval revision while the cache
+		// retains the pre-approval revision for the stale check.
+		planDesiredRevision = baseDesiredRevision + 1
+	}
+	if accessProposal != nil {
+		planDesiredRevision = baseDesiredRevision + 1
+	}
 	plan := Plan{
-		PlanID: uuid.NewString(), DeviceID: deviceID, Kind: firstNonEmptyString(kind, "structural"), Lifecycle: "interactive",
-		CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute), DesiredRevision: desired.Revision, AccessRevision: desired.AccessRevision, AccessResolutionCount: len(desired.AccessResolutions), DesiredHash: desired.Hash,
+		PlanID: uuid.NewString(), DeviceID: deviceID, Kind: firstNonEmptyString(kind, "structural"), Domain: domain, Lifecycle: "interactive",
+		CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute), BaseDesiredRevision: baseDesiredRevision, DesiredRevision: planDesiredRevision, AccessRevision: desired.AccessRevision, AccessResolutionCount: len(desired.AccessResolutions), DesiredHash: desired.Hash, ProposalHash: proposalHash,
 		InternetEgressCandidates: desired.InternetEgressCandidates,
+		TargetPromotions:         append([]TargetVersionPromotion(nil), desired.TargetPromotions...),
 		ActualFingerprint:        fingerprint, Blockers: blockers, FamilyBlockers: []PlanIssue{}, Warnings: desired.Warnings,
 		Acknowledgements: []PlanAcknowledgement{}, OwnershipStrict: true, Operations: operations,
 	}
@@ -218,16 +292,18 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		DeviceID          string
 		DesiredRevision   int64
 		DesiredHash       string
+		ProposalHash      string
 		ActualFingerprint string
 		AccessRevision    int64
+		Domain            PolicyDomain
 		Operations        []PlanOperation
-	}{deviceID, desired.Revision, desired.Hash, fingerprint, desired.AccessRevision, operations})
+	}{deviceID, planDesiredRevision, desired.Hash, proposalHash, fingerprint, desired.AccessRevision, domain, operations})
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
 	plan.PlanHash = shortHash(string(hashPayload), 64)
 	m.mu.Lock()
-	m.plans[plan.PlanID] = cachedPlan{Plan: plan, Desired: desired.Objects, Actual: actual, AccessResolutions: desired.AccessResolutions, InternetEgresses: cloneInternetEgresses(options.InternetEgresses)}
+	m.plans[plan.PlanID] = cachedPlan{Plan: plan, Desired: desired.Objects, Actual: actual, AccessResolutions: desired.AccessResolutions, InternetEgresses: cloneInternetEgresses(options.InternetEgresses), Proposal: clonePolicyProposal(proposal), AccessProposal: cloneAccessProposal(accessProposal), BaseDesiredRevision: baseDesiredRevision, TargetPromotions: append([]TargetVersionPromotion(nil), desired.TargetPromotions...), TargetScope: cloneTargetScope(targetScope)}
 	for id, cached := range m.plans {
 		if now.After(cached.Plan.ExpiresAt) {
 			delete(m.plans, id)
@@ -237,7 +313,164 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	return PlanEnvelope{Plan: plan, PlanID: plan.PlanID, PlanHash: plan.PlanHash}, nil
 }
 
+func policyDomainForPlanKind(kind string) PolicyDomain {
+	if isAccessOnlyPlanKind(kind) {
+		return PolicyDomainAccess
+	}
+	switch {
+	case strings.HasPrefix(strings.ToLower(strings.TrimSpace(kind)), "routing-"),
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(kind)), "source-"),
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(kind)), "egress-"),
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(kind)), "target-list-"):
+		return PolicyDomainRouting
+	default:
+		// Untyped legacy jobs are routing jobs. Combined remains available to
+		// direct compatibility builders, but is never inferred by the manager.
+		return PolicyDomainRouting
+	}
+}
+
+func targetScopeMap(targetIDs []string) map[string]bool {
+	if len(targetIDs) == 0 {
+		return nil
+	}
+	result := make(map[string]bool, len(targetIDs))
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID != "" {
+			result[targetID] = true
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func cloneTargetScope(scope map[string]bool) map[string]bool {
+	if scope == nil {
+		return nil
+	}
+	result := make(map[string]bool, len(scope))
+	for targetID, selected := range scope {
+		result[targetID] = selected
+	}
+	return result
+}
+
+func resolvePolicyDomain(ctx context.Context, applier *Applier, kind string) (PolicyDomain, error) {
+	domain := policyDomainForPlanKind(kind)
+	if applier == nil || applier.Access == nil || domain != PolicyDomainRouting {
+		return domain, nil
+	}
+	kindLower := strings.ToLower(strings.TrimSpace(kind))
+	if !strings.HasPrefix(kindLower, "source-") && !strings.HasPrefix(kindLower, "target-list-") {
+		return domain, nil
+	}
+	targetID := planTargetID(kind)
+	if targetID == "" {
+		// Normal target mutations carry the affected target ID and use the
+		// explicit target-domain helpers. An unqualified legacy source kind is
+		// routing-compatible only; it must never inspect unrelated targets to
+		// choose a domain.
+		return domain, nil
+	}
+	consumerRepository, ok := applier.Repo.(TargetConsumerDomainRepository)
+	if !ok {
+		return domain, nil
+	}
+	consumers, err := consumerRepository.TargetConsumerDomains(ctx, targetID)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case consumers.Access && consumers.Routing:
+		return "", ErrTargetListSplitRequired
+	case consumers.Access:
+		return PolicyDomainAccess, nil
+	default:
+		return PolicyDomainRouting, nil
+	}
+}
+
+func planTargetID(kind string) string {
+	kind = strings.TrimSpace(kind)
+	lower := strings.ToLower(kind)
+	if !strings.HasPrefix(lower, "source-") && !strings.HasPrefix(lower, "target-list-") {
+		return ""
+	}
+	separator := strings.IndexByte(kind, ':')
+	if separator < 0 {
+		return ""
+	}
+	return strings.TrimSpace(kind[separator+1:])
+}
+
+func buildPlanDesired(ctx context.Context, applier *Applier, repository Repository, domain PolicyDomain, internetEgresses map[string][]string) (DesiredResult, error) {
+	return buildPlanDesiredWithAccessRepository(ctx, applier, repository, applier.Access, domain, internetEgresses, nil)
+}
+
+func buildPlanDesiredWithAccessRepository(ctx context.Context, applier *Applier, repository Repository, accessRepository accesscontrol.Repository, domain PolicyDomain, internetEgresses map[string][]string, targetScope map[string]bool) (DesiredResult, error) {
+	var desired DesiredResult
+	var err error
+	if domain == PolicyDomainAccess {
+		desired, err = buildDesiredForDomainWithTargetScope(ctx, repository, applier.Reader, accessRepository, applier.Terminals, applier.Scope, internetEgresses, PolicyDomainAccess, targetScope)
+	} else if domain == PolicyDomainCombined {
+		desired, err = buildDesiredForDomainWithTargetScope(ctx, repository, applier.Reader, accessRepository, applier.Terminals, applier.Scope, internetEgresses, PolicyDomainCombined, targetScope)
+	} else {
+		desired, err = buildDesiredForDomainWithTargetScope(ctx, repository, applier.Reader, accessRepository, applier.Terminals, applier.Scope, internetEgresses, PolicyDomainRouting, targetScope)
+	}
+	if err != nil {
+		return DesiredResult{}, err
+	}
+	if err := appendCrossDomainProjectionBlockers(ctx, repository, accessRepository, targetScope, &desired); err != nil {
+		return DesiredResult{}, err
+	}
+	return desired, nil
+}
+
+func appendRoutingValidation(ctx context.Context, reader PolicyReader, repository Repository, desired *DesiredResult) error {
+	aliasBlockers, err := ValidateFakeAliases(ctx, reader, repository)
+	if err != nil {
+		return err
+	}
+	desired.Blockers = append(desired.Blockers, aliasBlockers...)
+	tableBlockers, tableWarnings, err := ValidateRouteTables(ctx, reader, repository)
+	if err != nil {
+		return err
+	}
+	desired.Blockers = append(desired.Blockers, tableBlockers...)
+	desired.Warnings = append(desired.Warnings, tableWarnings...)
+	ingressBlockers, err := ValidateTrafficIngress(ctx, reader, repository)
+	if err != nil {
+		return err
+	}
+	desired.Blockers = append(desired.Blockers, ingressBlockers...)
+	return nil
+}
+
+func desiredMatchesPlan(desired DesiredResult, plan Plan, domain PolicyDomain) bool {
+	if desired.Hash != plan.DesiredHash {
+		return false
+	}
+	if domain == PolicyDomainAccess {
+		return desired.AccessRevision == plan.AccessRevision && desired.AccessRevision == plan.DesiredRevision
+	}
+	if domain == PolicyDomainCombined {
+		return desired.Revision == plan.DesiredRevision && desired.AccessRevision == plan.AccessRevision
+	}
+	return desired.Revision == plan.DesiredRevision
+}
+
 func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (ApplyJob, error) {
+	return m.applyPlanWithHash(ctx, deviceID, planID, "")
+}
+
+func (m *Manager) ApplyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
+	return m.applyPlanWithHash(ctx, deviceID, planID, planHash)
+}
+
+func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
 		return ApplyJob{}, errors.New("policy runtime is unavailable")
@@ -248,36 +481,46 @@ func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (Apply
 	if !ok || cached.Plan.DeviceID != deviceID {
 		return ApplyJob{}, ErrPlanNotFound
 	}
+	if (cached.Proposal != nil || cached.AccessProposal != nil) && strings.TrimSpace(planHash) == "" {
+		return ApplyJob{}, ErrPlanStale
+	}
+	if planHash != "" && planHash != cached.Plan.PlanHash {
+		return ApplyJob{}, ErrPlanStale
+	}
 	if time.Now().After(cached.Plan.ExpiresAt) {
 		return ApplyJob{}, ErrPlanExpired
 	}
 	if len(cached.Plan.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanBlocked
 	}
-	desired, err := BuildDesiredWithAccessOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	if cached.Proposal != nil {
+		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
+	}
+	if cached.AccessProposal != nil {
+		return m.applyAccessProposedPlan(ctx, deviceID, planID, applier, cached)
+	}
+	domain := cached.Plan.Domain
+	if domain == "" {
+		domain = policyDomainForPlanKind(cached.Plan.Kind)
+	}
+	desired, err := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, domain, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		return ApplyJob{}, err
 	}
-	if desired.Revision != cached.Plan.DesiredRevision || desired.AccessRevision != cached.Plan.AccessRevision || desired.Hash != cached.Plan.DesiredHash {
+	if !desiredMatchesPlan(desired, cached.Plan, domain) {
 		return ApplyJob{}, ErrPlanStale
 	}
 	if len(desired.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanStale
 	}
-	aliasBlockers, err := ValidateFakeAliases(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		return ApplyJob{}, err
-	}
-	tableBlockers, _, err := ValidateRouteTables(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		return ApplyJob{}, err
-	}
-	ingressBlockers, err := ValidateTrafficIngress(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		return ApplyJob{}, err
-	}
-	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 {
-		return ApplyJob{}, ErrPlanStale
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		validation := DesiredResult{}
+		if err := appendRoutingValidation(ctx, applier.Reader, applier.Repo, &validation); err != nil {
+			return ApplyJob{}, err
+		}
+		if len(validation.Blockers) > 0 {
+			return ApplyJob{}, ErrPlanStale
+		}
 	}
 	release, acquired := m.gate.TryAcquire(deviceID)
 	if !acquired {
@@ -287,34 +530,26 @@ func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (Apply
 	// writes do not use that gate, so take one final snapshot while this apply
 	// owns the device slot; otherwise a save that lands while ApplyPlan waits
 	// could still stage the old graph before CommitApply rejects it.
-	latestDesired, latestErr := BuildDesiredWithAccessOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	latestDesired, latestErr := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, domain, cached.InternetEgresses, cached.TargetScope)
 	if latestErr != nil {
 		release()
 		return ApplyJob{}, latestErr
 	}
-	if latestDesired.Revision != cached.Plan.DesiredRevision || latestDesired.AccessRevision != cached.Plan.AccessRevision || latestDesired.Hash != cached.Plan.DesiredHash || len(latestDesired.Blockers) > 0 {
+	if !desiredMatchesPlan(latestDesired, cached.Plan, domain) || len(latestDesired.Blockers) > 0 {
 		release()
 		return ApplyJob{}, ErrPlanStale
 	}
 	desired = latestDesired
-	aliasBlockers, err = ValidateFakeAliases(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		release()
-		return ApplyJob{}, err
-	}
-	tableBlockers, _, err = ValidateRouteTables(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		release()
-		return ApplyJob{}, err
-	}
-	ingressBlockers, err = ValidateTrafficIngress(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		release()
-		return ApplyJob{}, err
-	}
-	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 {
-		release()
-		return ApplyJob{}, ErrPlanStale
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		validation := DesiredResult{}
+		if err := appendRoutingValidation(ctx, applier.Reader, applier.Repo, &validation); err != nil {
+			release()
+			return ApplyJob{}, err
+		}
+		if len(validation.Blockers) > 0 {
+			release()
+			return ApplyJob{}, ErrPlanStale
+		}
 	}
 	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
 		release()
@@ -323,7 +558,7 @@ func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (Apply
 		release()
 		return ApplyJob{}, ErrPlanStale
 	}
-	_, fingerprint, err := ScanManaged(ctx, applier.Mutation, applier.Repo, desired.Objects)
+	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
@@ -346,12 +581,394 @@ func (m *Manager) ApplyPlan(ctx context.Context, deviceID, planID string) (Apply
 	return job, nil
 }
 
+func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string, applier *Applier, cached cachedPlan) (ApplyJob, error) {
+	proposal := cached.Proposal
+	if proposal == nil || cached.BaseDesiredRevision < 0 {
+		return ApplyJob{}, ErrPlanStale
+	}
+	proposalHash, err := ProposalHash(*proposal)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if proposalHash != cached.Plan.ProposalHash {
+		return ApplyJob{}, ErrPlanStale
+	}
+	baseState, err := applier.Repo.GetDeviceState(ctx)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if baseState.DesiredRevision != cached.BaseDesiredRevision {
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := ValidateProposalDependencies(ctx, applier.Repo, *proposal); err != nil {
+		return ApplyJob{}, ErrPlanStale
+	}
+	planningRepository, err := newProposalRepository(ctx, applier.Repo, *proposal)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	desired, err := BuildRoutingDesired(ctx, planningRepository, applier.Reader, applier.Terminals)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if desired.Revision != cached.BaseDesiredRevision || desired.Hash != cached.Plan.DesiredHash || len(desired.Blockers) > 0 {
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := validatePlanRepository(ctx, applier, planningRepository, PolicyDomainRouting); err != nil {
+		return ApplyJob{}, err
+	}
+	release, acquired := m.gate.TryAcquire(deviceID)
+	if !acquired {
+		return ApplyJob{}, ErrDeviceBusy
+	}
+	latestState, err := applier.Repo.GetDeviceState(ctx)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if latestState.DesiredRevision != cached.BaseDesiredRevision {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := ValidateProposalDependencies(ctx, applier.Repo, *proposal); err != nil {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	// Rebuild the overlay after acquiring the device slot. The repository
+	// commit below repeats this same base-revision check in its transaction for
+	// writes such as source refreshes that do not use the RouterOS gate.
+	planningRepository, err = newProposalRepository(ctx, applier.Repo, *proposal)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	desired, err = BuildRoutingDesired(ctx, planningRepository, applier.Reader, applier.Terminals)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if desired.Revision != cached.BaseDesiredRevision || desired.Hash != cached.Plan.DesiredHash || len(desired.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := validatePlanRepository(ctx, applier, planningRepository, PolicyDomainRouting); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
+		release()
+		return ApplyJob{}, capabilityErr
+	} else if len(capabilityBlockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainRouting)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if fingerprint != cached.Plan.ActualFingerprint {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	committer, ok := applier.Repo.(ProposalCommitter)
+	if !ok {
+		release()
+		return ApplyJob{}, errors.New("policy repository does not support atomic proposal commit")
+	}
+	committedRevision, err := committer.CommitPolicyProposal(ctx, *proposal, cached.BaseDesiredRevision)
+	if errors.Is(err, ErrRevisionStale) {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if committedRevision != cached.Plan.DesiredRevision {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	committedDesired, err := BuildRoutingDesired(ctx, applier.Repo, applier.Reader, applier.Terminals)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if committedDesired.Revision != committedRevision || committedDesired.Hash != cached.Plan.DesiredHash || len(committedDesired.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	cached.Proposal = nil
+	cached.BaseDesiredRevision = committedRevision
+	cached.Desired = committedDesired.Objects
+	m.mu.Lock()
+	delete(m.plans, planID)
+	m.mu.Unlock()
+
+	now := time.Now().UTC()
+	job := ApplyJob{ID: uuid.NewString(), PlanID: planID, State: "queued", Phase: "queued", CreatedAt: now}
+	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	go m.runApply(deviceID, applier, cached, job, release)
+	return job, nil
+}
+
+func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID string, applier *Applier, cached cachedPlan) (ApplyJob, error) {
+	proposal := cached.AccessProposal
+	if proposal == nil || cached.BaseDesiredRevision < 0 || applier.Access == nil {
+		return ApplyJob{}, ErrPlanStale
+	}
+	proposalHash, err := AccessProposalHash(*proposal)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if proposalHash != cached.Plan.ProposalHash {
+		return ApplyJob{}, ErrPlanStale
+	}
+	state, err := applier.Access.GetState(ctx)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if state.DesiredRevision != cached.BaseDesiredRevision {
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := ValidateAccessProposalDependencies(ctx, applier.Repo, *proposal); err != nil {
+		return ApplyJob{}, ErrPlanStale
+	}
+	planningRepository, err := newProposalRepository(ctx, applier.Repo, PolicyProposal{TargetLists: proposal.TargetLists})
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	planningAccessRepository, err := newAccessProposalRepository(ctx, applier.Access, *proposal)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	desired, err := buildPlanDesiredWithAccessRepository(ctx, applier, planningRepository, planningAccessRepository, PolicyDomainAccess, cached.InternetEgresses, nil)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if desired.AccessRevision != cached.BaseDesiredRevision || desired.Hash != cached.Plan.DesiredHash || len(desired.Blockers) > 0 {
+		return ApplyJob{}, ErrPlanStale
+	}
+	release, acquired := m.gate.TryAcquire(deviceID)
+	if !acquired {
+		return ApplyJob{}, ErrDeviceBusy
+	}
+	latestState, err := applier.Access.GetState(ctx)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if latestState.DesiredRevision != cached.BaseDesiredRevision {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err := ValidateAccessProposalDependencies(ctx, applier.Repo, *proposal); err != nil {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	planningRepository, err = newProposalRepository(ctx, applier.Repo, PolicyProposal{TargetLists: proposal.TargetLists})
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	planningAccessRepository, err = newAccessProposalRepository(ctx, applier.Access, *proposal)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	desired, err = buildPlanDesiredWithAccessRepository(ctx, applier, planningRepository, planningAccessRepository, PolicyDomainAccess, cached.InternetEgresses, nil)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if desired.AccessRevision != cached.BaseDesiredRevision || desired.Hash != cached.Plan.DesiredHash || len(desired.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
+		release()
+		return ApplyJob{}, capabilityErr
+	} else if len(capabilityBlockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainAccess)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if fingerprint != cached.Plan.ActualFingerprint {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	committer, ok := applier.Repo.(AccessProposalCommitter)
+	if !ok {
+		release()
+		return ApplyJob{}, errors.New("policy repository does not support atomic access proposal commit")
+	}
+	committedRevision, err := committer.CommitAccessProposal(ctx, *proposal, cached.BaseDesiredRevision, "policy-plan")
+	if errors.Is(err, ErrRevisionStale) || errors.Is(err, accesscontrol.ErrRevisionStale) {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	committedDesired, err := BuildAccessDesiredWithOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	if err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	if committedDesired.AccessRevision != committedRevision || committedDesired.Hash != cached.Plan.DesiredHash || len(committedDesired.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
+	cached.AccessProposal = nil
+	cached.BaseDesiredRevision = committedRevision
+	cached.Plan.DesiredRevision = committedRevision
+	cached.Plan.AccessRevision = committedRevision
+	cached.Desired = committedDesired.Objects
+	cached.AccessResolutions = committedDesired.AccessResolutions
+	m.mu.Lock()
+	delete(m.plans, planID)
+	m.mu.Unlock()
+
+	now := time.Now().UTC()
+	job := ApplyJob{ID: uuid.NewString(), PlanID: planID, State: "queued", Phase: "queued", CreatedAt: now}
+	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
+	go m.runApply(deviceID, applier, cached, job, release)
+	return job, nil
+}
+
+func validatePlanRepository(ctx context.Context, applier *Applier, repository Repository, domain PolicyDomain) error {
+	if domain == PolicyDomainAccess {
+		return nil
+	}
+	aliasBlockers, err := ValidateFakeAliases(ctx, applier.Reader, repository)
+	if err != nil {
+		return err
+	}
+	tableBlockers, _, err := ValidateRouteTables(ctx, applier.Reader, repository)
+	if err != nil {
+		return err
+	}
+	ingressBlockers, err := ValidateTrafficIngress(ctx, applier.Reader, repository)
+	if err != nil {
+		return err
+	}
+	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 {
+		return ErrPlanStale
+	}
+	return nil
+}
+
 func (m *Manager) GenerateAndApply(ctx context.Context, deviceID, kind string) (ApplyJob, error) {
 	plan, err := m.GeneratePlan(ctx, deviceID, kind)
 	if err != nil {
 		return ApplyJob{}, err
 	}
 	return m.ApplyPlan(ctx, deviceID, plan.PlanID)
+}
+
+// GenerateAndApplyTarget reconciles only the domains that consume one target
+// list. A shared target is deliberately applied as routing first and access
+// second, with two independently built plans and two domain-scoped commits.
+func (m *Manager) GenerateAndApplyTarget(ctx context.Context, deviceID, kind, targetID string) (ApplyJob, error) {
+	applier := m.ApplierFor(deviceID)
+	if applier == nil {
+		return ApplyJob{}, errors.New("policy runtime is unavailable")
+	}
+	domains := TargetConsumerDomains{Routing: true}
+	if consumerRepository, ok := applier.Repo.(TargetConsumerDomainRepository); ok {
+		var err error
+		domains, err = consumerRepository.TargetConsumerDomains(ctx, strings.TrimSpace(targetID))
+		if err != nil {
+			return ApplyJob{}, err
+		}
+	}
+	return m.generateAndApplyTargetDomains(ctx, deviceID, kind, []string{targetID}, domains)
+}
+
+// GenerateAndApplyTargetDomains is used by the scheduler to batch changed
+// target lists into one routing reconcile and one access reconcile.
+func (m *Manager) GenerateAndApplyTargetDomains(ctx context.Context, deviceID, kind string, targetIDs []string, domains TargetConsumerDomains) (ApplyJob, error) {
+	return m.generateAndApplyTargetDomains(ctx, deviceID, kind, targetIDs, domains)
+}
+
+func (m *Manager) generateAndApplyTargetDomains(ctx context.Context, deviceID, kind string, targetIDs []string, domains TargetConsumerDomains) (ApplyJob, error) {
+	targetIDs = uniqueTargetIDs(targetIDs)
+	if len(targetIDs) == 0 || (!domains.Routing && !domains.Access) {
+		return ApplyJob{}, nil
+	}
+	planIDs := make([]string, 0, 2)
+	options := PlanOptions{TargetListIDs: targetIDs}
+	if domains.Routing {
+		options.Domain = PolicyDomainRouting
+		plan, err := m.GeneratePlanWithOptions(ctx, deviceID, kind, options)
+		if err != nil {
+			return ApplyJob{}, err
+		}
+		planIDs = append(planIDs, plan.PlanID)
+	}
+	if domains.Access {
+		options.Domain = PolicyDomainAccess
+		plan, err := m.GeneratePlanWithOptions(ctx, deviceID, kind, options)
+		if err != nil {
+			m.deleteCachedPlans(planIDs)
+			return ApplyJob{}, err
+		}
+		planIDs = append(planIDs, plan.PlanID)
+	}
+	if len(planIDs) == 0 {
+		return ApplyJob{}, nil
+	}
+	if len(planIDs) > 1 {
+		m.mu.Lock()
+		m.followUpPlans[planIDs[0]] = append([]string(nil), planIDs[1:]...)
+		m.mu.Unlock()
+	}
+	job, err := m.ApplyPlan(ctx, deviceID, planIDs[0])
+	if err != nil {
+		m.mu.Lock()
+		delete(m.followUpPlans, planIDs[0])
+		m.mu.Unlock()
+		m.deleteCachedPlans(planIDs[1:])
+		return ApplyJob{}, err
+	}
+	return job, nil
+}
+
+func (m *Manager) deleteCachedPlans(planIDs []string) {
+	if len(planIDs) == 0 {
+		return
+	}
+	m.mu.Lock()
+	for _, planID := range planIDs {
+		delete(m.plans, planID)
+	}
+	m.mu.Unlock()
+}
+
+func uniqueTargetIDs(targetIDs []string) []string {
+	seen := make(map[string]bool, len(targetIDs))
+	result := make([]string, 0, len(targetIDs))
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" || seen[targetID] {
+			continue
+		}
+		seen[targetID] = true
+		result = append(result, targetID)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (m *Manager) GetJob(ctx context.Context, deviceID, jobID string) (ApplyJob, error) {
@@ -425,10 +1042,12 @@ func (m *Manager) RefreshDue(ctx context.Context, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		needsApply := false
+		needRoutingApply := false
+		needAccessApply := false
+		changedTargetIDs := make([]string, 0)
 		for _, source := range sources {
 			interval, ok := sourceScheduleInterval(source.Schedule)
-			if !ok || source.Type != "url" || !source.Enabled || source.PendingDeletion || source.PendingVersionID != "" {
+			if !ok || (source.Type != TargetSourceTypeURL && source.Type != TargetSourceTypePreset) || !source.Enabled || source.PendingDeletion || source.PendingVersionID != "" {
 				continue
 			}
 			if !source.NextRunAt.IsZero() && source.NextRunAt.After(now) {
@@ -444,11 +1063,21 @@ func (m *Manager) RefreshDue(ctx context.Context, now time.Time) error {
 				return saveErr
 			}
 			if saveErr == nil && refresh.Version != nil && refresh.Version.State != "failed" && SourceAutoApplyEligible(ctx, applier.Repo, source, applier.Access) {
-				needsApply = true
+				changedTargetIDs = append(changedTargetIDs, source.ID)
+				if consumerRepository, ok := applier.Repo.(TargetConsumerDomainRepository); ok {
+					consumers, consumerErr := consumerRepository.TargetConsumerDomains(ctx, source.ID)
+					if consumerErr != nil {
+						return consumerErr
+					}
+					needRoutingApply = needRoutingApply || consumers.Routing
+					needAccessApply = needAccessApply || consumers.Access
+				} else {
+					needRoutingApply = true
+				}
 			}
 		}
-		if needsApply {
-			if _, err := m.GenerateAndApply(ctx, applier.Repo.DeviceID(), "source-refresh"); err != nil {
+		if len(changedTargetIDs) > 0 && (needRoutingApply || needAccessApply) {
+			if _, err := m.GenerateAndApplyTargetDomains(ctx, applier.Repo.DeviceID(), "source-refresh", changedTargetIDs, TargetConsumerDomains{Routing: needRoutingApply, Access: needAccessApply}); err != nil {
 				return err
 			}
 		}
@@ -464,7 +1093,28 @@ func SourceAutoApplyEligible(ctx context.Context, repository Repository, source 
 	if repository == nil || source.PendingDeletion {
 		return false
 	}
-	if source.EgressID != "" {
+	routingAuthoritative := false
+	if routingRepository, ok := repository.(RoutingRuleRepository); ok {
+		if err := routingRepository.EnsureRoutingRulesMigrated(ctx); err == nil {
+			if authority, authorityErr := routingRepository.RoutingAuthority(ctx); authorityErr == nil && authority == RoutingRuleAuthorityV1 {
+				routingAuthoritative = true
+				if rules, rulesErr := routingRepository.ListRoutingRules(ctx); rulesErr == nil {
+					for _, rule := range rules {
+						for _, targetID := range rule.TargetListIDs {
+							if targetID != source.ID {
+								continue
+							}
+							egress, egressErr := repository.GetEgress(ctx, rule.EgressID)
+							if egressErr == nil && egress.Enabled && !egress.PendingDeletion {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if !routingAuthoritative && source.EgressID != "" {
 		egress, err := repository.GetEgress(ctx, source.EgressID)
 		if err == nil && egress.Enabled && !egress.PendingDeletion {
 			return true
@@ -479,12 +1129,21 @@ func SourceAutoApplyEligible(ctx context.Context, repository Repository, source 
 			continue
 		}
 		for _, rule := range rules {
-			if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeSources {
+			if !rule.Enabled {
 				continue
 			}
-			for _, sourceID := range rule.SourceIDs {
-				if sourceID == source.ID {
-					return true
+			switch rule.TargetScope {
+			case accesscontrol.TargetScopeTargets:
+				for _, targetID := range rule.TargetListIDs {
+					if targetID == source.ID {
+						return true
+					}
+				}
+			case accesscontrol.TargetScopeSources:
+				for _, sourceID := range rule.SourceIDs {
+					if sourceID == source.ID {
+						return true
+					}
 				}
 			}
 		}
@@ -517,46 +1176,102 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	for {
+		var completed bool
+		job, completed = m.runApplyDomain(ctx, deviceID, applier, cached, job)
+		if !completed {
+			m.deleteFollowUpPlans(cached.Plan.PlanID)
+			return
+		}
+
+		m.mu.Lock()
+		followUps := m.followUpPlans[cached.Plan.PlanID]
+		delete(m.followUpPlans, cached.Plan.PlanID)
+		var next cachedPlan
+		nextPlanID := ""
+		haveNext := false
+		if len(followUps) > 0 {
+			nextPlanID = followUps[0]
+			next, haveNext = m.plans[nextPlanID]
+			delete(m.plans, nextPlanID)
+			for _, orphanID := range followUps[1:] {
+				delete(m.plans, orphanID)
+			}
+		}
+		m.mu.Unlock()
+		if nextPlanID == "" || !haveNext {
+			return
+		}
+
+		job.PlanID = next.Plan.PlanID
+		job.State = "queued"
+		job.Phase = "queued"
+		job.Progress = 0
+		job.Error = ""
+		job.FinishedAt = time.Time{}
+		if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "save-follow-up", err)
+			m.deleteFollowUpPlans(next.Plan.PlanID)
+			return
+		}
+		cached = next
+	}
+}
+
+func (m *Manager) deleteFollowUpPlans(planID string) {
+	m.mu.Lock()
+	remaining := m.followUpPlans[planID]
+	delete(m.followUpPlans, planID)
+	for _, followUpID := range remaining {
+		delete(m.plans, followUpID)
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *Applier, cached cachedPlan, job ApplyJob) (ApplyJob, bool) {
+	domain := cached.Plan.Domain
+	if domain == "" {
+		domain = policyDomainForPlanKind(cached.Plan.Kind)
+	}
 	job.State = "staging"
 	job.Phase = "staging"
 	job.StartedAt = time.Now().UTC()
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-start", err)
-		return
+		return job, false
 	}
-	planned, err := BuildDesiredWithAccessOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	planned, err := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, domain, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		m.failJob(ctx, applier.Repo, &job, "desired-state-check", err)
-		return
+		return job, false
 	}
-	if planned.Revision != cached.Plan.DesiredRevision || planned.AccessRevision != cached.Plan.AccessRevision || planned.Hash != cached.Plan.DesiredHash || len(planned.Blockers) > 0 {
+	if !desiredMatchesPlan(planned, cached.Plan, domain) || len(planned.Blockers) > 0 {
 		m.failJob(ctx, applier.Repo, &job, "desired-state-changed", ErrPlanStale)
-		return
+		return job, false
 	}
-	aliasBlockers, err := ValidateFakeAliases(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		m.failJob(ctx, applier.Repo, &job, "validate-fake-aliases", err)
-		return
+	if _, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, planned.Objects, domain); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "actual-state-check", err)
+		return job, false
+	} else if fingerprint != cached.Plan.ActualFingerprint {
+		m.failJob(ctx, applier.Repo, &job, "actual-state-changed", ErrPlanStale)
+		return job, false
 	}
-	tableBlockers, _, err := ValidateRouteTables(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		m.failJob(ctx, applier.Repo, &job, "validate-route-tables", err)
-		return
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		validation := DesiredResult{}
+		if err := appendRoutingValidation(ctx, applier.Reader, applier.Repo, &validation); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "desired-state-validation", err)
+			return job, false
+		}
+		if len(validation.Blockers) > 0 {
+			m.failJob(ctx, applier.Repo, &job, "desired-state-validation", ErrPlanStale)
+			return job, false
+		}
 	}
-	ingressBlockers, err := ValidateTrafficIngress(ctx, applier.Reader, applier.Repo)
-	if err != nil {
-		m.failJob(ctx, applier.Repo, &job, "validate-traffic-ingress", err)
-		return
-	}
-	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 {
-		m.failJob(ctx, applier.Repo, &job, "desired-state-validation", ErrPlanStale)
-		return
-	}
-	needsDNSMutation := !isAccessOnlyPlanKind(cached.Plan.Kind) || hasDesiredMenu(cached.Desired, routeros.MenuIPDNSStatic)
+	needsDNSMutation := domain == PolicyDomainRouting || hasDesiredMenu(cached.Desired, routeros.MenuIPDNSStatic)
 	if needsDNSMutation {
 		if err := ensureDefaultDNSCache(ctx, applier); err != nil {
 			m.failJob(ctx, applier.Repo, &job, "dns-cache-size", err)
-			return
+			return job, false
 		}
 	}
 	createdRouterIDs := make(map[string]string)
@@ -578,7 +1293,7 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 			}
 			if err := batchMutation.CreateBatch(ctx, routeros.MenuIPDNSStatic, entries); err != nil {
 				m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
-				return
+				return job, false
 			}
 		case hasBatchMutation && isDisableOnlyPatch(operation):
 			ids := make([]string, 0)
@@ -593,7 +1308,7 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 			}
 			if err := batchMutation.SetDisabledBatch(ctx, routeros.MutationMenu(operation.Menu), ids, true); err != nil {
 				m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
-				return
+				return job, false
 			}
 		case isEnableOnlyPatch(operation):
 			// Active objects are enabled together after every create/update has
@@ -601,72 +1316,93 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		case isDisableOnlyPatch(operation):
 			if err := applyStagedOperation(ctx, applier.Mutation, operation, createdRouterIDs); err != nil {
 				m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
-				return
+				return job, false
 			}
 		default:
 			if err := applyStagedOperation(ctx, applier.Mutation, operation, createdRouterIDs); err != nil {
 				m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
-				return
+				return job, false
 			}
 		}
 		index = nextIndex
 		job.Progress = index
 		if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 			m.failJob(ctx, applier.Repo, &job, "save-progress", err)
-			return
+			return job, false
 		}
 	}
-	if err := ensureAccessJumpsFirst(ctx, applier.Mutation, cached.Desired); err != nil {
-		m.failJob(ctx, applier.Repo, &job, "access-filter-order", err)
-		return
+	if domain == PolicyDomainAccess || domain == PolicyDomainCombined {
+		if err := ensureAccessJumpsFirst(ctx, applier.Mutation, cached.Desired); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "access-filter-order", err)
+			return job, false
+		}
 	}
 	job.Phase = "activation"
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-activation", err)
-		return
+		return job, false
 	}
-	if err := activateDesiredObjects(ctx, applier, cached.Desired); err != nil {
+	if err := activateDesiredObjectsForDomain(ctx, applier, cached.Desired, domain); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "activation", err)
-		return
+		return job, false
 	}
 	if needsDNSMutation {
 		if err := applier.Mutation.FlushDNSCache(ctx); err != nil {
 			m.failJob(ctx, applier.Repo, &job, "dns-cache", err)
-			return
+			return job, false
 		}
 	}
 	job.State = "verifying"
 	job.Phase = "verifying"
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-verifying", err)
-		return
+		return job, false
 	}
-	remaining, blockers, err := verifyDesiredWithRetry(ctx, applier.Mutation, applier.Repo, cached.Desired)
+	remaining, blockers, err := verifyDesiredWithRetryForDomain(ctx, applier.Mutation, applier.Repo, cached.Desired, domain)
 	if err != nil {
 		m.failJob(ctx, applier.Repo, &job, "verify-scan", err)
-		return
+		return job, false
 	}
 	if len(remaining) > 0 || len(blockers) > 0 {
 		m.failJob(ctx, applier.Repo, &job, "verify-diff", fmt.Errorf("RouterOS still differs after apply: operations=%d blockers=%d", len(remaining), len(blockers)))
-		return
+		return job, false
 	}
 	// Monitor-driven auto addresses do not bump the persistent access revision.
 	// Re-read the desired graph immediately before committing so a terminal
 	// change during the RouterOS mutation cannot be recorded as an applied
 	// trusted projection for an older snapshot.
-	latest, err := BuildDesiredWithAccessOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	latest, err := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, domain, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		m.failJob(ctx, applier.Repo, &job, "desired-state-check", err)
-		return
+		return job, false
 	}
-	if latest.Revision != cached.Plan.DesiredRevision || latest.AccessRevision != cached.Plan.AccessRevision || latest.Hash != cached.Plan.DesiredHash {
+	if !desiredMatchesPlan(latest, cached.Plan, domain) {
 		m.failJob(ctx, applier.Repo, &job, "desired-state-changed", ErrPlanStale)
-		return
+		return job, false
 	}
 	job.Progress = len(cached.Plan.Operations)
-	if err := applier.Repo.CommitApply(ctx, cached.Plan.DesiredRevision, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, !isAccessOnlyPlanKind(cached.Plan.Kind)); err != nil {
-		m.failJob(ctx, applier.Repo, &job, "commit", err)
+	var commitErr error
+	if domain == PolicyDomainCombined {
+		commitErr = applier.Repo.CommitApply(ctx, cached.Plan.DesiredRevision, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, true)
+	} else if committer, ok := applier.Repo.(DomainApplyRepository); ok {
+		if domain == PolicyDomainAccess {
+			commitErr = committer.CommitAccessApply(ctx, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, cached.TargetPromotions)
+		} else {
+			commitErr = committer.CommitRoutingApply(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job, cached.TargetPromotions)
+		}
+	} else {
+		// The old broad commit is a compatibility seam for explicit Combined
+		// callers only. Normal manager paths require the domain-scoped contract.
+		commitErr = errors.New("policy repository does not support domain-scoped apply")
 	}
+	if commitErr != nil {
+		m.failJob(ctx, applier.Repo, &job, "commit", commitErr)
+		return job, false
+	}
+	job.State = "committed"
+	job.Phase = "committed"
+	job.FinishedAt = time.Now().UTC()
+	return job, true
 }
 
 func verifyDesiredWithRetry(ctx context.Context, mutation PolicyMutation, repository Repository, desired []DesiredObject) ([]PlanOperation, []PlanIssue, error) {
@@ -694,19 +1430,46 @@ func verifyDesiredWithRetry(ctx context.Context, mutation PolicyMutation, reposi
 	return remaining, blockers, nil
 }
 
-func activateDesiredObjects(ctx context.Context, applier *Applier, desired []DesiredObject) error {
-	actual, _, err := ScanManaged(ctx, applier.Mutation, applier.Repo, desired)
-	if err != nil {
-		return fmt.Errorf("scan RouterOS before activation: %w", err)
+func verifyDesiredWithRetryForDomain(ctx context.Context, mutation PolicyMutation, repository Repository, desired []DesiredObject, domain PolicyDomain) ([]PlanOperation, []PlanIssue, error) {
+	const maxAttempts = 5
+	var remaining []PlanOperation
+	var blockers []PlanIssue
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		actual, _, err := ScanManagedForDomain(ctx, mutation, repository, desired, domain)
+		if err != nil {
+			return nil, nil, err
+		}
+		remaining, blockers = DiffDesired(desired, actual)
+		if len(remaining) == 0 || len(blockers) > 0 || attempt == maxAttempts-1 {
+			return remaining, blockers, nil
+		}
+		delay := time.Duration(attempt+1) * time.Second
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	desiredByKey := make(map[string]DesiredObject, len(desired))
+	return remaining, blockers, nil
+}
+
+func activateDesiredObjects(ctx context.Context, applier *Applier, desired []DesiredObject) error {
+	return activateDesiredObjectsForDomain(ctx, applier, desired, PolicyDomainCombined)
+}
+
+func activateDesiredObjectsForDomain(ctx context.Context, applier *Applier, desired []DesiredObject, domain PolicyDomain) error {
 	activeKeys := make(map[string]struct{})
 	for _, object := range desired {
 		key := object.Menu + "\x00" + object.LogicalID
-		desiredByKey[key] = object
 		if strings.EqualFold(strings.TrimSpace(object.Fields["disabled"]), "no") {
 			activeKeys[key] = struct{}{}
 		}
+	}
+	actual, err := scanActivationActual(ctx, applier, desired, domain)
+	if err != nil {
+		return err
 	}
 	idsByMenu := make(map[routeros.MutationMenu][]string)
 	seen := make(map[string]bool, len(activeKeys))
@@ -738,11 +1501,6 @@ func activateDesiredObjects(ctx context.Context, applier *Applier, desired []Des
 			idsByMenu[menu] = append(idsByMenu[menu], object.RouterID)
 		}
 	}
-	for key, object := range desiredByKey {
-		if _, active := activeKeys[key]; active && !seen[key] {
-			return fmt.Errorf("managed object %s is missing during activation", object.LogicalID)
-		}
-	}
 	menus := make([]routeros.MutationMenu, 0, len(idsByMenu))
 	for menu := range idsByMenu {
 		menus = append(menus, menu)
@@ -771,6 +1529,50 @@ func activateDesiredObjects(ctx context.Context, applier *Applier, desired []Des
 		}
 	}
 	return nil
+}
+
+func scanActivationActual(ctx context.Context, applier *Applier, desired []DesiredObject, domain PolicyDomain) ([]ActualObject, error) {
+	const maxAttempts = 5
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		actual, _, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired, domain)
+		if err != nil {
+			return nil, fmt.Errorf("scan RouterOS before activation: %w", err)
+		}
+		if missing := missingActiveObject(desired, actual); missing == "" {
+			return actual, nil
+		} else if attempt == maxAttempts-1 {
+			return nil, fmt.Errorf("managed object %s is missing during activation", missing)
+		}
+		delay := time.Duration(attempt+1) * time.Second
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, errors.New("activation scan exhausted")
+}
+
+func missingActiveObject(desired []DesiredObject, actual []ActualObject) string {
+	actualKeys := make(map[string]struct{}, len(actual))
+	for _, object := range actual {
+		if object.Ownership != "owned" {
+			continue
+		}
+		actualKeys[object.Menu+"\x00"+object.LogicalID] = struct{}{}
+	}
+	for _, object := range desired {
+		if !strings.EqualFold(strings.TrimSpace(object.Fields["disabled"]), "no") {
+			continue
+		}
+		key := object.Menu + "\x00" + object.LogicalID
+		if _, ok := actualKeys[key]; !ok {
+			return object.LogicalID
+		}
+	}
+	return ""
 }
 
 func activationMenuRank(menu routeros.MutationMenu) int {
@@ -881,7 +1683,8 @@ func (m *Manager) logApplyError(deviceID, jobID string, err error) {
 }
 
 func isAccessOnlyPlanKind(kind string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(kind)), "access-")
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return strings.HasPrefix(kind, "access-") || strings.HasPrefix(kind, "canonical-target-")
 }
 
 func cloneInternetEgresses(values map[string][]string) map[string][]string {
@@ -904,14 +1707,18 @@ func hasDesiredMenu(desired []DesiredObject, menu routeros.MutationMenu) bool {
 	return false
 }
 
-func isAccessPlanOperation(operation PlanOperation, accessSourceIDs []string) bool {
+func isAccessPlanOperation(operation PlanOperation, accessTargetIDs []string) bool {
 	logicalID := operation.LogicalID
-	if logicalID == "access-forwarder" ||
+	if isStaleApplicationOperation(operation) ||
+		logicalID == "access-forwarder" ||
 		strings.HasPrefix(logicalID, "access:") ||
 		strings.HasPrefix(logicalID, "access-member:") ||
+		strings.HasPrefix(logicalID, "access-target:") ||
+		strings.HasPrefix(logicalID, "access-target-dns:") ||
 		strings.HasPrefix(logicalID, "access-internet-egress:") ||
 		strings.HasPrefix(logicalID, "access-local:") ||
-		strings.HasPrefix(logicalID, "dns:access:") {
+		strings.HasPrefix(logicalID, "dns:access:") ||
+		strings.HasPrefix(logicalID, "dns:application:") {
 		return true
 	}
 	if !strings.HasPrefix(logicalID, "source-addr:") {
@@ -921,8 +1728,26 @@ func isAccessPlanOperation(operation PlanOperation, accessSourceIDs []string) bo
 	if len(parts) != 3 {
 		return false
 	}
-	for _, sourceID := range accessSourceIDs {
-		if sourceID == parts[1] {
+	for _, targetID := range accessTargetIDs {
+		if targetID == parts[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func isStaleApplicationOperation(operation PlanOperation) bool {
+	if operation.Action != "delete" || operation.Ownership != "owned" || !strings.HasPrefix(operation.LogicalID, "stale:") {
+		return false
+	}
+	switch operation.Menu {
+	case string(routeros.MenuIPDNSStatic), string(routeros.MenuIPFirewallFilter), string(routeros.MenuIPv6FirewallFilter):
+	default:
+		return false
+	}
+	for _, field := range []string{"address-list", "src-address-list", "dst-address-list"} {
+		value := strings.TrimSpace(operation.Before[field])
+		if strings.HasPrefix(value, applicationListPrefix) || strings.HasPrefix(value, "rb_ac_") {
 			return true
 		}
 	}

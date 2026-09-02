@@ -1631,6 +1631,31 @@ func (s *Store) purgeDNSData(ctx context.Context) error {
 	return nil
 }
 
+func (s *Store) purgePolicyData(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin purge policy data: %w", err)
+	}
+	defer tx.Rollback()
+	for _, table := range []string{
+		"policy_v2_routing_rule_prefixes", "policy_v2_routing_rule_members", "policy_v2_routing_rule_targets", "policy_v2_routing_rules",
+		"policy_v2_source_rules", "policy_v2_source_versions", "policy_v2_sources",
+		"policy_v2_egress_families", "policy_v2_egresses",
+		"policy_v2_schema_meta",
+	} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("purge policy data from %s: %w", table, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET lan_scope_json = '{}', desired_revision = 0, applied_revision = 0, applied_hash = '', applied_at = 0, job_id = '', job_plan_id = '', job_state = '', job_phase = '', job_progress = 0, job_error = '', job_created_at = 0, job_started_at = 0, job_finished_at = 0 WHERE id = 1`); err != nil {
+		return fmt.Errorf("reset policy v2 state: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit purge policy data: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) purgeDeviceData(ctx context.Context, deviceID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1640,7 +1665,7 @@ func (s *Store) purgeDeviceData(ctx context.Context, deviceID string) error {
 	for _, table := range []string{
 		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
-		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
+		"access_rules", "access_rule_sources", "access_rule_applications", "access_rule_prefixes", "access_rule_members", "access_rule_migration_issues", "access_audit",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {
 			return fmt.Errorf("purge device from %s: %w", table, err)
@@ -1674,6 +1699,9 @@ func (s *Store) ResetAll(ctx context.Context) error {
 		if err := child.purgeDNSData(ctx); err != nil {
 			return err
 		}
+		if err := child.purgePolicyData(ctx); err != nil {
+			return err
+		}
 	}
 	// Device databases that are not currently open would otherwise keep their
 	// monitoring and DNS history on disk after a full reset.
@@ -1690,7 +1718,11 @@ func (s *Store) ResetAll(ctx context.Context) error {
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
 		"auth_sessions", "admin_account", "app_state",
 		"dns_observations", "dns_features", "mosdns_state",
-		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
+		"access_rules", "access_rule_sources", "access_rule_applications", "access_rule_prefixes", "access_rule_members", "access_rule_migration_issues", "access_audit", "access_schema_meta",
+		"policy_v2_routing_rule_prefixes", "policy_v2_routing_rule_members", "policy_v2_routing_rule_targets", "policy_v2_routing_rules",
+		"policy_v2_source_rules", "policy_v2_source_versions", "policy_v2_sources",
+		"policy_v2_egress_families", "policy_v2_egresses",
+		"policy_v2_schema_meta",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
 			return fmt.Errorf("reset %s: %w", table, err)
@@ -1698,6 +1730,9 @@ func (s *Store) ResetAll(ctx context.Context) error {
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = 0, applied_revision = 0, applied_at = 0`); err != nil {
 		return fmt.Errorf("reset access-control state: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET lan_scope_json = '{}', desired_revision = 0, applied_revision = 0, applied_hash = '', applied_at = 0, job_id = '', job_plan_id = '', job_state = '', job_phase = '', job_progress = 0, job_error = '', job_created_at = 0, job_started_at = 0, job_finished_at = 0 WHERE id = 1`); err != nil {
+		return fmt.Errorf("reset policy v2 state: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit full reset: %w", err)
@@ -1718,11 +1753,15 @@ func (s *Store) resetClosedDeviceDatabase(ctx context.Context, path string) erro
 		"interface_samples", "terminal_addresses", "terminal_totals", "connection_state",
 		"terminal_history", "load_samples", "protocol_samples", "terminals",
 		"dns_observations", "dns_features", "mosdns_state",
-		"access_rules", "access_rule_sources", "access_rule_members", "access_audit",
+		"access_rules", "access_rule_sources", "access_rule_applications", "access_rule_prefixes", "access_rule_members", "access_rule_migration_issues", "access_audit", "access_schema_meta",
+		"policy_v2_routing_rule_prefixes", "policy_v2_routing_rule_members", "policy_v2_routing_rule_targets", "policy_v2_routing_rules",
+		"policy_v2_source_rules", "policy_v2_source_versions", "policy_v2_sources",
+		"policy_v2_egress_families", "policy_v2_egresses",
+		"policy_v2_schema_meta",
 	}
 	for _, table := range tables {
 		if _, err := db.ExecContext(ctx, `DELETE FROM `+table); err != nil {
-			if strings.HasPrefix(table, "access_") && strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			if (strings.HasPrefix(table, "access_") || strings.HasPrefix(table, "policy_v2_")) && strings.Contains(strings.ToLower(err.Error()), "no such table") {
 				continue
 			}
 			return fmt.Errorf("reset %s in %s: %w", table, filepath.Base(path), err)
@@ -1730,6 +1769,9 @@ func (s *Store) resetClosedDeviceDatabase(ctx context.Context, path string) erro
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE access_control_state SET desired_revision = 0, applied_revision = 0, applied_at = 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table") {
 		return fmt.Errorf("reset access-control state in %s: %w", filepath.Base(path), err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE policy_v2_device_state SET lan_scope_json = '{}', desired_revision = 0, applied_revision = 0, applied_hash = '', applied_at = 0, job_id = '', job_plan_id = '', job_state = '', job_phase = '', job_progress = 0, job_error = '', job_created_at = 0, job_started_at = 0, job_finished_at = 0 WHERE id = 1`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such table") {
+		return fmt.Errorf("reset policy v2 state in %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

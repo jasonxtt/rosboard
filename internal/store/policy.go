@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/applicationpreset"
 	"rosboard/internal/policyv2"
 )
 
@@ -27,6 +28,7 @@ func (s *Store) initPolicySchema() error {
 	_, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS policy_v2_egresses (
     id TEXT PRIMARY KEY,
+    origin TEXT NOT NULL DEFAULT 'legacy',
     name TEXT NOT NULL,
     priority INTEGER NOT NULL,
     list_mode TEXT NOT NULL,
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS policy_v2_sources (
     egress_id TEXT NOT NULL,
     type TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'domain',
+    preset_id TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     schedule TEXT NOT NULL,
@@ -124,11 +127,26 @@ INSERT OR IGNORE INTO policy_v2_device_state (
 	if _, err := s.db.Exec(`ALTER TABLE policy_v2_sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'domain'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add policy_v2_sources.kind: %w", err)
 	}
-	return nil
+	if _, err := s.db.Exec(`ALTER TABLE policy_v2_sources ADD COLUMN preset_id TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add policy_v2_sources.preset_id: %w", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE policy_v2_egresses ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add policy_v2_egresses.origin: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS policy_v2_sources_preset_kind_idx ON policy_v2_sources(preset_id, kind) WHERE trim(preset_id) <> '' AND pending_delete = 0`); err != nil {
+		return fmt.Errorf("index policy_v2_sources preset identity: %w", err)
+	}
+	if err := s.initRoutingRuleSchema(); err != nil {
+		return err
+	}
+	// Existing databases are cut over while the schema is initialized. The
+	// same idempotent check remains available to callers for rows written by a
+	// pre-cutover compatibility path after initialization.
+	return s.migrateLegacyRoutingRules(context.Background())
 }
 
 func (r *PolicyRepository) ListEgresses(ctx context.Context) ([]policyv2.Egress, error) {
-	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_egresses ORDER BY priority, name, id`)
+	rows, err := r.store.db.QueryContext(ctx, `SELECT id, origin, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_egresses ORDER BY priority, name, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list policy egresses: %w", err)
 	}
@@ -158,7 +176,7 @@ func (r *PolicyRepository) ListEgresses(ctx context.Context) ([]policyv2.Egress,
 }
 
 func (r *PolicyRepository) GetEgress(ctx context.Context, id string) (policyv2.Egress, error) {
-	row := r.store.db.QueryRowContext(ctx, `SELECT id, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_egresses WHERE id = ?`, id)
+	row := r.store.db.QueryRowContext(ctx, `SELECT id, origin, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_egresses WHERE id = ?`, id)
 	egress, err := scanEgress(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return policyv2.Egress{}, policyv2.ErrEgressNotFound
@@ -184,7 +202,8 @@ func (r *PolicyRepository) SaveEgress(ctx context.Context, egress policyv2.Egres
 	var currentRevision int64
 	var applied, pendingDelete int
 	var createdAt int64
-	err = tx.QueryRowContext(ctx, `SELECT revision, applied, pending_delete, created_at FROM policy_v2_egresses WHERE id = ?`, egress.ID).Scan(&currentRevision, &applied, &pendingDelete, &createdAt)
+	var currentOrigin string
+	err = tx.QueryRowContext(ctx, `SELECT revision, applied, pending_delete, created_at, origin FROM policy_v2_egresses WHERE id = ?`, egress.ID).Scan(&currentRevision, &applied, &pendingDelete, &createdAt, &currentOrigin)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		if egress.Revision != 0 {
@@ -193,6 +212,9 @@ func (r *PolicyRepository) SaveEgress(ctx context.Context, egress policyv2.Egres
 		egress.Revision = 1
 		egress.CreatedAt = now
 		egress.Applied = false
+		if egress.Origin == "" {
+			egress.Origin = policyv2.EgressOriginPolicy
+		}
 	case err != nil:
 		return policyv2.Egress{}, err
 	default:
@@ -202,14 +224,15 @@ func (r *PolicyRepository) SaveEgress(ctx context.Context, egress policyv2.Egres
 		egress.Revision = currentRevision + 1
 		egress.CreatedAt = timeFromUnix(createdAt)
 		egress.Applied = applied != 0
+		egress.Origin = policyv2.EgressOrigin(currentOrigin)
 	}
 	egress.UpdatedAt = now
 	egress.PendingDeletion = false
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_egresses (id, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_egresses (id, origin, name, priority, list_mode, list_name, dns_upstream, fake_alias, failure_mode, router_output, enabled, revision, pending_delete, applied, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, priority=excluded.priority, list_mode=excluded.list_mode, list_name=excluded.list_name, dns_upstream=excluded.dns_upstream, fake_alias=excluded.fake_alias, failure_mode=excluded.failure_mode, router_output=excluded.router_output, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`,
-		egress.ID, egress.Name, egress.Priority, egress.ListMode, egress.ListName, egress.DNSUpstream, egress.FakeAlias, egress.FailureMode, boolToInt(egress.RouterOutput), boolToInt(egress.Enabled), egress.Revision, boolToInt(egress.Applied), unixTime(egress.CreatedAt), unixTime(egress.UpdatedAt))
+		egress.ID, egress.Origin, egress.Name, egress.Priority, egress.ListMode, egress.ListName, egress.DNSUpstream, egress.FakeAlias, egress.FailureMode, boolToInt(egress.RouterOutput), boolToInt(egress.Enabled), egress.Revision, boolToInt(egress.Applied), unixTime(egress.CreatedAt), unixTime(egress.UpdatedAt))
 	if err != nil {
 		return policyv2.Egress{}, fmt.Errorf("save policy egress: %w", err)
 	}
@@ -246,6 +269,13 @@ func (r *PolicyRepository) DeleteEgress(ctx context.Context, id string, revision
 	if revision != currentRevision {
 		return policyv2.ErrRevisionStale
 	}
+	var routingReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM policy_v2_routing_rules WHERE egress_id = ?`, id).Scan(&routingReferences); err != nil {
+		return fmt.Errorf("check routing rule egress references: %w", err)
+	}
+	if routingReferences > 0 {
+		return policyv2.ErrEgressInUse
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET egress_id = '', revision = revision + 1, updated_at = ? WHERE egress_id = ?`, unixTime(time.Now().UTC()), id); err != nil {
 		return err
 	}
@@ -264,7 +294,7 @@ func (r *PolicyRepository) DeleteEgress(ctx context.Context, id string, revision
 }
 
 func (r *PolicyRepository) ListSources(ctx context.Context, egressID string) ([]policyv2.Source, error) {
-	query := `SELECT id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources`
+	query := `SELECT id, egress_id, type, kind, preset_id, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources`
 	args := make([]any, 0, 1)
 	if egressID != "" {
 		query += ` WHERE egress_id = ?`
@@ -301,8 +331,295 @@ func (r *PolicyRepository) ListSources(ctx context.Context, egressID string) ([]
 	return result, nil
 }
 
+// ListTargetLists is the canonical Target Library read path. It reuses the
+// legacy source rows and content-loading pipeline while deliberately omitting
+// the temporary routing association from the returned business model.
+func (r *PolicyRepository) ListTargetLists(ctx context.Context) ([]policyv2.TargetList, error) {
+	sources, err := r.ListSources(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	result := make([]policyv2.TargetList, len(sources))
+	for i, source := range sources {
+		result[i] = policyv2.TargetListFromSource(source)
+		result[i].Usage, err = r.targetListUsage(ctx, source.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+// GetTargetList is the canonical Target Library read path over the existing
+// policy_v2_sources row and its source versions/rules.
+func (r *PolicyRepository) GetTargetList(ctx context.Context, id string) (policyv2.TargetList, error) {
+	source, err := r.GetSource(ctx, id)
+	if err != nil {
+		if errors.Is(err, policyv2.ErrSourceNotFound) {
+			return policyv2.TargetList{}, policyv2.ErrTargetListNotFound
+		}
+		return policyv2.TargetList{}, err
+	}
+	target := policyv2.TargetListFromSource(source)
+	target.Usage, err = r.targetListUsage(ctx, id)
+	if err != nil {
+		return policyv2.TargetList{}, err
+	}
+	return target, nil
+}
+
+// SaveTargetList preserves the legacy egress_id only as a compatibility
+// association. A canonical TargetList cannot set or change that association.
+func (r *PolicyRepository) SaveTargetList(ctx context.Context, target policyv2.TargetList) (policyv2.TargetList, error) {
+	var current policyv2.Source
+	if target.ID != "" {
+		loaded, err := r.GetSource(ctx, target.ID)
+		switch {
+		case err == nil:
+			current = loaded
+		case errors.Is(err, policyv2.ErrSourceNotFound):
+			// A zero-revision target is allowed to create a new row below.
+		case err != nil:
+			return policyv2.TargetList{}, err
+		}
+	}
+	if current.ID != "" {
+		if target.SourceType == "" {
+			target.SourceType = current.Type
+		}
+		if target.Kind == "" {
+			target.Kind = current.Kind
+		}
+	}
+	if err := policyv2.ValidateTargetListKind(target.Kind); err != nil {
+		return policyv2.TargetList{}, err
+	}
+	if err := policyv2.ValidateTargetListSourceType(target.SourceType); err != nil {
+		return policyv2.TargetList{}, err
+	}
+	if err := policyv2.ValidateTargetListPreset(target.SourceType, target.PresetID); err != nil {
+		return policyv2.TargetList{}, err
+	}
+	if current.ID != "" {
+		if target.SourceType != current.Type {
+			return policyv2.TargetList{}, policyv2.ErrTargetListTypeImmutable
+		}
+		if target.Kind != current.Kind {
+			return policyv2.TargetList{}, policyv2.ErrTargetListKindImmutable
+		}
+	}
+	if target.SourceType == policyv2.TargetSourceTypePreset {
+		if existing, err := r.findTargetListByPresetKind(ctx, target.PresetID, target.Kind); err == nil && existing.ID != target.ID {
+			return policyv2.TargetList{}, fmt.Errorf("preset target list already exists: %s", existing.ID)
+		} else if err != nil && !errors.Is(err, policyv2.ErrTargetListNotFound) {
+			return policyv2.TargetList{}, err
+		}
+	}
+	source := target.ToSource()
+	if current.ID != "" {
+		// The authority migration has already cleared the legacy association;
+		// retain the empty compatibility field on canonical writes.
+		source.EgressID = current.EgressID
+	}
+	if _, err := r.SaveSource(ctx, source); err != nil {
+		return policyv2.TargetList{}, err
+	}
+	return r.GetTargetList(ctx, source.ID)
+}
+
+func (r *PolicyRepository) DeleteTargetList(ctx context.Context, id string, revision int64) error {
+	source, err := r.GetSource(ctx, id)
+	if err != nil {
+		if errors.Is(err, policyv2.ErrSourceNotFound) {
+			return policyv2.ErrTargetListNotFound
+		}
+		return err
+	}
+	if source.Type == policyv2.TargetSourceTypePreset {
+		return policyv2.ErrPresetTargetListProtected
+	}
+	err = r.DeleteSource(ctx, id, revision)
+	if errors.Is(err, policyv2.ErrSourceNotFound) {
+		return policyv2.ErrTargetListNotFound
+	}
+	return err
+}
+
+func (r *PolicyRepository) findTargetListByPresetKind(ctx context.Context, presetID, kind string) (policyv2.TargetList, error) {
+	var id string
+	err := r.store.db.QueryRowContext(ctx, `SELECT id FROM policy_v2_sources WHERE preset_id = ? AND kind = ? AND pending_delete = 0`, strings.TrimSpace(presetID), policyv2.NormalizeSourceKind(kind)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return policyv2.TargetList{}, policyv2.ErrTargetListNotFound
+	}
+	if err != nil {
+		return policyv2.TargetList{}, err
+	}
+	return r.GetTargetList(ctx, id)
+}
+
+func (r *PolicyRepository) FindTargetListByPresetKind(ctx context.Context, presetID, kind string) (policyv2.TargetList, error) {
+	return r.findTargetListByPresetKind(ctx, presetID, kind)
+}
+
+func (r *PolicyRepository) ListPresetDomainEntries(ctx context.Context) ([]applicationpreset.DomainEntry, error) {
+	rows, err := r.store.db.QueryContext(ctx, `SELECT s.preset_id, s.name, r.rule_type, r.domain
+		FROM policy_v2_sources s
+		JOIN policy_v2_source_rules r ON r.version_id = COALESCE(NULLIF(s.pending_version_id, ''), NULLIF(s.active_version_id, ''))
+		WHERE trim(s.preset_id) <> '' AND s.kind = 'domain' AND s.pending_delete = 0
+		ORDER BY s.preset_id, r.rule_type, r.domain`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := make([]applicationpreset.DomainEntry, 0)
+	for rows.Next() {
+		var entry applicationpreset.DomainEntry
+		if err := rows.Scan(&entry.PresetID, &entry.Name, &entry.RuleType, &entry.Domain); err != nil {
+			return nil, err
+		}
+		if entry.RuleType == "DOMAIN" || entry.RuleType == "DOMAIN-SUFFIX" {
+			if preset, ok := applicationpreset.Default().Get(entry.PresetID); ok {
+				entry.Name = preset.Name
+				entry.Category = preset.Category
+			}
+			entries = append(entries, entry)
+		}
+	}
+	return entries, rows.Err()
+}
+
+func (r *PolicyRepository) SavePendingTargetListVersion(ctx context.Context, version policyv2.TargetListVersion, rules []policyv2.TargetListRule) error {
+	convertedRules := make([]policyv2.SourceRule, len(rules))
+	for i, rule := range rules {
+		convertedRules[i] = rule.ToSource()
+	}
+	return r.SavePendingSourceVersion(ctx, version.ToSource(), convertedRules)
+}
+
+func (r *PolicyRepository) SaveTargetListRefresh(ctx context.Context, target policyv2.TargetList, refresh policyv2.TargetListRefresh, nextRunAt time.Time) error {
+	convertedRules := make([]policyv2.SourceRule, len(refresh.Rules))
+	for i, rule := range refresh.Rules {
+		convertedRules[i] = rule.ToSource()
+	}
+	converted := policyv2.SourceRefresh{
+		NotModified:  refresh.NotModified,
+		ETag:         refresh.ETag,
+		LastModified: refresh.LastModified,
+		Rules:        convertedRules,
+	}
+	if refresh.Version != nil {
+		version := refresh.Version.ToSource()
+		converted.Version = &version
+	}
+	return r.SaveSourceRefresh(ctx, target.ToSource(), converted, nextRunAt)
+}
+
+func (r *PolicyRepository) ListTargetListVersions(ctx context.Context, targetID string) ([]policyv2.TargetListVersion, error) {
+	versions, err := r.ListSourceVersions(ctx, targetID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]policyv2.TargetListVersion, len(versions))
+	for i, version := range versions {
+		result[i] = policyv2.TargetListVersionFromSource(version)
+	}
+	return result, nil
+}
+
+func (r *PolicyRepository) ListTargetListRules(ctx context.Context, versionID string, query policyv2.RuleQuery) ([]policyv2.TargetListRule, bool, error) {
+	rules, hasNext, err := r.ListSourceRules(ctx, versionID, query)
+	if err != nil {
+		return nil, false, err
+	}
+	result := make([]policyv2.TargetListRule, len(rules))
+	for i, rule := range rules {
+		result[i] = policyv2.TargetListRuleFromSource(rule)
+	}
+	return result, hasNext, nil
+}
+
+func (r *PolicyRepository) targetListUsage(ctx context.Context, id string) (policyv2.TargetListUsage, error) {
+	var usage policyv2.TargetListUsage
+	if err := r.store.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE device_id = ? AND source_id = ?`, r.store.deviceID, id).Scan(&usage.AccessRuleCount); err != nil {
+		return policyv2.TargetListUsage{}, fmt.Errorf("count target list access references: %w", err)
+	}
+	authority, err := r.RoutingAuthority(ctx)
+	if err != nil {
+		return policyv2.TargetListUsage{}, err
+	}
+	query := `SELECT count(*) FROM policy_v2_sources WHERE id = ? AND egress_id <> '' AND pending_delete = 0`
+	message := "count target list legacy routing references"
+	if authority == policyv2.RoutingRuleAuthorityV1 {
+		query = `SELECT count(*) FROM policy_v2_routing_rule_targets WHERE target_id = ?`
+		message = "count target list routing references"
+	}
+	if err := r.store.db.QueryRowContext(ctx, query, id).Scan(&usage.RoutingRuleCount); err != nil {
+		return policyv2.TargetListUsage{}, fmt.Errorf("%s: %w", message, err)
+	}
+	return usage, nil
+}
+
+func (r *PolicyRepository) TargetConsumerDomains(ctx context.Context, id string) (policyv2.TargetConsumerDomains, error) {
+	authority, err := r.RoutingAuthority(ctx)
+	if err != nil {
+		return policyv2.TargetConsumerDomains{}, err
+	}
+	result := policyv2.TargetConsumerDomains{}
+	var accessReferences int
+	if err := r.store.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE device_id = ? AND source_id = ?`, r.store.deviceID, id).Scan(&accessReferences); err != nil {
+		return policyv2.TargetConsumerDomains{}, fmt.Errorf("count target list access consumers: %w", err)
+	}
+	result.Access = accessReferences > 0
+	var routingReferences int
+	query := `SELECT count(*) FROM policy_v2_sources WHERE id = ? AND trim(egress_id) <> '' AND pending_delete = 0`
+	if authority == policyv2.RoutingRuleAuthorityV1 {
+		query = `SELECT count(*) FROM policy_v2_routing_rule_targets WHERE target_id = ?`
+	}
+	if err := r.store.db.QueryRowContext(ctx, query, id).Scan(&routingReferences); err != nil {
+		return policyv2.TargetConsumerDomains{}, fmt.Errorf("count target list routing consumers: %w", err)
+	}
+	result.Routing = routingReferences > 0
+	return result, nil
+}
+
+func targetConsumerDomainsTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (policyv2.TargetConsumerDomains, error) {
+	var accessReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE device_id = ? AND source_id = ?`, deviceID, id).Scan(&accessReferences); err != nil {
+		return policyv2.TargetConsumerDomains{}, err
+	}
+	var routingReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM policy_v2_routing_rule_targets WHERE target_id = ?`, id).Scan(&routingReferences); err != nil {
+		return policyv2.TargetConsumerDomains{}, err
+	}
+	var authority string
+	authorityErr := tx.QueryRowContext(ctx, `SELECT value FROM policy_v2_schema_meta WHERE key = ?`, policyv2.RoutingRuleAuthorityKey).Scan(&authority)
+	if authorityErr != nil && !errors.Is(authorityErr, sql.ErrNoRows) {
+		return policyv2.TargetConsumerDomains{}, authorityErr
+	}
+	if authority != policyv2.RoutingRuleAuthorityV1 && routingReferences == 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM policy_v2_sources WHERE id = ? AND trim(egress_id) <> '' AND pending_delete = 0`, id).Scan(&routingReferences); err != nil {
+			return policyv2.TargetConsumerDomains{}, err
+		}
+	}
+	return policyv2.TargetConsumerDomains{Routing: routingReferences > 0, Access: accessReferences > 0}, nil
+}
+
+func bumpTargetConsumerDomains(ctx context.Context, tx *sql.Tx, deviceID string, domains policyv2.TargetConsumerDomains) error {
+	if domains.Routing {
+		if err := bumpDesiredRevision(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if domains.Access {
+		if err := bumpAccessDesiredRevision(ctx, tx, deviceID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *PolicyRepository) GetSource(ctx context.Context, id string) (policyv2.Source, error) {
-	row := r.store.db.QueryRowContext(ctx, `SELECT id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources WHERE id = ?`, id)
+	row := r.store.db.QueryRowContext(ctx, `SELECT id, egress_id, type, kind, preset_id, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at FROM policy_v2_sources WHERE id = ?`, id)
 	source, err := scanSource(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return policyv2.Source{}, policyv2.ErrSourceNotFound
@@ -319,6 +636,15 @@ func (r *PolicyRepository) GetSource(ctx context.Context, id string) (policyv2.S
 }
 
 func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Source) (policyv2.Source, error) {
+	if source.EgressID != "" {
+		authority, err := r.RoutingAuthority(ctx)
+		if err != nil {
+			return policyv2.Source{}, err
+		}
+		if authority == policyv2.RoutingRuleAuthorityV1 {
+			return policyv2.Source{}, policyv2.ErrRoutingRuleRequired
+		}
+	}
 	tx, err := r.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return policyv2.Source{}, err
@@ -334,13 +660,17 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 			return policyv2.Source{}, policyv2.ErrEgressNotFound
 		}
 	}
+	beforeDomains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, source.ID)
+	if err != nil {
+		return policyv2.Source{}, fmt.Errorf("resolve previous target list consumers: %w", err)
+	}
 
 	now := time.Now().UTC()
 	var current policyv2.Source
 	var currentRevision, currentNextRunAt, currentCreatedAt int64
 	var enabled, pendingDelete, applied int
-	err = tx.QueryRowContext(ctx, `SELECT egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at FROM policy_v2_sources WHERE id = ?`, source.ID).Scan(
-		&current.EgressID, &current.Type, &current.Kind, &current.Name, &current.URL, &current.Schedule, &enabled, &current.ActiveVersionID, &current.PendingVersionID, &current.LastGoodVersionID, &current.ETag, &current.LastModified, &currentNextRunAt, &currentRevision, &pendingDelete, &applied, &currentCreatedAt,
+	err = tx.QueryRowContext(ctx, `SELECT egress_id, type, kind, preset_id, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at FROM policy_v2_sources WHERE id = ?`, source.ID).Scan(
+		&current.EgressID, &current.Type, &current.Kind, &current.PresetID, &current.Name, &current.URL, &current.Schedule, &enabled, &current.ActiveVersionID, &current.PendingVersionID, &current.LastGoodVersionID, &current.ETag, &current.LastModified, &currentNextRunAt, &currentRevision, &pendingDelete, &applied, &currentCreatedAt,
 	)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -360,6 +690,7 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 		// Content kind is fixed at creation like the entry type; edits keep
 		// the stored value so legacy clients cannot flip it accidentally.
 		source.Kind = policyv2.NormalizeSourceKind(current.Kind)
+		source.PresetID = current.PresetID
 		source.ActiveVersionID = current.ActiveVersionID
 		source.PendingVersionID = current.PendingVersionID
 		source.LastGoodVersionID = current.LastGoodVersionID
@@ -376,14 +707,20 @@ func (r *PolicyRepository) SaveSource(ctx context.Context, source policyv2.Sourc
 		source.CreatedAt = timeFromUnix(currentCreatedAt)
 	}
 	source.UpdatedAt = now
-	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_sources (id, egress_id, type, kind, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET egress_id=excluded.egress_id, type=excluded.type, kind=excluded.kind, name=excluded.name, url=excluded.url, schedule=excluded.schedule, enabled=excluded.enabled, active_version_id=excluded.active_version_id, pending_version_id=excluded.pending_version_id, last_good_version_id=excluded.last_good_version_id, etag=excluded.etag, last_modified=excluded.last_modified, next_run_at=excluded.next_run_at, revision=excluded.revision, updated_at=excluded.updated_at`,
-		source.ID, source.EgressID, source.Type, source.Kind, source.Name, source.URL, source.Schedule, boolToInt(source.Enabled), source.ActiveVersionID, source.PendingVersionID, source.LastGoodVersionID, source.ETag, source.LastModified, unixTime(source.NextRunAt), source.Revision, boolToInt(source.Applied), unixTime(source.CreatedAt), unixTime(source.UpdatedAt))
+	_, err = tx.ExecContext(ctx, `INSERT INTO policy_v2_sources (id, egress_id, type, kind, preset_id, name, url, schedule, enabled, active_version_id, pending_version_id, last_good_version_id, etag, last_modified, next_run_at, revision, pending_delete, applied, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET egress_id=excluded.egress_id, type=excluded.type, kind=excluded.kind, preset_id=excluded.preset_id, name=excluded.name, url=excluded.url, schedule=excluded.schedule, enabled=excluded.enabled, active_version_id=excluded.active_version_id, pending_version_id=excluded.pending_version_id, last_good_version_id=excluded.last_good_version_id, etag=excluded.etag, last_modified=excluded.last_modified, next_run_at=excluded.next_run_at, revision=excluded.revision, updated_at=excluded.updated_at`,
+		source.ID, source.EgressID, source.Type, source.Kind, source.PresetID, source.Name, source.URL, source.Schedule, boolToInt(source.Enabled), source.ActiveVersionID, source.PendingVersionID, source.LastGoodVersionID, source.ETag, source.LastModified, unixTime(source.NextRunAt), source.Revision, boolToInt(source.Applied), unixTime(source.CreatedAt), unixTime(source.UpdatedAt))
 	if err != nil {
 		return policyv2.Source{}, fmt.Errorf("save policy source: %w", err)
 	}
-	if err := bumpDesiredRevision(ctx, tx); err != nil {
+	domains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, source.ID)
+	if err != nil {
+		return policyv2.Source{}, fmt.Errorf("resolve target list consumers: %w", err)
+	}
+	domains.Routing = domains.Routing || beforeDomains.Routing
+	domains.Access = domains.Access || beforeDomains.Access
+	if err := bumpTargetConsumerDomains(ctx, tx, r.store.deviceID, domains); err != nil {
 		return policyv2.Source{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -401,10 +738,14 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	var currentRevision int64
 	var applied int
 	var activeVersion string
-	if err := tx.QueryRowContext(ctx, `SELECT revision, applied, active_version_id FROM policy_v2_sources WHERE id = ?`, id).Scan(&currentRevision, &applied, &activeVersion); errors.Is(err, sql.ErrNoRows) {
+	var sourceType string
+	if err := tx.QueryRowContext(ctx, `SELECT revision, applied, active_version_id, type FROM policy_v2_sources WHERE id = ?`, id).Scan(&currentRevision, &applied, &activeVersion, &sourceType); errors.Is(err, sql.ErrNoRows) {
 		return policyv2.ErrSourceNotFound
 	} else if err != nil {
 		return err
+	}
+	if sourceType == policyv2.TargetSourceTypePreset {
+		return policyv2.ErrPresetTargetListProtected
 	}
 	if revision != currentRevision {
 		return policyv2.ErrRevisionStale
@@ -416,6 +757,17 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	if accessReferences > 0 {
 		return policyv2.ErrSourceInUse
 	}
+	var routingReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM policy_v2_routing_rule_targets WHERE target_id = ?`, id).Scan(&routingReferences); err != nil {
+		return fmt.Errorf("check routing rule target references: %w", err)
+	}
+	if routingReferences > 0 {
+		return policyv2.ErrTargetListInUse
+	}
+	domains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, id)
+	if err != nil {
+		return err
+	}
 	if applied != 0 || activeVersion != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE policy_v2_sources SET egress_id = '', enabled = 0, pending_delete = 1, revision = revision + 1, updated_at = ? WHERE id = ?`, unixTime(time.Now().UTC()), id)
 	} else {
@@ -424,7 +776,7 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	if err != nil {
 		return err
 	}
-	if err := bumpDesiredRevision(ctx, tx); err != nil {
+	if err := bumpTargetConsumerDomains(ctx, tx, r.store.deviceID, domains); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -467,7 +819,11 @@ func (r *PolicyRepository) SavePendingSourceVersion(ctx context.Context, version
 	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET pending_version_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, version.ID, unixTime(time.Now().UTC()), version.SourceID); err != nil {
 		return err
 	}
-	if err := bumpDesiredRevision(ctx, tx); err != nil {
+	domains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, version.SourceID)
+	if err != nil {
+		return err
+	}
+	if err := bumpTargetConsumerDomains(ctx, tx, r.store.deviceID, domains); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -530,7 +886,11 @@ func (r *PolicyRepository) SaveSourceRefresh(ctx context.Context, source policyv
 		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET pending_version_id = ?, etag = ?, last_modified = ?, next_run_at = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, pendingID, etag, lastModified, unixTime(nextRunAt), unixTime(now), source.ID); err != nil {
 			return err
 		}
-		if err := bumpDesiredRevision(ctx, tx); err != nil {
+		domains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, source.ID)
+		if err != nil {
+			return err
+		}
+		if err := bumpTargetConsumerDomains(ctx, tx, r.store.deviceID, domains); err != nil {
 			return err
 		}
 	} else {
@@ -646,13 +1006,26 @@ func (r *PolicyRepository) SaveTrafficIngress(ctx context.Context, payload []byt
 	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET lan_scope_json = ? WHERE id = 1`, string(scopeJSON)); err != nil {
 		return policyv2.DeviceState{}, err
 	}
-	if err := bumpDesiredRevision(ctx, tx); err != nil {
-		return policyv2.DeviceState{}, err
+	if !routingRuleIngressMigrationCompleteTx(ctx, tx) {
+		if err := bumpDesiredRevision(ctx, tx); err != nil {
+			return policyv2.DeviceState{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return policyv2.DeviceState{}, err
 	}
 	return r.GetDeviceState(ctx)
+}
+
+func routingRuleIngressMigrationCompleteTx(ctx context.Context, tx *sql.Tx) bool {
+	var authority, ingressMigration string
+	if err := tx.QueryRowContext(ctx, `SELECT value FROM policy_v2_schema_meta WHERE key = ?`, policyv2.RoutingRuleAuthorityKey).Scan(&authority); err != nil {
+		return false
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT value FROM policy_v2_schema_meta WHERE key = 'routing_rule_ingress_migrated'`).Scan(&ingressMigration); err != nil {
+		return false
+	}
+	return authority == policyv2.RoutingRuleAuthorityV1 && ingressMigration == policyv2.RoutingRuleAuthorityV1
 }
 
 func (r *PolicyRepository) SaveApplyJob(ctx context.Context, job policyv2.ApplyJob) error {
@@ -677,6 +1050,142 @@ func (r *PolicyRepository) GetApplyJob(ctx context.Context, id string) (policyv2
 		return policyv2.ApplyJob{}, policyv2.ErrJobNotFound
 	}
 	return state.Job, nil
+}
+
+func (r *PolicyRepository) CommitRoutingApply(ctx context.Context, desiredRevision int64, appliedHash string, job policyv2.ApplyJob, promotions []policyv2.TargetVersionPromotion) error {
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var currentRevision int64
+	if err := tx.QueryRowContext(ctx, `SELECT desired_revision FROM policy_v2_device_state WHERE id = 1`).Scan(&currentRevision); err != nil {
+		return err
+	}
+	if currentRevision != desiredRevision {
+		return policyv2.ErrRevisionStale
+	}
+	if err := promoteTargetVersionsTx(ctx, tx, promotions); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_egresses SET applied = 1 WHERE pending_delete = 0`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_egresses WHERE pending_delete = 1 AND origin = 'policy' AND NOT EXISTS (SELECT 1 FROM policy_v2_routing_rules WHERE egress_id = policy_v2_egresses.id) AND NOT EXISTS (SELECT 1 FROM policy_v2_sources WHERE egress_id = policy_v2_egresses.id)`); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	if err := updatePolicyJobTx(ctx, tx, job); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET applied_revision = ?, applied_hash = ?, applied_at = ? WHERE id = 1`, desiredRevision, appliedHash, unixTime(now))
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("policy device state is missing")
+	}
+	return tx.Commit()
+}
+
+func (r *PolicyRepository) CommitAccessApply(ctx context.Context, accessRevision int64, _ string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, promotions []policyv2.TargetVersionPromotion) error {
+	tx, err := r.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var currentRevision int64
+	if err := tx.QueryRowContext(ctx, `SELECT desired_revision FROM access_control_state WHERE device_id = ?`, r.store.deviceID).Scan(&currentRevision); err != nil {
+		return err
+	}
+	if currentRevision != accessRevision {
+		return policyv2.ErrRevisionStale
+	}
+	if err := promoteTargetVersionsTx(ctx, tx, promotions); err != nil {
+		return err
+	}
+	for _, resolution := range resolutions {
+		if err := saveMemberResolutionTx(ctx, tx, r.store.deviceID, resolution); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	if err := updatePolicyJobTx(ctx, tx, job); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE access_control_state SET applied_revision = ?, applied_at = ? WHERE device_id = ?`, accessRevision, unixTime(now), r.store.deviceID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("access-control state is missing")
+	}
+	return tx.Commit()
+}
+
+func promoteTargetVersionsTx(ctx context.Context, tx *sql.Tx, promotions []policyv2.TargetVersionPromotion) error {
+	seen := make(map[string]bool, len(promotions))
+	now := unixTime(time.Now().UTC())
+	for _, promotion := range promotions {
+		key := promotion.TargetListID + "\x00" + promotion.VersionID
+		if seen[key] || promotion.TargetListID == "" || promotion.VersionID == "" {
+			continue
+		}
+		seen[key] = true
+		var pending, active string
+		if err := tx.QueryRowContext(ctx, `SELECT pending_version_id, active_version_id FROM policy_v2_sources WHERE id = ?`, promotion.TargetListID).Scan(&pending, &active); errors.Is(err, sql.ErrNoRows) {
+			return policyv2.ErrTargetListNotFound
+		} else if err != nil {
+			return err
+		}
+		if active == promotion.VersionID {
+			continue
+		}
+		if pending != promotion.VersionID {
+			return policyv2.ErrRevisionStale
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_source_versions SET state = 'success' WHERE id = ? AND source_id = ?`, promotion.VersionID, promotion.TargetListID); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE policy_v2_sources SET active_version_id = ?, last_good_version_id = ?, pending_version_id = '', applied = 1, updated_at = ? WHERE id = ? AND pending_version_id = ?`, promotion.VersionID, promotion.VersionID, now, promotion.TargetListID, promotion.VersionID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return policyv2.ErrRevisionStale
+		}
+	}
+	return nil
+}
+
+func updatePolicyJobTx(ctx context.Context, tx *sql.Tx, job policyv2.ApplyJob) error {
+	result, err := tx.ExecContext(ctx, `UPDATE policy_v2_device_state SET job_id = ?, job_plan_id = ?, job_state = ?, job_phase = ?, job_progress = ?, job_error = ?, job_created_at = ?, job_started_at = ?, job_finished_at = ? WHERE id = 1`,
+		job.ID, job.PlanID, job.State, job.Phase, job.Progress, job.Error, unixTime(job.CreatedAt), unixTime(job.StartedAt), unixTime(job.FinishedAt))
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("policy device state is missing")
+	}
+	return nil
 }
 
 func (r *PolicyRepository) CommitApply(ctx context.Context, desiredRevision, accessRevision int64, appliedHash string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, applyPolicy bool) error {
@@ -770,7 +1279,7 @@ func scanEgress(row rowScanner) (policyv2.Egress, error) {
 	var egress policyv2.Egress
 	var routerOutput, enabled, pendingDelete, applied int
 	var createdAt, updatedAt int64
-	err := row.Scan(&egress.ID, &egress.Name, &egress.Priority, &egress.ListMode, &egress.ListName, &egress.DNSUpstream, &egress.FakeAlias, &egress.FailureMode, &routerOutput, &enabled, &egress.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
+	err := row.Scan(&egress.ID, &egress.Origin, &egress.Name, &egress.Priority, &egress.ListMode, &egress.ListName, &egress.DNSUpstream, &egress.FakeAlias, &egress.FailureMode, &routerOutput, &enabled, &egress.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
 	if err != nil {
 		return policyv2.Egress{}, err
 	}
@@ -809,7 +1318,7 @@ func scanSource(row rowScanner) (policyv2.Source, error) {
 	var source policyv2.Source
 	var enabled, pendingDelete, applied int
 	var nextRunAt, createdAt, updatedAt int64
-	err := row.Scan(&source.ID, &source.EgressID, &source.Type, &source.Kind, &source.Name, &source.URL, &source.Schedule, &enabled, &source.ActiveVersionID, &source.PendingVersionID, &source.LastGoodVersionID, &source.ETag, &source.LastModified, &nextRunAt, &source.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
+	err := row.Scan(&source.ID, &source.EgressID, &source.Type, &source.Kind, &source.PresetID, &source.Name, &source.URL, &source.Schedule, &enabled, &source.ActiveVersionID, &source.PendingVersionID, &source.LastGoodVersionID, &source.ETag, &source.LastModified, &nextRunAt, &source.Revision, &pendingDelete, &applied, &createdAt, &updatedAt)
 	if err != nil {
 		return policyv2.Source{}, err
 	}
@@ -829,6 +1338,13 @@ func activeSourceCounts(source policyv2.Source) map[string]int {
 	for _, version := range source.Versions {
 		if version.ID == source.ActiveVersionID {
 			return nonNilCounts(version.Counts)
+		}
+	}
+	if source.ActiveVersionID == "" {
+		for _, version := range source.Versions {
+			if version.ID == source.PendingVersionID {
+				return nonNilCounts(version.Counts)
+			}
 		}
 	}
 	return map[string]int{}

@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"rosboard/internal/applicationcatalog"
 	"rosboard/internal/config"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
@@ -61,46 +61,6 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 	server.ServeHTTP(postResponse, httptest.NewRequest(http.MethodPost, "/api/fleet-overview", nil))
 	if postResponse.Code != http.StatusMethodNotAllowed || postResponse.Header().Get("Allow") != http.MethodGet {
 		t.Fatalf("POST status=%d allow=%q", postResponse.Code, postResponse.Header().Get("Allow"))
-	}
-}
-
-func TestApplicationCatalogStatusRoute(t *testing.T) {
-	server := NewServer(config.Config{}, nil, nil)
-	response := httptest.NewRecorder()
-	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/application-catalog", nil))
-	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"lastSuccess"`) {
-		t.Fatalf("unconfigured catalog status=%d body=%s", response.Code, response.Body.String())
-	}
-
-	path := filepath.Join(t.TempDir(), "feature.cfg")
-	if err := os.WriteFile(path, []byte(`#version v1
-#format v3.0
-1101 Example:[tcp;;;example.com;;]
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	catalog := applicationcatalog.New(path, time.Hour)
-	if err := catalog.Refresh(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	server.SetApplicationCatalog(catalog)
-	response = httptest.NewRecorder()
-	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/application-catalog", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("catalog status=%d body=%s", response.Code, response.Body.String())
-	}
-	var status applicationcatalog.CatalogStatus
-	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.Source != path || status.LastSuccess == nil || status.Version != "v1" || status.ApplicationCount != 1 || status.DomainCount != 1 {
-		t.Fatalf("unexpected catalog status: %+v", status)
-	}
-
-	response = httptest.NewRecorder()
-	server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/application-catalog", nil))
-	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != http.MethodGet {
-		t.Fatalf("POST catalog status=%d allow=%q", response.Code, response.Header().Get("Allow"))
 	}
 }
 
@@ -244,8 +204,8 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":true`) {
 		t.Fatalf("unexpected protocol analysis projection: %+v", payload.ProtocolAnalysis)
 	}
-	if !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":true`) {
-		t.Fatalf("device projection must preserve stored feature library toggle: %s", response.Body.String())
+	if !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":false`) || strings.Contains(response.Body.String(), "example.test/library.yml") {
+		t.Fatalf("retired feature library must not be exposed as active settings: %s", response.Body.String())
 	}
 }
 
@@ -367,15 +327,15 @@ func TestRecognitionSettingsPostSavesPerDeviceRecognition(t *testing.T) {
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
 		Devices: []config.DeviceConfig{
-			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}},
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/legacy.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 45}},
 			{ID: "core", Name: "Core", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://core.test", Username: "u", Password: "p"}},
 		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
 		"devices":[
-			{"id":"edge","protocolAnalysis":true,"mosdns":{"enabled":true,"baseUrl":"10.0.0.4","syncIntervalMinutes":15},"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}},
-			{"id":"core","protocolAnalysis":true,"mosdns":{"enabled":false,"baseUrl":"","syncIntervalMinutes":30},"featureLibrary":{"enabled":false,"sourceUrl":"","refreshIntervalHours":168,"matchWindowMinutes":30}}
+			{"id":"edge","protocolAnalysis":true,"mosdns":{"enabled":true,"baseUrl":"10.0.0.4","syncIntervalMinutes":15,"matchWindowMinutes":22}},
+			{"id":"core","protocolAnalysis":true,"mosdns":{"enabled":false,"baseUrl":"","syncIntervalMinutes":30,"matchWindowMinutes":30}}
 		]
 	}`))
 	response := httptest.NewRecorder()
@@ -391,11 +351,11 @@ func TestRecognitionSettingsPostSavesPerDeviceRecognition(t *testing.T) {
 	if !found || !edge.ProtocolAnalysis {
 		t.Fatalf("edge protocol analysis was not saved: %#v", edge)
 	}
-	if !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.4" || edge.MosDNS.SyncIntervalMinutes != 15 {
+	if !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.4" || edge.MosDNS.SyncIntervalMinutes != 15 || edge.MosDNS.MatchWindowMinutes != 22 {
 		t.Fatalf("edge device MosDNS was not saved: %#v", edge.MosDNS)
 	}
-	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/updated.yml" || edge.FeatureLibrary.RefreshIntervalHours != 24 || edge.FeatureLibrary.MatchWindowMinutes != 45 {
-		t.Fatalf("edge device feature library was not saved: %#v", edge.FeatureLibrary)
+	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/legacy.yml" || edge.FeatureLibrary.RefreshIntervalHours != 24 || edge.FeatureLibrary.MatchWindowMinutes != 45 {
+		t.Fatalf("legacy feature library fields must be preserved but not actively saved: %#v", edge.FeatureLibrary)
 	}
 	core, found := loaded.Device("core")
 	if !found || core.MosDNS.Enabled || core.FeatureLibrary.Enabled {
@@ -403,17 +363,17 @@ func TestRecognitionSettingsPostSavesPerDeviceRecognition(t *testing.T) {
 	}
 }
 
-func TestRecognitionSettingsMasterSwitchDisablesChildren(t *testing.T) {
+func TestRecognitionSettingsMasterSwitchDoesNotDisableMosDNS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
 		Devices: []config.DeviceConfig{
-			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, ProtocolAnalysis: true},
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, ProtocolAnalysis: true, FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/legacy.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30}},
 		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"devices":[{"id":"edge","protocolAnalysis":false,"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}}]
+		"devices":[{"id":"edge","protocolAnalysis":false,"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30,"matchWindowMinutes":18}}]
 	}`))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -428,8 +388,11 @@ func TestRecognitionSettingsMasterSwitchDisablesChildren(t *testing.T) {
 	if !found {
 		t.Fatal("edge device disappeared")
 	}
-	if edge.ProtocolAnalysis || edge.MosDNS.Enabled || edge.FeatureLibrary.Enabled {
-		t.Fatalf("per-device protocol analysis disable must force child toggles off: %#v", edge)
+	if edge.ProtocolAnalysis || !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.3" || edge.MosDNS.MatchWindowMinutes != 18 {
+		t.Fatalf("protocol analysis switch must not disable MosDNS: %#v", edge)
+	}
+	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/legacy.yml" {
+		t.Fatalf("legacy feature library fields must remain untouched: %#v", edge.FeatureLibrary)
 	}
 }
 
@@ -644,7 +607,7 @@ func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
 	}
 }
 
-func newDeviceOrderTestServer(t *testing.T, devices []config.DeviceConfig) (*Server, string, *int) {
+func newDeviceOrderTestServer(t *testing.T, devices []config.DeviceConfig) (*Server, string, *atomic.Int32) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
@@ -664,8 +627,8 @@ func newDeviceOrderTestServer(t *testing.T, devices []config.DeviceConfig) (*Ser
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarts := 0
-	server := NewServerWithManager(loaded, nil, nil, nil, func() { restarts++ })
+	var restarts atomic.Int32
+	server := NewServerWithManager(loaded, nil, nil, nil, func() { restarts.Add(1) })
 	return server, path, &restarts
 }
 
@@ -726,8 +689,8 @@ func TestDeviceReorderPersistsOrderSkipsRestartAndAlignsResponses(t *testing.T) 
 	if result.Restarting {
 		t.Fatal("reorder must not restart the panel")
 	}
-	if *restarts != 0 {
-		t.Fatalf("reorder scheduled %d restarts", *restarts)
+	if restarts.Load() != 0 {
+		t.Fatalf("reorder scheduled %d restarts", restarts.Load())
 	}
 
 	deviceResponse := httptest.NewRecorder()
@@ -790,8 +753,8 @@ func TestDeviceReorderRejectsInvalidRequestsWithoutChangingConfig(t *testing.T) 
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
-			if *restarts != 0 {
-				t.Fatalf("rejected reorder scheduled %d restarts", *restarts)
+			if restarts.Load() != 0 {
+				t.Fatalf("rejected reorder scheduled %d restarts", restarts.Load())
 			}
 			loaded, err := config.Load(path)
 			if err != nil {

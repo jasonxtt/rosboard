@@ -3,20 +3,22 @@ package accesscontrol
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net"
 	"net/netip"
 	"sort"
 	"strings"
 	"time"
+
+	"rosboard/internal/subject"
 )
 
 // Target scopes of a logical access rule. "internet" is a first-class scope
 // meaning "block internet but keep locally identified networks"; it must never
 // be modelled as a fake source or a 0.0.0.0/0 address-list entry.
 const (
-	TargetScopeInternet = "internet"
-	TargetScopeSources  = "sources"
+	TargetScopeInternet     = "internet"
+	TargetScopeTargets      = "targets"
+	TargetScopeSources      = "sources"
+	TargetScopeApplications = "applications"
 )
 
 // Member bindings. Auto-follow projects the terminal's current addresses from
@@ -34,11 +36,12 @@ const (
 )
 
 var (
-	ErrRuleNotFound         = errors.New("access rule not found")
-	ErrRevisionStale        = errors.New("access rule revision is stale")
-	ErrMemberDuplicate      = errors.New("terminal is already a member of this rule")
-	ErrMemberAnchorRequired = errors.New("auto-follow member requires a stable MAC anchor")
-	ErrMemberAnchorChanged  = errors.New("auto-follow member identity anchor changed")
+	ErrRuleNotFound          = errors.New("access rule not found")
+	ErrRevisionStale         = errors.New("access rule revision is stale")
+	ErrMemberDuplicate       = errors.New("terminal is already a member of this rule")
+	ErrMemberAnchorRequired  = errors.New("auto-follow member requires a stable MAC anchor")
+	ErrMemberAnchorChanged   = errors.New("auto-follow member identity anchor changed")
+	ErrCanonicalRuleRequired = errors.New("canonical access rule is required")
 )
 
 // AccessRule is the user-facing logical entity. Multi-client and multi-source
@@ -46,14 +49,22 @@ var (
 // schedule windows and shared daily quotas aggregate on this rule identity,
 // which is why terminal/source pairs must not become the primary entity.
 type AccessRule struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	TargetScope string    `json:"targetScope"`
-	SourceIDs   []string  `json:"sourceIds"`
-	Enabled     bool      `json:"enabled"`
-	Revision    int64     `json:"revision"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Subject       subject.Subject `json:"subject"`
+	TargetScope   string          `json:"targetScope"`
+	TargetListIDs []string        `json:"targetListIds"`
+	Enabled       bool            `json:"enabled"`
+	Revision      int64           `json:"revision"`
+	CreatedAt     time.Time       `json:"createdAt"`
+	UpdatedAt     time.Time       `json:"updatedAt"`
+
+	// These fields are deliberately retained only as a physical/read
+	// compatibility seam for the Slice 3 migration. Canonical API and desired
+	// state never use them as authority.
+	SourceIDs       []string `json:"-"`
+	ApplicationIDs  []string `json:"-"`
+	MigrationIssues []string `json:"-"`
 }
 
 // RuleMember is one controlled terminal inside a logical rule. LastIPv4/6 hold
@@ -231,17 +242,45 @@ func ValidateRule(rule AccessRule) error {
 	if strings.TrimSpace(rule.Name) == "" {
 		return errors.New("rule name is required")
 	}
+	if rule.Subject.Mode == subject.ModeAll || rule.Subject.Mode == subject.ModeExcluded || len(rule.Subject.Members) != 0 || len(rule.Subject.Prefixes) != 0 {
+		if _, err := subject.Normalize(rule.Subject); err != nil {
+			return err
+		}
+	}
+	if rule.Subject.Mode == subject.ModeExcluded {
+		return errors.New("access-control subject mode must be all or selected")
+	}
 	switch rule.TargetScope {
 	case TargetScopeInternet:
-		if len(rule.SourceIDs) != 0 {
-			return errors.New("internet scope rules must not reference sources")
+		if len(rule.TargetListIDs) != 0 || len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
+			return errors.New("internet scope rules must not reference targets")
+		}
+		if rule.Subject.Mode != "" && rule.Subject.Mode != subject.ModeAll && rule.Subject.Mode != subject.ModeSelected {
+			return errors.New("access-control subject mode must be all or selected")
+		}
+	case TargetScopeTargets:
+		if len(rule.TargetListIDs) == 0 && (rule.Enabled || len(rule.MigrationIssues) == 0) {
+			return errors.New("targets scope rules require at least one target list")
+		}
+		if len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
+			return errors.New("targets scope rules must not reference legacy sources or applications")
 		}
 	case TargetScopeSources:
 		if len(rule.SourceIDs) == 0 {
 			return errors.New("sources scope rules require at least one source")
 		}
+		if len(rule.ApplicationIDs) != 0 {
+			return errors.New("sources scope rules must not reference applications")
+		}
+	case TargetScopeApplications:
+		if len(rule.ApplicationIDs) == 0 {
+			return errors.New("applications scope rules require at least one application")
+		}
+		if len(rule.SourceIDs) != 0 {
+			return errors.New("applications scope rules must not reference sources")
+		}
 	default:
-		return errors.New("targetScope must be internet or sources")
+		return errors.New("targetScope must be internet or targets")
 	}
 	return nil
 }
@@ -283,6 +322,34 @@ func NormalizeRule(rule AccessRule) (AccessRule, error) {
 	rule.ID = strings.TrimSpace(rule.ID)
 	rule.Name = strings.TrimSpace(rule.Name)
 	rule.TargetScope = strings.TrimSpace(rule.TargetScope)
+	if strings.TrimSpace(rule.Subject.Mode) == "" {
+		rule.Subject.Mode = subject.ModeSelected
+	}
+	if rule.TargetScope == TargetScopeInternet && rule.Subject.Mode == "" {
+		rule.Subject.Mode = subject.ModeAll
+	}
+	if rule.Subject.Mode != subject.ModeSelected || len(rule.Subject.Members) != 0 || len(rule.Subject.Prefixes) != 0 {
+		var err error
+		rule.Subject, err = subject.Normalize(rule.Subject)
+		if err != nil {
+			return AccessRule{}, err
+		}
+	}
+	if rule.Subject.Mode == subject.ModeExcluded {
+		return AccessRule{}, errors.New("access-control subject mode must be all or selected")
+	}
+	targetIDs := make([]string, 0, len(rule.TargetListIDs))
+	seenTargets := make(map[string]bool, len(rule.TargetListIDs))
+	for _, targetID := range rule.TargetListIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" || seenTargets[targetID] {
+			continue
+		}
+		seenTargets[targetID] = true
+		targetIDs = append(targetIDs, targetID)
+	}
+	sort.Strings(targetIDs)
+	rule.TargetListIDs = targetIDs
 	sourceIDs := make([]string, 0, len(rule.SourceIDs))
 	seen := make(map[string]bool, len(rule.SourceIDs))
 	for _, sourceID := range rule.SourceIDs {
@@ -295,6 +362,18 @@ func NormalizeRule(rule AccessRule) (AccessRule, error) {
 	}
 	sort.Strings(sourceIDs)
 	rule.SourceIDs = sourceIDs
+	applicationIDs := make([]string, 0, len(rule.ApplicationIDs))
+	seenApplications := make(map[string]bool, len(rule.ApplicationIDs))
+	for _, applicationID := range rule.ApplicationIDs {
+		applicationID = strings.TrimSpace(applicationID)
+		if applicationID == "" || seenApplications[applicationID] {
+			continue
+		}
+		seenApplications[applicationID] = true
+		applicationIDs = append(applicationIDs, applicationID)
+	}
+	sort.Strings(applicationIDs)
+	rule.ApplicationIDs = applicationIDs
 	if err := ValidateRule(rule); err != nil {
 		return AccessRule{}, err
 	}
@@ -341,32 +420,7 @@ func NormalizeMember(member RuleMember) (RuleMember, error) {
 // canonical upper-case colon-separated form. A non-empty but malformed value
 // must never be treated as a reliable terminal identity.
 func NormalizeMAC(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", nil
-	}
-	parsed, err := net.ParseMAC(trimmed)
-	if err != nil || len(parsed) != 6 {
-		return "", fmt.Errorf("invalid terminal MAC address")
-	}
-	if parsed[0]&1 != 0 {
-		return "", fmt.Errorf("terminal MAC address must be unicast")
-	}
-	allZero := true
-	for _, octet := range parsed {
-		if octet != 0 {
-			allZero = false
-			break
-		}
-	}
-	if allZero {
-		return "", fmt.Errorf("terminal MAC address must not be all zero")
-	}
-	parts := make([]string, len(parsed))
-	for index, octet := range parsed {
-		parts[index] = fmt.Sprintf("%02X", octet)
-	}
-	return strings.Join(parts, ":"), nil
+	return subject.NormalizeMAC(value)
 }
 
 func IsReliableMAC(value string) bool {
@@ -375,29 +429,5 @@ func IsReliableMAC(value string) bool {
 }
 
 func normalizeAddresses(values []string, ipv4 bool) ([]string, error) {
-	seen := make(map[string]bool)
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		address, err := netip.ParseAddr(strings.TrimSpace(value))
-		if err != nil || address.Zone() != "" || address.Is4() != ipv4 {
-			family := "IPv6"
-			if ipv4 {
-				family = "IPv4"
-			}
-			return nil, errors.New("invalid " + family + " address")
-		}
-		// Link-local IPv6 addresses are interface-scoped and cannot be used
-		// reliably in a forwarded RouterOS address-list rule. Keep all other
-		// valid IPv6 addresses, including ULA addresses.
-		if !ipv4 && address.IsLinkLocalUnicast() {
-			continue
-		}
-		canonical := address.String()
-		if !seen[canonical] {
-			seen[canonical] = true
-			result = append(result, canonical)
-		}
-	}
-	sort.Strings(result)
-	return result, nil
+	return subject.NormalizeAddresses(values, ipv4)
 }

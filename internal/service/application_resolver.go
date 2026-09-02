@@ -6,64 +6,99 @@ import (
 	"sync"
 	"time"
 
+	"rosboard/internal/applicationpreset"
 	mosclient "rosboard/internal/mosdns"
 	"rosboard/internal/store"
 )
 
+type dnsEvidence struct {
+	domain    string
+	queryTime time.Time
+	expiresAt time.Time
+}
+
 type ApplicationResolver struct {
 	storage       *store.Store
-	feature       *FeatureLibrarySynchronizer
+	registry      *applicationpreset.Registry
 	matchWindow   time.Duration
 	cacheDuration time.Duration
 
 	mu            sync.RWMutex
 	refreshMu     sync.Mutex
 	cacheLoadedAt time.Time
-	domains       map[string]string
+	cacheSince    time.Time
+	cacheUntil    time.Time
+	evidence      map[string][]dnsEvidence
+	entries       []applicationpreset.DomainEntry
 }
 
-func NewApplicationResolver(storage *store.Store, feature *FeatureLibrarySynchronizer, mosEnabled bool, matchWindowMinutes int) *ApplicationResolver {
-	if storage == nil || feature == nil || !mosEnabled || matchWindowMinutes <= 0 {
+// NewApplicationResolver uses only materialized curated preset TargetLists
+// for attribution.
+func NewApplicationResolver(storage *store.Store, mosEnabled bool, matchWindowMinutes int) *ApplicationResolver {
+	return NewApplicationResolverWithRegistry(storage, applicationpreset.Default(), mosEnabled, matchWindowMinutes)
+}
+
+func NewApplicationResolverWithRegistry(storage *store.Store, registry *applicationpreset.Registry, mosEnabled bool, matchWindowMinutes int) *ApplicationResolver {
+	if storage == nil || !mosEnabled || matchWindowMinutes <= 0 {
 		return nil
+	}
+	if registry == nil {
+		registry = applicationpreset.Default()
 	}
 	return &ApplicationResolver{
 		storage:       storage,
-		feature:       feature,
+		registry:      registry,
 		matchWindow:   time.Duration(matchWindowMinutes) * time.Minute,
 		cacheDuration: 30 * time.Second,
-		domains:       make(map[string]string),
+		evidence:      make(map[string][]dnsEvidence),
 	}
 }
 
-func (r *ApplicationResolver) Resolve(ctx context.Context, clientIP, answerIP string, at time.Time) (string, string, bool) {
+func (r *ApplicationResolver) Resolve(ctx context.Context, clientIP, answerIP string, at time.Time) (string, string, string, bool) {
 	if r == nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	clientIP = mosclient.NormalizeClientIP(clientIP)
 	answerIP = mosclient.NormalizeAnswerIP(answerIP)
 	if clientIP == "" || answerIP == "" {
-		return "", "", false
+		return "", "", "", false
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
 	}
 	if err := r.refresh(ctx, at); err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	r.mu.RLock()
-	domain := r.domains[clientIP+"\x00"+answerIP]
+	evidence := append([]dnsEvidence(nil), r.evidence[clientIP+"\x00"+answerIP]...)
+	entries := append([]applicationpreset.DomainEntry(nil), r.entries...)
 	r.mu.RUnlock()
-	if domain == "" {
-		return "", "", false
+	for _, candidate := range evidence {
+		if !candidate.validAt(at, r.matchWindow) {
+			continue
+		}
+		match := r.registry.MatchDomain(candidate.domain, entries)
+		if match.Ambiguous || match.Preset.ID == "" {
+			return "", "", candidate.domain, false
+		}
+		return match.Preset.ID, match.Preset.Name, candidate.domain, true
 	}
-	application, ok := r.feature.Lookup(domain)
-	if !ok {
-		return "", domain, false
-	}
-	return application, domain, true
+	return "", "", "", false
 }
 
 func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
+	}
+	since := at.Add(-r.matchWindow)
+	until := at.Add(2 * time.Minute)
 	now := time.Now().UTC()
 	r.mu.RLock()
-	fresh := !r.cacheLoadedAt.IsZero() && now.Sub(r.cacheLoadedAt) < r.cacheDuration
+	fresh := r.cacheIsFresh(now, at)
 	r.mu.RUnlock()
 	if fresh {
 		return nil
@@ -71,48 +106,50 @@ func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
 	r.refreshMu.Lock()
 	defer r.refreshMu.Unlock()
 	r.mu.RLock()
-	fresh = !r.cacheLoadedAt.IsZero() && time.Now().UTC().Sub(r.cacheLoadedAt) < r.cacheDuration
+	fresh = r.cacheIsFresh(time.Now().UTC(), at)
 	r.mu.RUnlock()
 	if fresh {
 		return nil
 	}
-	if at.IsZero() {
-		at = now
-	}
-	observations, err := r.storage.DNSObservationsForMatch(ctx, at.Add(-r.matchWindow), at.Add(2*time.Minute))
+	observations, err := r.storage.DNSObservationsForMatch(ctx, since, until)
 	if err != nil {
 		return err
 	}
-	features, err := r.storage.DNSFeaturesForMatch(ctx)
+	entries, err := r.storage.PolicyRepository().ListPresetDomainEntries(ctx)
 	if err != nil {
 		return err
 	}
-	domains := make(map[string]string, len(observations))
+	evidence := make(map[string][]dnsEvidence, len(observations))
 	for _, observation := range observations {
 		clientIP := mosclient.NormalizeClientIP(observation.ClientIP)
 		answerIP := mosclient.NormalizeAnswerIP(observation.AnswerIP)
-		if clientIP == "" || answerIP == "" || strings.TrimSpace(observation.Domain) == "" {
+		domain := strings.TrimSpace(observation.Domain)
+		if clientIP == "" || answerIP == "" || domain == "" || observation.QueryTime.IsZero() || observation.TTL <= 0 {
 			continue
 		}
 		key := clientIP + "\x00" + answerIP
-		if _, exists := domains[key]; !exists {
-			domains[key] = observation.Domain
-		}
-	}
-	for _, feature := range features {
-		clientIP := mosclient.NormalizeClientIP(feature.ClientIP)
-		answerIP := mosclient.NormalizeAnswerIP(feature.AnswerIP)
-		if clientIP == "" || answerIP == "" || strings.TrimSpace(feature.Domain) == "" {
-			continue
-		}
-		key := clientIP + "\x00" + answerIP
-		if _, exists := domains[key]; !exists {
-			domains[key] = feature.Domain
-		}
+		queryTime := observation.QueryTime.UTC()
+		evidence[key] = append(evidence[key], dnsEvidence{
+			domain:    domain,
+			queryTime: queryTime,
+			expiresAt: queryTime.Add(time.Duration(observation.TTL) * time.Second),
+		})
 	}
 	r.mu.Lock()
-	r.domains = domains
+	r.evidence = evidence
+	r.entries = entries
 	r.cacheLoadedAt = now
+	r.cacheSince = since
+	r.cacheUntil = until
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *ApplicationResolver) cacheIsFresh(now, at time.Time) bool {
+	return !r.cacheLoadedAt.IsZero() && now.Sub(r.cacheLoadedAt) < r.cacheDuration &&
+		!at.Before(r.cacheSince) && !at.After(r.cacheUntil)
+}
+
+func (evidence dnsEvidence) validAt(at time.Time, matchWindow time.Duration) bool {
+	return !evidence.queryTime.After(at) && at.Sub(evidence.queryTime) <= matchWindow && at.Before(evidence.expiresAt)
 }

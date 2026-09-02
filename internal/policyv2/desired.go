@@ -13,19 +13,22 @@ import (
 	"unicode"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/policy"
 	"rosboard/internal/routeros"
 )
 
 type DesiredResult struct {
+	Domain                   PolicyDomain
 	Revision                 int64
 	AccessRevision           int64
-	AccessSourceIDs          []string
+	AccessTargetIDs          []string
 	InternetEgressCandidates map[string][]accesscontrol.InternetEgressCandidate
 	Hash                     string
 	Objects                  []DesiredObject
 	Blockers                 []PlanIssue
 	Warnings                 []PlanIssue
 	AccessResolutions        []accesscontrol.MemberResolution
+	TargetPromotions         []TargetVersionPromotion
 }
 
 func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
@@ -36,22 +39,73 @@ type TerminalResolver func() []accesscontrol.Terminal
 
 type ScopeResolver func() accesscontrol.Scope
 
+type CanonicalAccessMigrator interface {
+	EnsureCanonicalAccessMigrated(context.Context) error
+}
+
 func BuildDesiredWithAccess(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver) (DesiredResult, error) {
 	return BuildDesiredWithAccessOptions(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, nil)
 }
 
 func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver, selectedInternetEgresses map[string][]string) (DesiredResult, error) {
-	state, err := repository.GetDeviceState(ctx)
-	if err != nil {
-		return DesiredResult{}, err
-	}
+	return buildDesiredForDomain(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, selectedInternetEgresses, PolicyDomainCombined)
+}
+
+func BuildRoutingDesired(ctx context.Context, repository Repository, reader PolicyReader, terminalResolver TerminalResolver) (DesiredResult, error) {
+	return buildDesiredForDomain(ctx, repository, reader, nil, terminalResolver, nil, nil, PolicyDomainRouting)
+}
+
+func BuildAccessDesired(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver) (DesiredResult, error) {
+	return BuildAccessDesiredWithOptions(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, nil)
+}
+
+func BuildAccessDesiredWithOptions(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver, selectedInternetEgresses map[string][]string) (DesiredResult, error) {
+	return buildDesiredForDomain(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, selectedInternetEgresses, PolicyDomainAccess)
+}
+
+func buildDesiredForDomain(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver, selectedInternetEgresses map[string][]string, domain PolicyDomain) (DesiredResult, error) {
+	return buildDesiredForDomainWithTargetScope(ctx, repository, reader, accessRepository, terminalResolver, scopeResolver, selectedInternetEgresses, domain, nil)
+}
+
+func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Repository, reader PolicyReader, accessRepository accesscontrol.Repository, terminalResolver TerminalResolver, scopeResolver ScopeResolver, selectedInternetEgresses map[string][]string, domain PolicyDomain, targetScope map[string]bool) (DesiredResult, error) {
+	routingDomain := domain == PolicyDomainRouting || domain == PolicyDomainCombined
+	accessDomain := domain == PolicyDomainAccess || domain == PolicyDomainCombined
 	managerID, err := repository.ManagerInstanceID(ctx)
 	if err != nil {
 		return DesiredResult{}, err
 	}
-	egresses, err := repository.ListEgresses(ctx)
-	if err != nil {
-		return DesiredResult{}, err
+	routingRepository, hasRoutingRepository := repository.(RoutingRuleRepository)
+	routingRulesAuthoritative := false
+	routingRules := []RoutingRule{}
+	if routingDomain && hasRoutingRepository {
+		if err := routingRepository.EnsureRoutingRulesMigrated(ctx); err != nil {
+			return DesiredResult{}, err
+		}
+		authority, err := routingRepository.RoutingAuthority(ctx)
+		if err != nil {
+			return DesiredResult{}, err
+		}
+		routingRulesAuthoritative = authority == RoutingRuleAuthorityV1
+		if routingRulesAuthoritative {
+			routingRules, err = routingRepository.ListRoutingRules(ctx)
+			if err != nil {
+				return DesiredResult{}, err
+			}
+		}
+	}
+	state := DeviceState{}
+	if routingDomain {
+		state, err = repository.GetDeviceState(ctx)
+		if err != nil {
+			return DesiredResult{}, err
+		}
+	}
+	egresses := []Egress{}
+	if routingDomain {
+		egresses, err = repository.ListEgresses(ctx)
+		if err != nil {
+			return DesiredResult{}, err
+		}
 	}
 	sources, err := repository.ListSources(ctx, "")
 	if err != nil {
@@ -59,11 +113,17 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 	}
 	accessRules := []accesscontrol.AccessRule{}
 	accessMembers := []accesscontrol.RuleMember{}
+	var accessMigrationErr error
 	// -1 means this is a policy-only plan without the access-control
 	// repository. Zero is a real access-control revision for an empty device
 	// and must still participate in the commit race check.
 	accessRevision := int64(-1)
-	if accessRepository != nil {
+	if accessDomain && accessRepository != nil {
+		if migrator, ok := accessRepository.(CanonicalAccessMigrator); ok {
+			if err := migrator.EnsureCanonicalAccessMigrated(ctx); err != nil {
+				accessMigrationErr = err
+			}
+		}
 		accessRules, err = accessRepository.ListRules(ctx)
 		if err != nil {
 			return DesiredResult{}, err
@@ -78,53 +138,58 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 		}
 		accessRevision = accessState.DesiredRevision
 	}
-	accessSources := make(map[string]bool)
+	sourcesByEgress := map[string][]Source{}
+	if routingDomain && !routingRulesAuthoritative {
+		sourcesByEgress = enabledSourcesByEgress(sources)
+	}
+	prefix := managedCommentIdentityPrefix
+	accessTargetIDs := make([]string, 0)
 	for _, rule := range accessRules {
-		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeSources {
+		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeTargets {
 			continue
 		}
-		for _, sourceID := range rule.SourceIDs {
-			accessSources[sourceID] = true
+		accessTargetIDs = append(accessTargetIDs, rule.TargetListIDs...)
+	}
+	sort.Strings(accessTargetIDs)
+	uniqueTargetIDs := accessTargetIDs[:0]
+	for _, targetID := range accessTargetIDs {
+		if len(uniqueTargetIDs) == 0 || uniqueTargetIDs[len(uniqueTargetIDs)-1] != targetID {
+			uniqueTargetIDs = append(uniqueTargetIDs, targetID)
 		}
 	}
-	accessSourceIDList := make([]string, 0, len(accessSources))
-	for sourceID := range accessSources {
-		accessSourceIDList = append(accessSourceIDList, sourceID)
+	result := DesiredResult{Domain: domain, Revision: state.DesiredRevision, AccessRevision: accessRevision, AccessTargetIDs: uniqueTargetIDs, InternetEgressCandidates: map[string][]accesscontrol.InternetEgressCandidate{}, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}, AccessResolutions: []accesscontrol.MemberResolution{}, TargetPromotions: []TargetVersionPromotion{}}
+	if accessMigrationErr != nil {
+		result.Blockers = append(result.Blockers, PlanIssue{Code: "access_application_migration_required", Status: "blocker", Reason: accessMigrationErr.Error()})
 	}
-	sort.Strings(accessSourceIDList)
-	accessSourceDisabled := make(map[string]bool)
-	for _, source := range sources {
-		if accessSources[source.ID] && !source.Enabled {
-			accessSourceDisabled[source.ID] = true
-		}
-	}
-	sourcesByEgress := enabledSourcesByEgress(sources)
-	prefix := managedCommentIdentityPrefix
-	result := DesiredResult{Revision: state.DesiredRevision, AccessRevision: accessRevision, AccessSourceIDs: accessSourceIDList, InternetEgressCandidates: map[string][]accesscontrol.InternetEgressCandidate{}, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}, AccessResolutions: []accesscontrol.MemberResolution{}}
 	order := 0
 	addWithLabel := func(logicalID string, menu routeros.MutationMenu, phase, label string, fields map[string]string) {
 		order++
 		if menu != routeros.MenuRoutingTable {
 			fields["comment"] = managedComment(prefix, logicalID, label)
 		}
-		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Fields: fields, Phase: phase, Order: order})
+		result.Objects = append(result.Objects, DesiredObject{Domain: domain, LogicalID: logicalID, Menu: string(menu), Fields: fields, Phase: phase, Order: order})
 	}
 	egressByID := make(map[string]Egress, len(egresses))
 	for _, egress := range egresses {
 		egressByID[egress.ID] = egress
 	}
 	sourceLists := make(map[string]string, len(sources))
-	accessSourceLists := make(map[string]string, len(sources))
-	sourceByID := make(map[string]Source, len(sources))
 	for _, source := range sources {
 		sourceLists[source.ID] = SourceListName(managerID, repository.DeviceID(), source)
-		if !source.PendingDeletion && source.ActiveVersionID != "" {
-			accessSourceLists[source.ID] = sourceLists[source.ID]
-		}
+	}
+	sourceByID := make(map[string]Source, len(sources))
+	for _, source := range sources {
 		sourceByID[source.ID] = source
 	}
 	accessForwarder := ""
-	if needsAccessForwarder(accessRules, sourceByID, egressByID) {
+	canonicalTargetSources := map[string]Source{}
+	if accessDomain {
+		canonicalTargetSources = canonicalAccessTargetSources(accessRules, sourceByID)
+		if err := appendAccessDomainProjectionBlockers(ctx, repository, accessRules, canonicalTargetSources, targetScope, &result); err != nil {
+			return DesiredResult{}, err
+		}
+	}
+	if accessDomain && needsAccessForwarder(accessRules, canonicalTargetSources) {
 		upstream, upstreamErr := accessDNSUpstream(ctx, reader)
 		if upstreamErr != nil {
 			result.Blockers = append(result.Blockers, PlanIssue{Code: "access_dns_upstream_unavailable", Status: "blocker", Reason: upstreamErr.Error()})
@@ -133,18 +198,87 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 			addWithLabel("access-forwarder", routeros.MenuIPDNSForwarders, "dns", "访问控制 DNS 转发器", map[string]string{"name": accessForwarder, "dns-servers": upstream})
 		}
 	}
+	accessTargetLists := make(map[string]string)
+	accessTargetDisabled := make(map[string]bool)
+	if accessDomain {
+		activeAccessTargetIDs := enabledAccessTargetIDs(accessRules, canonicalTargetSources)
+		for _, key := range sortedSourceKeys(canonicalTargetSources) {
+			source := canonicalTargetSources[key]
+			targetID := key
+			versionID := targetVersionForPlan(source, targetScope)
+			if targetPromotionAllowed(source.ID, targetScope) {
+				appendTargetPromotion(&result.TargetPromotions, targetID, source.PendingVersionID)
+			}
+			if source.PendingDeletion || versionID == "" {
+				continue
+			}
+			if source.Kind == KindDomain && accessForwarder == "" {
+				continue
+			}
+			rules, err := allRules(ctx, repository, versionID)
+			if err != nil {
+				return DesiredResult{}, err
+			}
+			listName := AccessTargetListName(managerID, repository.DeviceID(), targetID)
+			if len(rules) == 0 {
+				continue
+			}
+			accessTargetLists[targetID] = listName
+			accessTargetDisabled[targetID] = !activeAccessTargetIDs[targetID]
+			for _, targetRule := range rules {
+				if source.Kind == KindIP {
+					family := ipRuleFamily(targetRule.RuleType)
+					if family == "" {
+						continue
+					}
+					menu := routeros.MenuIPFirewallAddressList
+					if family == FamilyIPv6 {
+						menu = routeros.MenuIPv6FirewallAddressList
+					}
+					addWithLabel("access-target:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, menu, "foundation", "访问控制目标列表 · 地址条目", map[string]string{
+						"list": listName, "address": targetRule.Domain, "disabled": routerBoolValue(!activeAccessTargetIDs[targetID]),
+					})
+					continue
+				}
+				if targetRule.RuleType != string(policy.RuleTypeExact) && targetRule.RuleType != string(policy.RuleTypeSuffix) {
+					continue
+				}
+				matchSubdomain := "no"
+				if targetRule.RuleType == string(policy.RuleTypeSuffix) {
+					matchSubdomain = "yes"
+				}
+				addWithLabel("access-target-dns:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, routeros.MenuIPDNSStatic, "dns", "访问控制目标列表 · DNS 静态规则", map[string]string{
+					"name": targetRule.Domain, "type": "FWD", "forward-to": accessForwarder, "address-list": listName,
+					"disabled": routerBoolValue(!activeAccessTargetIDs[targetID]), "match-subdomain": matchSubdomain,
+				})
+			}
+		}
+	}
 	ingressList := ManagedIngressListName(managerID, repository.DeviceID())
 	hasEgress := hasEnabledEgress(egresses)
+	requiresTrafficIngress := hasEgress
+	if routingRulesAuthoritative {
+		requiresTrafficIngress = false
+		for _, rule := range routingRules {
+			if !rule.Enabled {
+				continue
+			}
+			if rule.Subject.Mode == SubjectModeAll || rule.Subject.Mode == SubjectModeExcluded {
+				requiresTrafficIngress = true
+				break
+			}
+		}
+	}
 	ingress, ingressErr := ParseTrafficIngressScope(state.TrafficIngress)
-	if ingressErr != nil {
-		if hasEgress {
+	if routingDomain && !routingRulesAuthoritative && ingressErr != nil {
+		if requiresTrafficIngress {
 			result.Blockers = append(result.Blockers, PlanIssue{Code: "invalid_traffic_ingress", Status: "blocker", Reason: ingressErr.Error()})
 		}
-	} else if len(ingress.InterfaceLists) == 0 && len(ingress.Interfaces) == 0 {
-		if hasEgress {
+	} else if routingDomain && !routingRulesAuthoritative && len(ingress.InterfaceLists) == 0 && len(ingress.Interfaces) == 0 {
+		if requiresTrafficIngress {
 			result.Blockers = append(result.Blockers, PlanIssue{Code: "traffic_ingress_required", Status: "blocker", Reason: "至少选择一个策略流量入口"})
 		}
-	} else if hasEgress {
+	} else if routingDomain && !routingRulesAuthoritative && hasEgress {
 		fields := map[string]string{"name": ingressList}
 		if len(ingress.InterfaceLists) > 0 {
 			fields["include"] = strings.Join(ingress.InterfaceLists, ",")
@@ -155,59 +289,107 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 		}
 	}
 
-	for _, egress := range egresses {
-		if egress.PendingDeletion {
-			continue
+	terminals := []accesscontrol.Terminal{}
+	if terminalResolver != nil {
+		terminals = terminalResolver()
+	}
+	if routingDomain && routingRulesAuthoritative {
+		// Keep the global scope available for stable naming of a migrated rule
+		// that matches it, but do not use it as a runtime fallback.
+		if err := buildRoutingDesiredWithTargetScope(ctx, &result, addWithLabel, repository, reader, managerID, repository.DeviceID(), ingress, false, egresses, sources, routingRules, terminals, targetScope); err != nil {
+			return DesiredResult{}, err
 		}
-		disabled := "no"
-		if !egress.Enabled {
-			disabled = "yes"
-		}
-		mode := firstNonEmptyString(egress.ListMode, ListModeShared)
-		if mode != ListModeShared && mode != ListModeDedicated {
-			result.Blockers = append(result.Blockers, issue("invalid_list_mode", "", egress.ID, "不支持的标记列表模式"))
-			continue
-		}
-		families := enabledFamilies(egress.Families)
-		if len(families) == 0 {
-			result.Blockers = append(result.Blockers, issue("family_required", "", egress.ID, "至少启用一个地址族"))
-			continue
-		}
-		strategyLabel := "策略 " + cleanReadableLabel(egress.Name)
-		addEgress := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
-			addWithLabel(logicalID, menu, phase, strategyLabel+" · "+managedObjectPurpose(logicalID), fields)
-		}
-
-		listBySource := make(map[string]string)
-		for _, source := range sourcesByEgress[egress.ID] {
-			listBySource[source.ID] = sourceLists[source.ID]
-		}
-
-		// DNS objects exist only while the egress has an applicable domain
-		// source; IP-only egresses route purely through static address-list
-		// entries and must not be blocked by DNS transport configuration.
-		dnsEnabled := hasApplicableDomainSource(sourcesByEgress[egress.ID])
-		if dnsEnabled {
-			alias := firstNonEmptyString(egress.FakeAlias, deterministicFakeAlias(egress.ID))
-			upstream := firstNonEmptyString(egress.DNSUpstream, "1.1.1.1")
-			aliasIP, aliasErr := netip.ParseAddr(alias)
-			upstreamIP, upstreamErr := netip.ParseAddr(upstream)
-			if aliasErr != nil || upstreamErr != nil || aliasIP.Is4() != upstreamIP.Is4() {
-				result.Blockers = append(result.Blockers, issue("invalid_dns_transport", "", egress.ID, "Fake DNS 别名和 DNS 上游必须是同一地址族的 IP"))
+	}
+	if !routingRulesAuthoritative {
+		for _, egress := range egresses {
+			if egress.PendingDeletion {
 				continue
 			}
-			forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
-			addEgress("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias})
+			disabled := "no"
+			if !egress.Enabled {
+				disabled = "yes"
+			}
+			mode := firstNonEmptyString(egress.ListMode, ListModeShared)
+			if mode != ListModeShared && mode != ListModeDedicated {
+				result.Blockers = append(result.Blockers, issue("invalid_list_mode", "", egress.ID, "不支持的标记列表模式"))
+				continue
+			}
+			families := enabledFamilies(egress.Families)
+			if len(families) == 0 {
+				result.Blockers = append(result.Blockers, issue("family_required", "", egress.ID, "至少启用一个地址族"))
+				continue
+			}
+			strategyLabel := "策略 " + cleanReadableLabel(egress.Name)
+			addEgress := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+				addWithLabel(logicalID, menu, phase, strategyLabel+" · "+managedObjectPurpose(logicalID), fields)
+			}
+
+			listBySource := make(map[string]string)
 			for _, source := range sourcesByEgress[egress.ID] {
-				if accessSources[source.ID] && !egress.Enabled {
+				listBySource[source.ID] = sourceLists[source.ID]
+			}
+
+			// DNS objects exist only while the egress has an applicable domain
+			// source; IP-only egresses route purely through static address-list
+			// entries and must not be blocked by DNS transport configuration.
+			dnsEnabled := hasApplicableDomainSource(sourcesByEgress[egress.ID])
+			if dnsEnabled {
+				alias := firstNonEmptyString(egress.FakeAlias, deterministicFakeAliasForEgress(egress))
+				upstream := firstNonEmptyString(egress.DNSUpstream, "1.1.1.1")
+				aliasIP, aliasErr := netip.ParseAddr(alias)
+				upstreamIP, upstreamErr := netip.ParseAddr(upstream)
+				if aliasErr != nil || upstreamErr != nil || aliasIP.Is4() != upstreamIP.Is4() {
+					result.Blockers = append(result.Blockers, issue("invalid_dns_transport", "", egress.ID, "Fake DNS 别名和 DNS 上游必须是同一地址族的 IP"))
 					continue
 				}
-				if source.Kind == KindIP {
+				forwarder := "rosboard_" + shortHash("forwarder:"+egress.ID, 10)
+				addEgress("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias})
+				for _, source := range sourcesByEgress[egress.ID] {
+					if source.Kind == KindIP {
+						continue
+					}
+					versionID := targetVersionForPlan(source, targetScope)
+					if versionID == "" {
+						result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "域名来源尚无可应用版本：" + source.Name})
+						continue
+					}
+					rules, err := allRules(ctx, repository, versionID)
+					if err != nil {
+						return DesiredResult{}, err
+					}
+					for _, rule := range rules {
+						fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": listBySource[source.ID], "disabled": disabled, "match-subdomain": "no"}
+						if rule.RuleType == "DOMAIN-SUFFIX" {
+							fields["match-subdomain"] = "yes"
+						}
+						logicalID := "dns:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+						label := strategyLabel + " · 域名列表 " + cleanReadableLabel(source.Name) + " · DNS 静态规则"
+						addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", label, fields)
+					}
+				}
+				dnsTable := ""
+				for _, family := range families {
+					if aliasIP.Is4() == (family.Family == FamilyIPv4) {
+						dnsTable = firstNonEmptyString(family.RouteTable, DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family))
+						break
+					}
+				}
+				if dnsTable == "" {
+					result.Blockers = append(result.Blockers, issue("dns_transport_family_missing", "", egress.ID, "DNS 上游地址族没有对应的已启用出口"))
 					continue
 				}
-				versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
+				addDNSTransport(addEgress, egress.ID, alias, upstream, dnsTable, aliasIP.Is4(), disabled)
+			}
+
+			// IP sources materialize as static address-list entries per enabled
+			// family; rules of a disabled family are ignored, not blockers.
+			for _, source := range sourcesByEgress[egress.ID] {
+				if source.Kind != KindIP {
+					continue
+				}
+				versionID := targetVersionForPlan(source, targetScope)
 				if versionID == "" {
-					result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "域名来源尚无可应用版本：" + source.Name})
+					result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "IP 列表尚无可应用版本：" + source.Name})
 					continue
 				}
 				rules, err := allRules(ctx, repository, versionID)
@@ -215,146 +397,49 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 					return DesiredResult{}, err
 				}
 				for _, rule := range rules {
-					fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": listBySource[source.ID], "disabled": disabled, "match-subdomain": "no"}
-					if rule.RuleType == "DOMAIN-SUFFIX" {
-						fields["match-subdomain"] = "yes"
+					family := ipRuleFamily(rule.RuleType)
+					if family == "" || !familyEnabled(families, family) {
+						continue
 					}
-					logicalID := "dns:" + egress.ID + ":" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
-					label := strategyLabel + " · 域名列表 " + cleanReadableLabel(source.Name) + " · DNS 静态规则"
-					addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", label, fields)
+					menu := routeros.MenuIPFirewallAddressList
+					if family == FamilyIPv6 {
+						menu = routeros.MenuIPv6FirewallAddressList
+					}
+					logicalID := "source-addr:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
+					label := strategyLabel + " · IP 列表 " + cleanReadableLabel(source.Name) + " · 地址条目"
+					addWithLabel(logicalID, menu, "foundation", label, map[string]string{
+						"list":     listBySource[source.ID],
+						"address":  rule.Domain,
+						"disabled": disabled,
+					})
 				}
 			}
-			dnsTable := ""
+
 			for _, family := range families {
-				if aliasIP.Is4() == (family.Family == FamilyIPv4) {
-					dnsTable = firstNonEmptyString(family.RouteTable, DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family))
-					break
+				gateway := strings.TrimSpace(family.Gateway)
+				if gateway == "" && family.WANSource != "next-hop" {
+					resolution, resolveErr := ResolveGateway(ctx, reader, family)
+					if resolveErr != nil {
+						result.Blockers = append(result.Blockers, issue("gateway_discovery_failed", string(family.Family), egress.ID, "无法读取该出口的下一跳网关："+resolveErr.Error()))
+						continue
+					}
+					if resolution.PointToPoint {
+						gateway = strings.TrimSpace(family.WANInterface)
+					} else if resolution.Gateway != "" {
+						gateway = resolution.Gateway
+					} else if len(resolution.Candidates) > 1 {
+						result.Blockers = append(result.Blockers, issue("gateway_ambiguous", string(family.Family), egress.ID, "该出口发现了多个可能的下一跳网关，请手动选择"))
+						continue
+					} else {
+						result.Blockers = append(result.Blockers, issue("gateway_required", string(family.Family), egress.ID, "普通出口接口未发现明确下一跳网关，请手动填写网关 IP"))
+						continue
+					}
 				}
+				buildFamily(&result, addEgress, egress, family, gateway, listBySource, ingressList, managerID, repository.DeviceID(), disabled)
 			}
-			if dnsTable == "" {
-				result.Blockers = append(result.Blockers, issue("dns_transport_family_missing", "", egress.ID, "DNS 上游地址族没有对应的已启用出口"))
-				continue
-			}
-			addDNSTransport(addEgress, egress.ID, alias, upstream, dnsTable, aliasIP.Is4(), disabled)
-		}
-
-		// IP sources materialize as static address-list entries per enabled
-		// family; rules of a disabled family are ignored, not blockers.
-		for _, source := range sourcesByEgress[egress.ID] {
-			if accessSources[source.ID] && !egress.Enabled {
-				continue
-			}
-			if source.Kind != KindIP {
-				continue
-			}
-			versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
-			if versionID == "" {
-				result.Warnings = append(result.Warnings, PlanIssue{Code: "source_has_no_version", Status: "warning", EgressID: egress.ID, Reason: "IP 列表尚无可应用版本：" + source.Name})
-				continue
-			}
-			rules, err := allRules(ctx, repository, versionID)
-			if err != nil {
-				return DesiredResult{}, err
-			}
-			for _, rule := range rules {
-				family := ipRuleFamily(rule.RuleType)
-				if family == "" || (!accessSources[source.ID] && !familyEnabled(families, family)) {
-					continue
-				}
-				menu := routeros.MenuIPFirewallAddressList
-				if family == FamilyIPv6 {
-					menu = routeros.MenuIPv6FirewallAddressList
-				}
-				logicalID := "source-addr:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
-				label := strategyLabel + " · IP 列表 " + cleanReadableLabel(source.Name) + " · 地址条目"
-				addWithLabel(logicalID, menu, "foundation", label, map[string]string{
-					"list":     listBySource[source.ID],
-					"address":  rule.Domain,
-					"disabled": disabled,
-				})
-			}
-		}
-
-		for _, family := range families {
-			gateway := strings.TrimSpace(family.Gateway)
-			if gateway == "" && family.WANSource != "next-hop" {
-				resolution, resolveErr := ResolveGateway(ctx, reader, family)
-				if resolveErr != nil {
-					result.Blockers = append(result.Blockers, issue("gateway_discovery_failed", string(family.Family), egress.ID, "无法读取该出口的下一跳网关："+resolveErr.Error()))
-					continue
-				}
-				if resolution.PointToPoint {
-					gateway = strings.TrimSpace(family.WANInterface)
-				} else if resolution.Gateway != "" {
-					gateway = resolution.Gateway
-				} else if len(resolution.Candidates) > 1 {
-					result.Blockers = append(result.Blockers, issue("gateway_ambiguous", string(family.Family), egress.ID, "该出口发现了多个可能的下一跳网关，请手动选择"))
-					continue
-				} else {
-					result.Blockers = append(result.Blockers, issue("gateway_required", string(family.Family), egress.ID, "普通出口接口未发现明确下一跳网关，请手动填写网关 IP"))
-					continue
-				}
-			}
-			buildFamily(&result, addEgress, egress, family, gateway, listBySource, ingressList, managerID, repository.DeviceID(), disabled)
 		}
 	}
 
-	for _, source := range sources {
-		if !accessSources[source.ID] || source.PendingDeletion || accessSourceLists[source.ID] == "" {
-			continue
-		}
-		if egress, ok := egressByID[source.EgressID]; ok && !egress.PendingDeletion && egress.Enabled && source.Enabled {
-			continue
-		}
-		// The complete policy graph must be able to activate a pending source
-		// even when its egress is disabled. Access-only plans are blocked while
-		// policy revisions are pending, so they cannot apply this pending data
-		// without the policy promotion path.
-		versionID := firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
-		if versionID == "" {
-			result.Blockers = append(result.Blockers, PlanIssue{Code: "access_source_has_no_version", Status: "blocker", Reason: "访问控制来源尚无可应用版本：" + source.Name})
-			continue
-		}
-		rules, err := allRules(ctx, repository, versionID)
-		if err != nil {
-			return DesiredResult{}, err
-		}
-		sourceDisabled := "no"
-		if !source.Enabled {
-			sourceDisabled = "yes"
-		}
-		for _, rule := range rules {
-			if source.Kind == KindIP {
-				family := ipRuleFamily(rule.RuleType)
-				if family == "" {
-					continue
-				}
-				menu := routeros.MenuIPFirewallAddressList
-				if family == FamilyIPv6 {
-					menu = routeros.MenuIPv6FirewallAddressList
-				}
-				logicalID := "source-addr:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
-				addWithLabel(logicalID, menu, "foundation", "访问控制 IP 列表 "+cleanReadableLabel(source.Name)+" · 地址条目", map[string]string{
-					"list": sourceLists[source.ID], "address": rule.Domain, "disabled": sourceDisabled,
-				})
-				continue
-			}
-			if accessForwarder == "" {
-				continue
-			}
-			fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": accessForwarder, "address-list": sourceLists[source.ID], "disabled": sourceDisabled, "match-subdomain": "no"}
-			if rule.RuleType == "DOMAIN-SUFFIX" {
-				fields["match-subdomain"] = "yes"
-			}
-			logicalID := "dns:access:" + source.ID + ":" + rule.RuleType + ":" + rule.Domain
-			addWithLabel(logicalID, routeros.MenuIPDNSStatic, "dns", "访问控制域名列表 "+cleanReadableLabel(source.Name)+" · DNS 静态规则", fields)
-		}
-	}
-
-	terminals := []accesscontrol.Terminal{}
-	if terminalResolver != nil {
-		terminals = terminalResolver()
-	}
 	scope := accesscontrol.Scope{}
 	if scopeResolver != nil {
 		scope = scopeResolver()
@@ -369,21 +454,24 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 			internetEgresses, internetEgressIssues = selectInternetEgresses(discovery, selectedInternetEgresses)
 		}
 	}
-	accessDesired := accesscontrol.BuildDesired(accesscontrol.DesiredInput{
-		ManagerID: managerID, DeviceID: repository.DeviceID(), Rules: accessRules, Members: accessMembers,
-		Terminals: terminals, SourceList: accessSourceLists, SourceDisabled: accessSourceDisabled, Scope: scope,
-		InternetEgresses: internetEgresses, InternetEgressIssues: internetEgressIssues,
-	})
-	result.AccessResolutions = append(result.AccessResolutions, accessDesired.Resolutions...)
-	for _, blocker := range accessDesired.Blockers {
-		result.Blockers = append(result.Blockers, PlanIssue{Code: blocker.Code, Status: "blocker", Family: blocker.Family, LogicalID: blocker.RuleID, Reason: blocker.Reason})
-	}
-	for _, issue := range accessDesired.Issues {
-		result.Warnings = append(result.Warnings, PlanIssue{Code: issue.Code, Status: "warning", LogicalID: issue.RuleID, Reason: issue.Reason})
-	}
-	for _, object := range accessDesired.Objects {
-		order++
-		result.Objects = append(result.Objects, DesiredObject{LogicalID: object.LogicalID, Menu: string(object.Menu), Fields: object.Fields, Phase: object.Phase, Order: order})
+	if accessDomain {
+		accessDesired := accesscontrol.BuildDesired(accesscontrol.DesiredInput{
+			ManagerID: managerID, DeviceID: repository.DeviceID(), Rules: accessRules, Members: accessMembers,
+			Terminals: terminals, Scope: scope,
+			TargetList: accessTargetLists, TargetListDisabled: accessTargetDisabled,
+			InternetEgresses: internetEgresses, InternetEgressIssues: internetEgressIssues,
+		})
+		result.AccessResolutions = append(result.AccessResolutions, accessDesired.Resolutions...)
+		for _, blocker := range accessDesired.Blockers {
+			result.Blockers = append(result.Blockers, PlanIssue{Code: blocker.Code, Status: "blocker", Family: blocker.Family, LogicalID: blocker.RuleID, Reason: blocker.Reason})
+		}
+		for _, issue := range accessDesired.Issues {
+			result.Warnings = append(result.Warnings, PlanIssue{Code: issue.Code, Status: "warning", Family: issue.Family, LogicalID: issue.RuleID, Reason: issue.Reason})
+		}
+		for _, object := range accessDesired.Objects {
+			order++
+			result.Objects = append(result.Objects, DesiredObject{Domain: domain, LogicalID: object.LogicalID, Menu: string(object.Menu), Fields: object.Fields, Phase: object.Phase, Order: order})
+		}
 	}
 	appendDNSCacheWarning(&result)
 	sort.SliceStable(result.Objects, func(i, j int) bool { return result.Objects[i].Order < result.Objects[j].Order })
@@ -399,26 +487,87 @@ func BuildDesiredWithAccessOptions(ctx context.Context, repository Repository, r
 	return result, nil
 }
 
-func needsAccessForwarder(rules []accesscontrol.AccessRule, sources map[string]Source, egresses map[string]Egress) bool {
+func needsAccessForwarder(rules []accesscontrol.AccessRule, targetSources map[string]Source) bool {
 	for _, rule := range rules {
-		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeSources {
+		if rule.TargetScope != accesscontrol.TargetScopeTargets || !rule.Enabled {
 			continue
 		}
-		for _, sourceID := range rule.SourceIDs {
-			source, ok := sources[sourceID]
-			if !ok || source.Kind == KindIP || source.PendingDeletion {
-				continue
+		for _, targetID := range rule.TargetListIDs {
+			targetID = strings.TrimSpace(targetID)
+			source := targetSources[targetID]
+			if source.ID == "" {
+				// Keep narrow callers that still provide the pre-Slice-4C
+				// rule/target map shape source-compatible.
+				source = targetSources[accesscontrol.AccessTargetKey(rule.ID, targetID)]
 			}
-			if !source.Enabled {
-				return true
-			}
-			egress, assigned := egresses[source.EgressID]
-			if !assigned || egress.PendingDeletion || !egress.Enabled {
+			if source.Kind == KindDomain && !source.PendingDeletion {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// canonicalAccessTargetSources keeps targets required by enabled rules. A
+// disabled TargetList may remain here so its existing physical rows can be
+// represented as disabled, but a target referenced only by disabled rules is
+// omitted and reconciled away.
+func canonicalAccessTargetSources(rules []accesscontrol.AccessRule, sources map[string]Source) map[string]Source {
+	result := make(map[string]Source)
+	for _, rule := range rules {
+		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeTargets {
+			continue
+		}
+		for _, targetID := range rule.TargetListIDs {
+			targetID = strings.TrimSpace(targetID)
+			if source, ok := sources[targetID]; ok {
+				result[targetID] = source
+			}
+		}
+	}
+	return result
+}
+
+func accessTargetConsumerActive(rule accesscontrol.AccessRule, source Source) bool {
+	return rule.Enabled && rule.TargetScope == accesscontrol.TargetScopeTargets && source.ID != "" && source.Enabled && !source.PendingDeletion
+}
+
+func enabledAccessTargetIDs(rules []accesscontrol.AccessRule, sources map[string]Source) map[string]bool {
+	result := make(map[string]bool)
+	for _, rule := range rules {
+		if rule.TargetScope != accesscontrol.TargetScopeTargets {
+			continue
+		}
+		for _, targetID := range rule.TargetListIDs {
+			targetID = strings.TrimSpace(targetID)
+			source, ok := sources[targetID]
+			if !ok {
+				// Keep narrow callers that still provide the pre-Slice-4C
+				// rule/target map shape source-compatible.
+				source = sources[accesscontrol.AccessTargetKey(rule.ID, targetID)]
+			}
+			if accessTargetConsumerActive(rule, source) {
+				result[targetID] = true
+			}
+		}
+	}
+	return result
+}
+
+func sortedSourceKeys(values map[string]Source) []string {
+	result := make([]string, 0, len(values))
+	for key := range values {
+		result = append(result, key)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func routerBoolValue(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
 }
 
 func hasInternetAccessRules(rules []accesscontrol.AccessRule) bool {
@@ -662,9 +811,36 @@ func SourceListName(managerID, deviceID string, source Source) string {
 	return "rb_src_" + shortHash("source-list:"+managerID+":"+deviceID+":"+source.ID, 12)
 }
 
+// AccessTargetListName is the stable physical projection for one canonical
+// target list on one device. The optional second argument preserves the old
+// (manager, device, rule, target) call shape while deliberately ignoring the
+// obsolete rule identity.
+func AccessTargetListName(managerID, deviceID string, targetIDs ...string) string {
+	targetID := ""
+	if len(targetIDs) == 1 {
+		targetID = targetIDs[0]
+	} else if len(targetIDs) >= 2 {
+		targetID = targetIDs[1]
+	}
+	return "rb_ac_" + shortHash("access-target:"+managerID+":"+deviceID+":"+strings.TrimSpace(targetID), 12)
+}
+
 func deterministicFakeAlias(egressID string) string {
 	digest := sha256.Sum256([]byte("fake-alias:" + egressID))
 	return fmt.Sprintf("192.0.2.%d", int(digest[0])%254+1)
+}
+
+func deterministicFakeAliasForEgress(egress Egress) string {
+	upstream, err := netip.ParseAddr(strings.TrimSpace(egress.DNSUpstream))
+	if err == nil && !upstream.Is4() {
+		digest := sha256.Sum256([]byte("fake-alias:" + egress.ID))
+		host := uint16(digest[0])<<8 | uint16(digest[1])
+		if host == 0 {
+			host = 1
+		}
+		return fmt.Sprintf("2001:db8::%x", host)
+	}
+	return deterministicFakeAlias(egress.ID)
 }
 
 func uniqueSortedValues(values map[string]string) []string {
@@ -837,6 +1013,20 @@ func managedObjectPurpose(logicalID string) string {
 		return "路由器路由标记"
 	case "masquerade":
 		return "出口地址转换"
+	case "routing-target-addr":
+		return "路由目标地址"
+	case "routing-dns":
+		return "路由目标 DNS"
+	case "routing-rule-connection":
+		return "路由连接标记"
+	case "routing-rule-routing":
+		return "路由策略执行组"
+	case "routing-router-connection":
+		return "路由器连接标记"
+	case "routing-router-routing":
+		return "路由器路由标记"
+	case "routing-subject":
+		return "路由来源地址列表"
 	default:
 		return "受管配置"
 	}
@@ -891,4 +1081,15 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func targetVersionForPlan(source Source, targetScope map[string]bool) string {
+	if targetScope != nil && !targetScope[source.ID] {
+		return strings.TrimSpace(source.ActiveVersionID)
+	}
+	return firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID)
+}
+
+func targetPromotionAllowed(targetID string, targetScope map[string]bool) bool {
+	return targetScope == nil || targetScope[targetID]
 }

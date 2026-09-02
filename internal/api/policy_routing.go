@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rosboard/internal/applicationpreset"
 	"rosboard/internal/config"
 	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
@@ -52,32 +51,8 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 		s.servePolicyTrafficIngress(writer, request)
 	case "egresses":
 		s.servePolicyEgress(writer, request, parts)
-	case "sources":
-		if len(parts) >= 2 && parts[1] == "url" && len(parts) >= 3 && parts[2] == "preview" {
-			if request.Method != http.MethodPost {
-				writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-				return
-			}
-			s.servePolicyURLPreview(writer, request)
-			return
-		}
-		if len(parts) >= 2 && parts[1] == "upload" && len(parts) >= 3 && parts[2] == "preview" {
-			if request.Method != http.MethodPost {
-				writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-				return
-			}
-			s.servePolicyUploadPreview(writer, request)
-			return
-		}
-		if len(parts) >= 2 && parts[1] == "manual" && len(parts) >= 3 && parts[2] == "preview" {
-			if request.Method != http.MethodPost {
-				writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-				return
-			}
-			s.servePolicyManualPreview(writer, request)
-			return
-		}
-		s.servePolicySource(writer, request, parts)
+	case "rules":
+		s.servePolicyRoutingRules(writer, request, parts)
 	case "plans":
 		s.servePolicyPlans(writer, request, parts)
 	case "jobs":
@@ -138,13 +113,17 @@ func (s *Server) servePolicyOverview(writer http.ResponseWriter, request *http.R
 		return
 	}
 	ctx := request.Context()
+	routingRules, _ := device.repository.ListRoutingRules(ctx)
+	if routingRules == nil {
+		routingRules = []policyv2.RoutingRule{}
+	}
 	egresses, _ := device.repository.ListEgresses(ctx)
 	if egresses == nil {
 		egresses = []policyv2.Egress{}
 	}
-	sources, _ := device.repository.ListSources(ctx, "")
-	if sources == nil {
-		sources = []policyv2.Source{}
+	targetLists, _ := device.repository.ListTargetLists(ctx)
+	if targetLists == nil {
+		targetLists = []policyv2.TargetList{}
 	}
 	state, _ := device.repository.GetDeviceState(ctx)
 	setupState := s.policySetupState(device.device)
@@ -167,23 +146,8 @@ func (s *Server) servePolicyOverview(writer http.ResponseWriter, request *http.R
 		}
 	}
 
-	// Attach source info to egresses
-	egressSources := make(map[string][]map[string]any)
-	for _, src := range sources {
-		entry := map[string]any{"id": src.ID, "name": src.Name, "type": src.Type, "enabled": src.Enabled}
-		if src.ActiveVersionID != "" {
-			entry["ruleCount"] = src.Counts["valid"]
-		} else {
-			entry["ruleCount"] = 0
-		}
-		egressSources[src.EgressID] = append(egressSources[src.EgressID], entry)
-	}
 	egressResult := make([]map[string]any, 0, len(egresses))
 	for _, eg := range egresses {
-		srcs := egressSources[eg.ID]
-		if srcs == nil {
-			srcs = []map[string]any{}
-		}
 		entry := map[string]any{
 			"id": eg.ID, "name": eg.Name, "priority": eg.Priority,
 			"listMode": eg.ListMode, "listName": eg.ListName,
@@ -192,7 +156,7 @@ func (s *Server) servePolicyOverview(writer http.ResponseWriter, request *http.R
 			"routerOutput": eg.RouterOutput, "enabled": eg.Enabled,
 			"applied": eg.Applied, "pendingDeletion": eg.PendingDeletion,
 			"revision": eg.Revision,
-			"families": eg.Families, "sources": srcs,
+			"families": eg.Families,
 		}
 		egressResult = append(egressResult, entry)
 	}
@@ -203,7 +167,8 @@ func (s *Server) servePolicyOverview(writer http.ResponseWriter, request *http.R
 		"setup":          map[string]any{"state": setupState},
 		"trafficIngress": decodeJSONObject(state.TrafficIngress),
 		"egresses":       egressResult,
-		"sources":        sources,
+		"targetLists":    targetLists,
+		"rules":          routingRules,
 		"activeJobs":     activePolicyJobs(state.Job),
 		"pendingJobs":    []any{},
 		"health":         policyV2Health(state.Job),
@@ -415,10 +380,6 @@ func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Requ
 	if eg.ID == "" {
 		eg.ID = uuid.NewString()
 	}
-	if strings.TrimSpace(eg.Name) == "" {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_egress", "error": "name is required"})
-		return
-	}
 	if eg.ListMode == "" {
 		eg.ListMode = policyv2.ListModeShared
 	}
@@ -451,7 +412,10 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	if egress == nil {
 		return errors.New("egress is required")
 	}
+	existingEgress := false
 	if current, err := repository.GetEgress(ctx, egress.ID); err == nil {
+		existingEgress = true
+		egress.Name = current.Name
 		if strings.TrimSpace(egress.FakeAlias) == "" {
 			egress.FakeAlias = current.FakeAlias
 		}
@@ -461,9 +425,6 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	}
 	if egress.ListMode != policyv2.ListModeShared && egress.ListMode != policyv2.ListModeDedicated {
 		return errors.New("listMode must be shared or dedicated")
-	}
-	if egress.ListMode == policyv2.ListModeShared {
-		egress.ListName = policyv2.SharedListName(egress.Name)
 	}
 	if egress.FailureMode != "strict" && egress.FailureMode != "fallback" && egress.FailureMode != "existing" {
 		return errors.New("failureMode must be strict, fallback, or existing")
@@ -543,6 +504,12 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	if upstream.Is4() && !hasIPv4 || !upstream.Is4() && !hasIPv6 {
 		return errors.New("dnsUpstream address family must be enabled on this egress")
 	}
+	if !existingEgress || strings.TrimSpace(egress.Name) == "" {
+		egress.Name = policyv2.InternalEgressName(*egress, "")
+	}
+	if egress.ListMode == policyv2.ListModeShared {
+		egress.ListName = policyv2.SharedListName(egress.Name)
+	}
 	used := make([]string, 0)
 	others, err := repository.ListEgresses(ctx)
 	if err != nil {
@@ -551,9 +518,6 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	for _, other := range others {
 		if other.ID == egress.ID {
 			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(other.Name), strings.TrimSpace(egress.Name)) {
-			return fmt.Errorf("egress name %q is already in use", strings.TrimSpace(egress.Name))
 		}
 		otherMode := other.ListMode
 		if otherMode == "" {
@@ -631,363 +595,228 @@ func (s *Server) deletePolicyEgress(writer http.ResponseWriter, request *http.Re
 	writePolicyJson(writer, http.StatusAccepted, map[string]any{"deleted": false, "pendingDeletion": true, "job": job, "jobId": job.ID})
 }
 
-// ---- Sources ----
-
-func (s *Server) servePolicySource(writer http.ResponseWriter, request *http.Request, parts []string) {
-	if len(parts) == 1 {
-		if request.Method != http.MethodPost {
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-			return
-		}
-		s.savePolicySource(writer, request, "")
-		return
-	}
-	id := parts[1]
-	if len(parts) >= 3 {
-		switch parts[2] {
-		case "rules":
-			if request.Method == http.MethodGet {
-				s.servePolicySourceRules(writer, request, id)
-				return
-			}
-		case "refresh":
-			if request.Method == http.MethodPost {
-				s.servePolicySourceRefresh(writer, request, id)
-				return
-			}
-		}
-	}
-	switch request.Method {
-	case http.MethodGet:
-		s.getPolicySource(writer, request, id)
-	case http.MethodPut:
-		s.savePolicySource(writer, request, id)
-	case http.MethodDelete:
-		s.deletePolicySource(writer, request, id)
-	default:
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-	}
-}
-
-func (s *Server) getPolicySource(writer http.ResponseWriter, request *http.Request, id string) {
-	device, ok := s.resolvePolicyDevice(writer, request)
-	if !ok {
-		return
-	}
-	src, err := device.repository.GetSource(request.Context(), id)
-	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, policyv2.ErrSourceNotFound) {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
-		return
-	}
-	if err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "error", "error": err.Error()})
-		return
-	}
-	writePolicyJson(writer, http.StatusOK, src)
-}
-
-func (s *Server) savePolicySource(writer http.ResponseWriter, request *http.Request, pathID string) {
-	device, ok := s.resolvePolicyDevice(writer, request)
-	if !ok {
-		return
-	}
-	if !s.requirePolicyWriteAccess(writer, request, device.device) {
-		return
-	}
-	var payload struct {
-		policyv2.Source
-		PreviewID  string `json:"previewId"`
-		DeferApply bool   `json:"deferApply"`
-	}
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
-		return
-	}
-	src := payload.Source
-	if pathID != "" {
-		src.ID = pathID
-	}
-	if src.ID == "" {
-		src.ID = uuid.NewString()
-	}
-	if strings.TrimSpace(src.Name) == "" {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_source", "error": "name is required"})
-		return
-	}
-	if src.Type != "url" && src.Type != "upload" && src.Type != "manual" {
-		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "type must be url, upload or manual"})
-		return
-	}
-	src.Kind = policyv2.NormalizeSourceKind(src.Kind)
-	var current policyv2.Source
-	if pathID != "" {
-		var err error
-		current, err = device.repository.GetSource(request.Context(), pathID)
-		if err != nil {
-			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
-			return
-		}
-		if current.Type != src.Type {
-			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "source type cannot be changed"})
-			return
-		}
-		if current.Kind != "" && current.Kind != src.Kind {
-			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "source kind cannot be changed"})
-			return
-		}
-	}
-	if src.Type == "url" {
-		interval, valid := policySourceSchedule(src.Schedule)
-		if !valid {
-			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source", "error": "unsupported URL refresh schedule"})
-			return
-		}
-		if src.Schedule == "" {
-			src.Schedule = "7d"
-		}
-		if pathID == "" || current.Schedule != src.Schedule || current.NextRunAt.IsZero() {
-			src.NextRunAt = time.Now().UTC().Add(interval)
-		}
-	} else {
-		src.URL = ""
-		src.ETag = ""
-		src.LastModified = ""
-		src.Schedule = "manual"
-		src.NextRunAt = time.Unix(0, 0).UTC()
-	}
-	contentChanged := pathID == "" || payload.PreviewID != ""
-	if pathID != "" {
-		contentChanged = src.Type == "url" && current.URL != src.URL
-		contentChanged = contentChanged || payload.PreviewID != ""
-	}
-	var preview policyPreviewEntry
-	if contentChanged {
-		var found bool
-		preview, found = s.policyPreview(payload.PreviewID, device.device.ID)
-		if !found || preview.SourceType != src.Type || policyv2.NormalizeSourceKind(preview.Kind) != src.Kind {
-			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source_preview", "error": "a valid source preview is required"})
-			return
-		}
-		if len(preview.Content.Rules) == 0 {
-			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_source_preview", "error": "source preview contains no valid rules"})
-			return
-		}
-		if src.Type == "url" {
-			src.URL = preview.URL
-			src.ETag = preview.ETag
-			src.LastModified = preview.LastModified
-		}
-	}
-	src, err := device.repository.SaveSource(request.Context(), src)
-	if err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "save_failed", "error": err.Error()})
-		return
-	}
-	if contentChanged {
-		versionID := uuid.NewString()
-		legacyVersion, legacyRules, err := preview.Content.PendingVersion(device.device.ID, src.ID, versionID)
-		if err != nil {
-			writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_source_preview", "error": err.Error()})
-			return
-		}
-		version, rules := policyV2SourceContent(legacyVersion, legacyRules)
-		if err := device.repository.SavePendingSourceVersion(request.Context(), version, rules); err != nil {
-			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "save_failed", "error": err.Error()})
-			return
-		}
-		s.discardPolicyPreview(payload.PreviewID)
-		src, err = device.repository.GetSource(request.Context(), src.ID)
-		if err != nil {
-			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "load_failed", "error": err.Error()})
-			return
-		}
-	}
-	if !payload.DeferApply && s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src, device.accessRepository) {
-		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-save")
-		if err != nil {
-			status, code := policyPlanApplyError(err)
-			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "source": src})
-			return
-		}
-		writePolicyJson(writer, http.StatusAccepted, map[string]any{"source": src, "job": job, "jobId": job.ID})
-		return
-	}
-	writePolicyJson(writer, http.StatusOK, src)
-}
-
-func policySourceSchedule(value string) (time.Duration, bool) {
-	switch strings.TrimSpace(value) {
-	case "1h":
-		return time.Hour, true
-	case "6h":
-		return 6 * time.Hour, true
-	case "12h":
-		return 12 * time.Hour, true
-	case "":
-		return 7 * 24 * time.Hour, true
-	case "24h":
-		return 24 * time.Hour, true
-	case "7d":
-		return 7 * 24 * time.Hour, true
-	case "30d":
-		return 30 * 24 * time.Hour, true
-	case "manual":
-		return 0, true
-	default:
-		return 0, false
-	}
-}
-
-func (s *Server) deletePolicySource(writer http.ResponseWriter, request *http.Request, id string) {
-	device, ok := s.resolvePolicyDevice(writer, request)
-	if !ok {
-		return
-	}
-	if !s.requirePolicyWriteAccess(writer, request, device.device) {
-		return
-	}
-	revision := queryRevision(request)
-	if revision < 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision must be non-negative"})
-		return
-	}
-	source, err := device.repository.GetSource(request.Context(), id)
-	if err != nil {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
-		return
-	}
-	if err := device.repository.DeleteSource(request.Context(), id, revision); err != nil {
-		code := "revision_stale"
-		if errors.Is(err, policyv2.ErrSourceInUse) {
-			code = "source_in_use"
-		}
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": code, "error": err.Error()})
-		return
-	}
-	if !source.Applied {
-		writePolicyJson(writer, http.StatusOK, map[string]any{"deleted": true})
-		return
-	}
-	job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-delete")
-	if err != nil {
-		status, code := policyPlanApplyError(err)
-		writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "pendingDeletion": true})
-		return
-	}
-	writePolicyJson(writer, http.StatusAccepted, map[string]any{"deleted": false, "pendingDeletion": true, "job": job, "jobId": job.ID})
-}
-
-func (s *Server) servePolicySourceRules(writer http.ResponseWriter, request *http.Request, id string) {
-	device, ok := s.resolvePolicyDevice(writer, request)
-	if !ok {
-		return
-	}
-	src, err := device.repository.GetSource(request.Context(), id)
-	if err != nil {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "source_not_found", "error": "source not found"})
-		return
-	}
-	limit := 100
-	if l := request.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 1000 {
-			limit = v
-		}
-	}
-	query := policyv2.RuleQuery{Limit: limit, Query: strings.TrimSpace(request.URL.Query().Get("query")), RuleType: strings.TrimSpace(request.URL.Query().Get("type"))}
-	if cursor := strings.TrimSpace(request.URL.Query().Get("cursor")); cursor != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
-		parts := strings.SplitN(string(decoded), "\x00", 2)
-		if err != nil || len(parts) != 2 {
-			writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_cursor", "error": "rules cursor is invalid"})
-			return
-		}
-		query.AfterType, query.AfterDomain = parts[0], parts[1]
-	}
-	// Draft sources that were never applied (no egress assigned yet) keep
-	// their rules on the pending version; fall back so rules stay viewable.
-	versionID := src.ActiveVersionID
-	if request.URL.Query().Get("version") == "pending" && src.PendingVersionID != "" {
-		versionID = src.PendingVersionID
-	} else if versionID == "" {
-		versionID = src.PendingVersionID
-	}
-	rules, hasNext, err := device.repository.ListSourceRules(request.Context(), versionID, query)
-	if err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "rules_unavailable", "error": err.Error()})
-		return
-	}
-	result := make([]map[string]any, 0, len(rules))
-	for _, rule := range rules {
-		if src.Kind == policyv2.KindIP {
-			result = append(result, map[string]any{"type": rule.RuleType, "address": rule.Domain})
-		} else {
-			result = append(result, map[string]any{"type": rule.RuleType, "domain": rule.Domain})
-		}
-	}
-	nextCursor := ""
-	if hasNext && len(rules) > 0 {
-		last := rules[len(rules)-1]
-		nextCursor = base64.RawURLEncoding.EncodeToString([]byte(last.RuleType + "\x00" + last.Domain))
-	}
-	writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "versionId": versionID, "rules": result, "nextCursor": nextCursor})
-}
-
-func (s *Server) servePolicySourceRefresh(writer http.ResponseWriter, request *http.Request, id string) {
-	device, ok := s.resolvePolicyDevice(writer, request)
-	if !ok {
-		return
-	}
-	if !s.requirePolicyWriteAccess(writer, request, device.device) {
-		return
-	}
-	src, err := device.repository.GetSource(request.Context(), id)
-	if err != nil || src.Type != "url" || src.URL == "" {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "source_unavailable", "error": "source cannot be refreshed"})
-		return
-	}
-	fetcher := s.sourceFetcher
-	if fetcher == nil {
-		fetcher = policy.NewSourceFetcher(policy.FetcherOptions{})
-	}
-	result, err := fetcher.Preview(request.Context(), src.URL, policy.FetchOptions{ETag: src.ETag, LastModified: src.LastModified, Kind: src.Kind})
-	if err != nil {
-		writePolicyJson(writer, http.StatusBadGateway, map[string]any{"code": "fetch_failed", "error": err.Error()})
-		return
-	}
-	if result.NotModified {
-		writePolicyJson(writer, http.StatusOK, map[string]any{"notModified": true})
-		return
-	}
-	versionID := uuid.NewString()
-	legacyVersion, legacyRules, err := result.PendingVersion(device.device.ID, src.ID, versionID)
-	if err != nil {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "parse_failed", "error": err.Error()})
-		return
-	}
-	version, rules := policyV2SourceContent(legacyVersion, legacyRules)
-	if err := device.repository.SavePendingSourceVersion(request.Context(), version, rules); err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "save_failed", "error": err.Error()})
-		return
-	}
-	src, err = device.repository.GetSource(request.Context(), id)
-	if err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "load_failed", "error": err.Error()})
-		return
-	}
-	if s.policy != nil && s.policy.ApplierFor(device.device.ID) != nil && policyv2.SourceAutoApplyEligible(request.Context(), device.repository, src, device.accessRepository) {
-		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "source-refresh")
-		if err != nil {
-			status, code := policyPlanApplyError(err)
-			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "source": src})
-			return
-		}
-		writePolicyJson(writer, http.StatusAccepted, map[string]any{"source": src, "job": job, "jobId": job.ID})
-		return
-	}
-	writePolicyJson(writer, http.StatusOK, map[string]any{"sourceId": id, "versionId": versionID, "ruleCount": len(rules)})
-}
-
 // ---- Plans and apply ----
+
+type policyPlanPresetSelection struct {
+	PresetID       string   `json:"presetId"`
+	PreviewID      string   `json:"previewId"`
+	RequestedKinds []string `json:"requestedKinds"`
+}
+
+type policyPlanProposalPayload struct {
+	Egress           *policyv2.Egress              `json:"egress"`
+	TrafficIngress   *policyv2.TrafficIngressScope `json:"trafficIngress"`
+	RoutingRule      *policyv2.RoutingRule         `json:"routingRule"`
+	PresetSelections []policyPlanPresetSelection   `json:"presetSelections"`
+}
+
+func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDeviceContext, payload *policyPlanProposalPayload) (*policyv2.PolicyProposal, error) {
+	if payload == nil {
+		return nil, nil
+	}
+	proposal := &policyv2.PolicyProposal{Egress: payload.Egress, TrafficIngress: payload.TrafficIngress, RoutingRule: payload.RoutingRule}
+	currentEgressID := ""
+	if payload.RoutingRule != nil {
+		currentEgressID = strings.TrimSpace(payload.RoutingRule.EgressID)
+		if existingRule, err := device.repository.GetRoutingRule(ctx, payload.RoutingRule.ID); err == nil {
+			if currentEgressID == "" {
+				currentEgressID = existingRule.EgressID
+			}
+		} else if !errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
+			return nil, err
+		}
+	}
+	boundEgressID := currentEgressID
+	if proposal.Egress != nil {
+		egress := *proposal.Egress
+		fakeAliasWasExplicit := strings.TrimSpace(egress.FakeAlias) != ""
+		if strings.TrimSpace(egress.ID) == "" && currentEgressID != "" {
+			egress.ID = currentEgressID
+		}
+		if strings.TrimSpace(egress.ID) == "" {
+			egress.Enabled = true
+			// Normalize needs a provisional identity so it can derive an alias;
+			// ResolvePolicyEgress assigns the final reusable identity below.
+			egress.ID = uuid.NewString()
+		}
+		if egress.ListMode == "" {
+			egress.ListMode = policyv2.ListModeShared
+		}
+		if egress.FailureMode == "" {
+			egress.FailureMode = "strict"
+		}
+		var reader policyv2.PolicyReader
+		if s.policy != nil {
+			if applier := s.policy.ApplierFor(device.device.ID); applier != nil {
+				reader = applier.Reader
+			}
+		}
+		if err := normalizePolicyV2Egress(ctx, device.repository, reader, &egress); err != nil {
+			return nil, err
+		}
+		if !fakeAliasWasExplicit {
+			currentAlias := ""
+			if currentEgressID != "" {
+				if current, currentErr := device.repository.GetEgress(ctx, currentEgressID); currentErr == nil {
+					currentAlias = current.FakeAlias
+				}
+			}
+			if currentEgressID == "" || strings.TrimSpace(currentAlias) == "" {
+				// The allocator's alias is derived from the eventual identity. Keep
+				// an omitted alias semantic so equivalent policy exits can be reused.
+				egress.FakeAlias = ""
+			}
+		}
+		existingEgresses, err := device.repository.ListEgresses(ctx)
+		if err != nil {
+			return nil, err
+		}
+		refCounts := make(map[string]int)
+		rules, listErr := device.repository.ListRoutingRules(ctx)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, rule := range rules {
+			if id := strings.TrimSpace(rule.EgressID); id != "" {
+				refCounts[id]++
+			}
+		}
+		sources, err := device.repository.ListSources(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range sources {
+			if id := strings.TrimSpace(source.EgressID); id != "" {
+				refCounts[id]++
+			}
+		}
+		resolved, shouldSave := policyv2.ResolvePolicyEgress(egress, currentEgressID, existingEgresses, refCounts, uuid.NewString())
+		boundEgressID = resolved.ID
+		if shouldSave {
+			proposal.Egress = &resolved
+		} else {
+			proposal.Egress = nil
+		}
+	}
+	if proposal.TrafficIngress != nil {
+		applier := s.policy.ApplierFor(device.device.ID)
+		if applier == nil || applier.Reader == nil {
+			return nil, errors.New("policy discovery is unavailable")
+		}
+		discovery, err := policyv2.NewScanner(applier.Reader).Scan(ctx, device.device.ID)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := policyv2.NormalizeTrafficIngressScope(*proposal.TrafficIngress, discovery.TrafficIngress)
+		if err != nil {
+			return nil, err
+		}
+		proposal.TrafficIngress = &scope
+	}
+	if proposal.RoutingRule != nil {
+		rule := *proposal.RoutingRule
+		if rule.ID == "" {
+			rule.ID = uuid.NewString()
+		}
+		if payload.Egress != nil {
+			// ResolvePolicyEgress may have selected an equivalent existing exit or
+			// allocated a Copy-on-Write exit. The rule must follow that result even
+			// when the draft carried the previous Egress ID.
+			rule.EgressID = boundEgressID
+		} else if rule.EgressID == "" {
+			rule.EgressID = boundEgressID
+		}
+		rule, err := policyv2.NormalizeRoutingRule(rule)
+		if err != nil {
+			return nil, err
+		}
+		proposal.RoutingRule = &rule
+	}
+	for _, selection := range payload.PresetSelections {
+		if err := s.appendProposedPresetTargets(ctx, device, selection, proposal); err != nil {
+			return nil, err
+		}
+	}
+	if proposal.Empty() {
+		return nil, errors.New("policy proposal is empty")
+	}
+	return proposal, nil
+}
+
+func (s *Server) appendProposedPresetTargets(ctx context.Context, device policyDeviceContext, selection policyPlanPresetSelection, proposal *policyv2.PolicyProposal) error {
+	presetID := strings.TrimSpace(selection.PresetID)
+	previewID := strings.TrimSpace(selection.PreviewID)
+	preset, ok := s.applicationPresets().Get(presetID)
+	if !ok {
+		return fmt.Errorf("application preset not found: %s", presetID)
+	}
+	preview, ok := s.applicationPresetPreview(previewID, device.device.ID, preset.ID)
+	if !ok {
+		return fmt.Errorf("a valid preset preview is required for %s", preset.Name)
+	}
+	requestedKinds, err := applicationpreset.ResolveRequestedKinds(selection.RequestedKinds, len(preview.Domain.Rules) > 0, len(preview.IP.Rules) > 0)
+	if err != nil {
+		return err
+	}
+	for _, kind := range requestedKinds {
+		content := preview.Domain
+		label := "域名"
+		if kind == policy.KindIP {
+			content = preview.IP
+			label = "IP"
+		}
+		targetID := "preset:" + preset.ID + ":" + kind
+		target, findErr := device.repository.GetTargetList(ctx, targetID)
+		if errors.Is(findErr, policyv2.ErrTargetListNotFound) {
+			target = policyv2.TargetList{ID: targetID, Revision: 0, Kind: kind, SourceType: policyv2.TargetSourceTypePreset, PresetID: preset.ID, Enabled: true, Schedule: "7d"}
+		} else if findErr != nil {
+			return findErr
+		} else if target.SourceType != policyv2.TargetSourceTypePreset || target.PresetID != preset.ID || target.Kind != kind {
+			return fmt.Errorf("target list %s is not owned by preset %s", targetID, preset.ID)
+		} else if !target.PendingDeletion {
+			activeVersionID := strings.TrimSpace(target.ActiveVersionID)
+			pendingVersionID := strings.TrimSpace(target.PendingVersionID)
+			hasUsableVersion := false
+			for _, version := range target.Versions {
+				versionID := strings.TrimSpace(version.ID)
+				if versionID != "" && (versionID == activeVersionID || versionID == pendingVersionID) {
+					hasUsableVersion = true
+					break
+				}
+			}
+			if hasUsableVersion {
+				// A normal backing target is already referenceable. Selection reuses
+				// it; refresh/materialization is an explicit operation. If a legacy
+				// row has neither active nor pending content, fall through and repair
+				// it for the new rule instead of creating a reference to an empty list.
+				continue
+			}
+		}
+		// An explicit preset selection may revive a legacy row that was left in
+		// pending-deletion state. Rebuild its selected content in the proposal so
+		// the overlay does not turn the new rule into a missing-target blocker.
+		target.PendingDeletion = false
+		version, rules, err := content.PendingVersion(device.device.ID, targetID, uuid.NewString())
+		if err != nil {
+			return err
+		}
+		target.Name = preset.Name + " · " + label
+		target.URL = preview.URL
+		target.Schedule = "7d"
+		target.Enabled = true
+		target.PendingVersionID = version.ID
+		if target.NextRunAt.IsZero() {
+			target.NextRunAt = time.Now().UTC().Add(7 * 24 * time.Hour)
+		}
+		targetRules := make([]policyv2.TargetListRule, len(rules))
+		for index, rule := range rules {
+			targetRules[index] = policyv2.TargetListRule{VersionID: version.ID, RuleType: rule.RuleType, Domain: rule.Domain}
+		}
+		targetVersion := policyv2.TargetListVersion{ID: version.ID, TargetListID: targetID, SHA256: version.SHA256, CompressedYAML: version.CompressedYAML, State: "pending", Counts: map[string]int{"valid": len(targetRules)}, CreatedAt: version.CreatedAt}
+		proposal.TargetLists = append(proposal.TargetLists, policyv2.ProposedTargetList{Target: target, Version: targetVersion, Rules: targetRules})
+	}
+	return nil
+}
 
 func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Request, parts []string) {
 	if len(parts) == 1 {
@@ -1007,14 +836,20 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		var payload struct {
-			Kind             string              `json:"kind"`
-			InternetEgresses map[string][]string `json:"internetEgresses"`
+			Kind             string                     `json:"kind"`
+			InternetEgresses map[string][]string        `json:"internetEgresses"`
+			Proposal         *policyPlanProposalPayload `json:"proposal"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 			return
 		}
-		envelope, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, payload.Kind, policyv2.PlanOptions{InternetEgresses: payload.InternetEgresses})
+		proposal, err := s.preparePolicyPlanProposal(request.Context(), device, payload.Proposal)
+		if err != nil {
+			writePolicyJSON(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_policy_proposal", "error": err.Error()})
+			return
+		}
+		envelope, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, payload.Kind, policyv2.PlanOptions{InternetEgresses: payload.InternetEgresses, Proposal: proposal})
 		if err != nil {
 			writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "plan_generation_failed", "error": err.Error(), "details": map[string]any{}})
 			return
@@ -1035,12 +870,13 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 	}
 	var payload struct {
 		Acknowledgements []string `json:"acknowledgements"`
+		PlanHash         string   `json:"planHash"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	job, err := s.policy.ApplyPlan(request.Context(), device.device.ID, parts[1])
+	job, err := s.policy.ApplyPlanWithHash(request.Context(), device.device.ID, parts[1], strings.TrimSpace(payload.PlanHash))
 	if err != nil {
 		status, code := policyPlanApplyError(err)
 		writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "details": map[string]any{}})
@@ -1128,7 +964,11 @@ func (s *Server) servePolicyURLPreview(writer http.ResponseWriter, request *http
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	kind := policyv2.NormalizeSourceKind(payload.Kind)
+	kind, err := resolvePolicyPreviewKind(payload.Kind)
+	if err != nil {
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_target_list", "error": err.Error()})
+		return
+	}
 	normalized, err := policy.NormalizeSourceURL(payload.URL)
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_url", "error": err.Error()})
@@ -1181,7 +1021,11 @@ func (s *Server) servePolicyUploadPreview(writer http.ResponseWriter, request *h
 	if !ok {
 		return
 	}
-	kind := policyv2.NormalizeSourceKind(request.URL.Query().Get("kind"))
+	kind, err := resolvePolicyPreviewKind(request.URL.Query().Get("kind"))
+	if err != nil {
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_target_list", "error": err.Error()})
+		return
+	}
 	uploadService := policy.NewUploadService(filepath.Join(strings.TrimSpace(s.configSnapshot().DataDir), "tmp"))
 	preview, err := uploadService.PreviewMultipart(request.Context(), request.Header.Get("Content-Type"), request.Body, kind)
 	if err != nil {
@@ -1226,9 +1070,12 @@ func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *h
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	kind := policyv2.NormalizeSourceKind(payload.Kind)
+	kind, err := resolvePolicyPreviewKind(payload.Kind)
+	if err != nil {
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_target_list", "error": err.Error()})
+		return
+	}
 	var content policy.PreparedSourceContent
-	var err error
 	if kind == policy.KindIP {
 		content, err = policy.PrepareIPLines(payload.Text)
 	} else {
@@ -1258,6 +1105,13 @@ func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *h
 		"errorSamples": content.ErrorSamples,
 		"rules":        rules,
 	})
+}
+
+func resolvePolicyPreviewKind(kind string) (string, error) {
+	if err := policyv2.ValidateTargetListKind(kind); err != nil {
+		return "", err
+	}
+	return kind, nil
 }
 
 // ---- Helpers ----
@@ -1303,7 +1157,7 @@ func policyV2Health(job policyv2.ApplyJob) map[string]any {
 	}
 }
 
-func policyV2SourceContent(version policy.SourceVersion, rules []policy.SourceRule) (policyv2.SourceVersion, []policyv2.SourceRule) {
+func policyV2TargetListContent(version policy.SourceVersion, rules []policy.SourceRule) (policyv2.SourceVersion, []policyv2.SourceRule) {
 	counts := map[string]int{}
 	diff := map[string]any{}
 	_ = json.Unmarshal(version.CountsJSON, &counts)

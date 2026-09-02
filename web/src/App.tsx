@@ -71,13 +71,13 @@ type RecognitionDraft = {
   id: string
   name: string
   protocolAnalysis: boolean
-  mosdns: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number }
-  featureLibrary: { enabled: boolean; sourceUrl: string; refreshIntervalHours: number; matchWindowMinutes: number }
+  mosdns: { enabled: boolean; baseUrl: string; syncIntervalMinutes: number; matchWindowMinutes: number }
 }
 
 const RealtimeTrafficChart = lazy(() => import('./components/RealtimeTrafficChart').then((module) => ({ default: module.RealtimeTrafficChart })))
 
-const PolicyRoutingPage = lazy(() => import('./features/policy-routing/PolicyRoutingPage').then((module) => ({ default: module.PolicyRoutingPage })))
+const RoutingRulesPage = lazy(() => import('./features/policy/RoutingRulesPage').then((module) => ({ default: module.RoutingRulesPage })))
+const TargetLibraryPage = lazy(() => import('./features/policy/TargetLibraryPage').then((module) => ({ default: module.TargetLibraryPage })))
 const AccessControlPage = lazy(() => import('./features/access-control/AccessControlPage').then((module) => ({ default: module.AccessControlPage })))
 
 const panelPreferenceKey = 'rosboard:panel-preferences'
@@ -222,7 +222,7 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'policy-routing', 'access-control']
+const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'target-library', 'policy-routing', 'access-control']
 
 function loadPanelPreferences(): PanelPreferences {
   try {
@@ -270,12 +270,7 @@ function recognitionDraftFromSettings(settings: SettingsResponse, deviceID: stri
       enabled: device.mosdns?.enabled ?? false,
       baseUrl: device.mosdns ? mosDNSAddressFromBaseURL(device.mosdns.baseUrl) : '',
       syncIntervalMinutes: device.mosdns?.syncIntervalMinutes || 30,
-    },
-    featureLibrary: {
-      enabled: device.featureLibrary?.enabled ?? false,
-      sourceUrl: device.featureLibrary?.sourceUrl ?? '',
-      refreshIntervalHours: device.featureLibrary?.refreshIntervalHours || 168,
-      matchWindowMinutes: device.featureLibrary?.matchWindowMinutes || 30,
+      matchWindowMinutes: device.mosdns?.matchWindowMinutes || 30,
     },
   }
 }
@@ -843,17 +838,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
-  const [policySection, setPolicySection] = useState<'settings' | 'sources' | 'ip_sources'>(() => {
-    try {
-      const raw = window.sessionStorage.getItem('rosboard:policy-routing-view')
-      if (!raw) return 'settings'
-      const parsed = JSON.parse(raw) as { view: string; section: string }
-      if (parsed.section === 'sources') return 'sources'
-      if (parsed.section === 'ip_sources') return 'ip_sources'
-      return 'settings'
-    } catch { return 'settings' }
-  })
-
   const updatePanelPreferences = (next: PanelPreferences) => {
     setThemePreview(null)
     setPanelPreferences(next)
@@ -1017,22 +1001,16 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition') return
+    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition') return
     setStatusExpanded(true)
   }, [activeView])
 
   useEffect(() => {
-    if (activeView === 'policy-routing' || activeView === 'access-control') setHostSettingsExpanded(true)
+    if (activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') setHostSettingsExpanded(true)
   }, [activeView])
 
   useEffect(() => {
-    if (activeView === 'policy-routing') {
-      window.sessionStorage.setItem('rosboard:policy-routing-view', JSON.stringify({ view: 'policy-routing', section: policySection }))
-    }
-  }, [activeView, policySection])
-
-  useEffect(() => {
-    if (activeView === 'fleet' || activeView === 'policy-routing' || activeView === 'access-control') return
+    if (activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
     let cancelled = false
     let refreshing = false
 
@@ -1278,7 +1256,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
   }
 
-  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'policy-routing' && activeView !== 'access-control') {
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'target-library' && activeView !== 'policy-routing' && activeView !== 'access-control') {
 	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
@@ -1331,21 +1309,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 options: [{ value: 'resource', label: '资源监控' }, { value: 'load', label: '负载历史' }],
                 onChange: (value) => { setActiveView(value as ActiveView); setSelectedTerminalID(null) },
               }
-          : activeView === 'policy-routing'
-            ? {
-                value: policySection,
-                ariaLabel: '策略路由页面',
-                options: [{ value: 'settings', label: '策略设置' }, { value: 'sources', label: '域名列表' }, { value: 'ip_sources', label: 'IP 列表' }],
-                onChange: (value) => setPolicySection(value as 'settings' | 'sources' | 'ip_sources'),
-              }
-            : null
+          : null
   const topbarClassName = detailMode
     ? 'topbar detail-topbar'
     : activeView === 'overview'
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
+        : activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1459,11 +1430,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <div className="menu-group">
             <button
               type="button"
-              className={activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
+              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostSettingsExpanded}
               aria-controls="host-settings-menu"
               onClick={() => {
-                const alreadyInHostSettings = activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
+                const alreadyInHostSettings = activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
                 setHostSettingsExpanded((value) => alreadyInHostSettings ? !value : true)
                 if (!alreadyInHostSettings) setActiveView('policy-routing')
                 setSelectedTerminalID(null)
@@ -1473,6 +1444,13 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <NavLabel icon="policy" label="主机设置" />
             </button>
             {hostSettingsExpanded ? <div className="submenu" id="host-settings-menu">
+              <button
+                type="button"
+                className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
+                onClick={() => { setHostSettingsExpanded(true); setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
+              >
+                <NavLabel icon="network" label="目标库" />
+              </button>
               <button
                 type="button"
                 className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
@@ -1615,7 +1593,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                {activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                {activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
                   <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
                   <ChoiceMenu
                     value={dashboardRefreshMs}
@@ -1677,19 +1655,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
         {activeView === 'protocols' && protocolAnalysisEnabled && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'target-library' ? (
+          <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载目标库…</p></div></main>}>
+            <TargetLibraryPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} />
+          </Suspense>
+        ) : null}
         {activeView === 'policy-routing' ? (
           <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载策略路由…</p></div></main>}>
-            <PolicyRoutingPage
-              key={selectedDeviceID}
-              deviceID={selectedDeviceID}
-              refreshNonce={refreshNonce}
-              section={policySection}
-              onOpenDeviceSettings={() => {
-                setActiveView('settings')
-                setSettingsSection('connection')
-                setSettingsExpanded(true)
-              }}
-            />
+            <RoutingRulesPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} />
           </Suspense>
         ) : null}
         {activeView === 'access-control' ? (
@@ -2860,13 +2833,18 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; devices: D
   }
   const deviceStatus = props.devices.find((item) => item.id === draft.id)
   return <form className="settings-form recognition-settings-form" onSubmit={(event) => { event.preventDefault(); void props.onSave(draft) }}>
-    <label className="checkbox-label wide protocol-analysis-toggle"><input type="checkbox" checked={draft.protocolAnalysis} onChange={(event) => setDraft((current) => current && ({ ...current, protocolAnalysis: event.target.checked }))} /><span>启用协议分析（{draft.name}）</span></label>
-    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis}>
-      <legend>MosDNS 日志对接 · {draft.name}</legend>
-      <p className="settings-field-hint wide">该设备的识别设置全部独立：MosDNS 只作用于这台 RouterOS，切换顶部设备可为其他 ROS 单独配置。</p>
+    <fieldset className="settings-fieldset wide">
+      <legend>流量分析 · {draft.name}</legend>
+      <label className="checkbox-label"><input type="checkbox" checked={draft.protocolAnalysis} onChange={(event) => setDraft((current) => current && ({ ...current, protocolAnalysis: event.target.checked }))} /><span>启用协议分析</span></label>
+      <p className="settings-field-hint wide">关闭后保留原始连接采集，但不进行实时应用归因、协议聚合和协议页面统计。</p>
+    </fieldset>
+    <fieldset className="settings-fieldset wide">
+      <legend>MosDNS 应用归因 · {draft.name}</legend>
+      <p className="settings-field-hint wide">MosDNS 仅提供流量统计中的应用归因证据，不改变目标库与访问规则。</p>
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
       <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
       <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>DNS 证据窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.matchWindowMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       {draft.mosdns.enabled && deviceStatus?.mosdns ? (
         <div className="settings-grid connection-runtime-grid">
           <SettingItem label="最近导入" value={`${deviceStatus.mosdns.lastImported} 条`} />
@@ -2875,20 +2853,6 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; devices: D
           <SettingItem label="最近学习" value={deviceStatus.mosdns.learnedFeatureLastSeen ? formatDateTime(deviceStatus.mosdns.learnedFeatureLastSeen) : '-'} />
           <SettingItem label="当前水位" value={deviceStatus.mosdns.watermark ? formatDateTime(deviceStatus.mosdns.watermark) : '-'} />
           <SettingItem label="运行状态" value={deviceStatus.mosdns.lastError ? `异常：${deviceStatus.mosdns.lastError}` : '已启用'} wide />
-        </div>
-      ) : null}
-    </fieldset>
-    <fieldset className="settings-fieldset wide" disabled={!draft.protocolAnalysis}>
-      <legend>协议特征库 · {draft.name}</legend>
-      <label className="checkbox-label"><input type="checkbox" checked={draft.featureLibrary.enabled} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, enabled: event.target.checked } }))} /><span>启用域名/IP 应用识别</span></label>
-      <label><span>特征库地址</span><input className="settings-input" type="url" required={draft.featureLibrary.enabled} value={draft.featureLibrary.sourceUrl} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, sourceUrl: event.target.value } }))} /></label>
-      <label><span>刷新周期</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.refreshIntervalHours} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, refreshIntervalHours: Number(event.target.value) } }))} /><small>小时</small></span></label>
-      <label><span>DNS 匹配窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} required value={draft.featureLibrary.matchWindowMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, featureLibrary: { ...current.featureLibrary, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
-      {draft.featureLibrary.enabled && deviceStatus?.featureLibrary ? (
-        <div className="settings-grid connection-runtime-grid">
-          <SettingItem label="已加载规则" value={`${deviceStatus.featureLibrary.ruleCount} 条`} />
-          <SettingItem label="最近成功" value={deviceStatus.featureLibrary.lastSuccess ? formatDateTime(deviceStatus.featureLibrary.lastSuccess) : '-'} />
-          <SettingItem label="运行状态" value={deviceStatus.featureLibrary.lastError ? `异常：${deviceStatus.featureLibrary.lastError}` : '已启用'} wide />
         </div>
       ) : null}
     </fieldset>
@@ -3400,7 +3364,7 @@ function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
   const historyBytes = new Map<string, number>()
   history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
   const historyTotal = Array.from(historyBytes.values()).reduce((sum, value) => sum + value, 0)
-  return <section className="panel compact-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.name}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'dns' ? 'MosDNS + 特征库' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
+  return <section className="panel compact-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.applicationId || `service:${item.service || item.name}`}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'mosdns' ? 'MosDNS + 预设匹配' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
 }
 
 function PolicyPage(props: { policies: PolicyStat[] }) {
@@ -3494,7 +3458,7 @@ function RoutesPage(props: { routes: RouteStat[] }) {
       </div>
       {rules.length ? (
         <section className="panel compact-panel">
-          <div className="data-toolbar"><strong>Routing Rules（分流入口）</strong><span className="toolbar-spacer" /><span>{rules.length} 条 · 命中连接 {rules.reduce((sum, item) => sum + item.currentMatches, 0)}</span></div>
+          <div className="data-toolbar"><strong>策略路由（分流入口）</strong><span className="toolbar-spacer" /><span>{rules.length} 条 · 命中连接 {rules.reduce((sum, item) => sum + item.currentMatches, 0)}</span></div>
           <div className="table-scroll"><table className="data-table"><thead><tr><th>IP</th><th>源地址 / 接口</th><th>目标网段</th><th>路由表</th><th>动作</th><th>命中连接</th><th>备注</th><th>状态</th></tr></thead><tbody>
             {rules.map((item, index) => (
               <tr key={item.id || `rule-${index}`}>
@@ -3882,7 +3846,7 @@ function ConnectionTable(props: { state: ConnectionTableState; showStatus: boole
     </tr></thead><tbody>{state.visibleConnections.length ? state.visibleConnections.map((connection) => (
       <tr key={connection.key}>
         <td><span className={`ip-family-badge ${connection.family}`}>{connection.family === 'ipv4' ? 'IPv4' : 'IPv6'}</span></td>
-        <td title={connection.matchedDomain || undefined}>{connection.application}{connection.matchedDomain ? <small className="connection-domain">{connection.matchedDomain}</small> : null}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
+        <td title={connection.matchedDomain || undefined}>{connection.application || connection.service || '-'}{connection.matchedDomain ? <small className="connection-domain">{connection.matchedDomain}</small> : null}</td><td>{connection.protocol}</td><td>{connection.sourceAddress || '-'}</td><td>{connection.sourcePort || '-'}</td>
         <td>{connection.destinationAddress || '-'}</td><td>{connection.destinationPort || '-'}</td>
         <td>{formatBits(connection.uploadBps)}</td><td>{formatBits(connection.downloadBps)}</td>
         <td>{formatBytes(connection.uploadBytes)}</td><td>{formatBytes(connection.downloadBytes)}</td>

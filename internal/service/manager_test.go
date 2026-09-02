@@ -1,12 +1,11 @@
 package service
 
 import (
-	"testing"
-	"time"
-
 	"rosboard/internal/config"
 	"rosboard/internal/model"
 	"rosboard/internal/store"
+	"testing"
+	"time"
 )
 
 func TestStatusesSortBySortOrderThenName(t *testing.T) {
@@ -128,7 +127,7 @@ func TestMonitorRetryDelayBacksOffAndCaps(t *testing.T) {
 	}
 }
 
-func TestPerDeviceRecognitionServicesFollowDeviceSwitch(t *testing.T) {
+func TestPerDeviceRecognitionServicesFollowIndependentSwitches(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -141,12 +140,16 @@ func TestPerDeviceRecognitionServicesFollowDeviceSwitch(t *testing.T) {
 				ID: "on", Name: "On", Enabled: true,
 				RouterOS:         config.RouterOSConfig{BaseURL: "http://on.test", Username: "u", Password: "p"},
 				ProtocolAnalysis: true,
-				FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 30},
-				MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
+				MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30, MatchWindowMinutes: 20},
 			},
 			{
-				ID: "off", Name: "Off", Enabled: true,
+				ID: "off", Name: "Off", Enabled: true, ProtocolAnalysis: false,
 				RouterOS: config.RouterOSConfig{BaseURL: "http://off.test", Username: "u", Password: "p"},
+				MosDNS:   config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.4", SyncIntervalMinutes: 30, MatchWindowMinutes: 25},
+			},
+			{
+				ID: "no-mosdns", Name: "No MosDNS", Enabled: true, ProtocolAnalysis: true,
+				RouterOS: config.RouterOSConfig{BaseURL: "http://no-mosdns.test", Username: "u", Password: "p"},
 			},
 		},
 	}
@@ -154,18 +157,21 @@ func TestPerDeviceRecognitionServicesFollowDeviceSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.items["on"].feature == nil || manager.items["on"].mosdns == nil {
-		t.Fatalf("enabled device must own its recognition services: %+v", manager.items["on"])
+	if manager.items["on"].monitor.applicationResolver == nil || manager.items["on"].mosdns == nil {
+		t.Fatalf("analysis and MosDNS enabled device must own both services: %+v", manager.items["on"])
 	}
-	if manager.items["off"].feature != nil || manager.items["off"].mosdns != nil {
-		t.Fatalf("disabled device must not own recognition services: %+v", manager.items["off"])
+	if manager.items["off"].monitor.applicationResolver != nil || manager.items["off"].mosdns == nil {
+		t.Fatalf("MosDNS must run independently while analysis is off: %+v", manager.items["off"])
+	}
+	if manager.items["no-mosdns"].monitor.applicationResolver != nil || manager.items["no-mosdns"].mosdns != nil {
+		t.Fatalf("analysis without MosDNS must not own attribution services: %+v", manager.items["no-mosdns"])
 	}
 	onStatus := manager.RecognitionStatus("on")
-	if !onStatus.ProtocolAnalysis || !onStatus.MosDNS.Enabled || !onStatus.FeatureLibrary.Enabled {
+	if !onStatus.ProtocolAnalysis || !onStatus.MosDNS.Enabled || onStatus.MosDNS.MatchWindowMinutes != 20 {
 		t.Fatalf("enabled device recognition status incomplete: %+v", onStatus)
 	}
 	offStatus := manager.RecognitionStatus("off")
-	if offStatus.ProtocolAnalysis || offStatus.MosDNS.Enabled || offStatus.FeatureLibrary.Enabled {
-		t.Fatalf("disabled device recognition status must be off: %+v", offStatus)
+	if offStatus.ProtocolAnalysis || !offStatus.MosDNS.Enabled || offStatus.MosDNS.MatchWindowMinutes != 25 {
+		t.Fatalf("MosDNS status must remain enabled with analysis off: %+v", offStatus)
 	}
 }

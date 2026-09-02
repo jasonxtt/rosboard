@@ -46,9 +46,40 @@ func ValidateFakeAliases(ctx context.Context, reader PolicyReader, repository Re
 		return nil, err
 	}
 	sourcesByEgress := enabledSourcesByEgress(sources)
+	if routingRepository, ok := repository.(RoutingRuleRepository); ok {
+		if err := routingRepository.EnsureRoutingRulesMigrated(ctx); err != nil {
+			return nil, err
+		}
+		authority, err := routingRepository.RoutingAuthority(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if authority == RoutingRuleAuthorityV1 {
+			rules, err := routingRepository.ListRoutingRules(ctx)
+			if err != nil {
+				return nil, err
+			}
+			sourceByID := make(map[string]Source, len(sources))
+			for _, source := range sources {
+				sourceByID[source.ID] = source
+			}
+			sourcesByEgress = make(map[string][]Source)
+			for _, rule := range rules {
+				if !rule.Enabled {
+					continue
+				}
+				for _, targetID := range rule.TargetListIDs {
+					source, ok := sourceByID[targetID]
+					if ok && source.Enabled && !source.PendingDeletion && source.Kind == KindDomain && firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID) != "" {
+						sourcesByEgress[rule.EgressID] = append(sourcesByEgress[rule.EgressID], source)
+					}
+				}
+			}
+		}
+	}
 	used := make(map[netip.Addr]string)
 	for _, egress := range egresses {
-		if egress.PendingDeletion || strings.TrimSpace(egress.FakeAlias) == "" {
+		if egress.PendingDeletion {
 			continue
 		}
 		// An IP-only egress materializes no DNS objects, so its persisted
@@ -56,7 +87,11 @@ func ValidateFakeAliases(ctx context.Context, reader PolicyReader, repository Re
 		if !hasApplicableDomainSource(sourcesByEgress[egress.ID]) {
 			continue
 		}
-		alias, err := netip.ParseAddr(strings.TrimSpace(egress.FakeAlias))
+		aliasValue := strings.TrimSpace(egress.FakeAlias)
+		if aliasValue == "" {
+			aliasValue = deterministicFakeAliasForEgress(egress)
+		}
+		alias, err := netip.ParseAddr(aliasValue)
 		if err != nil {
 			issues = append(issues, issue("invalid_fake_alias", "", egress.ID, "Fake DNS 别名不是有效 IP"))
 			continue

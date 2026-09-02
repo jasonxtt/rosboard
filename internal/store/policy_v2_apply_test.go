@@ -22,6 +22,7 @@ type policyV2FakeRouter struct {
 	order        map[routeros.MutationMenu][]string
 	flushes      int
 	dnsCacheSize string
+	dnsServers   string
 	failAt       int
 	writes       int
 }
@@ -151,7 +152,7 @@ func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *te
 	}
 }
 
-func TestAccessReconcileDoesNotApplyDeferredPolicyChanges(t *testing.T) {
+func TestAccessReconcilePromotesOnlyItsDeferredTargetChanges(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -179,25 +180,34 @@ func TestAccessReconcileDoesNotApplyDeferredPolicyChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasPolicyV2Blocker(plan.Plan.Blockers, "policy_changes_pending") {
-		t.Fatalf("access plan must remain blocked while policy changes are deferred: %#v", plan.Plan.Blockers)
+	if len(plan.Plan.Blockers) != 0 {
+		t.Fatalf("access plan must not be blocked by deferred target changes: %#v", plan.Plan.Blockers)
 	}
 	if err := manager.ReconcileAccess(ctx); err != nil {
 		t.Fatal(err)
-	}
-	loadedSource, err := policyRepository.GetSource(ctx, source.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loadedSource.ActiveVersionID != "" || loadedSource.PendingVersionID != "deferred-version" {
-		t.Fatalf("access reconcile applied a deferred policy source: %#v", loadedSource)
 	}
 	state, err := policyRepository.GetDeviceState(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.Job.ID != "" {
-		t.Fatalf("access reconcile created a RouterOS job for a deferred policy change: %#v", state.Job)
+		if job := waitPolicyV2Job(t, policyRepository, state.Job.ID); job.State != "committed" {
+			t.Fatalf("access reconcile failed: %#v", job)
+		}
+	}
+	loadedSource, err := policyRepository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedSource.ActiveVersionID != "deferred-version" || loadedSource.PendingVersionID != "" {
+		t.Fatalf("access reconcile did not promote its deferred target source: %#v", loadedSource)
+	}
+	state, err = policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Job.ID == "" {
+		t.Fatalf("access reconcile did not create an access apply job: %#v", state.Job)
 	}
 }
 
@@ -329,7 +339,7 @@ func TestAccessSourceOnDisabledEgressIsMaterializedOnlyByAccessProjection(t *tes
 	if len(desired.Blockers) != 0 {
 		t.Fatalf("disabled-egress access projection is blocked: %#v", desired.Blockers)
 	}
-	entries := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:"+source.ID+":")
+	entries := desiredObjectsByLogicalPrefix(desired.Objects, "access-target:"+source.ID+":")
 	if len(entries) != 1 {
 		t.Fatalf("disabled-egress access source must have one address projection, got %#v", entries)
 	}
@@ -376,8 +386,17 @@ func (r *policyV2FakeRouter) PolicyList(_ context.Context, menu routeros.ReadMen
 	if menu == routeros.ReadMenuInterfaceList {
 		return []routeros.RouterOSObject{{"name": "LAN"}}, nil
 	}
-	if menu == routeros.ReadMenuIPDNS && r.dnsCacheSize != "" {
-		return []routeros.RouterOSObject{{"cache-size": r.dnsCacheSize}}, nil
+	if menu == routeros.ReadMenuIPDNS {
+		object := routeros.RouterOSObject{}
+		if r.dnsCacheSize != "" {
+			object["cache-size"] = r.dnsCacheSize
+		}
+		if r.dnsServers != "" {
+			object["servers"] = r.dnsServers
+		}
+		if len(object) > 0 {
+			return []routeros.RouterOSObject{object}, nil
+		}
 	}
 	return []routeros.RouterOSObject{}, nil
 }
@@ -551,6 +570,15 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	router.objects[routeros.MenuIPFirewallMangle] = map[string]routeros.RouterOSObject{
 		"*foreign": {".id": "*foreign", "chain": "prerouting", "action": "accept", "comment": "manual rule"},
 	}
+	router.objects[routeros.MenuIPFirewallAddressList] = map[string]routeros.RouterOSObject{
+		"*foreign-address": {".id": "*foreign-address", "list": "manual-list", "address": "198.51.100.10"},
+	}
+	router.objects[routeros.MenuIPDNSStatic] = map[string]routeros.RouterOSObject{
+		"*foreign-dns": {".id": "*foreign-dns", "name": "manual.example", "type": "A", "address": "198.51.100.10"},
+	}
+	router.objects[routeros.MenuIPRoute] = map[string]routeros.RouterOSObject{
+		"*foreign-route": {".id": "*foreign-route", "dst-address": "203.0.113.0/24", "gateway": "192.0.2.1", "routing-table": "main"},
+	}
 	manager := policyv2.NewManager(nil)
 	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: repository}); err != nil {
 		t.Fatal(err)
@@ -579,6 +607,9 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	}
 	if router.objects[routeros.MenuIPFirewallMangle]["*foreign"] == nil {
 		t.Fatal("apply modified a foreign RouterOS object")
+	}
+	if router.objects[routeros.MenuIPFirewallAddressList]["*foreign-address"] == nil || router.objects[routeros.MenuIPDNSStatic]["*foreign-dns"] == nil || router.objects[routeros.MenuIPRoute]["*foreign-route"] == nil {
+		t.Fatal("apply modified a foreign address-list, DNS static rule, or route")
 	}
 	loadedSource, err := repository.GetSource(ctx, source.ID)
 	if err != nil {
@@ -674,7 +705,15 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN-CHANGED"],"interfaces":[]}`)); err != nil {
+	routingRules, err := repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routingRules) == 0 {
+		t.Fatal("expected a routing rule to mutate")
+	}
+	routingRules[0].Ingress = policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN-CHANGED"}}
+	if _, err := repository.SaveRoutingRule(ctx, routingRules[0]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := manager.ApplyPlan(ctx, "default", stalePlan.PlanID); err != policyv2.ErrPlanStale {
@@ -745,7 +784,7 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 		if strings.Contains(object.Fields["comment"], "策略 Dual") {
 			hasReadableStrategyComment = true
 		}
-		if object.Menu == string(routeros.MenuIPDNSStatic) && strings.Contains(object.Fields["comment"], "域名列表 one") {
+		if object.Menu == string(routeros.MenuIPDNSStatic) && strings.Contains(object.Fields["comment"], "策略 Dual") {
 			hasReadableSourceComment = true
 		}
 	}
@@ -753,8 +792,8 @@ func TestPolicyV2DesiredSupportsDualStackAndDedicatedLists(t *testing.T) {
 		t.Fatalf("dual/dedicated objects missing: ipv6=%v ipv4-return-guard=%v ipv6-return-guard=%v lists=%v", hasIPv6Route, hasIPv4ReturnGuard, hasIPv6ReturnGuard, lists)
 	}
 	for listName := range lists {
-		if !strings.HasPrefix(listName, "rb_src_") {
-			t.Fatalf("dedicated source list name is not stable and source-scoped: %q", listName)
+		if !strings.HasPrefix(listName, "rb_rt_") {
+			t.Fatalf("routing target list name is not stable and target-scoped: %q", listName)
 		}
 	}
 	if !hasReadableStrategyComment || !hasReadableSourceComment {
@@ -902,6 +941,24 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.DeleteEgress(ctx, "one", one.Revision); !errors.Is(err, policyv2.ErrEgressInUse) {
+		t.Fatalf("routing-rule-owned egress delete error = %v, want egress-in-use", err)
+	}
+	routingRules, err := repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range routingRules {
+		if rule.EgressID == "one" {
+			if err := repository.DeleteRoutingRule(ctx, rule.ID, rule.Revision); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	one, err = repository.GetEgress(ctx, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := repository.DeleteEgress(ctx, "one", one.Revision); err != nil {
 		t.Fatal(err)
 	}
@@ -941,6 +998,21 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 		t.Fatal("shared ingress list was removed while another policy still used it")
 	}
 	two, err := repository.GetEgress(ctx, "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routingRules, err = repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range routingRules {
+		if rule.EgressID == "two" {
+			if err := repository.DeleteRoutingRule(ctx, rule.ID, rule.Revision); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	two, err = repository.GetEgress(ctx, "two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1016,6 +1088,47 @@ func TestPolicyV2ScheduledRefreshCreatesPendingVersion(t *testing.T) {
 	}
 	if refreshes != 1 || loaded.PendingVersionID != "scheduled-version" || !loaded.NextRunAt.After(now) {
 		t.Fatalf("scheduled refresh not persisted: refreshes=%d source=%#v", refreshes, loaded)
+	}
+}
+
+func TestPolicyV2ScheduledRefreshIncludesPresetTargetList(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	source, err := repository.SaveSource(ctx, policyv2.Source{
+		ID: "preset-scheduled", Type: policyv2.TargetSourceTypePreset, PresetID: "youtube", Kind: policyv2.KindDomain,
+		Name: "YouTube", URL: "https://example.invalid/youtube.yaml", Schedule: "1h", Enabled: true, NextRunAt: time.Now().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	manager := policyv2.NewManager(nil)
+	refreshes := 0
+	if err := manager.RegisterApplier("default", &policyv2.Applier{
+		Reader: router, Mutation: router, Repo: repository,
+		Refresh: func(context.Context, policyv2.Source) (policyv2.SourceRefresh, error) {
+			refreshes++
+			version := policyv2.SourceVersion{ID: "preset-scheduled-version", SourceID: source.ID, SHA256: "sha", CompressedYAML: []byte("gzip"), State: "pending"}
+			return policyv2.SourceRefresh{Version: &version, Rules: []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.example"}}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := manager.RefreshDue(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := repository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshes != 1 || loaded.PendingVersionID != "preset-scheduled-version" || !loaded.NextRunAt.After(now) {
+		t.Fatalf("scheduled preset refresh not persisted: refreshes=%d source=%#v", refreshes, loaded)
 	}
 }
 
@@ -1108,7 +1221,7 @@ func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T)
 	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
 		t.Fatal(err)
 	}
-	job, err := manager.GenerateAndApply(ctx, "default", "source-initial")
+	job, err := manager.GenerateAndApplyTarget(ctx, "default", "source-initial", source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1128,7 +1241,7 @@ func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T)
 	if !policyv2.SourceAutoApplyEligible(ctx, policyRepository, source, accessRepository) {
 		t.Fatal("disabling a source referenced by an enabled access rule must trigger auto-apply")
 	}
-	job, err = manager.GenerateAndApply(ctx, "default", "source-disable")
+	job, err = manager.GenerateAndApplyTarget(ctx, "default", "source-disable", source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1139,7 +1252,7 @@ func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	listName := policyv2.SourceListName(managerID, policyRepository.DeviceID(), source)
+	listName := policyv2.AccessTargetListName(managerID, policyRepository.DeviceID(), "rule-a", source.ID)
 	objects, err := router.List(ctx, routeros.MenuIPFirewallAddressList, routeros.MutationQuery{})
 	if err != nil {
 		t.Fatal(err)
