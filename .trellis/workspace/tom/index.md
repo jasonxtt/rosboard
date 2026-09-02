@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 94
-- **Last Active**: 2026-09-01
+- **Total Sessions**: 95
+- **Last Active**: 2026-09-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1907 | Active |
+| `journal-2.md` | ~1959 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 95 | 2026-09-03 | 完成 Unified Target / Policy Model 收尾 | `ae2ba769`, `74c01fbc` | `main` |
 | 94 | 2026-09-01 | 完成 RouterOS 策略批量应用与 ssjy 全量重建验收 | `389c576` | `main` |
 | 93 | 2026-08-31 | 完成 RouterOS 设备接入流程审核 | `b9e7708` | `main` |
 | 92 | 2026-08-30 | Policy source multi-format parsing | `333d8a4` | `main` |

@@ -38,6 +38,8 @@
 | search str | 额外搜索/字符串条件 | 没有安全的当前 RouterOS contract；初期不支持 |
 | icon | archive 中有 `app_icons/<appid>.png` | 本任务首期 defer；不下载、不 vendor、不做 asset pipeline |
 
+OAF 的 `host` 字段实际同时包含两类值：`facebook.com`、`play.google.com` 这样的完整 multi-label hostname，以及 `youtube`、`whatsapp` 这样的 host keyword/substring 特征。首期 rosboard 只把规范化后至少包含一个 `.` 的 hostname 纳入 safe-domain subset；single-token keyword 暂不支持，不能伪装成 DNS exact/suffix domain。
+
 样例还表明：一条应用可以有多个逗号分隔的 signature，例如 WindowsUpdate 同时有 `update.microsoft.com` 和 `windowsupdate.com` 条件；也存在 UDP 443/QUIC、端口范围和 L7 字典样例。解析器必须保留“一个 application 多条 signature”的事实，不能只取第一条或将字段拼成显示文本。
 
 ## 3. 规范化规则建议

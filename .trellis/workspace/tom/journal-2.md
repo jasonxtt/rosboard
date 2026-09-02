@@ -1905,3 +1905,55 @@ Added YAML/TXT/LIST and local-upload parsing with selected domain/IP filtering; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 95: 完成 Unified Target / Policy Model 收尾
+
+**Date**: 2026-09-03
+**Task**: 完成 Unified Target / Policy Model 收尾
+**Branch**: `main`
+
+### Summary
+
+完成统一 Target Library、RoutingRule/AccessRule 模型和应用 preset 迁移；通过自动化校验、10.0.0.60 部署验证与用户手工 UI/runtime 验收，随后完成 Trellis 归档。
+
+### Main Changes
+
+- 将路由与访问控制统一到 canonical TargetList + RoutingRule/AccessRule 模型，移除旧的 OAF enforcement/catalog runtime 与 source-owned policy UI。
+- 保留 pending/active target 生命周期语义：未被策略或控制规则引用的上传列表保持待命，不提前写入 RouterOS DNS Static；pending-only 内容仍可被规则选择和应用。
+- 完成应用 preset catalog、目标库、共享 subject/target selector、变更预览与按域隔离的 RouterOS desired/apply 流程。
+- 记录 OAF application catalog task 已被本任务 supersede；旧任务设计/研究中的未纳入当前提交的工作树修改保持原样。
+
+### Validation
+
+- `go test ./... -count=1`
+- `go test -race ./internal/policyv2 ./internal/api ./internal/store -count=1`
+- `go vet ./...`
+- `git diff --check`
+- `npm run lint`、`npm run build`、`node --experimental-strip-types --test scripts/*.test.ts`（8/8）
+- `python3 ./.trellis/scripts/task.py validate 09-01-unified-target-policy-model`（归档前通过）
+
+### Runtime Acceptance
+
+- 测试机 `10.0.0.60` 部署、systemd、health、嵌入式前端 asset 和 binary hash 校验均通过；用户已明确确认实际部署测试通过。
+- 未访问或修改生产机 `10.0.0.6`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ae2ba769` | (see git log) |
+| `74c01fbc` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
