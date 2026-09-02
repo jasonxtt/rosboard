@@ -188,6 +188,70 @@ func TestAccessRuleCannotReferenceMissingSource(t *testing.T) {
 	}
 }
 
+func TestAccessRuleApplicationsRoundTripAndStayIndependentFromSources(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	repository := storage.AccessRepository()
+	rule, err := repository.SaveRule(ctx, accesscontrol.AccessRule{
+		ID: "application-rule", Name: "应用规则", TargetScope: accesscontrol.TargetScopeApplications,
+		ApplicationIDs: []string{" oaf:2002 ", "oaf:1001", "oaf:2002"}, Enabled: true,
+	}, []accesscontrol.RuleMember{accessFixedMember("application-rule", "t1", "10.0.0.20")}, "tom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 2 || rule.ApplicationIDs[0] != "oaf:1001" || rule.ApplicationIDs[1] != "oaf:2002" {
+		t.Fatalf("application IDs were not normalized independently: %#v", rule)
+	}
+
+	rules, err := repository.ListRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || len(rules[0].SourceIDs) != 0 || len(rules[0].ApplicationIDs) != 2 || rules[0].ApplicationIDs[0] != "oaf:1001" || rules[0].ApplicationIDs[1] != "oaf:2002" {
+		t.Fatalf("application relation did not round-trip in position order: %#v", rules)
+	}
+	var sourceRows, applicationRows int
+	if err := storage.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE rule_id = ?`, rule.ID).Scan(&sourceRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_applications WHERE rule_id = ?`, rule.ID).Scan(&applicationRows); err != nil {
+		t.Fatal(err)
+	}
+	if sourceRows != 0 || applicationRows != 2 {
+		t.Fatalf("application rule polluted the source relation: sources=%d applications=%d", sourceRows, applicationRows)
+	}
+
+	rule, err = repository.SaveRule(ctx, accesscontrol.AccessRule{
+		ID: rule.ID, Name: rule.Name, TargetScope: accesscontrol.TargetScopeApplications,
+		ApplicationIDs: []string{"oaf:3003"}, Enabled: true, Revision: rule.Revision,
+	}, []accesscontrol.RuleMember{accessFixedMember(rule.ID, "t1", "10.0.0.20")}, "tom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rule.Revision != 2 {
+		t.Fatalf("application update did not advance revision: %#v", rule)
+	}
+	if err := storage.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_applications WHERE rule_id = ? AND application_id = ?`, rule.ID, "oaf:1001").Scan(&applicationRows); err != nil {
+		t.Fatal(err)
+	}
+	if applicationRows != 0 {
+		t.Fatal("application relation replacement left the old ID")
+	}
+	if err := repository.DeleteRule(ctx, rule.ID, rule.Revision, "tom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.db.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_applications WHERE rule_id = ?`, rule.ID).Scan(&applicationRows); err != nil {
+		t.Fatal(err)
+	}
+	if applicationRows != 0 {
+		t.Fatal("deleting an access rule left application relation rows")
+	}
+}
+
 func TestAccessBindingSwitchClearsAutoTrustedProjection(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
@@ -339,6 +403,41 @@ func TestMarkedAccessSchemaDoesNotSilentlyRecreateMissingTables(t *testing.T) {
 	}
 	if err := device.initAccessControlSchema(); err == nil {
 		t.Fatal("a marked but incomplete access schema must fail closed")
+	}
+}
+
+func TestMarkedAccessSchemaAddsApplicationRelation(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	device, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`UPDATE access_schema_meta SET value = 'v1' WHERE key = 'logical_rules'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`DROP TABLE access_rule_applications`); err != nil {
+		t.Fatal(err)
+	}
+	if err := device.initAccessControlSchema(); err != nil {
+		t.Fatalf("v1 access schema should receive the additive application relation: %v", err)
+	}
+	var marker string
+	if err := device.db.QueryRow(`SELECT value FROM access_schema_meta WHERE key = 'logical_rules'`).Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != accessSchemaVersion {
+		t.Fatalf("schema marker was not upgraded: %q", marker)
+	}
+	var count int
+	if err := device.db.QueryRow(`SELECT count(*) FROM pragma_table_info('access_rule_applications')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 4 {
+		t.Fatalf("unexpected application relation schema: %d columns", count)
 	}
 }
 

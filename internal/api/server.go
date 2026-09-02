@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"rosboard/internal/accesscontrol"
-	"rosboard/internal/applicationcatalog"
+	"rosboard/internal/applicationpreset"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
 	"rosboard/internal/policy"
@@ -35,7 +35,6 @@ type Server struct {
 	monitor       *service.Monitor
 	manager       *service.MonitorManager
 	policy        *policyv2.Manager
-	catalog       *applicationcatalog.Catalog
 	store         *store.Store
 	assets        fs.FS
 	allowedCIDRs  []*net.IPNet
@@ -50,6 +49,8 @@ type Server struct {
 	accessTerminalsFn func(deviceID string) []accesscontrol.Terminal
 	previewMu         sync.Mutex
 	previews          map[string]policyPreviewEntry
+	presetPreviews    map[string]applicationPresetPreview
+	presetRegistry    *applicationpreset.Registry
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
@@ -116,15 +117,15 @@ func NewServerWithAuth(cfg config.Config, manager *service.MonitorManager, stora
 	return server
 }
 
-func (s *Server) SetApplicationCatalog(catalog *applicationcatalog.Catalog) {
-	s.catalog = catalog
+func (s *Server) SetApplicationPresetRegistry(registry *applicationpreset.Registry) {
+	s.presetRegistry = registry
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if strings.HasPrefix(request.URL.Path, "/api/") {
 		setSecurityHeaders(writer)
 		if !s.allowed(request) {
-			if isPolicyRoutingPath(request.URL.Path) {
+			if isPolicyRoutingPath(request.URL.Path) || isTargetListPath(request.URL.Path) {
 				writePolicyError(writer, http.StatusForbidden, "cidr_forbidden", "request is outside the allowed network", nil)
 			} else {
 				writeError(writer, http.StatusForbidden, "forbidden")
@@ -132,7 +133,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		if s.auth != nil && !sameOriginWrite(request) {
-			if isPolicyRoutingPath(request.URL.Path) {
+			if isPolicyRoutingPath(request.URL.Path) || isTargetListPath(request.URL.Path) {
 				writePolicyError(writer, http.StatusForbidden, "cross_origin_denied", "cross-origin request denied", nil)
 			} else {
 				writeError(writer, http.StatusForbidden, "cross-origin request denied")
@@ -170,25 +171,20 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		s.serveAccessControlAPI(writer, request)
 		return
 	}
+	if isTargetListPath(request.URL.Path) {
+		s.serveTargetListAPI(writer, request)
+		return
+	}
+	if isApplicationPresetPath(request.URL.Path) {
+		s.serveApplicationPresetAPI(writer, request)
+		return
+	}
 	if isPolicyRoutingPath(request.URL.Path) {
 		s.servePolicyRoutingAPI(writer, request)
 		return
 	}
 	if request.URL.Path == "/api/settings/connection" {
 		s.serveConnectionSettings(writer, request)
-		return
-	}
-	if request.URL.Path == "/api/application-catalog" {
-		if request.Method != http.MethodGet {
-			writer.Header().Set("Allow", http.MethodGet)
-			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		if s.catalog == nil {
-			writeJSON(writer, http.StatusOK, applicationcatalog.CatalogStatus{})
-			return
-		}
-		writeJSON(writer, http.StatusOK, s.catalog.Status())
 		return
 	}
 	if request.URL.Path == "/api/settings/collection" {
@@ -463,6 +459,7 @@ type settingsDeviceMosDNS struct {
 	Enabled             bool   `json:"enabled"`
 	BaseURL             string `json:"baseUrl"`
 	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
+	MatchWindowMinutes  int    `json:"matchWindowMinutes"`
 }
 
 type settingsDeviceFeatureLibrary struct {
@@ -526,13 +523,10 @@ func (s *Server) settingsResponse() settingsResponse {
 			CleanupAvailable:  cleanupAvailable,
 			TrafficInterfaces: cloneStrings(device.RouterOS.TrafficInterfaces), TrafficScope: cloneTrafficScope(device.RouterOS.TrafficScope), TerminalCIDRs: cloneStrings(device.RouterOS.TerminalCIDRs), TerminalScope: cloneTerminalScope(device.RouterOS.TerminalScope),
 			ProtocolAnalysis: device.ProtocolAnalysis,
-			FeatureLibrary: settingsDeviceFeatureLibrary{
-				Enabled:              device.FeatureLibrary.Enabled,
-				SourceURL:            device.FeatureLibrary.SourceURL,
-				RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
-				MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
-			},
-			MosDNS: settingsDeviceMosDNS{Enabled: device.MosDNS.Enabled, BaseURL: device.MosDNS.BaseURL, SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes},
+			// Keep the retired response shape for older clients, but do not
+			// expose its stored runtime settings as active recognition state.
+			FeatureLibrary: settingsDeviceFeatureLibrary{},
+			MosDNS:         settingsDeviceMosDNS{Enabled: device.MosDNS.Enabled, BaseURL: device.MosDNS.BaseURL, SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes, MatchWindowMinutes: device.MosDNS.MatchWindowMinutes},
 		})
 	}
 	return settingsResponse{
@@ -611,12 +605,7 @@ func (s *Server) configRecognitionStatus(deviceID string) service.RecognitionSta
 			Enabled:             device.MosDNS.Configured(),
 			BaseURL:             device.MosDNS.BaseURL,
 			SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
-		},
-		FeatureLibrary: service.FeatureLibraryStatus{
-			Enabled:              device.FeatureLibrary.Configured(),
-			SourceURL:            device.FeatureLibrary.SourceURL,
-			RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
-			MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
+			MatchWindowMinutes:  device.MosDNS.MatchWindowMinutes,
 		},
 	}
 }
@@ -672,23 +661,16 @@ type recognitionSettingsRequest struct {
 }
 
 type recognitionDeviceSettings struct {
-	ID               string                       `json:"id"`
-	ProtocolAnalysis bool                         `json:"protocolAnalysis"`
-	MosDNS           recognitionDeviceMosDNS      `json:"mosdns"`
-	FeatureLibrary   recognitionFeatureLibrarySet `json:"featureLibrary"`
+	ID               string                  `json:"id"`
+	ProtocolAnalysis bool                    `json:"protocolAnalysis"`
+	MosDNS           recognitionDeviceMosDNS `json:"mosdns"`
 }
 
 type recognitionDeviceMosDNS struct {
 	Enabled             bool   `json:"enabled"`
 	BaseURL             string `json:"baseUrl"`
 	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
-}
-
-type recognitionFeatureLibrarySet struct {
-	Enabled              bool   `json:"enabled"`
-	SourceURL            string `json:"sourceUrl"`
-	RefreshIntervalHours int    `json:"refreshIntervalHours"`
-	MatchWindowMinutes   int    `json:"matchWindowMinutes"`
+	MatchWindowMinutes  int    `json:"matchWindowMinutes"`
 }
 
 type deviceSettingsRequest struct {
@@ -714,6 +696,7 @@ type deviceMosDNSSettings struct {
 	Enabled             bool   `json:"enabled"`
 	BaseURL             string `json:"baseUrl"`
 	SyncIntervalMinutes int    `json:"syncIntervalMinutes"`
+	MatchWindowMinutes  int    `json:"matchWindowMinutes"`
 }
 
 func shouldDeferDeviceRestart(payload deviceSettingsRequest) bool {
@@ -1127,7 +1110,6 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 	type deviceRecognition struct {
 		protocolAnalysis bool
 		mosDNS           config.MosDNSConfig
-		featureLibrary   config.FeatureLibraryConfig
 	}
 	recognition := make(map[string]deviceRecognition, len(payload.Devices))
 	cfg := s.configSnapshot()
@@ -1136,47 +1118,29 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 			writeError(writer, http.StatusBadRequest, "unknown device id in recognition settings")
 			return
 		}
-		// A closed per-device master switch forces both child settings off.
 		mosDNS := config.MosDNSConfig{
-			Enabled:             device.ProtocolAnalysis && device.MosDNS.Enabled,
+			Enabled:             device.MosDNS.Enabled,
 			BaseURL:             config.NormalizeMosDNSBaseURL(device.MosDNS.BaseURL),
 			SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
+			MatchWindowMinutes:  device.MosDNS.MatchWindowMinutes,
 		}
 		if mosDNS.SyncIntervalMinutes == 0 {
 			mosDNS.SyncIntervalMinutes = 30
+		}
+		if mosDNS.MatchWindowMinutes == 0 {
+			mosDNS.MatchWindowMinutes = 30
 		}
 		if mosDNS.Enabled && strings.TrimSpace(mosDNS.BaseURL) == "" {
 			writeError(writer, http.StatusBadRequest, "MosDNS 地址不能为空")
 			return
 		}
-		if mosDNS.Configured() && mosDNS.SyncIntervalMinutes <= 0 {
-			writeError(writer, http.StatusBadRequest, "MosDNS 同步周期必须为正数")
-			return
-		}
-		featureLibrary := config.FeatureLibraryConfig{
-			Enabled:              device.ProtocolAnalysis && device.FeatureLibrary.Enabled,
-			SourceURL:            strings.TrimSpace(device.FeatureLibrary.SourceURL),
-			RefreshIntervalHours: device.FeatureLibrary.RefreshIntervalHours,
-			MatchWindowMinutes:   device.FeatureLibrary.MatchWindowMinutes,
-		}
-		if featureLibrary.RefreshIntervalHours == 0 {
-			featureLibrary.RefreshIntervalHours = 168
-		}
-		if featureLibrary.MatchWindowMinutes == 0 {
-			featureLibrary.MatchWindowMinutes = 30
-		}
-		if featureLibrary.RefreshIntervalHours <= 0 || featureLibrary.MatchWindowMinutes <= 0 {
-			writeError(writer, http.StatusBadRequest, "识别设置中的周期和窗口必须为正数")
-			return
-		}
-		if featureLibrary.Enabled && featureLibrary.SourceURL == "" {
-			writeError(writer, http.StatusBadRequest, "特征库地址不能为空")
+		if mosDNS.Configured() && (mosDNS.SyncIntervalMinutes <= 0 || mosDNS.MatchWindowMinutes <= 0) {
+			writeError(writer, http.StatusBadRequest, "MosDNS 同步周期和匹配窗口必须为正数")
 			return
 		}
 		recognition[device.ID] = deviceRecognition{
 			protocolAnalysis: device.ProtocolAnalysis,
 			mosDNS:           mosDNS,
-			featureLibrary:   featureLibrary,
 		}
 	}
 
@@ -1185,7 +1149,6 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 			if value, found := recognition[next.Devices[index].ID]; found {
 				next.Devices[index].ProtocolAnalysis = value.protocolAnalysis
 				next.Devices[index].MosDNS = value.mosDNS
-				next.Devices[index].FeatureLibrary = value.featureLibrary
 			}
 		}
 	}); err != nil {
@@ -1260,6 +1223,7 @@ func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Reques
 	s.cfg = resetConfig
 	if s.restart != nil {
 		_ = s.store.Close()
+		s.scheduleRestart()
 	}
 	s.tickets.clear()
 	s.provisioning.clear()

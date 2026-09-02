@@ -407,7 +407,7 @@ func TestProtocolAnalysisDisabledPreservesConnectionStatsWithoutClassification(t
 		t.Fatalf("expected one raw connection, got %#v", detail.Connections)
 	}
 	connection := detail.Connections[0]
-	if connection.Protocol != "tcp" || connection.Application != "" || connection.ApplicationSource != "" || connection.Estimated {
+	if connection.Protocol != "tcp" || connection.ApplicationID != "" || connection.Application != "" || connection.Service != "" || connection.ApplicationSource != "" || connection.Estimated {
 		t.Fatalf("disabled analysis must retain only raw protocol data: %#v", connection)
 	}
 	if len(detail.FlowCategories) != 0 || len(detail.FamilyFlows["ipv4"]) != 0 {
@@ -932,8 +932,15 @@ func TestRefreshTerminalRateProjectionUpdatesOnlyCurrentConnectionData(t *testin
 	if len(detail.Connections) != 2 || detail.FamilySummaries["ipv4"].CurrentDownloadBps != 200 || detail.FamilySummaries["ipv6"].CurrentUploadBps != 300 {
 		t.Fatalf("connection and family rate projection is incomplete: %#v", detail)
 	}
-	if !detail.Connections[0].Estimated || detail.Connections[0].ApplicationSource != "port" {
-		t.Fatalf("unmatched connection should retain port fallback: %#v", detail.Connections[0])
+	var httpsConnection *model.TerminalConnection
+	for index := range detail.Connections {
+		if detail.Connections[index].DestinationPort == "443" {
+			httpsConnection = &detail.Connections[index]
+			break
+		}
+	}
+	if httpsConnection == nil || !httpsConnection.Estimated || httpsConnection.ApplicationID != "" || httpsConnection.Application != "" || httpsConnection.ApplicationSource != "" || httpsConnection.Service != "HTTP协议" {
+		t.Fatalf("unmatched connection should retain service fallback: %#v", detail.Connections)
 	}
 	if len(detail.History) != 1 || detail.History[0].TotalUploadBytes != 8000 {
 		t.Fatalf("rate refresh must not alter history: %#v", detail.History)

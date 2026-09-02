@@ -339,6 +339,45 @@ func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T
 	}
 }
 
+func TestScanManagedClassifiesStaleAccessNamespacesForAccessOnlyCleanup(t *testing.T) {
+	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuInterfaceList: {
+			{".id": "*list", "name": "rbac_internet_123"},
+		},
+		routeros.MenuInterfaceListMember: {
+			{".id": "*member", "list": "rbac_internet_123", "interface": "wan1"},
+		},
+		routeros.MenuIPDNSForwarders: {
+			{".id": "*forwarder", "name": "rosboard_access_123", "dns-servers": "192.0.2.53"},
+		},
+		routeros.MenuIPFirewallFilter: {
+			{".id": "*filter", "chain": "forward", "action": "jump", "jump-target": "rbac_rule_123", "src-address-list": "rbac_rule_123"},
+		},
+	}}
+	repository := &fakeScanRepository{managerID: "manager"}
+
+	access, _, err := ScanManagedForDomain(context.Background(), mutation, repository, nil, PolicyDomainAccess)
+	if err != nil {
+		t.Fatalf("access scan failed: %v", err)
+	}
+	if len(access) != 4 {
+		t.Fatalf("expected all stale access namespace objects in the access scan: %#v", access)
+	}
+	for _, object := range access {
+		if object.Ownership != "owned" || !strings.HasPrefix(object.LogicalID, "stale-access:") {
+			t.Fatalf("stale access object was not classified as owned access: %#v", object)
+		}
+	}
+
+	routing, _, err := ScanManagedForDomain(context.Background(), mutation, repository, nil, PolicyDomainRouting)
+	if err != nil {
+		t.Fatalf("routing scan failed: %v", err)
+	}
+	if len(routing) != 0 {
+		t.Fatalf("routing scan must not include stale access objects: %#v", routing)
+	}
+}
+
 func TestScanManagedBlocksForeignAccessNamespaces(t *testing.T) {
 	foreignAccess := accesscontrol.LegacyV1ManagedComment("other-manager", "edge", "access:rule-a:ipv4:jump-out")
 	currentAccess := accesscontrol.LegacyV1ManagedComment("manager", "other-device", "access:rule-b:ipv4:jump-out")

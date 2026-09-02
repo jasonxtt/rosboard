@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"rosboard/internal/config"
-	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 	"rosboard/internal/store"
@@ -33,6 +32,9 @@ func (policyV2Router) AccountAccess(context.Context, string) (routeros.AccountAc
 }
 
 func (policyV2Router) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.ReadMenuIPDNS {
+		return []routeros.RouterOSObject{{"servers": "192.0.2.53"}}, nil
+	}
 	if menu == routeros.ReadMenuInterfaceList {
 		return []routeros.RouterOSObject{{"name": "LAN"}}, nil
 	}
@@ -104,7 +106,7 @@ func TestPolicyV2OverviewContractUsesNonNullCollections(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"egresses", "sources", "activeJobs", "pendingJobs"} {
+	for _, field := range []string{"egresses", "targetLists", "rules", "activeJobs", "pendingJobs"} {
 		if _, ok := payload[field].([]any); !ok {
 			t.Fatalf("%s is not an array: %#v", field, payload[field])
 		}
@@ -112,6 +114,223 @@ func TestPolicyV2OverviewContractUsesNonNullCollections(t *testing.T) {
 	setup := payload["setup"].(map[string]any)
 	if setup["state"] != "ready" {
 		t.Fatalf("setup state = %#v", setup["state"])
+	}
+}
+
+func TestPolicyV2NewProposalAllocatesEgressIdentity(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	device, ok := server.resolvePolicyDevice(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/?device=edge", nil))
+	if !ok {
+		t.Fatal("failed to resolve test policy device")
+	}
+
+	proposal, err := server.preparePolicyPlanProposal(context.Background(), device, &policyPlanProposalPayload{
+		Egress: &policyv2.Egress{
+			Name: "New WAN",
+			Families: []policyv2.EgressFamily{{
+				Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal == nil || proposal.Egress == nil {
+		t.Fatalf("new egress proposal was not retained: %#v", proposal)
+	}
+	if strings.TrimSpace(proposal.Egress.ID) == "" {
+		t.Fatalf("new egress proposal has no identity: %#v", proposal.Egress)
+	}
+	if proposal.Egress.FakeAlias != "" {
+		t.Fatalf("omitted fake alias became an explicit proposal value: %#v", proposal.Egress)
+	}
+}
+
+func TestPolicyV2ChangedSharedEgressRebindsRoutingRule(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "shared-edit-egress", Name: "Shared edit", Enabled: true,
+		DNSUpstream: "1.1.1.1", FailureMode: "strict",
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "192.0.2.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "shared-edit-equivalent", Name: "Equivalent edit", Enabled: true,
+		DNSUpstream: "1.1.1.1", FailureMode: "strict",
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "192.0.2.3"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "shared-edit-target", Name: "Shared edit target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "shared-edit-version", TargetListID: target.ID, SHA256: "shared-edit", CompressedYAML: []byte("shared-edit"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "192.0.2.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ruleID := range []string{"shared-edit-a", "shared-edit-b"} {
+		if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+			ID: ruleID, Name: ruleID, Subject: policyv2.Subject{Mode: policyv2.SubjectModeSelected, Prefixes: []string{"10.0.0.20/32"}},
+			TargetListIDs: []string{target.ID}, EgressID: "shared-edit-egress", Enabled: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := repository.GetRoutingRule(ctx, "shared-edit-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentEgress, err := repository.GetEgress(ctx, current.EgressID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentEgress.Families = append([]policyv2.EgressFamily(nil), currentEgress.Families...)
+	currentEgress.Families[0].Gateway = "192.0.2.2"
+	device, ok := server.resolvePolicyDevice(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/?device=edge", nil))
+	if !ok {
+		t.Fatal("failed to resolve test policy device")
+	}
+	proposal, err := server.preparePolicyPlanProposal(ctx, device, &policyPlanProposalPayload{
+		Egress: &currentEgress,
+		RoutingRule: &policyv2.RoutingRule{
+			ID: current.ID, Name: current.Name, Subject: current.Subject, Ingress: current.Ingress,
+			TargetListIDs: current.TargetListIDs, EgressID: current.EgressID, Priority: current.Priority, Enabled: current.Enabled, Revision: current.Revision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal == nil || proposal.Egress == nil || proposal.RoutingRule == nil {
+		t.Fatalf("shared egress edit did not produce a complete proposal: %#v", proposal)
+	}
+	if proposal.Egress.ID == current.EgressID || proposal.RoutingRule.EgressID == current.EgressID {
+		t.Fatalf("shared egress edit did not rebind to Copy-on-Write identity: egress=%#v rule=%#v", proposal.Egress, proposal.RoutingRule)
+	}
+
+	currentEgress.Families[0].Gateway = "192.0.2.3"
+	equivalentProposal, err := server.preparePolicyPlanProposal(ctx, device, &policyPlanProposalPayload{
+		Egress: &currentEgress,
+		RoutingRule: &policyv2.RoutingRule{
+			ID: current.ID, Name: current.Name, Subject: current.Subject, Ingress: current.Ingress,
+			TargetListIDs: current.TargetListIDs, EgressID: current.EgressID, Priority: current.Priority, Enabled: current.Enabled, Revision: current.Revision,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if equivalentProposal == nil || equivalentProposal.Egress != nil || equivalentProposal.RoutingRule == nil || equivalentProposal.RoutingRule.EgressID != "shared-edit-equivalent" {
+		var proposedEgress any
+		if equivalentProposal != nil && equivalentProposal.Egress != nil {
+			proposedEgress = *equivalentProposal.Egress
+		}
+		var proposedRule any
+		if equivalentProposal != nil && equivalentProposal.RoutingRule != nil {
+			proposedRule = *equivalentProposal.RoutingRule
+		}
+		t.Fatalf("shared egress edit did not rebind to equivalent existing identity: egress=%+v rule=%+v", proposedEgress, proposedRule)
+	}
+}
+
+func TestPolicyV2RoutingRuleCRUDUsesCanonicalTargetReferences(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-rule", Name: "WAN rule", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "192.0.2.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{
+		ID: "target-rule", Name: "Rule target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "target-rule-version", TargetListID: target.ID, SHA256: "target-rule", CompressedYAML: []byte("target"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "192.0.2.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, "/api/policy-routing"+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.servePolicyRoutingAPI(response, req)
+		return response
+	}
+	createdResponse := request(http.MethodPost, "/rules?device=edge", `{"name":"Rule A","subject":{"mode":"all"},"targetListIds":["target-rule"],"egressId":"wan-rule","priority":10,"enabled":true,"deferApply":true}`)
+	if createdResponse.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", createdResponse.Code, createdResponse.Body.String())
+	}
+	var created policyv2.RoutingRule
+	if err := json.Unmarshal(createdResponse.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.Revision != 1 || created.Subject.Mode != policyv2.SubjectModeAll || len(created.TargetListIDs) != 1 {
+		t.Fatalf("created routing rule = %#v", created)
+	}
+	listResponse := request(http.MethodGet, "/rules?device=edge", "")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed struct {
+		Rules []policyv2.RoutingRule `json:"rules"`
+	}
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Rules) != 1 || listed.Rules[0].ID != created.ID {
+		t.Fatalf("listed routing rules = %#v", listed.Rules)
+	}
+	getResponse := request(http.MethodGet, "/rules/"+created.ID+"?device=edge", "")
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	var loaded policyv2.RoutingRule
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	updatedBody, err := json.Marshal(map[string]any{
+		"name": "Rule renamed", "subject": loaded.Subject, "targetListIds": loaded.TargetListIDs,
+		"egressId": loaded.EgressID, "priority": loaded.Priority, "enabled": loaded.Enabled,
+		"revision": loaded.Revision, "deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedResponse := request(http.MethodPut, "/rules/"+created.ID+"?device=edge", string(updatedBody))
+	if updatedResponse.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", updatedResponse.Code, updatedResponse.Body.String())
+	}
+	if err := json.Unmarshal(updatedResponse.Body.Bytes(), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Name != "Rule renamed" || loaded.Revision != 2 {
+		t.Fatalf("updated routing rule = %#v", loaded)
+	}
+	deletedResponse := request(http.MethodDelete, "/rules/"+created.ID+"?device=edge&revision="+strconv.FormatInt(loaded.Revision, 10), "")
+	if deletedResponse.Code != http.StatusOK && deletedResponse.Code != http.StatusAccepted {
+		t.Fatalf("delete status=%d body=%s", deletedResponse.Code, deletedResponse.Body.String())
+	}
+	if _, err := repository.GetRoutingRule(ctx, created.ID); !errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
+		t.Fatalf("deleted routing rule error = %v", err)
 	}
 }
 
@@ -146,7 +365,7 @@ func TestPolicyV2EgressCRUDMatchesFrontendShape(t *testing.T) {
 	if err := json.Unmarshal(update.Body.Bytes(), &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "WAN renamed" || updated.Revision != 2 {
+	if updated.Name != created.Name || updated.Revision != 2 {
 		t.Fatalf("unexpected updated egress: %#v", updated)
 	}
 
@@ -178,12 +397,12 @@ func TestPolicyV2EgressDefaultsSharedListNameFromName(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.ListMode != policyv2.ListModeShared || created.ListName != "manual_google_exit_lab" {
+	if created.ListMode != policyv2.ListModeShared || created.Name == "" || created.ListName != policyv2.SharedListName(created.Name) {
 		t.Fatalf("unexpected shared list normalization: mode=%q name=%q", created.ListMode, created.ListName)
 	}
 }
 
-func TestPolicyV2EgressRejectsDuplicateNameAndSharedListName(t *testing.T) {
+func TestPolicyV2EgressGeneratesServerOwnedNamesWithoutUniquenessBlocking(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -201,16 +420,19 @@ func TestPolicyV2EgressRejectsDuplicateNameAndSharedListName(t *testing.T) {
 		ID: "duplicate-name", Name: " wan a ", ListMode: policyv2.ListModeShared, DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.81", FailureMode: "strict", Enabled: true,
 		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANSource: "next-hop", Gateway: "192.0.2.1"}},
 	}
-	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &duplicateName); err == nil || !strings.Contains(err.Error(), "egress name") {
-		t.Fatalf("duplicate egress name was accepted or returned the wrong error: %v", err)
+	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &duplicateName); err != nil {
+		t.Fatalf("duplicate egress name was rejected: %v", err)
 	}
-
-	duplicateList := policyv2.Egress{
-		ID: "duplicate-list", Name: "WAN-A", ListMode: policyv2.ListModeShared, DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.82", FailureMode: "strict", Enabled: true,
-		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANSource: "next-hop", Gateway: "192.0.2.1"}},
+	if duplicateName.Name == "" || duplicateName.Name == " wan a " || duplicateName.ListName != policyv2.SharedListName(duplicateName.Name) {
+		t.Fatalf("egress name was not generated by the server: %#v", duplicateName)
 	}
-	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &duplicateList); err == nil || !strings.Contains(err.Error(), "shared address-list name") {
-		t.Fatalf("duplicate shared list name was accepted or returned the wrong error: %v", err)
+	second := duplicateName
+	second.ID = "duplicate-list"
+	if err := normalizePolicyV2Egress(context.Background(), repository, nil, &second); err != nil {
+		t.Fatalf("second equivalent egress was rejected: %v", err)
+	}
+	if second.Name == duplicateName.Name {
+		t.Fatalf("server-owned names should remain stable per egress identity: %#v", second)
 	}
 }
 
@@ -309,364 +531,15 @@ func TestPolicyV2TrafficIngressReclassifiesLegacyInterfaceName(t *testing.T) {
 	}
 }
 
-func TestPolicyV2SourceSaveRequiresAndConsumesPreview(t *testing.T) {
+func TestPolicyV2LegacySourceAPIIsRetired(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
 
-	missing := policyV2Request(t, server, http.MethodPost, "/sources", `{"name":"list","type":"upload","enabled":true}`)
-	if missing.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("missing preview status=%d body=%s", missing.Code, missing.Body.String())
-	}
-
-	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: "upload", Content: prepared})
-	created := policyV2Request(t, server, http.MethodPost, "/sources", `{"name":"list","type":"upload","enabled":true,"previewId":"`+previewID+`"}`)
-	if created.Code != http.StatusOK {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	var source policyv2.Source
-	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.ID == "" || source.Revision != 2 || len(source.Versions) != 1 || source.Versions[0].State != "pending" {
-		t.Fatalf("unexpected source: %#v", source)
-	}
-	if _, ok := server.policyPreview(previewID, "edge"); ok {
-		t.Fatal("consumed preview remains available")
-	}
-}
-
-func TestPolicyV2URLSourceDefaultsToSevenDaySchedule(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previewID := server.savePolicyPreview(policyPreviewEntry{
-		DeviceID:   "edge",
-		SourceType: "url",
-		URL:        "https://example.invalid/list.yaml",
-		Content:    prepared,
-	})
-	created := policyV2Request(t, server, http.MethodPost, "/sources", `{"name":"weekly-list","type":"url","url":"https://example.invalid/list.yaml","enabled":true,"previewId":"`+previewID+`"}`)
-	if created.Code != http.StatusOK {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	var source policyv2.Source
-	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.Schedule != "7d" {
-		t.Fatalf("default URL source schedule = %q, want 7d", source.Schedule)
-	}
-	if source.NextRunAt.Before(time.Now().UTC().Add(6 * 24 * time.Hour)) {
-		t.Fatalf("default URL source next run is too soon: %s", source.NextRunAt)
-	}
-}
-
-func TestPolicyV2UploadPreviewSupportsLineListsBySelectedKind(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-	server.cfg.DataDir = t.TempDir()
-
-	upload := func(kind string) map[string]any {
-		var body bytes.Buffer
-		writer := multipart.NewWriter(&body)
-		part, err := writer.CreateFormFile("file", "rules.list")
-		if err != nil {
-			t.Fatal(err)
+	for _, path := range []string{"/sources", "/sources/manual/preview", "/sources/legacy/rules"} {
+		response := policyV2Request(t, server, http.MethodGet, path, "")
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("retired source endpoint %s status=%d body=%s", path, response.Code, response.Body.String())
 		}
-		_, _ = part.Write([]byte("# source\nDOMAIN-SUFFIX,example.com\nIP-CIDR,192.0.2.9/24,no-resolve\n"))
-		if err := writer.Close(); err != nil {
-			t.Fatal(err)
-		}
-		request := httptest.NewRequest(http.MethodPost, "/api/policy-routing/sources/upload/preview?device=edge&kind="+kind, &body)
-		request.Header.Set("Content-Type", writer.FormDataContentType())
-		response := httptest.NewRecorder()
-		server.servePolicyRoutingAPI(response, request)
-		if response.Code != http.StatusOK {
-			t.Fatalf("%s upload status=%d body=%s", kind, response.Code, response.Body.String())
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-			t.Fatal(err)
-		}
-		return payload
-	}
-
-	domain := upload("domain")
-	if domain["validRules"] != float64(1) || domain["kind"] != "domain" {
-		t.Fatalf("domain preview = %#v", domain)
-	}
-	domainRules := domain["rules"].([]any)
-	if len(domainRules) != 1 || domainRules[0].(map[string]any)["domain"] != "example.com" || domainRules[0].(map[string]any)["address"] != nil {
-		t.Fatalf("domain rule contract = %#v", domainRules)
-	}
-
-	ip := upload("ip")
-	if ip["validRules"] != float64(1) || ip["kind"] != "ip" {
-		t.Fatalf("IP preview = %#v", ip)
-	}
-	ipRules := ip["rules"].([]any)
-	if len(ipRules) != 1 || ipRules[0].(map[string]any)["address"] != "192.0.2.0/24" || ipRules[0].(map[string]any)["domain"] != nil {
-		t.Fatalf("IP rule contract = %#v", ipRules)
-	}
-}
-
-func TestPolicyV2AssignedSourceSaveStartsAutomaticApply(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-	deviceStore, err := storage.OpenDevice("edge")
-	if err != nil {
-		t.Fatal(err)
-	}
-	repository := deviceStore.PolicyRepository()
-	if _, err := repository.SaveEgress(context.Background(), policyv2.Egress{
-		ID: "wan", Name: "WAN", ListMode: policyv2.ListModeShared, ListName: "proxy", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.70", FailureMode: "strict", Enabled: true,
-		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repository.SaveTrafficIngress(context.Background(), []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN,example.com\n"), policy.KindDomain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: "upload", Content: prepared})
-	payload, err := json.Marshal(map[string]any{
-		"name": "assigned-list", "type": "upload", "enabled": true, "egressId": "wan", "previewId": previewID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := policyV2Request(t, server, http.MethodPost, "/sources", string(payload))
-	if response.Code != http.StatusAccepted {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-	}
-	var accepted struct {
-		Source policyv2.Source `json:"source"`
-		JobID  string          `json:"jobId"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &accepted); err != nil {
-		t.Fatal(err)
-	}
-	if accepted.Source.ID == "" || accepted.JobID == "" {
-		t.Fatalf("automatic apply response is incomplete: %#v", accepted)
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		job, err := repository.GetApplyJob(context.Background(), accepted.JobID)
-		if err == nil && job.Terminal() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	job, err := repository.GetApplyJob(context.Background(), accepted.JobID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Fatalf("automatic apply did not reach a terminal state: %#v", job)
-}
-
-func TestPolicyV2ManualSourcePreviewAndSave(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	previewBody := `{"text":"- DOMAIN,ad.com,REJECT\n- DOMAIN-SUFFIX,google.com,auto\nfull:www.dingtalkcs.com\nkeyword:ads.example.com\nnot a domain"}`
-	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", previewBody)
-	if previewResponse.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
-	}
-	var preview struct {
-		PreviewID    string                `json:"previewId"`
-		ValidRules   int                   `json:"validRules"`
-		Ignored      map[string]int        `json:"ignored"`
-		ErrorSamples []string              `json:"errorSamples"`
-		Rules        []policyv2.SourceRule `json:"rules"`
-	}
-	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
-		t.Fatal(err)
-	}
-	if preview.PreviewID == "" || preview.ValidRules != 3 || len(preview.Rules) != 3 {
-		t.Fatalf("unexpected preview: %#v", preview)
-	}
-	if preview.Ignored["keyword"] != 1 || preview.Ignored["DOMAIN-SUFFIX"] != 1 {
-		t.Fatalf("unexpected ignored summary: %#v", preview.Ignored)
-	}
-
-	saveBody, err := json.Marshal(map[string]any{
-		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	created := policyV2Request(t, server, http.MethodPost, "/sources", string(saveBody))
-	if created.Code != http.StatusOK {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	var source policyv2.Source
-	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
-		t.Fatal(err)
-	}
-	if source.Schedule != "manual" || len(source.Versions) != 1 {
-		t.Fatalf("unexpected manual source: %#v", source)
-	}
-
-	deviceStore, err := storage.OpenDevice("edge")
-	if err != nil {
-		t.Fatal(err)
-	}
-	storedRules, _, err := deviceStore.PolicyRepository().ListSourceRules(context.Background(), source.Versions[0].ID, policyv2.RuleQuery{Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]bool{}
-	for _, rule := range storedRules {
-		got[rule.RuleType+":"+rule.Domain] = true
-	}
-	for _, key := range []string{"DOMAIN:ad.com", "DOMAIN-SUFFIX:google.com", "DOMAIN:www.dingtalkcs.com"} {
-		if !got[key] {
-			t.Errorf("stored rules missing %q: %#v", key, storedRules)
-		}
-	}
-}
-
-func TestPolicyV2ManualSourceSaveRejectsPreviewWithoutValidRules(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", `{"text":"keyword:ads.example.com"}`)
-	if previewResponse.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
-	}
-	var preview struct {
-		PreviewID  string `json:"previewId"`
-		ValidRules int    `json:"validRules"`
-	}
-	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
-		t.Fatal(err)
-	}
-	if preview.ValidRules != 0 || preview.PreviewID == "" {
-		t.Fatalf("unexpected empty preview: %#v", preview)
-	}
-
-	saveBody, err := json.Marshal(map[string]any{
-		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := policyV2Request(t, server, http.MethodPost, "/sources", string(saveBody))
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("save with rule-less preview status=%d body=%s", response.Code, response.Body.String())
-	}
-}
-
-func TestPolicyV2SourceTypeCannotChange(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	previewResponse := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview", `{"text":"example.com"}`)
-	if previewResponse.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", previewResponse.Code, previewResponse.Body.String())
-	}
-	var preview struct {
-		PreviewID string `json:"previewId"`
-	}
-	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
-		t.Fatal(err)
-	}
-
-	createBody, err := json.Marshal(map[string]any{
-		"name": "manual-list", "type": "manual", "enabled": true, "previewId": preview.PreviewID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	created := policyV2Request(t, server, http.MethodPost, "/sources", string(createBody))
-	if created.Code != http.StatusOK {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-	var source policyv2.Source
-	if err := json.Unmarshal(created.Body.Bytes(), &source); err != nil {
-		t.Fatal(err)
-	}
-
-	updateBody, err := json.Marshal(map[string]any{
-		"name": "manual-list", "type": "upload", "enabled": true, "revision": source.Revision,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := policyV2Request(t, server, http.MethodPut, "/sources/"+source.ID, string(updateBody))
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("type change status=%d body=%s", response.Code, response.Body.String())
-	}
-}
-
-func TestPolicyV2SourceRulesCanSelectPendingVersion(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-	deviceStore, err := storage.OpenDevice("edge")
-	if err != nil {
-		t.Fatal(err)
-	}
-	repository := deviceStore.PolicyRepository()
-	ctx := context.Background()
-	source, err := repository.SaveSource(ctx, policyv2.Source{ID: "manual-source", Type: "manual", Name: "Manual", Schedule: "manual", Enabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "active-version", SourceID: source.ID, SHA256: "active", CompressedYAML: []byte("yaml")}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "active.example"}}); err != nil {
-		t.Fatal(err)
-	}
-	state, err := repository.GetDeviceState(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.CommitApply(ctx, state.DesiredRevision, 0, "active-hash", policyv2.ApplyJob{ID: "active-job", PlanID: "active-plan"}, nil, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{ID: "pending-version", SourceID: source.ID, SHA256: "pending", CompressedYAML: []byte("yaml")}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "pending.example"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	readPage := func(path string) (string, string) {
-		request := httptest.NewRequest(http.MethodGet, "/api/policy-routing"+path, nil)
-		response := httptest.NewRecorder()
-		server.servePolicyRoutingAPI(response, request)
-		if response.Code != http.StatusOK {
-			t.Fatalf("rules status=%d body=%s", response.Code, response.Body.String())
-		}
-		var page struct {
-			VersionID string `json:"versionId"`
-			Rules     []struct {
-				Domain string `json:"domain"`
-			} `json:"rules"`
-		}
-		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
-			t.Fatal(err)
-		}
-		if len(page.Rules) != 1 {
-			t.Fatalf("unexpected rules page: %#v", page)
-		}
-		return page.VersionID, page.Rules[0].Domain
-	}
-
-	activeVersion, activeDomain := readPage("/sources/manual-source/rules?device=edge")
-	pendingVersion, pendingDomain := readPage("/sources/manual-source/rules?device=edge&version=pending")
-	if activeVersion != "active-version" || activeDomain != "active.example" {
-		t.Fatalf("unexpected active rules: version=%q domain=%q", activeVersion, activeDomain)
-	}
-	if pendingVersion != "pending-version" || pendingDomain != "pending.example" {
-		t.Fatalf("unexpected pending rules: version=%q domain=%q", pendingVersion, pendingDomain)
 	}
 }
 
@@ -716,112 +589,5 @@ func TestPolicyV2PlanAndApplyEndpointsMatchFrontendContract(t *testing.T) {
 	}
 	if accepted["jobId"] == "" || accepted["job"] == nil {
 		t.Fatalf("unexpected apply response: %#v", accepted)
-	}
-}
-
-func TestPolicyV2SourceKindIPManualPreviewSaveAndRules(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	preview := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview",
-		`{"text":"IP-CIDR,91.108.0.0/16\n2001:67c:4e8::/48\n1.1.1.1\nexample.com","kind":"ip"}`)
-	if preview.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
-	}
-	var previewPayload map[string]any
-	if err := json.Unmarshal(preview.Body.Bytes(), &previewPayload); err != nil {
-		t.Fatal(err)
-	}
-	if previewPayload["kind"] != "ip" || previewPayload["validRules"] != float64(3) {
-		t.Fatalf("unexpected preview payload: %#v", previewPayload)
-	}
-	rules := previewPayload["rules"].([]any)
-	first := rules[0].(map[string]any)
-	if first["type"] != "IP-CIDR" || first["address"] != "91.108.0.0/16" || first["domain"] != nil {
-		t.Fatalf("IP preview rules must use the address field: %#v", rules)
-	}
-
-	save := policyV2Request(t, server, http.MethodPost, "/sources", `{
-		"name":"ip-list","type":"manual","kind":"ip","enabled":true,"egressId":"",
-		"previewId":"`+previewPayload["previewId"].(string)+`"
-	}`)
-	if save.Code != http.StatusOK {
-		t.Fatalf("save status=%d body=%s", save.Code, save.Body.String())
-	}
-	var saved policyv2.Source
-	if err := json.Unmarshal(save.Body.Bytes(), &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved.Kind != "ip" {
-		t.Fatalf("saved kind = %q, want ip", saved.Kind)
-	}
-
-	listRules := policyV2Request(t, server, http.MethodGet, "/sources/"+saved.ID+"/rules", "")
-	if listRules.Code != http.StatusOK {
-		t.Fatalf("rules status=%d body=%s", listRules.Code, listRules.Body.String())
-	}
-	var rulesPayload struct {
-		Rules []map[string]any `json:"rules"`
-	}
-	if err := json.Unmarshal(listRules.Body.Bytes(), &rulesPayload); err != nil {
-		t.Fatal(err)
-	}
-	if len(rulesPayload.Rules) != 3 {
-		t.Fatalf("rule count = %d: %#v", len(rulesPayload.Rules), rulesPayload.Rules)
-	}
-	for _, rule := range rulesPayload.Rules {
-		if rule["address"] == nil || rule["domain"] != nil {
-			t.Fatalf("IP rules contract broken: %#v", rule)
-		}
-	}
-
-	// Editing with the opposite kind must be rejected instead of silently flipping content.
-	rejected := policyV2Request(t, server, http.MethodPut, "/sources/"+saved.ID, `{"name":"ip-list","type":"manual","kind":"domain","enabled":true,"revision":1}`)
-	if rejected.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("kind change status=%d body=%s", rejected.Code, rejected.Body.String())
-	}
-}
-
-func TestPolicyV2DomainSourceWithoutKindStaysDomain(t *testing.T) {
-	server, storage := newPolicyV2APIServer(t)
-	defer storage.Close()
-
-	preview := policyV2Request(t, server, http.MethodPost, "/sources/manual/preview",
-		`{"text":"example.com"}`)
-	if preview.Code != http.StatusOK {
-		t.Fatalf("preview status=%d body=%s", preview.Code, preview.Body.String())
-	}
-	var previewPayload map[string]any
-	if err := json.Unmarshal(preview.Body.Bytes(), &previewPayload); err != nil {
-		t.Fatal(err)
-	}
-	if previewPayload["kind"] != "domain" {
-		t.Fatalf("legacy preview kind = %#v, want domain", previewPayload["kind"])
-	}
-	save := policyV2Request(t, server, http.MethodPost, "/sources", `{
-		"name":"legacy-list","type":"manual","enabled":true,"egressId":"",
-		"previewId":"`+previewPayload["previewId"].(string)+`"
-	}`)
-	if save.Code != http.StatusOK {
-		t.Fatalf("legacy save status=%d body=%s", save.Code, save.Body.String())
-	}
-	var saved policyv2.Source
-	if err := json.Unmarshal(save.Body.Bytes(), &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved.Kind != "domain" {
-		t.Fatalf("legacy source kind = %q, want domain", saved.Kind)
-	}
-	listRules := policyV2Request(t, server, http.MethodGet, "/sources/"+saved.ID+"/rules", "")
-	var rulesPayload struct {
-		Rules []map[string]any `json:"rules"`
-	}
-	if err := json.Unmarshal(listRules.Body.Bytes(), &rulesPayload); err != nil {
-		t.Fatal(err)
-	}
-	for _, rule := range rulesPayload.Rules {
-		if rule["domain"] == nil {
-			t.Fatalf("domain rules contract broken: %#v", rule)
-		}
 	}
 }

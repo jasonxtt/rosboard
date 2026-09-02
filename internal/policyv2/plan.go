@@ -7,6 +7,7 @@ import (
 )
 
 type DesiredObject struct {
+	Domain    PolicyDomain
 	LogicalID string
 	Menu      string
 	Fields    map[string]string
@@ -79,14 +80,18 @@ type Plan struct {
 	PlanID                   string                                             `json:"planID"`
 	DeviceID                 string                                             `json:"deviceID"`
 	Kind                     string                                             `json:"kind"`
+	Domain                   PolicyDomain                                       `json:"domain"`
 	Lifecycle                string                                             `json:"lifecycle"`
 	CreatedAt                time.Time                                          `json:"createdAt"`
 	ExpiresAt                time.Time                                          `json:"expiresAt"`
+	BaseDesiredRevision      int64                                              `json:"baseDesiredRevision,omitempty"`
 	DesiredRevision          int64                                              `json:"desiredRevision"`
 	AccessRevision           int64                                              `json:"accessRevision,omitempty"`
 	AccessResolutionCount    int                                                `json:"accessResolutionCount,omitempty"`
 	InternetEgressCandidates map[string][]accesscontrol.InternetEgressCandidate `json:"internetEgressCandidates,omitempty"`
+	TargetPromotions         []TargetVersionPromotion                           `json:"targetPromotions,omitempty"`
 	DesiredHash              string                                             `json:"desiredHash,omitempty"`
+	ProposalHash             string                                             `json:"proposalHash,omitempty"`
 	ActualFingerprint        string                                             `json:"actualFingerprint"`
 	Blockers                 []PlanIssue                                        `json:"blockers"`
 	FamilyBlockers           []PlanIssue                                        `json:"familyBlockers,omitempty"`
@@ -106,9 +111,14 @@ type PlanEnvelope struct {
 }
 
 type cachedPlan struct {
-	Plan              Plan
-	Desired           []DesiredObject
-	Actual            []ActualObject
-	AccessResolutions []accesscontrol.MemberResolution
-	InternetEgresses  map[string][]string
+	Plan                Plan
+	Desired             []DesiredObject
+	Actual              []ActualObject
+	AccessResolutions   []accesscontrol.MemberResolution
+	InternetEgresses    map[string][]string
+	Proposal            *PolicyProposal
+	AccessProposal      *AccessProposal
+	BaseDesiredRevision int64
+	TargetPromotions    []TargetVersionPromotion
+	TargetScope         map[string]bool
 }

@@ -106,18 +106,23 @@ func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndFiltersFamily(t *testing.T
 			t.Fatalf("IP-only desired created DNS objects on %s", menu)
 		}
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:ip-a:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ip:ip-a:")
 	if len(addr) != 1 {
-		t.Fatalf("expected exactly one IPv4 address entry, got %#v", addr)
+		t.Fatalf("expected exactly one IPv4 target entry, got %#v", addr)
 	}
-	if addr[0].Menu != string(routeros.MenuIPFirewallAddressList) || addr[0].Fields["address"] != "91.108.0.0/16" || !strings.HasPrefix(addr[0].Fields["list"], "rb_src_") {
-		t.Fatalf("unexpected IPv4 address entry: %#v", addr[0])
+	if addr[0].Menu != string(routeros.MenuIPFirewallAddressList) || addr[0].Fields["address"] != "91.108.0.0/16" || !strings.HasPrefix(addr[0].Fields["list"], "rb_rt_") {
+		t.Fatalf("unexpected IPv4 target address entry: %#v", addr[0])
 	}
-	if len(desiredObjectsByMenu(desired.Objects, routeros.MenuIPv6FirewallAddressList)) != 0 {
-		t.Fatal("disabled IPv6 family must not materialize address entries")
+	ipv4 := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ip:ip-a:IP-CIDR:")
+	if len(ipv4) != 1 || ipv4[0].Menu != string(routeros.MenuIPFirewallAddressList) {
+		t.Fatalf("IPv4 entry used the wrong RouterOS family: %#v", ipv4)
+	}
+	ipv6 := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ip:ip-a:IP-CIDR6:")
+	if len(ipv6) != 0 {
+		t.Fatalf("disabled IPv6 family must not materialize target entries: %#v", ipv6)
 	}
 	mangle := desiredObjectsByMenu(desired.Objects, routeros.MenuIPFirewallMangle)
-	if !hasDesiredField(mangle, "dst-address-list", addr[0].Fields["list"]) {
+	if !hasDesiredField(mangle, "dst-address-list", ipv4[0].Fields["list"]) {
 		t.Fatalf("business mangle missing for shared IP list: %#v", mangle)
 	}
 	routes := desiredObjectsByLogicalPrefix(desired.Objects, "route:wan-ip:")
@@ -167,7 +172,7 @@ func TestPolicyV2DesiredDomainAndIPSharedUseOneListAndMangleSet(t *testing.T) {
 	if len(statics) != 1 || statics[0].Fields["name"] != "api.example.com" {
 		t.Fatalf("unexpected DNS static rules: %#v", statics)
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:")
 	if len(addr) != 2 {
 		t.Fatalf("expected IPv4+IPv6 entries, got %#v", addr)
 	}
@@ -182,11 +187,11 @@ func TestPolicyV2DesiredDomainAndIPSharedUseOneListAndMangleSet(t *testing.T) {
 		lanRouting := 0
 		connectionMarks := map[string]bool{}
 		for _, object := range desiredObjectsByMenu(desired.Objects, menu) {
-			if strings.HasPrefix(object.Fields["dst-address-list"], "rb_src_") && object.Fields["action"] == "mark-connection" {
+			if strings.HasPrefix(object.Fields["dst-address-list"], "rb_rt_") && object.Fields["action"] == "mark-connection" {
 				markConnection++
 				connectionMarks[object.Fields["new-connection-mark"]] = true
 			}
-			if len(object.LogicalID) >= len("lan-routing:") && object.LogicalID[:len("lan-routing:")] == "lan-routing:" {
+			if len(object.LogicalID) >= len("routing-rule-routing:") && object.LogicalID[:len("routing-rule-routing:")] == "routing-rule-routing:" {
 				lanRouting++
 			}
 		}
@@ -224,13 +229,13 @@ func TestPolicyV2DesiredDomainAndIPDedicatedKeepSharedRouteTable(t *testing.T) {
 	if len(desired.Blockers) != 0 {
 		t.Fatalf("dedicated desired is blocked: %#v", desired.Blockers)
 	}
-	addr := desiredObjectsByLogicalPrefix(desired.Objects, "source-addr:ip-a:")
+	addr := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ded:ip-a:")
 	if len(addr) != 1 {
 		t.Fatalf("missing dedicated IP entry: %#v", addr)
 	}
 	ipList := addr[0].Fields["list"]
-	if ipList == "" || ipList == "route_both" {
-		t.Fatalf("dedicated IP list name not generated: %q", ipList)
+	if ipList == "" || !strings.HasPrefix(ipList, "rb_rt_") {
+		t.Fatalf("routing target list name not generated: %q", ipList)
 	}
 	statics := desiredObjectsByMenu(desired.Objects, routeros.MenuIPDNSStatic)
 	if len(statics) != 1 || statics[0].Fields["address-list"] == ipList {
@@ -270,7 +275,18 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 	if len(withDomain.Objects) == 0 || len(desiredObjectsByMenu(withDomain.Objects, routeros.MenuIPDNSForwarders)) != 1 {
 		t.Fatal("domain+ip start state must contain DNS objects")
 	}
-	addrBefore := desiredObjectsByLogicalPrefix(withDomain.Objects, "source-addr:ip-a:")
+	addrBefore := desiredObjectsByLogicalPrefix(withDomain.Objects, "routing-target-addr:wan-mix:ip-a:")
+	routingRules, err := repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routingRules) != 1 {
+		t.Fatalf("expected one migrated routing rule, got %#v", routingRules)
+	}
+	routingRules[0].TargetListIDs = []string{"ip-a"}
+	if _, err := repository.SaveRoutingRule(ctx, routingRules[0]); err != nil {
+		t.Fatal(err)
+	}
 
 	stale, err := repository.GetSource(ctx, domain.ID)
 	if err != nil {
@@ -289,7 +305,7 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 		len(desiredObjectsByLogicalPrefix(withoutDomain.Objects, "dns-dnat:")) != 0 {
 		t.Fatal("removing the last domain source must clean up all DNS objects")
 	}
-	addrAfter := desiredObjectsByLogicalPrefix(withoutDomain.Objects, "source-addr:ip-a:")
+	addrAfter := desiredObjectsByLogicalPrefix(withoutDomain.Objects, "routing-target-addr:wan-mix:ip-a:")
 	if len(addrAfter) != len(addrBefore) {
 		t.Fatalf("IP routing chain must survive domain removal: before=%d after=%d", len(addrBefore), len(addrAfter))
 	}
@@ -297,7 +313,18 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 		t.Fatal("business mangle must survive domain removal")
 	}
 
-	saveDomainSource(t, repository, "dom-b", "wan-mix", "Dom B", []policyv2.SourceRule{{RuleType: "DOMAIN", Domain: "back.example.com"}})
+	saveDomainSource(t, repository, "dom-b", "", "Dom B", []policyv2.SourceRule{{RuleType: "DOMAIN", Domain: "back.example.com"}})
+	routingRules, err = repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routingRules) != 1 {
+		t.Fatalf("expected one routing rule after domain removal, got %#v", routingRules)
+	}
+	routingRules[0].TargetListIDs = []string{"dom-b", "ip-a"}
+	if _, err := repository.SaveRoutingRule(ctx, routingRules[0]); err != nil {
+		t.Fatal(err)
+	}
 	withDomainAgain, err := policyv2.BuildDesired(ctx, repository, newPolicyV2FakeRouter())
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +332,7 @@ func TestPolicyV2DesiredRebuildsDNSWhenDomainSourcesComeAndGo(t *testing.T) {
 	if len(desiredObjectsByMenu(withDomainAgain.Objects, routeros.MenuIPDNSForwarders)) != 1 {
 		t.Fatal("adding a domain source must rebuild DNS objects")
 	}
-	addrAgain := desiredObjectsByLogicalPrefix(withDomainAgain.Objects, "source-addr:ip-a:")
+	addrAgain := desiredObjectsByLogicalPrefix(withDomainAgain.Objects, "routing-target-addr:wan-mix:ip-a:")
 	if len(addrAgain) != len(addrBefore) {
 		t.Fatalf("adding a domain source must keep IP entries stable: before=%d after=%d", len(addrBefore), len(addrAgain))
 	}
@@ -336,8 +363,19 @@ func TestPolicyV2DesiredSharedIPSourceDeleteKeepsOtherSourcesAndMangle(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(desiredObjectsByLogicalPrefix(before.Objects, "source-addr:")) != 2 {
+	if len(desiredObjectsByLogicalPrefix(before.Objects, "routing-target-addr:")) != 2 {
 		t.Fatalf("expected entries from both IP sources: %#v", before.Objects)
+	}
+	routingRules, err := repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routingRules) != 1 {
+		t.Fatalf("expected one migrated routing rule, got %#v", routingRules)
+	}
+	routingRules[0].TargetListIDs = []string{"ip-a"}
+	if _, err := repository.SaveRoutingRule(ctx, routingRules[0]); err != nil {
+		t.Fatal(err)
 	}
 	staleB, err := repository.GetSource(ctx, ipB.ID)
 	if err != nil {
@@ -350,7 +388,7 @@ func TestPolicyV2DesiredSharedIPSourceDeleteKeepsOtherSourcesAndMangle(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	remaining := desiredObjectsByLogicalPrefix(after.Objects, "source-addr:")
+	remaining := desiredObjectsByLogicalPrefix(after.Objects, "routing-target-addr:")
 	if len(remaining) != 1 || remaining[0].Fields["address"] != "91.108.0.0/16" {
 		t.Fatalf("deleting one IP source must keep the other source's entries: %#v", remaining)
 	}

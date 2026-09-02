@@ -207,7 +207,7 @@ func splitBatchScript(lines []string) []string {
 
 func batchDisabledMenu(menu MutationMenu) bool {
 	switch menu {
-	case MenuIPDNSStatic,
+	case MenuIPDNSForwarders, MenuIPDNSStatic,
 		MenuIPFirewallAddressList, MenuIPv6FirewallAddressList,
 		MenuIPFirewallFilter, MenuIPv6FirewallFilter,
 		MenuIPFirewallMangle, MenuIPv6FirewallMangle,

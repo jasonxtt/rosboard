@@ -227,7 +227,7 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	if saved.Devices[0].Name != "Renamed" || saved.Devices[0].RouterOS.Password != "secret" {
 		t.Fatalf("unexpected saved device: %#v", saved.Devices[0])
 	}
-	if !saved.Devices[0].MosDNS.Configured() || saved.Devices[0].MosDNS.BaseURL != "http://10.0.0.3" || saved.Devices[0].MosDNS.SyncIntervalMinutes != 15 {
+	if !saved.Devices[0].MosDNS.Configured() || saved.Devices[0].MosDNS.BaseURL != "http://10.0.0.3" || saved.Devices[0].MosDNS.SyncIntervalMinutes != 15 || saved.Devices[0].MosDNS.MatchWindowMinutes != 30 {
 		t.Fatalf("device edit without mosdns payload must preserve recognition settings: %#v", saved.Devices[0].MosDNS)
 	}
 }

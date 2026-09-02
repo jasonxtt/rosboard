@@ -96,11 +96,15 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 				}
 			} else {
 				logicalID = logicalByComment[commentIdentity]
+				accessNamespace := hasAccessNamespaceFields(menu, object)
 				if logicalID == "" && isManagedCommentFor(managerID, repository.DeviceID(), comment) {
 					logicalID = "stale:" + commentIdentity
 				}
 				if logicalID == "" && accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
 					logicalID = "stale:" + commentIdentity
+				}
+				if logicalID == "" && accessNamespace {
+					logicalID = "stale-access:" + string(menu) + ":" + object.ID()
 				}
 				if logicalID == "" && !isManagedCommentFor(managerID, repository.DeviceID(), comment) && !accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
 					continue
@@ -130,6 +134,79 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 	}
 	digest := sha256.Sum256(payload)
 	return result, hex.EncodeToString(digest[:]), nil
+}
+
+// ScanManagedForDomain keeps the shared RouterOS scanner but limits the
+// returned actual graph to one ownership domain. This is important for an
+// access plan: a routing object may be stale without becoming an access
+// cleanup operation.
+func ScanManagedForDomain(ctx context.Context, mutation PolicyMutation, repository Repository, desired []DesiredObject, domain PolicyDomain) ([]ActualObject, string, error) {
+	actual, fingerprint, err := ScanManaged(ctx, mutation, repository, desired)
+	if err != nil {
+		return nil, "", err
+	}
+	if domain == PolicyDomainCombined {
+		return actual, fingerprint, nil
+	}
+	filtered := make([]ActualObject, 0, len(actual))
+	for _, object := range actual {
+		if managedActualDomain(object) == domain {
+			filtered = append(filtered, object)
+		}
+	}
+	payload, err := json.Marshal(filtered)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(payload)
+	return filtered, hex.EncodeToString(digest[:]), nil
+}
+
+func managedActualDomain(object ActualObject) PolicyDomain {
+	if object.Ownership == "foreign" || strings.HasPrefix(object.LogicalID, "foreign-access:") {
+		return PolicyDomainAccess
+	}
+	fields := object.Fields
+	if strings.HasPrefix(strings.TrimSpace(fields["list"]), "rb_ac_") ||
+		strings.HasPrefix(strings.TrimSpace(fields["address-list"]), "rb_ac_") ||
+		strings.HasPrefix(strings.TrimSpace(fields["src-address-list"]), "rb_ac_") ||
+		strings.HasPrefix(strings.TrimSpace(fields["dst-address-list"]), "rb_ac_") ||
+		strings.HasPrefix(strings.TrimSpace(fields["list"]), applicationListPrefix) ||
+		strings.HasPrefix(strings.TrimSpace(fields["address-list"]), applicationListPrefix) ||
+		strings.HasPrefix(strings.TrimSpace(fields["forward-to"]), "rosboard_access_") ||
+		strings.HasPrefix(strings.TrimSpace(fields["name"]), "rosboard_access_") ||
+		hasAccessNamespaceValue(fields["name"]) ||
+		hasAccessNamespaceValue(fields["list"]) ||
+		hasAccessNamespaceValue(fields["chain"]) ||
+		hasAccessNamespaceValue(fields["jump-target"]) ||
+		hasAccessNamespaceValue(fields["interface-list"]) ||
+		hasAccessNamespaceValue(fields["interface-list-name"]) ||
+		hasAccessNamespaceValue(fields["list-name"]) ||
+		strings.Contains(fields["comment"], "访问控制") ||
+		isAccessFilterFields(object.Menu, fields) {
+		return PolicyDomainAccess
+	}
+	return PolicyDomainRouting
+}
+
+func hasAccessNamespaceFields(menu routeros.MutationMenu, object routeros.RouterOSObject) bool {
+	if menu == routeros.MenuRoutingTable {
+		return false
+	}
+	for _, key := range []string{"name", "list", "chain", "jump-target", "interface-list", "interface-list-name", "list-name", "address-list", "src-address-list", "dst-address-list", "forward-to"} {
+		if hasAccessNamespaceValue(object[key]) {
+			return true
+		}
+	}
+	if strings.Contains(object["comment"], "访问控制") || isAccessFilterFields(string(menu), map[string]string(object)) {
+		return true
+	}
+	return false
+}
+
+func hasAccessNamespaceValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rosboard_access_")
 }
 
 func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperation, []PlanIssue) {

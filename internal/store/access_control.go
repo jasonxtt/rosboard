@@ -11,13 +11,17 @@ import (
 
 	"rosboard/internal/accesscontrol"
 	"rosboard/internal/policyv2"
+	"rosboard/internal/subject"
 )
 
 type AccessRepository struct {
 	store *Store
 }
 
-const accessSchemaVersion = "v1"
+const (
+	accessSchemaVersion       = "v2"
+	legacyAccessSchemaVersion = "v1"
+)
 
 func (s *Store) AccessRepository() *AccessRepository {
 	return &AccessRepository{store: s}
@@ -37,19 +41,23 @@ func (s *Store) initAccessControlSchema() error {
 	}
 	var marker string
 	err = tx.QueryRow(`SELECT value FROM access_schema_meta WHERE key = 'logical_rules'`).Scan(&marker)
+	fresh := errors.Is(err, sql.ErrNoRows)
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case fresh:
 		if err := prepareLegacyAccessSchema(tx); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO access_schema_meta (key, value) VALUES ('logical_rules', ?)`, accessSchemaVersion); err != nil {
-			return fmt.Errorf("record access-control schema marker: %w", err)
-		}
 	case err != nil:
 		return fmt.Errorf("inspect access-control schema marker: %w", err)
-	case marker != accessSchemaVersion:
+	case marker != legacyAccessSchemaVersion && marker != accessSchemaVersion:
 		return fmt.Errorf("unsupported access-control schema marker %q", marker)
-	default:
+	case marker == legacyAccessSchemaVersion:
+		// v1 has all of the original logical-rule tables, but not the additive
+		// application relation. Validate the committed baseline before adding it.
+		if err := validateLegacyAccessControlSchema(tx); err != nil {
+			return fmt.Errorf("validate legacy access-control schema: %w", err)
+		}
+	case marker == accessSchemaVersion:
 		// A committed marker is the boundary between the destructive first-run
 		// migration and normal startup. Do not silently recreate a missing or
 		// damaged table after that boundary; failing closed preserves the
@@ -70,6 +78,7 @@ CREATE TABLE IF NOT EXISTS access_rules (
     revision INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    subject_mode TEXT NOT NULL DEFAULT 'selected',
     PRIMARY KEY (device_id, id)
 );
 CREATE TABLE IF NOT EXISTS access_rule_sources (
@@ -80,6 +89,21 @@ CREATE TABLE IF NOT EXISTS access_rule_sources (
     PRIMARY KEY (device_id, rule_id, source_id)
 );
 CREATE INDEX IF NOT EXISTS access_rule_sources_source_idx ON access_rule_sources(device_id, source_id);
+CREATE TABLE IF NOT EXISTS access_rule_prefixes (
+    device_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (device_id, rule_id, prefix)
+);
+CREATE TABLE IF NOT EXISTS access_rule_applications (
+    device_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    application_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (device_id, rule_id, application_id)
+);
+CREATE INDEX IF NOT EXISTS access_rule_applications_application_idx ON access_rule_applications(device_id, application_id);
 CREATE TABLE IF NOT EXISTS access_rule_members (
     device_id TEXT NOT NULL,
     rule_id TEXT NOT NULL,
@@ -111,12 +135,38 @@ CREATE TABLE IF NOT EXISTS access_audit (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS access_audit_device_created_idx ON access_audit(device_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS access_rule_migration_issues (
+    device_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    code TEXT NOT NULL,
+    value TEXT NOT NULL,
+    message TEXT NOT NULL,
+    PRIMARY KEY (device_id, rule_id, code, value)
+);
 `)
 	if err != nil {
 		return fmt.Errorf("init access-control schema: %w", err)
 	}
+	if _, err := tx.Exec(`ALTER TABLE access_rules ADD COLUMN subject_mode TEXT NOT NULL DEFAULT 'selected'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add access rule subject mode: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS access_rule_prefixes (device_id TEXT NOT NULL, rule_id TEXT NOT NULL, prefix TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (device_id, rule_id, prefix))`); err != nil {
+		return fmt.Errorf("init access rule prefixes: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS access_rule_migration_issues (device_id TEXT NOT NULL, rule_id TEXT NOT NULL, code TEXT NOT NULL, value TEXT NOT NULL, message TEXT NOT NULL, PRIMARY KEY (device_id, rule_id, code, value))`); err != nil {
+		return fmt.Errorf("init access rule migration issues: %w", err)
+	}
 	if err := validateAccessControlSchema(tx); err != nil {
 		return err
+	}
+	if fresh {
+		if _, err := tx.Exec(`INSERT INTO access_schema_meta (key, value) VALUES ('logical_rules', ?)`, accessSchemaVersion); err != nil {
+			return fmt.Errorf("record access-control schema marker: %w", err)
+		}
+	} else if marker == legacyAccessSchemaVersion {
+		if _, err := tx.Exec(`UPDATE access_schema_meta SET value = ? WHERE key = 'logical_rules'`, accessSchemaVersion); err != nil {
+			return fmt.Errorf("upgrade access-control schema marker: %w", err)
+		}
 	}
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO access_control_state (device_id, desired_revision, applied_revision, applied_at) VALUES (?, 0, 0, 0)`, s.deviceID); err != nil {
 		return fmt.Errorf("init access-control state: %w", err)
@@ -142,6 +192,14 @@ func prepareLegacyAccessSchema(tx *sql.Tx) error {
 }
 
 func validateAccessControlSchema(tx *sql.Tx) error {
+	return validateAccessControlSchemaColumns(tx, true)
+}
+
+func validateLegacyAccessControlSchema(tx *sql.Tx) error {
+	return validateAccessControlSchemaColumns(tx, false)
+}
+
+func validateAccessControlSchemaColumns(tx *sql.Tx, includeApplications bool) error {
 	required := map[string][]string{
 		"access_schema_meta":   {"key", "value"},
 		"access_rules":         {"device_id", "id", "name", "target_scope", "action", "enabled", "revision", "created_at", "updated_at"},
@@ -149,6 +207,9 @@ func validateAccessControlSchema(tx *sql.Tx) error {
 		"access_rule_members":  {"device_id", "rule_id", "terminal_id", "binding", "anchor_mac", "pinned_ipv4_json", "pinned_ipv6_json", "last_ipv4_json", "last_ipv6_json"},
 		"access_control_state": {"device_id", "desired_revision", "applied_revision", "applied_at"},
 		"access_audit":         {"device_id", "id", "actor", "action", "rule_id", "before_json", "after_json", "result", "created_at"},
+	}
+	if includeApplications {
+		required["access_rule_applications"] = []string{"device_id", "rule_id", "application_id", "position"}
 	}
 	for table, columns := range required {
 		ok, err := accessTableHasColumns(tx, table, columns)
@@ -196,36 +257,40 @@ type accessRuleSnapshot struct {
 }
 
 func (r *AccessRepository) ListRules(ctx context.Context) ([]accesscontrol.AccessRule, error) {
-	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, target_scope, enabled, revision, created_at, updated_at
+	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, target_scope, subject_mode, enabled, revision, created_at, updated_at
 		FROM access_rules WHERE device_id = ? ORDER BY created_at, id`, r.store.deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list access rules: %w", err)
 	}
-	defer rows.Close()
 	rules := make([]accesscontrol.AccessRule, 0)
 	byID := make(map[string]int)
 	for rows.Next() {
 		var rule accesscontrol.AccessRule
 		var enabled int
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&rule.ID, &rule.Name, &rule.TargetScope, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.Name, &rule.TargetScope, &rule.Subject.Mode, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan access rule: %w", err)
 		}
 		rule.Enabled = enabled != 0
 		rule.CreatedAt = timeFromUnix(createdAt)
 		rule.UpdatedAt = timeFromUnix(updatedAt)
 		rule.SourceIDs = []string{}
+		rule.ApplicationIDs = []string{}
+		rule.TargetListIDs = []string{}
+		rule.MigrationIssues = []string{}
 		byID[rule.ID] = len(rules)
 		rules = append(rules, rule)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	sourceRows, err := r.store.db.QueryContext(ctx, `SELECT rule_id, source_id FROM access_rule_sources WHERE device_id = ? ORDER BY rule_id, position`, r.store.deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list access rule sources: %w", err)
 	}
-	defer sourceRows.Close()
 	for sourceRows.Next() {
 		var ruleID, sourceID string
 		if err := sourceRows.Scan(&ruleID, &sourceID); err != nil {
@@ -235,7 +300,110 @@ func (r *AccessRepository) ListRules(ctx context.Context) ([]accesscontrol.Acces
 			rules[index].SourceIDs = append(rules[index].SourceIDs, sourceID)
 		}
 	}
-	return rules, sourceRows.Err()
+	if err := sourceRows.Err(); err != nil {
+		return nil, err
+	}
+	if err := sourceRows.Close(); err != nil {
+		return nil, err
+	}
+	applicationRows, err := r.store.db.QueryContext(ctx, `SELECT rule_id, application_id FROM access_rule_applications WHERE device_id = ? ORDER BY rule_id, position`, r.store.deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("list access rule applications: %w", err)
+	}
+	for applicationRows.Next() {
+		var ruleID, applicationID string
+		if err := applicationRows.Scan(&ruleID, &applicationID); err != nil {
+			return nil, fmt.Errorf("scan access rule application: %w", err)
+		}
+		if index, ok := byID[ruleID]; ok {
+			rules[index].ApplicationIDs = append(rules[index].ApplicationIDs, applicationID)
+		}
+	}
+	if err := applicationRows.Err(); err != nil {
+		return nil, err
+	}
+	if err := applicationRows.Close(); err != nil {
+		return nil, err
+	}
+	prefixRows, err := r.store.db.QueryContext(ctx, `SELECT rule_id, prefix FROM access_rule_prefixes WHERE device_id = ? ORDER BY rule_id, position`, r.store.deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("list access rule subject prefixes: %w", err)
+	}
+	for prefixRows.Next() {
+		var ruleID, prefix string
+		if err := prefixRows.Scan(&ruleID, &prefix); err != nil {
+			prefixRows.Close()
+			return nil, err
+		}
+		if index, ok := byID[ruleID]; ok {
+			rules[index].Subject.Prefixes = append(rules[index].Subject.Prefixes, prefix)
+		}
+	}
+	if err := prefixRows.Err(); err != nil {
+		prefixRows.Close()
+		return nil, err
+	}
+	if err := prefixRows.Close(); err != nil {
+		return nil, err
+	}
+	memberRows, err := r.store.db.QueryContext(ctx, `SELECT rule_id, terminal_id, binding, anchor_mac, pinned_ipv4_json, pinned_ipv6_json, last_ipv4_json, last_ipv6_json FROM access_rule_members WHERE device_id = ? ORDER BY rule_id, terminal_id`, r.store.deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("list access rule subject members: %w", err)
+	}
+	for memberRows.Next() {
+		member, err := scanAccessMember(memberRows)
+		if err != nil {
+			memberRows.Close()
+			return nil, err
+		}
+		if index, ok := byID[member.RuleID]; ok {
+			rules[index].Subject.Members = append(rules[index].Subject.Members, accessMemberSubject(member))
+		}
+	}
+	if err := memberRows.Err(); err != nil {
+		memberRows.Close()
+		return nil, err
+	}
+	if err := memberRows.Close(); err != nil {
+		return nil, err
+	}
+	issueRows, err := r.store.db.QueryContext(ctx, `SELECT rule_id, code, value FROM access_rule_migration_issues WHERE device_id = ? ORDER BY rule_id, code, value`, r.store.deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("list access rule migration issues: %w", err)
+	}
+	for issueRows.Next() {
+		var ruleID, code, value string
+		if err := issueRows.Scan(&ruleID, &code, &value); err != nil {
+			issueRows.Close()
+			return nil, err
+		}
+		if index, ok := byID[ruleID]; ok {
+			rules[index].MigrationIssues = append(rules[index].MigrationIssues, code+": "+value)
+		}
+	}
+	if err := issueRows.Err(); err != nil {
+		issueRows.Close()
+		return nil, err
+	}
+	if err := issueRows.Close(); err != nil {
+		return nil, err
+	}
+	for index := range rules {
+		if rules[index].Subject.Mode == "" {
+			rules[index].Subject.Mode = "selected"
+		}
+		if rules[index].TargetScope == accesscontrol.TargetScopeTargets {
+			rules[index].TargetListIDs = append([]string{}, rules[index].SourceIDs...)
+			rules[index].SourceIDs = []string{}
+		}
+	}
+	return rules, nil
+}
+
+func accessMemberSubject(member accesscontrol.RuleMember) subject.Member {
+	return subject.Member{TerminalID: member.TerminalID, Binding: member.Binding, AnchorMAC: member.AnchorMAC,
+		PinnedIPv4: append([]string{}, member.PinnedIPv4...), PinnedIPv6: append([]string{}, member.PinnedIPv6...),
+		LastIPv4: append([]string{}, member.LastIPv4...), LastIPv6: append([]string{}, member.LastIPv6...)}
 }
 
 func (r *AccessRepository) ListMembers(ctx context.Context) ([]accesscontrol.RuleMember, error) {
@@ -257,9 +425,25 @@ func (r *AccessRepository) ListMembers(ctx context.Context) ([]accesscontrol.Rul
 }
 
 func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.AccessRule, members []accesscontrol.RuleMember, actor string) (accesscontrol.AccessRule, error) {
+	if len(members) == 0 && len(rule.Subject.Members) > 0 {
+		members = make([]accesscontrol.RuleMember, 0, len(rule.Subject.Members))
+		for _, member := range rule.Subject.Members {
+			members = append(members, accesscontrol.RuleMember{
+				TerminalID: member.TerminalID, Binding: member.Binding, AnchorMAC: member.AnchorMAC,
+				PinnedIPv4: append([]string{}, member.PinnedIPv4...), PinnedIPv6: append([]string{}, member.PinnedIPv6...),
+				LastIPv4: append([]string{}, member.LastIPv4...), LastIPv6: append([]string{}, member.LastIPv6...),
+			})
+		}
+	}
 	rule, err := accesscontrol.NormalizeRule(rule)
 	if err != nil {
 		return accesscontrol.AccessRule{}, err
+	}
+	var canonicalMarker string
+	if markerErr := r.store.db.QueryRowContext(ctx, `SELECT value FROM access_schema_meta WHERE key = ?`, canonicalAccessMarkerKey).Scan(&canonicalMarker); markerErr == nil && canonicalMarker == "v1" {
+		if rule.TargetScope == accesscontrol.TargetScopeSources || rule.TargetScope == accesscontrol.TargetScopeApplications || len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
+			return accesscontrol.AccessRule{}, accesscontrol.ErrCanonicalRuleRequired
+		}
 	}
 	normalizedMembers := make([]accesscontrol.RuleMember, 0, len(members))
 	seenTerminals := make(map[string]bool, len(members))
@@ -275,7 +459,7 @@ func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.Acce
 		seenTerminals[member.TerminalID] = true
 		normalizedMembers = append(normalizedMembers, member)
 	}
-	if len(normalizedMembers) == 0 {
+	if rule.Subject.Mode != "all" && len(normalizedMembers) == 0 && len(rule.Subject.Prefixes) == 0 {
 		return accesscontrol.AccessRule{}, errors.New("access rule requires at least one member")
 	}
 
@@ -333,26 +517,66 @@ func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.Acce
 			}
 		}
 	}
+	if rule.TargetScope == accesscontrol.TargetScopeTargets {
+		for _, targetID := range rule.TargetListIDs {
+			var pendingDeletion int
+			if err := tx.QueryRowContext(ctx, `SELECT pending_delete FROM policy_v2_sources WHERE id = ?`, targetID).Scan(&pendingDeletion); errors.Is(err, sql.ErrNoRows) {
+				return accesscontrol.AccessRule{}, policyv2.ErrTargetListNotFound
+			} else if err != nil {
+				return accesscontrol.AccessRule{}, fmt.Errorf("check access rule target %s: %w", targetID, err)
+			} else if pendingDeletion != 0 {
+				return accesscontrol.AccessRule{}, policyv2.ErrTargetListNotFound
+			}
+		}
+	}
+	if rule.Subject.Mode == "all" && len(normalizedMembers) != 0 {
+		return accesscontrol.AccessRule{}, errors.New("all subjects must not contain members")
+	}
+	rule.Subject.Members = make([]subject.Member, 0, len(normalizedMembers))
+	for _, member := range normalizedMembers {
+		rule.Subject.Members = append(rule.Subject.Members, accessMemberSubject(member))
+	}
 
 	// 同一终端再次加入时保留其最后可信地址投影。
 	lastByTerminal := make(map[string]accesscontrol.RuleMember, len(current.Members))
 	for _, member := range current.Members {
 		lastByTerminal[member.TerminalID] = member
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?)
-		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`,
-		r.store.deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt))
+	_, err = tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at, subject_mode)
+		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at, subject_mode=excluded.subject_mode`,
+		r.store.deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt), rule.Subject.Mode)
 	if err != nil {
 		return accesscontrol.AccessRule{}, fmt.Errorf("save access rule: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_sources WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, rule.ID); err != nil {
 		return accesscontrol.AccessRule{}, fmt.Errorf("replace access rule sources: %w", err)
 	}
-	for position, sourceID := range rule.SourceIDs {
+	targetIDs := rule.SourceIDs
+	if rule.TargetScope == accesscontrol.TargetScopeTargets {
+		targetIDs = rule.TargetListIDs
+	}
+	for position, sourceID := range targetIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO access_rule_sources (device_id, rule_id, source_id, position) VALUES (?, ?, ?, ?)`,
 			r.store.deviceID, rule.ID, sourceID, position); err != nil {
 			return accesscontrol.AccessRule{}, fmt.Errorf("save access rule source: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_prefixes WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, rule.ID); err != nil {
+		return accesscontrol.AccessRule{}, fmt.Errorf("replace access rule subject prefixes: %w", err)
+	}
+	for position, prefix := range rule.Subject.Prefixes {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO access_rule_prefixes (device_id, rule_id, prefix, position) VALUES (?, ?, ?, ?)`, r.store.deviceID, rule.ID, prefix, position); err != nil {
+			return accesscontrol.AccessRule{}, fmt.Errorf("save access rule subject prefix: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_applications WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, rule.ID); err != nil {
+		return accesscontrol.AccessRule{}, fmt.Errorf("replace access rule applications: %w", err)
+	}
+	for position, applicationID := range rule.ApplicationIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO access_rule_applications (device_id, rule_id, application_id, position) VALUES (?, ?, ?, ?)`,
+			r.store.deviceID, rule.ID, applicationID, position); err != nil {
+			return accesscontrol.AccessRule{}, fmt.Errorf("save access rule application: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_members WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, rule.ID); err != nil {
@@ -447,6 +671,9 @@ func (r *AccessRepository) DeleteRule(ctx context.Context, id string, revision i
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_sources WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, current.Rule.ID); err != nil {
 		return fmt.Errorf("delete access rule sources: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_applications WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, current.Rule.ID); err != nil {
+		return fmt.Errorf("delete access rule applications: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_members WHERE device_id = ? AND rule_id = ?`, r.store.deviceID, current.Rule.ID); err != nil {
 		return fmt.Errorf("delete access rule members: %w", err)
@@ -545,9 +772,9 @@ func loadAccessRuleTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (acc
 	snapshot := accessRuleSnapshot{Members: []accesscontrol.RuleMember{}}
 	var enabled int
 	var createdAt, updatedAt int64
-	err := tx.QueryRowContext(ctx, `SELECT id, name, target_scope, enabled, revision, created_at, updated_at
+	err := tx.QueryRowContext(ctx, `SELECT id, name, target_scope, subject_mode, enabled, revision, created_at, updated_at
 		FROM access_rules WHERE device_id = ? AND id = ?`, deviceID, id).Scan(
-		&snapshot.Rule.ID, &snapshot.Rule.Name, &snapshot.Rule.TargetScope, &enabled, &snapshot.Rule.Revision, &createdAt, &updatedAt)
+		&snapshot.Rule.ID, &snapshot.Rule.Name, &snapshot.Rule.TargetScope, &snapshot.Rule.Subject.Mode, &enabled, &snapshot.Rule.Revision, &createdAt, &updatedAt)
 	if err != nil {
 		return accessRuleSnapshot{}, err
 	}
@@ -555,6 +782,8 @@ func loadAccessRuleTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (acc
 	snapshot.Rule.CreatedAt = timeFromUnix(createdAt)
 	snapshot.Rule.UpdatedAt = timeFromUnix(updatedAt)
 	snapshot.Rule.SourceIDs = []string{}
+	snapshot.Rule.ApplicationIDs = []string{}
+	snapshot.Rule.TargetListIDs = []string{}
 	sourceRows, err := tx.QueryContext(ctx, `SELECT source_id FROM access_rule_sources WHERE device_id = ? AND rule_id = ? ORDER BY position`, deviceID, id)
 	if err != nil {
 		return accessRuleSnapshot{}, err
@@ -570,6 +799,46 @@ func loadAccessRuleTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (acc
 	if err := sourceRows.Err(); err != nil {
 		return accessRuleSnapshot{}, err
 	}
+	if err := sourceRows.Close(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	applicationRows, err := tx.QueryContext(ctx, `SELECT application_id FROM access_rule_applications WHERE device_id = ? AND rule_id = ? ORDER BY position`, deviceID, id)
+	if err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	defer applicationRows.Close()
+	for applicationRows.Next() {
+		var applicationID string
+		if err := applicationRows.Scan(&applicationID); err != nil {
+			return accessRuleSnapshot{}, err
+		}
+		snapshot.Rule.ApplicationIDs = append(snapshot.Rule.ApplicationIDs, applicationID)
+	}
+	if err := applicationRows.Err(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	if err := applicationRows.Close(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	prefixRows, err := tx.QueryContext(ctx, `SELECT prefix FROM access_rule_prefixes WHERE device_id = ? AND rule_id = ? ORDER BY position`, deviceID, id)
+	if err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	for prefixRows.Next() {
+		var prefix string
+		if err := prefixRows.Scan(&prefix); err != nil {
+			prefixRows.Close()
+			return accessRuleSnapshot{}, err
+		}
+		snapshot.Rule.Subject.Prefixes = append(snapshot.Rule.Subject.Prefixes, prefix)
+	}
+	if err := prefixRows.Err(); err != nil {
+		prefixRows.Close()
+		return accessRuleSnapshot{}, err
+	}
+	if err := prefixRows.Close(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
 	memberRows, err := tx.QueryContext(ctx, `SELECT rule_id, terminal_id, binding, anchor_mac, pinned_ipv4_json, pinned_ipv6_json, last_ipv4_json, last_ipv6_json
 		FROM access_rule_members WHERE device_id = ? AND rule_id = ? ORDER BY terminal_id`, deviceID, id)
 	if err != nil {
@@ -583,7 +852,23 @@ func loadAccessRuleTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (acc
 		}
 		snapshot.Members = append(snapshot.Members, member)
 	}
-	return snapshot, memberRows.Err()
+	if err := memberRows.Err(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	if err := memberRows.Close(); err != nil {
+		return accessRuleSnapshot{}, err
+	}
+	for _, member := range snapshot.Members {
+		snapshot.Rule.Subject.Members = append(snapshot.Rule.Subject.Members, accessMemberSubject(member))
+	}
+	if snapshot.Rule.TargetScope == accesscontrol.TargetScopeTargets {
+		snapshot.Rule.TargetListIDs = append([]string{}, snapshot.Rule.SourceIDs...)
+		snapshot.Rule.SourceIDs = []string{}
+	}
+	if snapshot.Rule.Subject.Mode == "" {
+		snapshot.Rule.Subject.Mode = "selected"
+	}
+	return snapshot, nil
 }
 
 func scanAccessMember(row rowScanner) (accesscontrol.RuleMember, error) {

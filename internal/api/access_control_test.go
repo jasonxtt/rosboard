@@ -66,12 +66,11 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 	source := seedAccessSource(t, server, "bilibili")
 
 	create := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"儿童娱乐限制","targetScope":"sources","sourceIds":["bilibili"],
-		"enabled":true,"revision":0,
-		"members":[
+		"id":"","name":"儿童娱乐限制","targetScope":"targets","targetListIds":["bilibili"],"subject":{"mode":"selected","members":[
 			{"terminalId":"mac:aa","binding":"auto","pinnedIpv4":[],"pinnedIpv6":[]},
 			{"terminalId":"mac:bb","binding":"fixed","pinnedIpv4":["10.0.0.21"],"pinnedIpv6":[]}
-		]
+		]},
+		"enabled":true,"revision":0
 	}`)
 	if create.Code != http.StatusAccepted {
 		t.Fatalf("create status=%d body=%s", create.Code, create.Body.String())
@@ -83,7 +82,7 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.Rule.ID == "" || created.Rule.Revision != 1 || created.JobID == "" || len(created.Rule.SourceIDs) != 1 || created.Rule.SourceIDs[0] != source.ID {
+	if created.Rule.ID == "" || created.Rule.Revision != 1 || created.JobID == "" || len(created.Rule.TargetListIDs) != 1 || created.Rule.TargetListIDs[0] != source.ID {
 		t.Fatalf("unexpected create response: %#v", created)
 	}
 
@@ -92,15 +91,15 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 		t.Fatalf("overview status=%d body=%s", overview.Code, overview.Body.String())
 	}
 	var payload struct {
-		Device   map[string]any       `json:"device"`
-		Rules    []accessRuleResponse `json:"rules"`
-		Sources  []policyv2.Source    `json:"sources"`
-		Boundary string               `json:"boundary"`
+		Device      map[string]any        `json:"device"`
+		Rules       []accessRuleResponse  `json:"rules"`
+		TargetLists []policyv2.TargetList `json:"targetLists"`
+		Boundary    string                `json:"boundary"`
 	}
 	if err := json.Unmarshal(overview.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Device["id"] != "edge" || len(payload.Rules) != 1 || len(payload.Sources) != 1 || payload.Boundary == "" {
+	if payload.Device["id"] != "edge" || len(payload.Rules) != 1 || len(payload.TargetLists) != 1 || payload.Boundary == "" || !bytes.Contains([]byte(payload.Boundary), []byte("目标库中的域名/IP 列表")) || !bytes.Contains([]byte(payload.Boundary), []byte("并非 DPI")) {
 		t.Fatalf("unexpected overview contract: %#v", payload)
 	}
 	rule := payload.Rules[0]
@@ -110,27 +109,40 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 
 	// 自动跟随成员在保存时必须能解析：幽灵成员不允许。
 	ghost := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"幽灵","targetScope":"sources","sourceIds":["bilibili"],
-		"enabled":true,"members":[{"terminalId":"mac:zz","binding":"auto"}]
+		"id":"","name":"幽灵","targetScope":"targets","targetListIds":["bilibili"],"subject":{"mode":"selected","members":[{"terminalId":"mac:zz","binding":"auto"}]},
+		"enabled":true
 	}`)
 	if ghost.Code != http.StatusUnprocessableEntity || !bytes.Contains(ghost.Body.Bytes(), []byte("terminal_unavailable")) {
 		t.Fatalf("ghost member must be rejected: status=%d body=%s", ghost.Code, ghost.Body.String())
 	}
 	// 固定 IP 只能固定该设备当前观察到的地址。
 	stranger := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"陌生人","targetScope":"sources","sourceIds":["bilibili"],
-		"enabled":true,"members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["192.0.2.9"]}]
+		"id":"","name":"陌生人","targetScope":"targets","targetListIds":["bilibili"],"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["192.0.2.9"]}]},
+		"enabled":true
 	}`)
 	if stranger.Code != http.StatusUnprocessableEntity || !bytes.Contains(stranger.Body.Bytes(), []byte("invalid_pinned_address")) {
 		t.Fatalf("pinned stranger address must be rejected: status=%d body=%s", stranger.Code, stranger.Body.String())
 	}
 	// internet 规则不允许携带来源。
 	mixed := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"混合","targetScope":"internet","sourceIds":["bilibili"],
-		"enabled":true,"members":[{"terminalId":"mac:aa","binding":"auto"}]
+		"id":"","name":"混合","targetScope":"internet","targetListIds":["bilibili"],"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"auto"}]},
+		"enabled":true
 	}`)
 	if mixed.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("internet rule with sources must be rejected: status=%d body=%s", mixed.Code, mixed.Body.String())
+	}
+}
+
+func TestAccessControlAPIRejectsLegacyApplicationAuthority(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return accessTestTerminals() }
+	legacy := accessControlRequest(server, http.MethodPost, "/rules", `{
+		"id":"","name":"旧应用","targetScope":"applications","applicationIds":["oaf:1001"],
+		"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["10.0.0.20"]}]},"enabled":true
+	}`)
+	if legacy.Code != http.StatusUnprocessableEntity || !bytes.Contains(legacy.Body.Bytes(), []byte("canonical_access_rule_required")) {
+		t.Fatalf("legacy application payload must be rejected after the authority cutover: status=%d body=%s", legacy.Code, legacy.Body.String())
 	}
 }
 
@@ -162,24 +174,19 @@ func TestAccessControlEditKeepsExistingMembersWhenMonitorTemporarilyLosesIdentit
 	terminals := accessTestTerminals()
 	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return terminals }
 	seedAccessSource(t, server, "games")
-	create := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"游戏阻断","targetScope":"sources","sourceIds":["games"],
-		"enabled":true,"members":[{"terminalId":"mac:aa","binding":"auto"}]
-	}`)
-	if create.Code != http.StatusAccepted {
-		t.Fatalf("create status=%d body=%s", create.Code, create.Body.String())
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
 	}
-	var created struct {
-		Rule accesscontrol.AccessRule `json:"rule"`
-	}
-	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+	if _, err := deviceStore.AccessRepository().SaveRule(context.Background(), accesscontrol.AccessRule{
+		ID: "existing-access-rule", Name: "游戏阻断", TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"games"}, Enabled: true,
+	}, []accesscontrol.RuleMember{{RuleID: "existing-access-rule", TerminalID: "mac:aa", Binding: accesscontrol.BindingAuto, AnchorMAC: "AA:BB:CC:DD:EE:FF"}}, "test"); err != nil {
 		t.Fatal(err)
 	}
 	terminals = []accesscontrol.Terminal{{ID: "mac:aa", DisplayName: "iPad", MACAddress: "not-a-mac", IPv4: []string{"10.0.0.20"}}}
-	update := accessControlRequest(server, http.MethodPut, "/rules/"+created.Rule.ID, `{
-		"name":"游戏阻断（改名）","targetScope":"sources","sourceIds":["games"],
-		"enabled":true,"revision":1,
-		"members":[{"terminalId":"mac:aa","binding":"auto","pinnedIpv4":[],"pinnedIpv6":[]}]
+	update := accessControlRequest(server, http.MethodPut, "/rules/existing-access-rule", `{
+		"name":"游戏阻断（改名）","targetScope":"targets","targetListIds":["games"],"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"auto","pinnedIpv4":[],"pinnedIpv6":[]}]},
+		"enabled":true,"revision":1
 	}`)
 	if update.Code != http.StatusAccepted {
 		t.Fatalf("editing an existing temporarily unresolved member must be accepted: status=%d body=%s", update.Code, update.Body.String())
@@ -193,9 +200,8 @@ func TestAccessControlSourcesScopeRuleAppliesOnTestRouter(t *testing.T) {
 	seedAccessSource(t, server, "games")
 
 	create := accessControlRequest(server, http.MethodPost, "/rules", `{
-		"id":"","name":"游戏阻断","targetScope":"sources","sourceIds":["games"],
-		"enabled":true,
-		"members":[{"terminalId":"mac:bb","binding":"fixed","pinnedIpv4":["10.0.0.21"]}]
+		"id":"","name":"游戏阻断","targetScope":"targets","targetListIds":["games"],"subject":{"mode":"selected","members":[{"terminalId":"mac:bb","binding":"fixed","pinnedIpv4":["10.0.0.21"]}]},
+		"enabled":true
 	}`)
 	if create.Code != http.StatusAccepted {
 		t.Fatalf("create status=%d body=%s", create.Code, create.Body.String())
@@ -212,7 +218,7 @@ func TestAccessControlSourcesScopeRuleAppliesOnTestRouter(t *testing.T) {
 	}
 }
 
-func TestAccessRuleStatusRequiresPolicyAndAccessStateToBeApplied(t *testing.T) {
+func TestAccessRuleStatusDependsOnAccessStateOnly(t *testing.T) {
 	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true}
 	members := []accessRuleMemberResponse{{TerminalID: "terminal-a", State: accesscontrol.MemberResolved}}
 	accessState := accesscontrol.State{DesiredRevision: 1, AppliedRevision: 1}
@@ -222,8 +228,8 @@ func TestAccessRuleStatusRequiresPolicyAndAccessStateToBeApplied(t *testing.T) {
 		t.Fatalf("fully applied rule status=%q, want applied", got)
 	}
 	policyState.AppliedRevision = 0
-	if got := accessRuleStatus(rule, accessState, policyState, members); got != "pending" {
-		t.Fatalf("rule with pending policy state status=%q, want pending", got)
+	if got := accessRuleStatus(rule, accessState, policyState, members); got != "applied" {
+		t.Fatalf("rule with pending routing state status=%q, want applied", got)
 	}
 	policyState.Job = policyv2.ApplyJob{ID: "job-a", State: "failed"}
 	if got := accessRuleStatus(rule, accessState, policyState, members); got != "failed" {
@@ -231,14 +237,35 @@ func TestAccessRuleStatusRequiresPolicyAndAccessStateToBeApplied(t *testing.T) {
 	}
 }
 
-func TestAccessRuleStatusDegradesWhenReferencedSourceIsDisabled(t *testing.T) {
-	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true, TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{"source-a"}}
+func TestDisabledAccessRuleStatusDoesNotShowPending(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: false}
+	state := accesscontrol.State{DesiredRevision: 2, AppliedRevision: 1}
+	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1}
+	members := []accessRuleMemberResponse{{TerminalID: "terminal-a", State: accesscontrol.MemberResolved}}
+	if got := accessRuleStatus(rule, state, policyState, members); got != "disabled" {
+		t.Fatalf("disabled rule with an unapplied access revision status=%q, want disabled", got)
+	}
+}
+
+func TestAccessRuleStatusDegradesWhenReferencedTargetIsDisabled(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"target-a"}}
 	state := accesscontrol.State{DesiredRevision: 1, AppliedRevision: 1}
 	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1}
-	sources := []policyv2.Source{{ID: "source-a", Name: "视频列表", Enabled: false, ActiveVersionID: "version-a"}}
-	response := buildAccessRuleResponse(rule, []accesscontrol.RuleMember{{RuleID: rule.ID, TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, []accesscontrol.Terminal{}, state, policyState, sources)
+	targets := []policyv2.TargetList{{ID: "target-a", Name: "视频列表", Enabled: false, ActiveVersionID: "version-a"}}
+	response := buildAccessRuleResponse(rule, []accesscontrol.RuleMember{{RuleID: rule.ID, TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, []accesscontrol.Terminal{}, state, policyState, targets)
 	if response.Status != "degraded" || len(response.Issues) != 1 {
 		t.Fatalf("disabled referenced source must make the rule degraded: %#v", response)
+	}
+}
+
+func TestAccessRuleStatusAcceptsReferencedPendingTargetVersion(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"target-a"}}
+	state := accesscontrol.State{DesiredRevision: 1, AppliedRevision: 1}
+	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1}
+	targets := []policyv2.TargetList{{ID: "target-a", Name: "视频列表", Enabled: true, PendingVersionID: "pending-version"}}
+	response := buildAccessRuleResponse(rule, []accesscontrol.RuleMember{{RuleID: rule.ID, TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, []accesscontrol.Terminal{}, state, policyState, targets)
+	if response.Status != "applied" || len(response.Issues) != 0 {
+		t.Fatalf("pending referenced target must remain usable: %#v", response)
 	}
 }
 
@@ -301,7 +328,7 @@ func TestAccessControlOverviewNeverMarshalsNullArrays(t *testing.T) {
 	if bytes.Contains(body, []byte("macAddress")) {
 		t.Fatalf("access-control overview must not expose terminal MAC identities: %s", body)
 	}
-	for _, fragment := range []string{"\"ipv4\":null", "\"ipv6\":null", "\"sourceIds\":null", "\"members\":null", "\"issues\":null", "\"versions\":null", "\"terminals\":null", "\"sources\":null", "\"rules\":null"} {
+	for _, fragment := range []string{"\"ipv4\":null", "\"ipv6\":null", "\"targetListIds\":null", "\"members\":null", "\"issues\":null", "\"versions\":null", "\"terminals\":null", "\"targetLists\":null", "\"rules\":null"} {
 		if bytes.Contains(body, []byte(fragment)) {
 			t.Fatalf("overview response contains %s: %s", fragment, body)
 		}

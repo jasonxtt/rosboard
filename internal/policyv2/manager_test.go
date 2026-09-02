@@ -313,6 +313,56 @@ func TestVerifyDesiredRetriesTransientRouterOSReadAfterWrite(t *testing.T) {
 	}
 }
 
+type activationScanMutation struct {
+	fakeScanMutation
+	visible bool
+	patches []string
+}
+
+func (m *activationScanMutation) List(ctx context.Context, menu routeros.MutationMenu, query routeros.MutationQuery) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.MenuIPDNSStatic && !m.visible {
+		m.visible = true
+		return nil, nil
+	}
+	return m.fakeScanMutation.List(ctx, menu, query)
+}
+
+func (m *activationScanMutation) Patch(_ context.Context, menu routeros.MutationMenu, id string, fields routeros.RouterOSFields) (routeros.RouterOSObject, error) {
+	m.patches = append(m.patches, string(menu)+":"+id)
+	if object := m.objects[menu]; len(object) > 0 {
+		if value, ok := fields["disabled"].(bool); ok {
+			if value {
+				object[0]["disabled"] = "true"
+			} else {
+				object[0]["disabled"] = "false"
+			}
+		}
+		return object[0], nil
+	}
+	return routeros.RouterOSObject{".id": id}, nil
+}
+
+func TestActivateDesiredRetriesTransientMissingObject(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "routing-dns:egress:target:DOMAIN-SUFFIX:example.test",
+		Menu:      string(routeros.MenuIPDNSStatic),
+		Fields: map[string]string{
+			"comment":  managedComment(managedCommentIdentityPrefix, "routing-dns:egress:target:DOMAIN-SUFFIX:example.test", "策略测试"),
+			"disabled": "no",
+		},
+	}}
+	mutation := &activationScanMutation{fakeScanMutation: fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPDNSStatic: {{".id": "*dns", "comment": desired[0].Fields["comment"], "disabled": "yes"}},
+	}}}
+	applier := &Applier{Mutation: mutation, Repo: &fakeScanRepository{managerID: "manager"}}
+	if err := activateDesiredObjectsForDomain(context.Background(), applier, desired, PolicyDomainRouting); err != nil {
+		t.Fatal(err)
+	}
+	if len(mutation.patches) != 1 || mutation.patches[0] != string(routeros.MenuIPDNSStatic)+":*dns" {
+		t.Fatalf("transiently missing object was not activated: %#v", mutation.patches)
+	}
+}
+
 type capabilityReadFailure struct {
 	moveRecorder
 	err error
@@ -332,5 +382,25 @@ func TestAccessCapabilityBlockerFailsClosedWhenFilterFamilyCannotBeVerified(t *t
 	}
 	if len(blockers) != 1 || blockers[0].Code != "routeros_access_filter_capability_unverified" || blockers[0].Family != string(FamilyIPv4) {
 		t.Fatalf("failed capability verification must block IPv4 access filters: %#v", blockers)
+	}
+}
+
+func TestIsAccessPlanOperationRecognizesOnlyOwnedStaleApplicationDeletes(t *testing.T) {
+	applicationDelete := PlanOperation{
+		Action: "delete", Menu: string(routeros.MenuIPDNSStatic), LogicalID: "stale:rb_deadbeef", Ownership: "owned",
+		Before: map[string]string{"address-list": applicationListPrefix + "123456789abc"},
+	}
+	if !isAccessPlanOperation(applicationDelete, nil) {
+		t.Fatal("stale owned application DNS delete must remain in an access-only plan")
+	}
+	for _, operation := range []PlanOperation{
+		{Action: "delete", Menu: string(routeros.MenuIPDNSStatic), LogicalID: "stale:rb_deadbeef", Ownership: "foreign", Before: map[string]string{"address-list": applicationListPrefix + "123456789abc"}},
+		{Action: "patch", Menu: string(routeros.MenuIPDNSStatic), LogicalID: "stale:rb_deadbeef", Ownership: "owned", Before: map[string]string{"address-list": applicationListPrefix + "123456789abc"}},
+		{Action: "delete", Menu: string(routeros.MenuIPDNSForwarders), LogicalID: "stale:rb_deadbeef", Ownership: "owned", Before: map[string]string{"address-list": applicationListPrefix + "123456789abc"}},
+		{Action: "delete", Menu: string(routeros.MenuIPDNSStatic), LogicalID: "stale:rb_deadbeef", Ownership: "owned", Before: map[string]string{"address-list": "rb_src_123456789abc"}},
+	} {
+		if isAccessPlanOperation(operation, nil) {
+			t.Fatalf("unrelated stale operation was classified as application access: %#v", operation)
+		}
 	}
 }

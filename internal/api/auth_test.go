@@ -321,3 +321,29 @@ func TestFullResetRequiresConfirmationAndReturnsToAdminSetup(t *testing.T) {
 		t.Fatalf("monitoring data survived reset: totals=%#v err=%v", totals, err)
 	}
 }
+
+func TestFullResetSchedulesRestartAfterClosingStore(t *testing.T) {
+	restarted := make(chan struct{}, 1)
+	server, _ := newAuthServerWithRestart(t, nil, func() { restarted <- struct{}{} })
+	if err := config.Save(server.cfg.Path, server.cfg); err != nil {
+		t.Fatal(err)
+	}
+	created := authRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, nil)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	cookie := responseCookie(t, created)
+	completed := authRequest(t, server, http.MethodPost, "/api/setup/complete", `{"skipRouterOS":true}`, cookie)
+	if completed.Code != http.StatusOK {
+		t.Fatalf("complete status=%d body=%s", completed.Code, completed.Body.String())
+	}
+	reset := authRequest(t, server, http.MethodPost, "/api/settings/full-reset", `{"confirmed":true}`, cookie)
+	if reset.Code != http.StatusOK {
+		t.Fatalf("reset status=%d body=%s", reset.Code, reset.Body.String())
+	}
+	select {
+	case <-restarted:
+	case <-time.After(time.Second):
+		t.Fatal("full reset did not schedule a restart")
+	}
+}

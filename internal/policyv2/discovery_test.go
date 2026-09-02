@@ -133,6 +133,67 @@ func TestDiscoveryExcludesExplicitLANFromWANAndAddsFixedVPNCandidates(t *testing
 	}
 }
 
+func TestDiscoverySeparatesPPPoEParentAndManagedIngress(t *testing.T) {
+	managedIngress := "rb_123456789abc_ingress"
+	reader := discoveryReader{
+		routeros.ReadMenuSystemResource: {{"board-name": "router", "version": "7.22.3"}},
+		routeros.ReadMenuInterface: {
+			{"name": "lan", "type": "ether", "running": "true"},
+			{"name": "wan", "type": "ether", "running": "true"},
+			{"name": "pppoe-out1", "type": "pppoe-out", "running": "true"},
+			{"name": "backup", "type": "ether", "running": "true"},
+		},
+		routeros.ReadMenuIPRoute: {
+			{"dst-address": "0.0.0.0/0", "gateway": "pppoe-out1", "immediate-gw": "pppoe-out1", "routing-table": "main", "distance": "1", "active": "true"},
+			{"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "immediate-gw": "192.0.2.1%backup", "routing-table": "main", "distance": "10", "active": "false"},
+			{"dst-address": "0.0.0.0/0", "gateway": "10.0.0.1", "immediate-gw": "10.0.0.1%lan", "routing-table": "rb_policy_4", "distance": "1", "active": "true"},
+		},
+		routeros.ReadMenuIPv6Route: {
+			{"dst-address": "::/0", "gateway": "pppoe-out1", "immediate-gw": "pppoe-out1", "routing-table": "main", "distance": "1", "active": "true"},
+			{"dst-address": "::/0", "gateway": "fc00::1001", "immediate-gw": "fc00::1001%lan", "routing-table": "rb_policy_6", "distance": "1", "active": "true"},
+		},
+		routeros.ReadMenuInterfaceList: {
+			{"name": managedIngress, "comment": "rb_12345678 | 策略流量入口聚合列表"},
+		},
+		routeros.ReadMenuInterfaceListMember: {{"list": managedIngress, "interface": "lan"}},
+		routeros.ReadMenuBridgePort:          {},
+		routeros.ReadMenuIPAddress:           {{"interface": "lan", "address": "192.0.2.100/24"}},
+		routeros.ReadMenuPPPoEClient:         {{"name": "pppoe-out1", "interface": "wan", "running": "true"}},
+	}
+	discovery, err := NewScanner(reader).Scan(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wans := make(map[string]WANCandidate)
+	for _, candidate := range discovery.WANs {
+		wans[candidate.Interface] = candidate
+	}
+	if _, ok := wans["lan"]; ok {
+		t.Fatalf("LAN was exposed as a WAN through a managed ingress list: %#v", wans["lan"])
+	}
+	if _, ok := wans["pppoe-out1"]; !ok || !wans["pppoe-out1"].Proven {
+		t.Fatalf("PPPoE WAN was not discovered: %#v", wans)
+	}
+	if _, ok := wans["backup"]; !ok || wans["backup"].Proven {
+		t.Fatalf("standby route-backed WAN was not retained as unproven: %#v", wans["backup"])
+	}
+
+	ingress := make(map[string]TrafficIngressCandidate)
+	for _, candidate := range discovery.TrafficIngress {
+		ingress[candidate.Name] = candidate
+	}
+	if _, ok := ingress["lan"]; !ok {
+		t.Fatalf("LAN was not exposed as an ingress candidate: %#v", ingress)
+	}
+	if _, ok := ingress["wan"]; ok {
+		t.Fatalf("PPPoE parent was incorrectly exposed as an ingress candidate: %#v", ingress["wan"])
+	}
+	if _, ok := ingress["backup"]; ok {
+		t.Fatalf("route-backed standby WAN was incorrectly exposed as an ingress candidate: %#v", ingress["backup"])
+	}
+}
+
 func TestDefaultRoutesTreatMissingOrDisabledActiveAsInactive(t *testing.T) {
 	routes := defaultRoutes([]routeros.RouterOSObject{
 		{"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "immediate-gw": "192.0.2.1%ether1"},
@@ -176,11 +237,12 @@ func TestDiscoveryReturnsOptionalReadWarningsWithPartialResults(t *testing.T) {
 			routeros.ReadMenuIPAddress:           fmt.Errorf("ipv4 addresses unavailable"),
 			routeros.ReadMenuIPv6Address:         fmt.Errorf("ipv6 addresses unavailable"),
 			routeros.ReadMenuIPv6DHCPClient:      fmt.Errorf("ipv6 dhcp unavailable"),
+			routeros.ReadMenuPPPoEClient:         fmt.Errorf("pppoe unavailable"),
 		},
 	}
 
 	discovery, err := NewScanner(reader).Scan(context.Background(), "edge")
-	if err != nil || !discovery.Available || len(discovery.WANs) != 1 || len(discovery.Warnings) != 8 {
+	if err != nil || !discovery.Available || len(discovery.WANs) != 1 || len(discovery.Warnings) != 9 {
 		t.Fatalf("optional discovery failures were not preserved as warnings: discovery=%#v err=%v", discovery, err)
 	}
 }

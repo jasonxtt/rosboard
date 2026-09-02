@@ -64,6 +64,32 @@ func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 	}
 }
 
+func TestMutationBatchAllowsDNSForwarderActivation(t *testing.T) {
+	var script string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/rest/execute" {
+			t.Fatalf("unexpected batch request: %s %s", r.Method, r.URL.Path)
+		}
+		var payload struct {
+			Script string `json:"script"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode batch request: %v", err)
+		}
+		script = payload.Script
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "secret")
+	if err := client.SetDisabledBatch(context.Background(), MenuIPDNSForwarders, []string{"*f1", "*f2"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if script != "/ip/dns/forwarders/enable *f1\n/ip/dns/forwarders/enable *f2" {
+		t.Fatalf("unexpected DNS forwarder enable script: %q", script)
+	}
+}
+
 func TestMutationBatchEscapesAndValidatesScriptValues(t *testing.T) {
 	line, err := batchCreateLine(MenuIPDNSStatic, RouterOSFields{
 		"name":     `safe.example`,

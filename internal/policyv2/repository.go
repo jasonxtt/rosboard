@@ -9,12 +9,18 @@ import (
 )
 
 var (
-	ErrEgressNotFound = errors.New("policy egress not found")
-	ErrSourceNotFound = errors.New("policy source not found")
-	ErrRevisionStale  = errors.New("policy object revision is stale")
-	ErrEgressInUse    = errors.New("policy egress still has assigned sources")
-	ErrSourceInUse    = errors.New("policy source is used by access control")
-	ErrJobNotFound    = errors.New("policy apply job not found")
+	ErrEgressNotFound      = errors.New("policy egress not found")
+	ErrSourceNotFound      = errors.New("policy source not found")
+	ErrRevisionStale       = errors.New("policy object revision is stale")
+	ErrEgressInUse         = errors.New("policy egress still has assigned sources")
+	ErrSourceInUse         = errors.New("policy source is used by access control")
+	ErrRoutingRuleRequired = errors.New("source routing association must be managed by a routing rule")
+	ErrJobNotFound         = errors.New("policy apply job not found")
+
+	ErrTargetListNotFound      = errors.New("policy target list not found")
+	ErrTargetListInUse         = ErrSourceInUse
+	ErrTargetListKindImmutable = errors.New("target list kind cannot be changed")
+	ErrTargetListTypeImmutable = errors.New("target list source type cannot be changed")
 )
 
 type RuleQuery struct {
@@ -48,4 +54,32 @@ type Repository interface {
 	SaveApplyJob(context.Context, ApplyJob) error
 	GetApplyJob(context.Context, string) (ApplyJob, error)
 	CommitApply(context.Context, int64, int64, string, ApplyJob, []accesscontrol.MemberResolution, bool) error
+}
+
+// DomainApplyRepository is the explicit apply contract used by the manager.
+// CommitApply remains on Repository as a compatibility path for older
+// integrations and narrow test fakes.
+type DomainApplyRepository interface {
+	CommitRoutingApply(context.Context, int64, string, ApplyJob, []TargetVersionPromotion) error
+	CommitAccessApply(context.Context, int64, string, ApplyJob, []accesscontrol.MemberResolution, []TargetVersionPromotion) error
+}
+
+type TargetConsumerDomainRepository interface {
+	TargetConsumerDomains(context.Context, string) (TargetConsumerDomains, error)
+}
+
+// TargetListRepository is the canonical Target Library contract. The legacy
+// Repository above remains Source-shaped for policy-routing compatibility in
+// Slice 1; both contracts are backed by the same policy-v2 store.
+type TargetListRepository interface {
+	DeviceID() string
+
+	ListTargetLists(context.Context) ([]TargetList, error)
+	GetTargetList(context.Context, string) (TargetList, error)
+	SaveTargetList(context.Context, TargetList) (TargetList, error)
+	DeleteTargetList(context.Context, string, int64) error
+	SavePendingTargetListVersion(context.Context, TargetListVersion, []TargetListRule) error
+	SaveTargetListRefresh(context.Context, TargetList, TargetListRefresh, time.Time) error
+	ListTargetListVersions(context.Context, string) ([]TargetListVersion, error)
+	ListTargetListRules(context.Context, string, RuleQuery) ([]TargetListRule, bool, error)
 }

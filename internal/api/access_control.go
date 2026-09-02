@@ -17,9 +17,10 @@ import (
 	"rosboard/internal/config"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/store"
+	"rosboard/internal/subject"
 )
 
-const accessControlBoundary = "域名/IP 访问控制依赖 RouterOS 可见的目标地址；未强制使用本机 DNS，DoH、DoT、VPN 或代理可能绕过规则。整个互联网规则按 RouterOS 默认路由实际出口接口逐个阻断，本地接口不会被选为互联网出口。"
+const accessControlBoundary = "访问控制基于目标库中的域名/IP 列表，通过 RouterOS DNS/address-list 进行尽力控制，并非 DPI；共享 CDN/IP、DNS 变化可能造成误控或漏控。域名/IP 访问控制依赖 RouterOS 可见的目标地址；未强制使用本机 DNS，DoH、DoT、VPN 或代理可能绕过规则。整个互联网规则按 RouterOS 默认路由实际出口接口逐个阻断，本地接口不会被选为互联网出口。"
 
 func isAccessControlPath(path string) bool {
 	return path == "/api/access-control" || strings.HasPrefix(path, "/api/access-control/")
@@ -31,21 +32,15 @@ type accessDeviceContext struct {
 	accessRepository *store.AccessRepository
 }
 
-type accessRuleMemberRequest struct {
-	TerminalID string   `json:"terminalId"`
-	Binding    string   `json:"binding"`
-	PinnedIPv4 []string `json:"pinnedIpv4"`
-	PinnedIPv6 []string `json:"pinnedIpv6"`
-}
-
 type accessRuleRequest struct {
-	ID          string                    `json:"id"`
-	Name        string                    `json:"name"`
-	TargetScope string                    `json:"targetScope"`
-	SourceIDs   []string                  `json:"sourceIds"`
-	Enabled     bool                      `json:"enabled"`
-	Revision    int64                     `json:"revision"`
-	Members     []accessRuleMemberRequest `json:"members"`
+	ID               string                      `json:"id"`
+	Name             string                      `json:"name"`
+	Subject          subject.Subject             `json:"subject"`
+	TargetScope      string                      `json:"targetScope"`
+	TargetListIDs    []string                    `json:"targetListIds"`
+	Enabled          bool                        `json:"enabled"`
+	Revision         int64                       `json:"revision"`
+	PresetSelections []policyPlanPresetSelection `json:"presetSelections"`
 }
 
 type accessInternetEgressRequest struct {
@@ -62,17 +57,18 @@ type accessRuleMemberResponse struct {
 }
 
 type accessRuleResponse struct {
-	ID          string                     `json:"id"`
-	Name        string                     `json:"name"`
-	TargetScope string                     `json:"targetScope"`
-	SourceIDs   []string                   `json:"sourceIds"`
-	Enabled     bool                       `json:"enabled"`
-	Revision    int64                      `json:"revision"`
-	CreatedAt   string                     `json:"createdAt"`
-	UpdatedAt   string                     `json:"updatedAt"`
-	Members     []accessRuleMemberResponse `json:"members"`
-	Status      string                     `json:"status"`
-	Issues      []string                   `json:"issues"`
+	ID            string                     `json:"id"`
+	Name          string                     `json:"name"`
+	Subject       subject.Subject            `json:"subject"`
+	TargetScope   string                     `json:"targetScope"`
+	TargetListIDs []string                   `json:"targetListIds"`
+	Enabled       bool                       `json:"enabled"`
+	Revision      int64                      `json:"revision"`
+	CreatedAt     string                     `json:"createdAt"`
+	UpdatedAt     string                     `json:"updatedAt"`
+	Members       []accessRuleMemberResponse `json:"members"`
+	Status        string                     `json:"status"`
+	Issues        []string                   `json:"issues"`
 }
 
 type accessTerminalResponse struct {
@@ -132,14 +128,15 @@ func (s *Server) resolveAccessDevice(writer http.ResponseWriter, deviceID string
 
 func (s *Server) serveAccessOverview(writer http.ResponseWriter, request *http.Request, device accessDeviceContext) {
 	ctx := request.Context()
+	_ = device.accessRepository.EnsureCanonicalAccessMigrated(ctx)
 	rules, members, err := s.loadAccessRules(ctx, device)
 	if err != nil {
 		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load access rules")
 		return
 	}
-	sources, err := device.policyRepository.ListSources(ctx, "")
+	targetLists, err := device.policyRepository.ListTargetLists(ctx)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load policy sources")
+		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load target lists")
 		return
 	}
 	state, err := device.accessRepository.GetState(ctx)
@@ -162,16 +159,16 @@ func (s *Server) serveAccessOverview(writer http.ResponseWriter, request *http.R
 	}
 	ruleResponses := make([]accessRuleResponse, 0, len(rules))
 	for _, rule := range rules {
-		ruleResponses = append(ruleResponses, buildAccessRuleResponse(rule, members, terminals, state, policyState, sources))
+		ruleResponses = append(ruleResponses, buildAccessRuleResponse(rule, members, terminals, state, policyState, targetLists))
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"device":    map[string]any{"id": device.device.ID, "name": device.device.Name, "enabled": device.device.Enabled},
-		"rules":     ruleResponses,
-		"sources":   sources,
-		"terminals": terminalResponses,
-		"state":     state,
-		"job":       policyState.Job,
-		"boundary":  accessControlBoundary,
+		"device":      map[string]any{"id": device.device.ID, "name": device.device.Name, "enabled": device.device.Enabled},
+		"rules":       ruleResponses,
+		"targetLists": targetLists,
+		"terminals":   terminalResponses,
+		"state":       state,
+		"job":         policyState.Job,
+		"boundary":    accessControlBoundary,
 	})
 }
 
@@ -190,7 +187,7 @@ func (s *Server) loadAccessRules(ctx context.Context, device accessDeviceContext
 // buildAccessRuleResponse combines the stored rule with member projection
 // states and the device-level job so the UI can show 已应用 / 正在应用 /
 // 待应用 / 已降级 / 应用失败 without understanding RouterOS reconcile.
-func buildAccessRuleResponse(rule accesscontrol.AccessRule, members []accesscontrol.RuleMember, terminals []accesscontrol.Terminal, state accesscontrol.State, policyState policyv2.DeviceState, sources []policyv2.Source) accessRuleResponse {
+func buildAccessRuleResponse(rule accesscontrol.AccessRule, members []accesscontrol.RuleMember, terminals []accesscontrol.Terminal, state accesscontrol.State, policyState policyv2.DeviceState, targetLists []policyv2.TargetList) accessRuleResponse {
 	ruleMembers := make([]accesscontrol.RuleMember, 0, len(members))
 	for _, member := range members {
 		if member.RuleID == rule.ID {
@@ -223,52 +220,55 @@ func buildAccessRuleResponse(rule accesscontrol.AccessRule, members []accesscont
 			Reason:     evaluation.Reason,
 		})
 	}
-	sourceIssues := accessRuleSourceIssues(rule, sources)
-	issues = append(issues, sourceIssues...)
-	status := accessRuleStatusWithDrift(rule, state, policyState, memberResponses, monitorDrift, sourceIssues...)
+	targetIssues := accessRuleTargetIssues(rule, targetLists)
+	issues = append(issues, targetIssues...)
+	statusIssues := append([]string{}, targetIssues...)
+	issues = append(issues, rule.MigrationIssues...)
+	statusIssues = append(statusIssues, rule.MigrationIssues...)
+	status := accessRuleStatusWithDrift(rule, state, policyState, memberResponses, monitorDrift, statusIssues...)
 	if status == "applied" && len(issues) > 0 {
 		status = "degraded"
 	}
 	return accessRuleResponse{
-		ID: rule.ID, Name: rule.Name, TargetScope: rule.TargetScope, SourceIDs: nonNilStrings(rule.SourceIDs),
+		ID: rule.ID, Name: rule.Name, Subject: rule.Subject, TargetScope: rule.TargetScope, TargetListIDs: nonNilStrings(rule.TargetListIDs),
 		Enabled: rule.Enabled, Revision: rule.Revision,
 		CreatedAt: rule.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: rule.UpdatedAt.UTC().Format(time.RFC3339),
 		Members: memberResponses, Status: status, Issues: issues,
 	}
 }
 
-func accessRuleSourceIssues(rule accesscontrol.AccessRule, sources []policyv2.Source) []string {
-	if rule.TargetScope != accesscontrol.TargetScopeSources {
+func accessRuleTargetIssues(rule accesscontrol.AccessRule, targets []policyv2.TargetList) []string {
+	if rule.TargetScope != accesscontrol.TargetScopeTargets {
 		return nil
 	}
-	sourceByID := make(map[string]policyv2.Source, len(sources))
-	for _, source := range sources {
-		sourceByID[source.ID] = source
+	targetByID := make(map[string]policyv2.TargetList, len(targets))
+	for _, target := range targets {
+		targetByID[target.ID] = target
 	}
 	issues := make([]string, 0)
-	for _, sourceID := range rule.SourceIDs {
-		source, ok := sourceByID[sourceID]
+	for _, targetID := range rule.TargetListIDs {
+		target, ok := targetByID[targetID]
 		if !ok {
-			issues = append(issues, "来源 "+sourceID+" 已不存在，规则当前未能完整生效。")
+			issues = append(issues, "目标列表 "+targetID+" 已不存在，规则当前未能完整生效。")
 			continue
 		}
 		switch {
-		case source.PendingDeletion:
-			issues = append(issues, "来源 "+source.Name+" 正在清理，规则当前未能完整生效。")
-		case !source.Enabled:
-			issues = append(issues, "来源 "+source.Name+" 已停用，规则当前不会阻断该来源。")
-		case strings.TrimSpace(source.ActiveVersionID) == "":
-			issues = append(issues, "来源 "+source.Name+" 尚无已应用版本，规则当前未能完整生效。")
+		case target.PendingDeletion:
+			issues = append(issues, "目标列表 "+target.Name+" 正在清理，规则当前未能完整生效。")
+		case !target.Enabled:
+			issues = append(issues, "目标列表 "+target.Name+" 已停用，规则当前不会阻断该目标。")
+		case strings.TrimSpace(target.ActiveVersionID) == "" && strings.TrimSpace(target.PendingVersionID) == "":
+			issues = append(issues, "目标列表 "+target.Name+" 尚无已应用版本，规则当前未能完整生效。")
 		}
 	}
 	return issues
 }
 
-func accessRuleStatus(rule accesscontrol.AccessRule, state accesscontrol.State, policyState policyv2.DeviceState, members []accessRuleMemberResponse, sourceIssues ...string) string {
-	return accessRuleStatusWithDrift(rule, state, policyState, members, false, sourceIssues...)
+func accessRuleStatus(rule accesscontrol.AccessRule, state accesscontrol.State, policyState policyv2.DeviceState, members []accessRuleMemberResponse, targetIssues ...string) string {
+	return accessRuleStatusWithDrift(rule, state, policyState, members, false, targetIssues...)
 }
 
-func accessRuleStatusWithDrift(rule accesscontrol.AccessRule, state accesscontrol.State, policyState policyv2.DeviceState, members []accessRuleMemberResponse, monitorDrift bool, sourceIssues ...string) string {
+func accessRuleStatusWithDrift(rule accesscontrol.AccessRule, state accesscontrol.State, policyState policyv2.DeviceState, members []accessRuleMemberResponse, monitorDrift bool, targetIssues ...string) string {
 	job := policyState.Job
 	if job.ID != "" && job.State != "" && job.State != "committed" && job.State != "failed" {
 		return "applying"
@@ -276,13 +276,13 @@ func accessRuleStatusWithDrift(rule accesscontrol.AccessRule, state accesscontro
 	if job.State == "failed" {
 		return "failed"
 	}
-	if !state.Applied() || policyState.DesiredRevision != policyState.AppliedRevision {
-		return "pending"
-	}
 	if !rule.Enabled {
 		return "disabled"
 	}
-	if len(sourceIssues) > 0 {
+	if !state.Applied() {
+		return "pending"
+	}
+	if len(targetIssues) > 0 {
 		return "degraded"
 	}
 	if monitorDrift {
@@ -305,9 +305,13 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 		writeAccessError(writer, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
+	if payload.TargetScope != accesscontrol.TargetScopeInternet && payload.TargetScope != accesscontrol.TargetScopeTargets {
+		writeAccessError(writer, http.StatusUnprocessableEntity, "canonical_access_rule_required", "access rules must use subject, targetScope=internet|targets, and targetListIds")
+		return
+	}
 	rule := accesscontrol.AccessRule{
-		ID: payload.ID, Name: payload.Name, TargetScope: payload.TargetScope,
-		SourceIDs: payload.SourceIDs, Enabled: payload.Enabled, Revision: payload.Revision,
+		ID: payload.ID, Name: payload.Name, Subject: payload.Subject, TargetScope: payload.TargetScope, TargetListIDs: payload.TargetListIDs,
+		Enabled: payload.Enabled, Revision: payload.Revision,
 	}
 	if pathID != "" {
 		rule.ID = pathID
@@ -315,13 +319,16 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 	if rule.ID == "" {
 		rule.ID = uuid.NewString()
 	}
+	if err := device.accessRepository.EnsureCanonicalAccessMigrated(request.Context()); err != nil {
+		writeAccessError(writer, http.StatusConflict, "canonical_access_migration_required", err.Error())
+		return
+	}
 	rule, err := accesscontrol.NormalizeRule(rule)
 	if err != nil {
 		writeAccessError(writer, http.StatusUnprocessableEntity, "invalid_rule", err.Error())
 		return
 	}
 	existingMembers := make(map[string]accesscontrol.RuleMember)
-	existingSourceIDs := make(map[string]bool)
 	if pathID != "" {
 		existingRules, loadErr := device.accessRepository.ListRules(request.Context())
 		if loadErr != nil {
@@ -332,9 +339,6 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 		for _, existingRule := range existingRules {
 			if existingRule.ID == rule.ID {
 				found = true
-				for _, sourceID := range existingRule.SourceIDs {
-					existingSourceIDs[sourceID] = true
-				}
 				break
 			}
 		}
@@ -354,8 +358,9 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 		}
 	}
 	terminals := s.accessTerminals(device.device.ID)
-	members := make([]accesscontrol.RuleMember, 0, len(payload.Members))
-	for _, memberRequest := range payload.Members {
+	memberRequests := payload.Subject.Members
+	members := make([]accesscontrol.RuleMember, 0, len(memberRequests))
+	for _, memberRequest := range memberRequests {
 		terminalID := strings.TrimSpace(memberRequest.TerminalID)
 		member := accesscontrol.RuleMember{
 			RuleID: rule.ID, TerminalID: terminalID, Binding: strings.TrimSpace(memberRequest.Binding),
@@ -426,39 +431,59 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 		}
 		members = append(members, member)
 	}
-	if len(members) == 0 {
+	if len(members) == 0 && rule.Subject.Mode != subject.ModeAll && len(rule.Subject.Prefixes) == 0 {
 		writeAccessError(writer, http.StatusUnprocessableEntity, "members_required", "请至少选择一台设备")
 		return
 	}
-	if rule.TargetScope == accesscontrol.TargetScopeSources {
-		if err := s.validateAccessSources(request.Context(), device, rule.SourceIDs, existingSourceIDs); err != nil {
-			writeAccessError(writer, http.StatusUnprocessableEntity, "source_unavailable", err.Error())
-			return
-		}
-	}
-	rule, err = device.accessRepository.SaveRule(request.Context(), rule, members, accessActor(request))
-	if err != nil {
-		switch {
-		case errors.Is(err, accesscontrol.ErrRevisionStale):
-			writeAccessError(writer, http.StatusConflict, "revision_stale", err.Error())
-		case errors.Is(err, accesscontrol.ErrMemberDuplicate):
-			writeAccessError(writer, http.StatusConflict, "member_duplicate", err.Error())
-		case errors.Is(err, accesscontrol.ErrMemberAnchorChanged):
-			writeAccessError(writer, http.StatusConflict, "terminal_identity_changed", "自动跟随设备的身份已变化，请重新确认终端后再保存")
-		case errors.Is(err, accesscontrol.ErrMemberAnchorRequired):
-			writeAccessError(writer, http.StatusUnprocessableEntity, "terminal_unresolvable", err.Error())
-		case errors.Is(err, policyv2.ErrSourceNotFound):
-			writeAccessError(writer, http.StatusUnprocessableEntity, "source_unavailable", "访问规则引用的来源已不存在")
-		default:
-			writeAccessError(writer, http.StatusServiceUnavailable, "save_failed", err.Error())
-		}
+	if s.policy == nil || s.policy.ApplierFor(device.device.ID) == nil {
+		writeAccessError(writer, http.StatusServiceUnavailable, "runtime_unavailable", "policy runtime is unavailable")
 		return
 	}
-	job, err := s.applyAccessDesired(request, device.device.ID, "access-rule-save", nil)
+	proposal := policyv2.AccessProposal{Rule: rule, Members: members}
+	if rule.TargetScope == accesscontrol.TargetScopeTargets && len(payload.PresetSelections) > 0 {
+		policyDevice := policyDeviceContext{device: device.device, repository: device.policyRepository, accessRepository: device.accessRepository}
+		presetProposal := &policyv2.PolicyProposal{}
+		for _, selection := range payload.PresetSelections {
+			if err := s.appendProposedPresetTargets(request.Context(), policyDevice, selection, presetProposal); err != nil {
+				writeAccessError(writer, http.StatusUnprocessableEntity, "invalid_preset_selection", err.Error())
+				return
+			}
+		}
+		selectedTargetIDs := make(map[string]bool, len(rule.TargetListIDs))
+		for _, targetID := range rule.TargetListIDs {
+			selectedTargetIDs[targetID] = true
+		}
+		for _, target := range presetProposal.TargetLists {
+			if selectedTargetIDs[target.Target.ID] {
+				proposal.TargetLists = append(proposal.TargetLists, target)
+			}
+		}
+	}
+	plan, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, "access-rule-save", policyv2.PlanOptions{AccessProposal: &proposal})
 	if err != nil {
-		status, code := policyPlanApplyError(err)
-		writeJSON(writer, status, accessPlanErrorPayload(err, map[string]any{"code": code, "error": err.Error(), "rule": rule, "desiredSaved": true}))
+		status, code := accessRulePlanApplyError(err)
+		writeJSON(writer, status, accessPlanErrorPayload(err, map[string]any{"code": code, "error": err.Error()}))
 		return
+	}
+	if len(plan.Plan.Blockers) > 0 {
+		err := accessPlanBlockedError{blockers: plan.Plan.Blockers, candidates: plan.Plan.InternetEgressCandidates}
+		status, code := accessRulePlanApplyError(err)
+		writeJSON(writer, status, accessPlanErrorPayload(err, map[string]any{"code": code, "error": err.Error()}))
+		return
+	}
+	job, err := s.policy.ApplyPlanWithHash(request.Context(), device.device.ID, plan.PlanID, plan.PlanHash)
+	if err != nil {
+		status, code := accessRulePlanApplyError(err)
+		writeJSON(writer, status, accessPlanErrorPayload(err, map[string]any{"code": code, "error": err.Error()}))
+		return
+	}
+	if storedRules, loadErr := device.accessRepository.ListRules(request.Context()); loadErr == nil {
+		for _, storedRule := range storedRules {
+			if storedRule.ID == rule.ID {
+				rule = storedRule
+				break
+			}
+		}
 	}
 	writeJSON(writer, http.StatusAccepted, map[string]any{"rule": rule, "job": job, "jobId": job.ID})
 }
@@ -503,28 +528,6 @@ func hasObservedAddress(terminal accesscontrol.Terminal) bool {
 		}
 	}
 	return false
-}
-
-func (s *Server) validateAccessSources(ctx context.Context, device accessDeviceContext, sourceIDs []string, existingSourceIDs map[string]bool) error {
-	if len(sourceIDs) == 0 {
-		return errors.New("指定网站 / IP 规则需要至少选择一个来源")
-	}
-	for _, sourceID := range sourceIDs {
-		source, err := device.policyRepository.GetSource(ctx, sourceID)
-		if errors.Is(err, policyv2.ErrSourceNotFound) {
-			return fmt.Errorf("来源 %s 不存在", sourceID)
-		}
-		if err != nil {
-			return fmt.Errorf("加载来源 %s 失败", sourceID)
-		}
-		if (source.PendingDeletion || !source.Enabled) && !existingSourceIDs[sourceID] {
-			return fmt.Errorf("来源 %s 当前不可用", source.Name)
-		}
-		if source.ActiveVersionID == "" && !existingSourceIDs[sourceID] {
-			return fmt.Errorf("来源 %s 尚无已应用版本，请先在策略路由中应用来源", source.Name)
-		}
-	}
-	return nil
 }
 
 func (s *Server) deleteAccessRule(writer http.ResponseWriter, request *http.Request, device accessDeviceContext, ruleID string) {
@@ -645,6 +648,23 @@ func accessPlanErrorPayload(err error, payload map[string]any) map[string]any {
 		payload["internetEgressCandidates"] = candidates
 	}
 	return payload
+}
+
+func accessRulePlanApplyError(err error) (int, string) {
+	switch {
+	case errors.Is(err, accesscontrol.ErrRevisionStale), errors.Is(err, policyv2.ErrRevisionStale), errors.Is(err, policyv2.ErrPlanStale):
+		return http.StatusConflict, "revision_stale"
+	case errors.Is(err, accesscontrol.ErrMemberDuplicate):
+		return http.StatusConflict, "member_duplicate"
+	case errors.Is(err, accesscontrol.ErrMemberAnchorChanged):
+		return http.StatusConflict, "terminal_identity_changed"
+	case errors.Is(err, accesscontrol.ErrMemberAnchorRequired):
+		return http.StatusUnprocessableEntity, "terminal_unresolvable"
+	case errors.Is(err, policyv2.ErrTargetListNotFound), errors.Is(err, policyv2.ErrSourceNotFound):
+		return http.StatusUnprocessableEntity, "target_list_unavailable"
+	default:
+		return policyPlanApplyError(err)
+	}
 }
 
 func (s *Server) accessTerminals(deviceID string) []accesscontrol.Terminal {

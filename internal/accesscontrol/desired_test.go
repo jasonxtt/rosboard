@@ -5,14 +5,19 @@ import (
 	"testing"
 
 	"rosboard/internal/routeros"
+	"rosboard/internal/subject"
 )
 
 func sourcesRule(id string, sourceIDs ...string) AccessRule {
-	return AccessRule{ID: id, Name: "规则 " + id, TargetScope: TargetScopeSources, SourceIDs: sourceIDs, Enabled: true, Revision: 1}
+	return AccessRule{ID: id, Name: "规则 " + id, TargetScope: TargetScopeTargets, TargetListIDs: sourceIDs, Enabled: true, Revision: 1}
 }
 
 func internetRule(id string) AccessRule {
 	return AccessRule{ID: id, Name: "规则 " + id, TargetScope: TargetScopeInternet, Enabled: true, Revision: 1}
+}
+
+func applicationsRule(id string, applicationIDs ...string) AccessRule {
+	return AccessRule{ID: id, Name: "规则 " + id, TargetScope: TargetScopeApplications, ApplicationIDs: applicationIDs, Enabled: true, Revision: 1}
 }
 
 func fixedMember(ruleID, terminalID, ipv4 string) RuleMember {
@@ -33,13 +38,27 @@ func collectByMenu(result DesiredResult, menu routeros.MutationMenu) []DesiredOb
 	return objects
 }
 
+func assertAddressProjection(t *testing.T, objects []DesiredObject, address, family string, menu routeros.MutationMenu) {
+	t.Helper()
+	for _, object := range objects {
+		if object.Fields["address"] != address {
+			continue
+		}
+		if object.Menu != menu || !strings.Contains(object.LogicalID, ":"+family+":"+address) {
+			t.Fatalf("address %q projected with wrong menu or family: %#v", address, object)
+		}
+		return
+	}
+	t.Fatalf("address %q was not projected: %#v", address, objects)
+}
+
 func TestBuildDesiredExpandsMultiClientMultiSourceWithSharedSubChain(t *testing.T) {
 	ruleList := RuleMemberListName("manager", "router-a", "rule-a")
 	result := BuildDesired(DesiredInput{
 		ManagerID: "manager", DeviceID: "router-a",
 		Rules:      []AccessRule{sourcesRule("rule-a", "source-a", "source-b")},
 		Members:    []RuleMember{fixedMember("rule-a", "t1", "10.0.0.20"), fixedMember("rule-a", "t2", "10.0.0.21")},
-		SourceList: map[string]string{"source-a": "rb_src_a", "source-b": "rb_src_b"},
+		TargetList: map[string]string{"source-a": "rb_src_a", "source-b": "rb_src_b"},
 	})
 	if len(result.Blockers) != 0 {
 		t.Fatalf("unexpected blockers: %#v", result.Blockers)
@@ -80,8 +99,8 @@ func TestBuildDesiredDisablesJumpsForDisabledSourcesWithoutDisablingOtherSources
 		ManagerID: "manager", DeviceID: "router-a",
 		Rules:      []AccessRule{sourcesRule("rule-a", "source-a", "source-b")},
 		Members:    []RuleMember{fixedMember("rule-a", "t1", "10.0.0.20")},
-		SourceList: map[string]string{"source-a": "rb_src_a", "source-b": "rb_src_b"},
-		SourceDisabled: map[string]bool{
+		TargetList: map[string]string{"source-a": "rb_src_a", "source-b": "rb_src_b"},
+		TargetListDisabled: map[string]bool{
 			"source-a": true,
 		},
 	})
@@ -243,7 +262,7 @@ func TestBuildDesiredTemporarilyUnresolvedMemberKeepsTrustedProjectionWithoutBlo
 		Rules:      []AccessRule{sourcesRule("rule-a", "source-a")},
 		Members:    []RuleMember{autoMember("rule-a", "mac:aa")},
 		Terminals:  []Terminal{{ID: "mac:aa", MACAddress: "AA:BB:CC:DD:EE:FF", IPv4: []string{"10.0.0.20"}}},
-		SourceList: map[string]string{"source-a": "rb_src_a"},
+		TargetList: map[string]string{"source-a": "rb_src_a"},
 	})
 	if len(online.Blockers) != 0 {
 		t.Fatalf("unexpected blockers: %#v", online.Blockers)
@@ -256,7 +275,7 @@ func TestBuildDesiredTemporarilyUnresolvedMemberKeepsTrustedProjectionWithoutBlo
 		Rules:      []AccessRule{sourcesRule("rule-a", "source-a")},
 		Members:    []RuleMember{{RuleID: "rule-a", TerminalID: "mac:aa", Binding: BindingAuto, AnchorMAC: "AA:BB:CC:DD:EE:FF", LastIPv4: []string{"10.0.0.20"}}},
 		Terminals:  []Terminal{{ID: "mac:aa", MACAddress: "AA:BB:CC:DD:EE:FF", IPv4: []string{"10.0.0.20"}}},
-		SourceList: map[string]string{"source-a": "rb_src_a"},
+		TargetList: map[string]string{"source-a": "rb_src_a"},
 	})
 	if len(stable.Resolutions) != 0 {
 		t.Fatalf("unchanged trusted projection must not request another resolution write: %#v", stable.Resolutions)
@@ -266,7 +285,7 @@ func TestBuildDesiredTemporarilyUnresolvedMemberKeepsTrustedProjectionWithoutBlo
 		Rules:      []AccessRule{sourcesRule("rule-a", "source-a")},
 		Members:    []RuleMember{{RuleID: "rule-a", TerminalID: "mac:aa", Binding: BindingAuto, AnchorMAC: "AA:BB:CC:DD:EE:FF", LastIPv4: []string{"10.0.0.20"}}},
 		Terminals:  []Terminal{},
-		SourceList: map[string]string{"source-a": "rb_src_a"},
+		TargetList: map[string]string{"source-a": "rb_src_a"},
 	})
 	if len(offline.Blockers) != 0 {
 		t.Fatalf("temporarily unresolved member must not block the device: %#v", offline.Blockers)
@@ -304,7 +323,7 @@ func TestBuildDesiredRemovesReassignedAddressProjection(t *testing.T) {
 		},
 		// 10.0.0.20 now demonstrably belongs to another terminal identity.
 		Terminals:  []Terminal{{ID: "mac:cc", MACAddress: "CC:CC:CC:CC:CC:CC", IPv4: []string{"10.0.0.20"}}},
-		SourceList: map[string]string{"source-a": "rb_src_a"},
+		TargetList: map[string]string{"source-a": "rb_src_a"},
 	})
 	if len(result.Blockers) != 0 {
 		t.Fatalf("reassignment on one member must not block the device: %#v", result.Blockers)
@@ -357,7 +376,7 @@ func TestBuildDesiredStopsOnUnavailableSource(t *testing.T) {
 	})
 	found := false
 	for _, blocker := range result.Blockers {
-		if blocker.Code == "access_source_unavailable" {
+		if blocker.Code == "access_target_unavailable" {
 			found = true
 		}
 	}
@@ -366,5 +385,143 @@ func TestBuildDesiredStopsOnUnavailableSource(t *testing.T) {
 	}
 	if len(result.Objects) != 0 {
 		t.Fatalf("blocked rule must not emit partial objects: %#v", result.Objects)
+	}
+}
+
+func TestBuildDesiredAccessAllUsesTrustedScopePerFamily(t *testing.T) {
+	rule := AccessRule{ID: "all-targets", Name: "全部设备", Subject: subject.Subject{Mode: subject.ModeAll}, TargetScope: TargetScopeTargets, TargetListIDs: []string{"target-a"}, Enabled: true}
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{rule},
+		TargetList: map[string]string{AccessTargetKey(rule.ID, "target-a"): "rb_ac_target"},
+		Scope:      Scope{Prefixes: []ScopePrefix{{CIDR: "192.168.1.0/24", Family: FamilyIPv4}, {CIDR: "fd00::/64", Family: FamilyIPv6}}},
+	})
+	if len(result.Blockers) != 0 || len(result.Issues) != 0 {
+		t.Fatalf("trusted all-subject scope unexpectedly degraded: blockers=%#v issues=%#v", result.Blockers, result.Issues)
+	}
+	for _, object := range result.Objects {
+		if object.Menu != routeros.MenuIPFirewallFilter && object.Menu != routeros.MenuIPv6FirewallFilter {
+			continue
+		}
+		if object.Fields["chain"] == "forward" && object.Fields["src-address-list"] == "" && object.Fields["dst-address-list"] == "" {
+			t.Fatalf("all-subject target projection emitted an unconstrained filter: %#v", object)
+		}
+	}
+	addresses := map[string]bool{}
+	for _, object := range result.Objects {
+		if strings.HasPrefix(object.LogicalID, "access-member:") {
+			addresses[object.Fields["address"]] = true
+		}
+	}
+	if !addresses["192.168.1.0/24"] || !addresses["fd00::/64"] {
+		t.Fatalf("trusted scope prefixes were not projected: %#v", addresses)
+	}
+	assertAddressProjection(t, result.Objects, "192.168.1.0/24", FamilyIPv4, routeros.MenuIPFirewallAddressList)
+	assertAddressProjection(t, result.Objects, "fd00::/64", FamilyIPv6, routeros.MenuIPv6FirewallAddressList)
+	for _, object := range result.Objects {
+		if object.Fields["address"] == "fd00::/64" && object.Menu == routeros.MenuIPFirewallAddressList {
+			t.Fatalf("IPv6 CIDR entered the IPv4 address-list menu: %#v", object)
+		}
+	}
+}
+
+func TestBuildDesiredAccessAllNeverBroadBlocksMissingFamily(t *testing.T) {
+	rule := AccessRule{ID: "all-ipv4", Name: "全部设备 IPv4", Subject: subject.Subject{Mode: subject.ModeAll}, TargetScope: TargetScopeTargets, TargetListIDs: []string{"target-a"}, Enabled: true}
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{rule},
+		TargetList: map[string]string{AccessTargetKey(rule.ID, "target-a"): "rb_ac_target"},
+		Scope:      Scope{Prefixes: []ScopePrefix{{CIDR: "192.168.1.0/24", Family: FamilyIPv4}}},
+	})
+	missingIPv6 := false
+	for _, issue := range result.Issues {
+		if issue.Code == "access_subject_scope_unavailable" && issue.Family == FamilyIPv6 {
+			missingIPv6 = true
+		}
+	}
+	if !missingIPv6 {
+		t.Fatalf("missing trusted IPv6 scope was not reported: %#v", result.Issues)
+	}
+	for _, object := range result.Objects {
+		if object.Menu == routeros.MenuIPv6FirewallFilter && object.Fields["chain"] == "forward" {
+			t.Fatalf("missing IPv6 scope emitted a broad IPv6 filter: %#v", object)
+		}
+	}
+}
+
+func TestBuildDesiredAccessSelectedSupportsManualPrefixesAndIPv6Member(t *testing.T) {
+	rule := AccessRule{ID: "selected-target", Name: "选定设备", Subject: subject.Subject{Mode: subject.ModeSelected, Prefixes: []string{"10.0.0.0/24", "fd00::/64"}}, TargetScope: TargetScopeTargets, TargetListIDs: []string{"target-a"}, Enabled: true}
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{rule},
+		Members:    []RuleMember{{RuleID: rule.ID, TerminalID: "t1", Binding: BindingFixed, PinnedIPv6: []string{"2001:db8::20"}}},
+		TargetList: map[string]string{AccessTargetKey(rule.ID, "target-a"): "rb_ac_target"},
+	})
+	if len(result.Blockers) != 0 {
+		t.Fatalf("selected subject with manual prefixes was blocked: %#v", result.Blockers)
+	}
+	seen := map[string]bool{}
+	for _, object := range result.Objects {
+		if strings.HasPrefix(object.LogicalID, "access-member:") {
+			seen[object.Fields["address"]] = true
+		}
+	}
+	if !seen["10.0.0.0/24"] || !seen["fd00::/64"] || !seen["2001:db8::20"] {
+		t.Fatalf("selected subject addresses were not projected: %#v", seen)
+	}
+	assertAddressProjection(t, result.Objects, "fd00::/64", FamilyIPv6, routeros.MenuIPv6FirewallAddressList)
+	assertAddressProjection(t, result.Objects, "2001:db8::20", FamilyIPv6, routeros.MenuIPv6FirewallAddressList)
+	for _, object := range result.Objects {
+		if object.Menu == routeros.MenuIPFirewallAddressList && (object.Fields["address"] == "fd00::/64" || object.Fields["address"] == "2001:db8::20") {
+			t.Fatalf("IPv6 address entered the IPv4 address-list menu: %#v", object)
+		}
+	}
+}
+
+func TestBuildDesiredApplicationScopeFailsClosedBeforeMaterialization(t *testing.T) {
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a",
+		Rules:   []AccessRule{applicationsRule("rule-a", "oaf:1101")},
+		Members: []RuleMember{fixedMember("rule-a", "t1", "10.0.0.20")},
+	})
+	if len(result.Objects) != 0 {
+		t.Fatalf("application rules must not materialize RouterOS objects: %#v", result.Objects)
+	}
+	if len(result.Blockers) != 1 || result.Blockers[0].Code != "access_canonical_rule_required" {
+		t.Fatalf("application enforcement blocker missing: %#v", result.Blockers)
+	}
+}
+
+func TestBuildDesiredApplicationScopeDoesNotSkipOtherRules(t *testing.T) {
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a",
+		Rules: []AccessRule{
+			applicationsRule("rule-app", "oaf:1101"),
+			sourcesRule("rule-source", "source-a"),
+		},
+		Members: []RuleMember{
+			fixedMember("rule-app", "t-app", "10.0.0.20"),
+			fixedMember("rule-source", "t-source", "10.0.0.21"),
+		},
+		TargetList: map[string]string{"source-a": "rb_source_a"},
+	})
+
+	applicationBlocker := false
+	sourceObjects := 0
+	for _, blocker := range result.Blockers {
+		if blocker.RuleID == "rule-app" && blocker.Code == "access_canonical_rule_required" {
+			applicationBlocker = true
+		}
+	}
+	for _, object := range result.Objects {
+		if strings.Contains(object.LogicalID, "rule-app") {
+			t.Fatalf("application rule must not materialize RouterOS objects: %#v", object)
+		}
+		if strings.Contains(object.LogicalID, "rule-source") {
+			sourceObjects++
+		}
+	}
+	if !applicationBlocker {
+		t.Fatalf("application rule blocker missing: %#v", result.Blockers)
+	}
+	if sourceObjects == 0 {
+		t.Fatalf("source rule must still produce desired objects: %#v", result.Objects)
 	}
 }

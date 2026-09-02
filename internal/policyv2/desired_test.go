@@ -74,12 +74,12 @@ func TestSourceListNameIsStableAcrossRenameAndScopedToDevice(t *testing.T) {
 
 func TestNeedsAccessForwarderForDisabledDomainSource(t *testing.T) {
 	rules := []accesscontrol.AccessRule{{
-		ID: "rule-a", Enabled: true, TargetScope: accesscontrol.TargetScopeSources, SourceIDs: []string{"source-a"},
+		ID: "rule-a", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"source-a"},
 	}}
 	sources := map[string]Source{
-		"source-a": {ID: "source-a", Kind: KindDomain, Enabled: false, ActiveVersionID: "version-a"},
+		"rule-a\x00source-a": {ID: "source-a", Kind: KindDomain, Enabled: false, ActiveVersionID: "version-a"},
 	}
-	if !needsAccessForwarder(rules, sources, nil) {
+	if !needsAccessForwarder(rules, sources) {
 		t.Fatal("a disabled domain source referenced by access control still needs the device-level access DNS forwarder")
 	}
 }

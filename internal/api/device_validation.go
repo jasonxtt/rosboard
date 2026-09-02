@@ -134,15 +134,19 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 			Enabled:             payload.MosDNS.Enabled,
 			BaseURL:             config.NormalizeMosDNSBaseURL(payload.MosDNS.BaseURL),
 			SyncIntervalMinutes: payload.MosDNS.SyncIntervalMinutes,
+			MatchWindowMinutes:  payload.MosDNS.MatchWindowMinutes,
 		}
 		if mosDNS.SyncIntervalMinutes == 0 {
 			mosDNS.SyncIntervalMinutes = 30
 		}
+		if mosDNS.MatchWindowMinutes == 0 {
+			mosDNS.MatchWindowMinutes = 30
+		}
 		if mosDNS.Enabled && strings.TrimSpace(mosDNS.BaseURL) == "" {
 			return config.DeviceConfig{}, false, errors.New("MosDNS 地址不能为空")
 		}
-		if mosDNS.Configured() && mosDNS.SyncIntervalMinutes <= 0 {
-			return config.DeviceConfig{}, false, errors.New("MosDNS 同步周期必须为正数")
+		if mosDNS.Configured() && (mosDNS.SyncIntervalMinutes <= 0 || mosDNS.MatchWindowMinutes <= 0) {
+			return config.DeviceConfig{}, false, errors.New("MosDNS 同步周期和证据窗口必须为正数")
 		}
 	} else if existing != nil {
 		// Device editors that do not manage recognition settings must not

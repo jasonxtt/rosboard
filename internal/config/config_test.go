@@ -24,10 +24,10 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
 		t.Fatalf("legacy routeros config was not normalized: %#v", cfg.Devices)
 	}
-	if cfg.Devices[0].MosDNS.Enabled || cfg.Devices[0].MosDNS.BaseURL != "" || cfg.Devices[0].MosDNS.SyncIntervalMinutes != 30 {
+	if cfg.Devices[0].MosDNS.Enabled || cfg.Devices[0].MosDNS.BaseURL != "" || cfg.Devices[0].MosDNS.SyncIntervalMinutes != 30 || cfg.Devices[0].MosDNS.MatchWindowMinutes != 30 {
 		t.Fatalf("unexpected per-device MosDNS defaults: %#v", cfg.Devices[0].MosDNS)
 	}
-	if cfg.Devices[0].ProtocolAnalysis || cfg.Devices[0].FeatureLibrary.Enabled || cfg.Devices[0].FeatureLibrary.SourceURL == "" || cfg.Devices[0].FeatureLibrary.RefreshIntervalHours != 168 || cfg.Devices[0].FeatureLibrary.MatchWindowMinutes != 30 {
+	if cfg.Devices[0].ProtocolAnalysis || cfg.Devices[0].FeatureLibrary.Enabled || cfg.Devices[0].FeatureLibrary.SourceURL != "" || cfg.Devices[0].FeatureLibrary.RefreshIntervalHours != 0 || cfg.Devices[0].FeatureLibrary.MatchWindowMinutes != 0 {
 		t.Fatalf("unexpected per-device recognition defaults: %#v", cfg.Devices[0])
 	}
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
@@ -104,6 +104,37 @@ func TestLoadNormalizesPlainMosDNSAddress(t *testing.T) {
 	}
 	if cfg.Devices[0].MosDNS.BaseURL != "http://10.0.0.3" || !cfg.Devices[0].MosDNS.Configured() {
 		t.Fatalf("plain MosDNS address was not normalized: %#v", cfg.Devices[0].MosDNS)
+	}
+}
+
+func TestLoadMigratesLegacyFeatureLibraryMatchWindowToMosDNS(t *testing.T) {
+	cases := []struct {
+		name   string
+		mosdns string
+		want   int
+	}{
+		{name: "legacy", mosdns: "", want: 20},
+		{name: "new value wins", mosdns: "    mosdns:\n      match_window_minutes: 15\n", want: 15},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			payload := []byte("devices:\n  - id: edge\n    name: Edge\n    enabled: true\n    routeros:\n      base_url: http://edge.test\n      username: test\n      password: secret\n    feature_library:\n      enabled: true\n      source_url: https://example.test/library.yml\n      refresh_interval_hours: 24\n      match_window_minutes: 20\n" + testCase.mosdns)
+			if err := os.WriteFile(path, payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			device := cfg.Devices[0]
+			if device.MosDNS.MatchWindowMinutes != testCase.want {
+				t.Fatalf("evidence window=%d, want %d; device=%+v", device.MosDNS.MatchWindowMinutes, testCase.want, device)
+			}
+			if device.FeatureLibrary.SourceURL != "https://example.test/library.yml" {
+				t.Fatalf("legacy feature library fields were not decoded: %+v", device.FeatureLibrary)
+			}
+		})
 	}
 }
 
@@ -354,40 +385,5 @@ func TestLoadPreservesExplicitSortOrder(t *testing.T) {
 	}
 	if cfg.Devices[0].RouterOS.BaseURL != "http://alpha.test" || cfg.Devices[1].RouterOS.BaseURL != "http://zulu.test" {
 		t.Fatalf("reordering must not mix up device payloads, got %+v", cfg.Devices)
-	}
-}
-
-func TestLoadApplicationCatalogConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.yaml")
-	payload := []byte("application_catalog:\n  source: /tmp/open-app-filter.tar.gz\n  refresh_interval_hours: 24\n")
-	if err := os.WriteFile(path, payload, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ApplicationCatalog.Source != "/tmp/open-app-filter.tar.gz" || cfg.ApplicationCatalog.RefreshIntervalHours != 24 {
-		t.Fatalf("unexpected application catalog config: %+v", cfg.ApplicationCatalog)
-	}
-	if err := Save(path, cfg); err != nil {
-		t.Fatal(err)
-	}
-	saved, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(saved), "application_catalog:") || !strings.Contains(string(saved), "refresh_interval_hours: 24") {
-		t.Fatalf("application catalog config was not persisted: %s", saved)
-	}
-}
-
-func TestValidateRejectsNegativeApplicationCatalogRefreshInterval(t *testing.T) {
-	cfg := Config{
-		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ApplicationCatalog: ApplicationCatalogConfig{RefreshIntervalHours: -1},
-	}
-	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "application_catalog.refresh_interval_hours") {
-		t.Fatalf("expected application catalog interval validation error, got %v", err)
 	}
 }
