@@ -35,8 +35,6 @@ ID 采用 namespace：上游 OAF 条目为 `oaf:<numeric-id>`，项目自有条�
 
 domain index 保留 exact/suffix 两种规则；匹配先 exact，再选择最长 suffix。如果最高具体程度仍有多个不同 Application，则返回 ambiguous，不按 priority 或 ApplicationID 猜选。只对安全独立的 domain signature 做 DNS attribution。带 request/L7/search 或其他共同条件的 signature 不得被降级为 host-only。
 
-OAF 的 single-token host keyword（如 `youtube`、`whatsapp`）不进入 safe-domain subset；只有规范化后至少包含一个 `.` 的 multi-label hostname 才可用于当前 domain lookup。
-
 ### 1.3 Source and provenance policy
 
 配置增加进程级 `application_catalog` source/refresh/status 入口。没有 source 或进程从未获得有效快照时 Catalog status 为 unavailable；不再默认 V2Fly URL。缓存启动读取成功后可成为当前 snapshot。
