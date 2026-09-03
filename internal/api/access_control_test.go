@@ -237,6 +237,38 @@ func TestAccessRuleStatusDependsOnAccessStateOnly(t *testing.T) {
 	}
 }
 
+func TestAccessRuleStatusShowsPendingUntilDesiredRevisionIsApplied(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true}
+	state := accesscontrol.State{DesiredRevision: 2, AppliedRevision: 1}
+	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1}
+	members := []accessRuleMemberResponse{{TerminalID: "terminal-a", State: accesscontrol.MemberResolved}}
+	if got := accessRuleStatus(rule, state, policyState, members); got != "pending" {
+		t.Fatalf("enabled rule with unapplied desired revision status=%q, want pending", got)
+	}
+}
+
+func TestAccessRuleStatusShowsApplyingDuringQueuedAccessApply(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true}
+	state := accesscontrol.State{DesiredRevision: 2, AppliedRevision: 1}
+	members := []accessRuleMemberResponse{{TerminalID: "terminal-a", State: accesscontrol.MemberResolved}}
+	for _, jobState := range []string{"queued", "staging", "verifying"} {
+		policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1, Job: policyv2.ApplyJob{ID: "job-a", State: jobState}}
+		if got := accessRuleStatus(rule, state, policyState, members); got != "applying" {
+			t.Fatalf("access job state=%s status=%q, want applying", jobState, got)
+		}
+	}
+}
+
+func TestAccessRuleStatusShowsAppliedOnlyAfterCommittedAccessState(t *testing.T) {
+	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true}
+	state := accesscontrol.State{DesiredRevision: 2, AppliedRevision: 2}
+	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1, Job: policyv2.ApplyJob{ID: "job-a", State: "committed"}}
+	members := []accessRuleMemberResponse{{TerminalID: "terminal-a", State: accesscontrol.MemberResolved}}
+	if got := accessRuleStatus(rule, state, policyState, members); got != "applied" {
+		t.Fatalf("committed access rule status=%q, want applied", got)
+	}
+}
+
 func TestDisabledAccessRuleStatusDoesNotShowPending(t *testing.T) {
 	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: false}
 	state := accesscontrol.State{DesiredRevision: 2, AppliedRevision: 1}
@@ -247,14 +279,14 @@ func TestDisabledAccessRuleStatusDoesNotShowPending(t *testing.T) {
 	}
 }
 
-func TestAccessRuleStatusDegradesWhenReferencedTargetIsDisabled(t *testing.T) {
+func TestAccessRuleStatusIgnoresLegacyTargetEnabledFlag(t *testing.T) {
 	rule := accesscontrol.AccessRule{ID: "rule-a", Name: "规则", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"target-a"}}
 	state := accesscontrol.State{DesiredRevision: 1, AppliedRevision: 1}
 	policyState := policyv2.DeviceState{DesiredRevision: 1, AppliedRevision: 1}
 	targets := []policyv2.TargetList{{ID: "target-a", Name: "视频列表", Enabled: false, ActiveVersionID: "version-a"}}
 	response := buildAccessRuleResponse(rule, []accesscontrol.RuleMember{{RuleID: rule.ID, TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, []accesscontrol.Terminal{}, state, policyState, targets)
-	if response.Status != "degraded" || len(response.Issues) != 1 {
-		t.Fatalf("disabled referenced source must make the rule degraded: %#v", response)
+	if response.Status != "applied" || len(response.Issues) != 0 {
+		t.Fatalf("legacy target enabled flag must not affect a referenced target: %#v", response)
 	}
 }
 

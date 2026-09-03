@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/routeros"
 )
 
@@ -236,16 +237,6 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 			return PlanEnvelope{}, err
 		}
 	}
-	preflightRelease, acquired := m.gate.TryAcquire(deviceID)
-	if !acquired {
-		return PlanEnvelope{}, ErrDeviceBusy
-	}
-	capabilityBlockers, err := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects)
-	preflightRelease()
-	if err != nil {
-		return PlanEnvelope{}, err
-	}
-	desired.Blockers = append(desired.Blockers, capabilityBlockers...)
 	actual, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
 	if err != nil {
 		return PlanEnvelope{}, err
@@ -259,6 +250,18 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		operations = append(operations, accessOrderOperations...)
 	}
 	sortPlanOperations(operations)
+	if len(desired.Blockers) == 0 && len(operations) > 0 {
+		preflightRelease, acquired := m.gate.TryAcquire(deviceID)
+		if !acquired {
+			return PlanEnvelope{}, ErrDeviceBusy
+		}
+		capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects)
+		preflightRelease()
+		if capabilityErr != nil {
+			return PlanEnvelope{}, capabilityErr
+		}
+		desired.Blockers = append(desired.Blockers, capabilityBlockers...)
+	}
 	blockers := append(append([]PlanIssue{}, desired.Blockers...), diffBlockers...)
 	now := time.Now().UTC()
 	planDesiredRevision := desired.Revision
@@ -551,12 +554,14 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 			return ApplyJob{}, ErrPlanStale
 		}
 	}
-	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
-		release()
-		return ApplyJob{}, capabilityErr
-	} else if len(capabilityBlockers) > 0 {
-		release()
-		return ApplyJob{}, ErrPlanStale
+	if len(cached.Plan.Operations) > 0 {
+		if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
+			release()
+			return ApplyJob{}, capabilityErr
+		} else if len(capabilityBlockers) > 0 {
+			release()
+			return ApplyJob{}, ErrPlanStale
+		}
 	}
 	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
 	if err != nil {
@@ -655,12 +660,14 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 		release()
 		return ApplyJob{}, err
 	}
-	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
-		release()
-		return ApplyJob{}, capabilityErr
-	} else if len(capabilityBlockers) > 0 {
-		release()
-		return ApplyJob{}, ErrPlanStale
+	if len(cached.Plan.Operations) > 0 {
+		if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
+			release()
+			return ApplyJob{}, capabilityErr
+		} else if len(capabilityBlockers) > 0 {
+			release()
+			return ApplyJob{}, ErrPlanStale
+		}
 	}
 	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainRouting)
 	if err != nil {
@@ -788,12 +795,14 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 		release()
 		return ApplyJob{}, ErrPlanStale
 	}
-	if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
-		release()
-		return ApplyJob{}, capabilityErr
-	} else if len(capabilityBlockers) > 0 {
-		release()
-		return ApplyJob{}, ErrPlanStale
+	if len(cached.Plan.Operations) > 0 {
+		if capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects); capabilityErr != nil {
+			release()
+			return ApplyJob{}, capabilityErr
+		} else if len(capabilityBlockers) > 0 {
+			release()
+			return ApplyJob{}, ErrPlanStale
+		}
 	}
 	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainAccess)
 	if err != nil {
@@ -1047,7 +1056,7 @@ func (m *Manager) RefreshDue(ctx context.Context, now time.Time) error {
 		changedTargetIDs := make([]string, 0)
 		for _, source := range sources {
 			interval, ok := sourceScheduleInterval(source.Schedule)
-			if !ok || (source.Type != TargetSourceTypeURL && source.Type != TargetSourceTypePreset) || !source.Enabled || source.PendingDeletion || source.PendingVersionID != "" {
+			if !ok || (source.Type != TargetSourceTypeURL && source.Type != TargetSourceTypePreset) || source.PendingDeletion || source.PendingVersionID != "" {
 				continue
 			}
 			if !source.NextRunAt.IsZero() && source.NextRunAt.After(now) {
@@ -1747,7 +1756,7 @@ func isStaleApplicationOperation(operation PlanOperation) bool {
 	}
 	for _, field := range []string{"address-list", "src-address-list", "dst-address-list"} {
 		value := strings.TrimSpace(operation.Before[field])
-		if strings.HasPrefix(value, applicationListPrefix) || strings.HasPrefix(value, "rb_ac_") {
+		if strings.HasPrefix(value, applicationListPrefix) || strings.HasPrefix(value, "rb_ac_") || ownership.IsNamespace(value) {
 			return true
 		}
 	}

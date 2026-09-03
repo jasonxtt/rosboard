@@ -293,7 +293,7 @@ func TestVerifyDesiredRetriesTransientRouterOSReadAfterWrite(t *testing.T) {
 		LogicalID: "dns:example.test",
 		Menu:      string(routeros.MenuIPDNSStatic),
 		Fields: map[string]string{
-			"comment":  managedComment(managedCommentIdentityPrefix, "dns:example.test", "策略测试"),
+			"comment":  managedComment("manager", "edge", "dns:example.test", "策略测试"),
 			"disabled": "no",
 		},
 	}}
@@ -347,7 +347,7 @@ func TestActivateDesiredRetriesTransientMissingObject(t *testing.T) {
 		LogicalID: "routing-dns:egress:target:DOMAIN-SUFFIX:example.test",
 		Menu:      string(routeros.MenuIPDNSStatic),
 		Fields: map[string]string{
-			"comment":  managedComment(managedCommentIdentityPrefix, "routing-dns:egress:target:DOMAIN-SUFFIX:example.test", "策略测试"),
+			"comment":  managedComment("manager", "edge", "routing-dns:egress:target:DOMAIN-SUFFIX:example.test", "策略测试"),
 			"disabled": "no",
 		},
 	}}

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,6 +166,52 @@ func TestTargetListAPIUnreferencedUploadStaysStandbyWithoutApply(t *testing.T) {
 	rules := targetListAPIRequest(t, server, http.MethodGet, "/"+target.ID+"/rules", "")
 	if rules.Code != http.StatusOK || !strings.Contains(rules.Body.String(), "uploaded.example") {
 		t.Fatalf("standby upload rules status=%d body=%s", rules.Code, rules.Body.String())
+	}
+}
+
+func TestTargetListAPIDeletesAppliedUnreferencedTargetSynchronously(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	content, err := policy.PrepareSourceContent([]byte("payload:\n  - DOMAIN-SUFFIX,applied.example\n"), policy.KindDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeUpload, Kind: policyv2.KindDomain, Content: content})
+	created := targetListAPIRequest(t, server, http.MethodPost, "", `{"name":"Applied upload","sourceType":"upload","kind":"domain","enabled":true,"previewId":"`+previewID+`","deferApply":true}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var target policyv2.TargetList
+	if err := json.Unmarshal(created.Body.Bytes(), &target); err != nil {
+		t.Fatal(err)
+	}
+	deviceStorage, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStorage.PolicyRepository()
+	state, err := repository.GetDeviceState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitRoutingApply(context.Background(), state.DesiredRevision, "api-applied-hash", policyv2.ApplyJob{ID: "api-applied-job", PlanID: "api-applied-plan"}, []policyv2.TargetVersionPromotion{{TargetListID: target.ID, VersionID: target.PendingVersionID}}); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := repository.GetTargetList(context.Background(), target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.ActiveVersionID == "" {
+		t.Fatalf("target was not prepared as applied: %#v", applied)
+	}
+
+	deleted := targetListAPIRequest(t, server, http.MethodDelete, "/"+target.ID+"?revision="+strconv.FormatInt(applied.Revision, 10), "")
+	if deleted.Code != http.StatusOK || !strings.Contains(deleted.Body.String(), `"deleted":true`) || strings.Contains(deleted.Body.String(), "pendingDeletion") {
+		t.Fatalf("applied unreferenced delete status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	if _, err := repository.GetTargetList(context.Background(), target.ID); !errors.Is(err, policyv2.ErrTargetListNotFound) {
+		t.Fatalf("applied target remains after API delete: %v", err)
 	}
 }
 

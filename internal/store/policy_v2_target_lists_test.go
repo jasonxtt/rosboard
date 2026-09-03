@@ -456,6 +456,107 @@ func TestPolicyV2TargetListDeleteHonorsAccessRuleSourceReferences(t *testing.T) 
 	}
 }
 
+func TestPolicyV2TargetListDeleteRemovesAppliedUnreferencedTarget(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{
+		ID: "applied-unreferenced-target", Name: "Applied unreferenced target", Kind: policyv2.KindDomain,
+		SourceType: policyv2.TargetSourceTypeUpload, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionID := target.ID + ":v1"
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{
+		ID: versionID, TargetListID: target.ID, SHA256: versionID, State: "pending", CompressedYAML: []byte(versionID),
+	}, []policyv2.TargetListRule{{VersionID: versionID, RuleType: "DOMAIN-SUFFIX", Domain: "uploaded.example"}}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitRoutingApply(ctx, state.DesiredRevision, "applied-unreferenced-hash", policyv2.ApplyJob{ID: "applied-unreferenced-job", PlanID: "applied-unreferenced-plan"}, []policyv2.TargetVersionPromotion{{TargetListID: target.ID, VersionID: versionID}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := repository.GetTargetList(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Applied || loaded.ActiveVersionID != versionID || loaded.PendingVersionID != "" {
+		t.Fatalf("target was not prepared as applied: %#v", loaded)
+	}
+
+	if err := repository.DeleteTargetList(ctx, target.ID, loaded.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.GetTargetList(ctx, target.ID); !errors.Is(err, policyv2.ErrTargetListNotFound) {
+		t.Fatalf("applied unreferenced target still exists: %v", err)
+	}
+	var versionCount, ruleCount int
+	if err := storage.db.QueryRow(`SELECT count(*) FROM policy_v2_source_versions WHERE source_id = ?`, target.ID).Scan(&versionCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.db.QueryRow(`SELECT count(*) FROM policy_v2_source_rules WHERE version_id = ?`, versionID).Scan(&ruleCount); err != nil {
+		t.Fatal(err)
+	}
+	if versionCount != 0 || ruleCount != 0 {
+		t.Fatalf("target content was not cascaded: versions=%d rules=%d", versionCount, ruleCount)
+	}
+}
+
+func TestPolicyV2TargetListDeleteKeepsLegacyAppliedTargetPending(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{ID: "legacy-egress", Name: "Legacy egress", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := repository.SaveSource(ctx, policyv2.Source{
+		ID: "legacy-applied-target", EgressID: "legacy-egress", Type: policyv2.TargetSourceTypeUpload,
+		Kind: policyv2.KindDomain, Name: "Legacy applied target", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionID := source.ID + ":v1"
+	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{
+		ID: versionID, SourceID: source.ID, SHA256: versionID, State: "pending", CompressedYAML: []byte(versionID),
+	}, []policyv2.SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "legacy.example"}}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitRoutingApply(ctx, state.DesiredRevision, "legacy-applied-hash", policyv2.ApplyJob{ID: "legacy-applied-job", PlanID: "legacy-applied-plan"}, []policyv2.TargetVersionPromotion{{TargetListID: source.ID, VersionID: versionID}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := repository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DeleteSource(ctx, loaded.ID, loaded.Revision); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := repository.GetSource(ctx, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending.PendingDeletion || pending.EgressID != "" {
+		t.Fatalf("legacy applied target did not retain staged cleanup: %#v", pending)
+	}
+}
+
 func TestPolicyV2TargetListRevisionInvalidationFollowsConsumerDomain(t *testing.T) {
 	tests := []struct {
 		name       string

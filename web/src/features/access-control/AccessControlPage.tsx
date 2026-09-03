@@ -13,6 +13,7 @@ import {
   type TargetList,
 } from '../policy/canonical'
 import { SubjectSelector, TargetSelector } from '../policy/Selectors'
+import { TargetListModal } from '../policy/TargetLibraryPage'
 import { PolicyEmptyState, PolicyErrorDisplay, PolicyField, PolicyModal, PolicyNotice, PolicyPreparing, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 const statusPresentation: Record<string, { tone: StatusTone; label: string }> = {
@@ -75,14 +76,21 @@ function AccessRuleRow({ rule, terminals, targets, busy, onEdit, onDelete, onTog
 }
 
 function AccessRuleModal({ deviceID, rule, terminals, targetLists, onClose, onSave }: { deviceID: string; rule: AccessRule | null; terminals: PolicyTerminal[]; targetLists: TargetList[]; onClose: () => void; onSave: (rule: AccessRuleDraft) => Promise<void> }) {
+  const [availableTargetLists, setAvailableTargetLists] = useState<TargetList[]>(() => [...targetLists])
   const [name, setName] = useState(rule?.name ?? '')
   const [subject, setSubject] = useState<Subject>(rule?.subject ?? { mode: 'selected', members: [], prefixes: [] })
   const [targetScope, setTargetScope] = useState<'internet' | 'targets'>(rule?.targetScope ?? 'internet')
   const [targetListIds, setTargetListIds] = useState<string[]>(rule?.targetListIds ?? [])
-  const [enabled, setEnabled] = useState(rule?.enabled ?? true)
+  const enabled = rule?.enabled ?? true
+  const [creatingTargetKind, setCreatingTargetKind] = useState<'domain' | 'ip' | null>(null)
   const [presetPresentations, setPresetPresentations] = useState<Array<ApplicationPresetSelection & { name: string }>>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const addTargetList = (target: TargetList) => {
+    setAvailableTargetLists((current) => current.some((item) => item.id === target.id) ? current.map((item) => item.id === target.id ? target : item) : [...current, target])
+    setTargetListIds((current) => current.includes(target.id) ? current : [...current, target.id])
+    setCreatingTargetKind(null)
+  }
   const submit = async () => {
     if (!name.trim() || (subject.mode === 'selected' && subject.members.length === 0 && subject.prefixes.length === 0) || (targetScope === 'targets' && targetListIds.length === 0)) return
     setSaving(true); setError(null)
@@ -90,7 +98,10 @@ function AccessRuleModal({ deviceID, rule, terminals, targetLists, onClose, onSa
       await onSave({ id: rule?.id ?? '', name: name.trim(), subject, targetScope, targetListIds: targetScope === 'targets' ? targetListIds : [], enabled, revision: rule?.revision ?? 0, ...(targetScope === 'targets' && presetPresentations.length ? { presetSelections: presetPresentations.filter((selection) => selection.previewId && selection.requestedKinds.length).map(({ name: _name, ...selection }) => selection) } : {}) })
     } catch (saveError) { setError(saveError) } finally { setSaving(false) }
   }
-  return <PolicyModal title={rule ? '编辑访问规则' : '新增访问规则'} wide onClose={onClose} footer={<><button type="button" className="toolbar-button" disabled={saving} onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={saving || !name.trim() || (subject.mode === 'selected' && !subject.members.length && !subject.prefixes.length) || (targetScope === 'targets' && !targetListIds.length)} onClick={() => void submit()}>{saving ? '正在保存…' : '保存'}</button></>}>
-    <div className="policy-form">{error ? <PolicyErrorDisplay error={error} /> : null}<PolicyField label="规则名称" htmlFor="access-rule-name"><input id="access-rule-name" className="settings-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：儿童娱乐限制" /></PolicyField><PolicyField label="Who · 受控对象"><SubjectSelector terminals={terminals} value={subject} onChange={setSubject} /></PolicyField><PolicyField label="What · 访问范围"><div className="policy-choice-list"><label className={`policy-choice${targetScope === 'internet' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'internet'} onChange={() => setTargetScope('internet')} /><span><strong>整个互联网</strong><small>阻断互联网，局域网访问不受影响</small></span></label><label className={`policy-choice${targetScope === 'targets' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'targets'} onChange={() => setTargetScope('targets')} /><span><strong>目标列表</strong><small>阻断目标库中的域名或 IP 列表</small></span></label></div>{targetScope === 'targets' ? <TargetSelector deviceID={deviceID} targetLists={targetLists} selectedIDs={targetListIds} onChange={setTargetListIds} onPresetPresentationChange={setPresetPresentations} /> : null}</PolicyField><PolicyField label="时间"><label className="policy-choice active"><input type="radio" checked readOnly /><span><strong>始终生效</strong><small>指定时间控制将在后续版本支持</small></span></label><label className="policy-choice disabled"><input type="radio" disabled /><span><strong>指定时间（即将支持）</strong></span></label></PolicyField><label className="policy-checkbox"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span>启用此规则</span></label></div>
-  </PolicyModal>
+  return <>
+    <PolicyModal title={rule ? '编辑访问规则' : '新增访问规则'} wide onClose={onClose} footer={<><button type="button" className="toolbar-button" disabled={saving} onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={saving || !name.trim() || (subject.mode === 'selected' && !subject.members.length && !subject.prefixes.length) || (targetScope === 'targets' && !targetListIds.length)} onClick={() => void submit()}>{saving ? '正在保存…' : '保存'}</button></>}>
+      <div className="policy-form">{error ? <PolicyErrorDisplay error={error} /> : null}<PolicyField label="规则名称" htmlFor="access-rule-name"><input id="access-rule-name" className="settings-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：儿童娱乐限制" /></PolicyField><PolicyField label="Who · 受控对象"><SubjectSelector terminals={terminals} value={subject} onChange={setSubject} /></PolicyField><PolicyField label="What · 访问范围"><div className="policy-choice-list"><label className={`policy-choice${targetScope === 'internet' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'internet'} onChange={() => setTargetScope('internet')} /><span><strong>整个互联网</strong><small>阻断互联网，局域网访问不受影响</small></span></label><label className={`policy-choice${targetScope === 'targets' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'targets'} onChange={() => setTargetScope('targets')} /><span><strong>目标列表</strong><small>阻断目标库中的域名或 IP 列表</small></span></label></div>{targetScope === 'targets' ? <TargetSelector deviceID={deviceID} targetLists={availableTargetLists} selectedIDs={targetListIds} onChange={setTargetListIds} onPresetPresentationChange={setPresetPresentations} onCreateTargetList={setCreatingTargetKind} /> : null}</PolicyField><PolicyField label="时间"><label className="policy-choice active"><input type="radio" checked readOnly /><span><strong>始终生效</strong><small>指定时间控制将在后续版本支持</small></span></label><label className="policy-choice disabled"><input type="radio" disabled /><span><strong>指定时间（即将支持）</strong></span></label></PolicyField></div>
+    </PolicyModal>
+    {creatingTargetKind ? <TargetListModal deviceID={deviceID} target={null} initialKind={creatingTargetKind} onClose={() => setCreatingTargetKind(null)} onSaved={async (target) => { addTargetList(target) }} /> : null}
+  </>
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 )
@@ -812,7 +813,10 @@ type rootReviewFailAccessRouter struct {
 func rootReviewAccessFields(fields routeros.RouterOSFields) bool {
 	for _, value := range fields {
 		value := strings.TrimSpace(fmt.Sprint(value))
-		if strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rosboard_access_") || strings.Contains(value, "访问控制") {
+		if ownership.IsCanonical(value) {
+			continue
+		}
+		if ownership.IsNamespace(value) || strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rosboard_access_") || strings.Contains(value, "访问控制") {
 			return true
 		}
 	}
@@ -821,7 +825,11 @@ func rootReviewAccessFields(fields routeros.RouterOSFields) bool {
 
 func rootReviewAccessObject(object routeros.RouterOSObject) bool {
 	for _, value := range object {
-		if strings.HasPrefix(strings.TrimSpace(value), "rb_ac_") || strings.HasPrefix(strings.TrimSpace(value), "rbac_") || strings.HasPrefix(strings.TrimSpace(value), "rosboard_access_") || strings.Contains(value, "访问控制") {
+		value = strings.TrimSpace(value)
+		if ownership.IsCanonical(value) {
+			continue
+		}
+		if ownership.IsNamespace(value) || strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rosboard_access_") || strings.Contains(value, "访问控制") {
 			return true
 		}
 	}

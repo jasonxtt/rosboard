@@ -70,7 +70,7 @@ func ValidateFakeAliases(ctx context.Context, reader PolicyReader, repository Re
 				}
 				for _, targetID := range rule.TargetListIDs {
 					source, ok := sourceByID[targetID]
-					if ok && source.Enabled && !source.PendingDeletion && source.Kind == KindDomain && firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID) != "" {
+					if ok && !source.PendingDeletion && source.Kind == KindDomain && firstNonEmptyString(source.PendingVersionID, source.ActiveVersionID) != "" {
 						sourcesByEgress[rule.EgressID] = append(sourcesByEgress[rule.EgressID], source)
 					}
 				}

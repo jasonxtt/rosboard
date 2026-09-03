@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"rosboard/internal/ownership"
 	"rosboard/internal/routeros"
 )
 
@@ -159,7 +160,7 @@ func BuildDesired(input DesiredInput) DesiredResult {
 					continue
 				}
 				addedAddresses[key] = true
-				result.Objects = append(result.Objects, desiredObject(input, logicalID, familyAddresses.menu, "foundation", "访问控制成员地址", map[string]string{
+				result.Objects = append(result.Objects, desiredObject(input, logicalID, familyAddresses.menu, "foundation", "访问规则成员地址", map[string]string{
 					"list": ruleList, "address": address, "disabled": "no",
 				}))
 			}
@@ -270,10 +271,10 @@ func targetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Muta
 			targetDisabled = "yes"
 		}
 		objects = append(objects,
-			desiredObject(input, prefix+"jump-out:target:"+targetID, menu, "activation", "访问控制目标出站入口", map[string]string{
+			desiredObject(input, prefix+"jump-out:target:"+targetID, menu, "activation", "访问规则目标出站入口", map[string]string{
 				"chain": "forward", "src-address-list": ruleList, "dst-address-list": list, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
 			}),
-			desiredObject(input, prefix+"jump-in:target:"+targetID, menu, "activation", "访问控制目标回程入口", map[string]string{
+			desiredObject(input, prefix+"jump-in:target:"+targetID, menu, "activation", "访问规则目标回程入口", map[string]string{
 				"chain": "forward", "src-address-list": list, "dst-address-list": ruleList, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
 			}),
 		)
@@ -303,8 +304,8 @@ func internetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Mu
 			addressField   string
 			label          string
 		}{
-			{name: "out", interfaceField: "out-interface", addressField: "src-address-list", label: "访问控制出站"},
-			{name: "in", interfaceField: "in-interface", addressField: "dst-address-list", label: "访问控制回程"},
+			{name: "out", interfaceField: "out-interface", addressField: "src-address-list", label: "访问规则出站"},
+			{name: "in", interfaceField: "in-interface", addressField: "dst-address-list", label: "访问规则回程"},
 		} {
 			base := map[string]string{
 				"chain": "forward", direction.addressField: ruleList,
@@ -337,10 +338,10 @@ func internetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Mu
 
 func internetEgressInterfaceListObjects(input DesiredInput, family, listName string, egresses []string) []DesiredObject {
 	objects := []DesiredObject{
-		desiredObject(input, "access-internet-egress:list:"+family, routeros.MenuInterfaceList, "foundation", "访问控制互联网出口接口列表", map[string]string{"name": listName}),
+		desiredObject(input, "access-internet-egress:list:"+family, routeros.MenuInterfaceList, "foundation", "访问规则互联网出口接口列表", map[string]string{"name": listName}),
 	}
 	for _, egress := range egresses {
-		objects = append(objects, desiredObject(input, "access-internet-egress:member:"+family+":"+egress, routeros.MenuInterfaceListMember, "foundation", "访问控制互联网出口接口 "+egress, map[string]string{"list": listName, "interface": egress}))
+		objects = append(objects, desiredObject(input, "access-internet-egress:member:"+family+":"+egress, routeros.MenuInterfaceListMember, "foundation", "访问规则互联网出口接口 "+egress, map[string]string{"list": listName, "interface": egress}))
 	}
 	return objects
 }
@@ -406,13 +407,13 @@ func appendUnique(values []string, additions ...string) []string {
 // protocol are dropped.
 func chainDenyObjects(input DesiredInput, menu routeros.MutationMenu, chain, prefix, disabled string) []DesiredObject {
 	return []DesiredObject{
-		desiredObject(input, prefix+"tcp", menu, "activation", "访问控制 TCP 重置", map[string]string{
+		desiredObject(input, prefix+"tcp", menu, "activation", "访问规则 TCP 重置", map[string]string{
 			"chain": chain, "protocol": "tcp", "action": "reject", "reject-with": "tcp-reset", "disabled": disabled,
 		}),
-		desiredObject(input, prefix+"udp", menu, "activation", "访问控制 UDP 丢弃", map[string]string{
+		desiredObject(input, prefix+"udp", menu, "activation", "访问规则 UDP 丢弃", map[string]string{
 			"chain": chain, "protocol": "udp", "action": "drop", "disabled": disabled,
 		}),
-		desiredObject(input, prefix+"other", menu, "activation", "访问控制其他协议丢弃", map[string]string{
+		desiredObject(input, prefix+"other", menu, "activation", "访问规则其他协议丢弃", map[string]string{
 			"chain": chain, "action": "drop", "disabled": disabled,
 		}),
 	}
@@ -429,7 +430,7 @@ const (
 )
 
 func RuleMemberListName(managerID, deviceID, ruleID string) string {
-	return "rbac_rule_" + shortHash("rule:"+managerID+":"+deviceID+":"+ruleID, 10)
+	return ownership.Namespace(managerID, deviceID) + "rule_" + shortHash("rule:"+managerID+":"+deviceID+":"+ruleID, 10)
 }
 
 func AccessTargetKey(ruleID, targetID string) string {
@@ -437,19 +438,19 @@ func AccessTargetKey(ruleID, targetID string) string {
 }
 
 func LocalPrefixListName(managerID, deviceID string) string {
-	return "rbac_local_" + shortHash("local:"+managerID+":"+deviceID, 10)
+	return ownership.Namespace(managerID, deviceID) + "local_" + shortHash("local:"+managerID+":"+deviceID, 10)
 }
 
 func RuleChainName(managerID, deviceID, ruleID string) string {
-	return "rbac_" + shortHash("policy:"+managerID+":"+deviceID+":"+ruleID, 10)
+	return ownership.Namespace(managerID, deviceID) + "chain_" + shortHash("policy:"+managerID+":"+deviceID+":"+ruleID, 10)
 }
 
 func InternetEgressListName(managerID, deviceID, family string) string {
-	return "rbac_internet_" + shortHash("internet-egress:"+managerID+":"+deviceID+":"+family, 10)
+	return ownership.Namespace(managerID, deviceID) + "internet_" + shortHash("internet-egress:"+managerID+":"+deviceID+":"+family, 10)
 }
 
 func ManagedComment(managerID, deviceID, logicalID, label string) string {
-	identity := "rb_" + shortHash(logicalID, 8)
+	identity := ownership.Identity(managerID, deviceID, logicalID)
 	label = strings.Join(strings.Fields(strings.ReplaceAll(label, "|", "/")), " ")
 	if label == "" {
 		return identity
@@ -472,8 +473,8 @@ func LegacyManagedComment(managerID, deviceID, logicalID string) string {
 
 func IsManagedComment(comment string) bool {
 	identity := commentIdentity(comment)
-	if strings.HasPrefix(identity, "rb_") {
-		return hasHex(strings.TrimPrefix(identity, "rb_"), 8)
+	if ownership.IsCanonical(identity) || ownership.IsLegacyScoped(identity) || ownership.IsUnscopedLegacy(identity) {
+		return true
 	}
 	return IsLegacyManagedComment(identity)
 }
@@ -489,6 +490,9 @@ func IsLegacyManagedComment(comment string) bool {
 
 func IsManagedCommentFor(managerID, deviceID, comment string) bool {
 	identity := commentIdentity(comment)
+	if ownership.IsCanonicalFor(managerID, deviceID, identity) || ownership.IsLegacyScopedFor(managerID, deviceID, identity) {
+		return true
+	}
 	if !IsLegacyManagedComment(identity) || !strings.HasPrefix(identity, "ra_v1_") {
 		return false
 	}
@@ -500,11 +504,7 @@ func legacyV1ManagedCommentPrefix(managerID, deviceID string) string {
 }
 
 func commentIdentity(comment string) string {
-	identity := strings.TrimSpace(comment)
-	if index := strings.Index(identity, " | "); index >= 0 {
-		identity = strings.TrimSpace(identity[:index])
-	}
-	return identity
+	return ownership.CommentIdentity(comment)
 }
 
 func hasHex(value string, length int) bool {

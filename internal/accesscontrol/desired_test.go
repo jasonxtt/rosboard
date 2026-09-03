@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/ownership"
 	"rosboard/internal/routeros"
 	"rosboard/internal/subject"
 )
@@ -360,7 +361,7 @@ func TestBuildDesiredRemovesReassignedAddressProjection(t *testing.T) {
 func TestManagedCommentUsesShortRouterOSIdentity(t *testing.T) {
 	comment := ManagedComment("manager", "router-a", "access:rule-a:ipv4:jump-out", "访问控制出站入口")
 	identity := strings.SplitN(comment, " | ", 2)[0]
-	if !strings.HasPrefix(identity, "rb_") || !hasHex(strings.TrimPrefix(identity, "rb_"), 8) {
+	if identity != ownership.Identity("manager", "router-a", "access:rule-a:ipv4:jump-out") {
 		t.Fatalf("unexpected RouterOS comment identity: %q", comment)
 	}
 	if !IsManagedComment(comment) || strings.Contains(identity, "ra_") {

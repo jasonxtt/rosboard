@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/routeros"
 )
 
@@ -229,7 +230,7 @@ func TestForeignMasqueradeIsNotManagedButLegacyOwnedMasqueradeIs(t *testing.T) {
 		t.Fatal("uncommented masquerade should remain outside policy ownership")
 	}
 	owned := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
-	ownedComment := managedComment(managedCommentIdentityPrefix, "masquerade:wan-a:ipv4")
+	ownedComment := managedComment("manager", "edge", "masquerade:wan-a:ipv4")
 	if isForeignMasquerade(routeros.MenuIPFirewallNAT, owned, ownedComment) {
 		t.Fatal("policy masquerade should remain discoverable for cleanup")
 	}
@@ -246,9 +247,15 @@ func TestForeignMasqueradeIsNotManagedButLegacyOwnedMasqueradeIs(t *testing.T) {
 type fakeScanRepository struct {
 	Repository
 	managerID string
+	deviceID  string
 }
 
-func (r *fakeScanRepository) DeviceID() string { return "edge" }
+func (r *fakeScanRepository) DeviceID() string {
+	if r.deviceID != "" {
+		return r.deviceID
+	}
+	return "edge"
+}
 
 func (r *fakeScanRepository) ManagerInstanceID(context.Context) (string, error) {
 	return r.managerID, nil
@@ -269,7 +276,7 @@ func TestScanManagedMigratesLegacyCommentIdentityByPatch(t *testing.T) {
 		Menu:      string(routeros.MenuIPRoute),
 		Phase:     "routing",
 		Order:     1,
-		Fields:    map[string]string{"comment": managedComment(managedCommentIdentityPrefix, "route:wan-a:ipv4", "策略 主线 · 默认路由"), "gateway": "192.0.2.1"},
+		Fields:    map[string]string{"comment": managedComment("manager", "edge", "route:wan-a:ipv4", "策略 主线 · 默认路由"), "gateway": "192.0.2.1"},
 	}}
 	legacyComment := legacyManagedCommentPrefix("manager", "edge") + shortHash("route:wan-a:ipv4", 16) + " | 策略 主线 · 默认路由"
 	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
@@ -298,7 +305,7 @@ func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T
 	desired := []DesiredObject{{
 		LogicalID: "rule",
 		Menu:      string(routeros.MenuIPFirewallMangle),
-		Fields:    map[string]string{"comment": managedComment(managedCommentIdentityPrefix, "rule", "策略 主线"), "chain": "prerouting"},
+		Fields:    map[string]string{"comment": managedComment("manager", "edge", "rule", "策略 主线"), "chain": "prerouting"},
 	}}
 	currentLegacyComment := legacyManagedCommentPrefix("manager", "edge") + "aaaaaaaaaaaaaaaa"
 	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
@@ -316,7 +323,7 @@ func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T
 		t.Fatalf("scan failed: %v", err)
 	}
 	if len(actual) != 2 {
-		t.Fatalf("expected two recognized stale objects and two skipped foreign objects: %#v", actual)
+		t.Fatalf("expected one recognized legacy object and one ambiguous legacy object: %#v", actual)
 	}
 	operations, blockers := DiffDesired(desired, actual)
 	if len(blockers) != 0 {
@@ -334,27 +341,28 @@ func TestScanManagedCleansUnrecognizedLegacyAndSkipsForeignComments(t *testing.T
 			}
 		}
 	}
-	if creates != 1 || deletes != 2 {
-		t.Fatalf("expected one create and two stale deletes: operations=%#v", operations)
+	if creates != 1 || deletes != 1 {
+		t.Fatalf("expected one create and one narrowly recognized stale delete: operations=%#v", operations)
 	}
 }
 
 func TestScanManagedClassifiesStaleAccessNamespacesForAccessOnlyCleanup(t *testing.T) {
+	currentNamespace := ownership.Namespace("manager", "edge")
 	mutation := &fakeScanMutation{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
 		routeros.MenuInterfaceList: {
-			{".id": "*list", "name": "rbac_internet_123"},
+			{".id": "*list", "name": currentNamespace + "internet_123"},
 		},
 		routeros.MenuInterfaceListMember: {
-			{".id": "*member", "list": "rbac_internet_123", "interface": "wan1"},
+			{".id": "*member", "list": currentNamespace + "internet_123", "interface": "wan1"},
 		},
 		routeros.MenuIPDNSForwarders: {
-			{".id": "*forwarder", "name": "rosboard_access_123", "dns-servers": "192.0.2.53"},
+			{".id": "*forwarder", "name": currentNamespace + "dns_123", "dns-servers": "192.0.2.53"},
 		},
 		routeros.MenuIPFirewallFilter: {
-			{".id": "*filter", "chain": "forward", "action": "jump", "jump-target": "rbac_rule_123", "src-address-list": "rbac_rule_123"},
+			{".id": "*filter", "chain": "forward", "action": "jump", "jump-target": currentNamespace + "chain_123", "src-address-list": currentNamespace + "rule_123"},
 		},
 	}}
-	repository := &fakeScanRepository{managerID: "manager"}
+	repository := &fakeScanRepository{managerID: "manager", deviceID: "edge"}
 
 	access, _, err := ScanManagedForDomain(context.Background(), mutation, repository, nil, PolicyDomainAccess)
 	if err != nil {
@@ -412,8 +420,8 @@ func TestScanManagedBlocksForeignAccessNamespaces(t *testing.T) {
 }
 
 func TestManagedCommentShortFormat(t *testing.T) {
-	comment := managedComment(managedCommentIdentityPrefix, "traffic-ingress:list", "策略流量入口聚合列表")
-	if !regexp.MustCompile(`^rb_[0-9a-f]{8} \| 策略流量入口聚合列表$`).MatchString(comment) {
+	comment := managedComment("manager", "edge", "traffic-ingress:list", "策略流量入口聚合列表")
+	if !regexp.MustCompile(`^rbs_[0-9a-f]{8}_[0-9a-f]{8} \| 策略流量入口聚合列表$`).MatchString(comment) {
 		t.Fatalf("unexpected short comment format: %q", comment)
 	}
 	if legacy := legacyManagedCommentPrefix("manager", "edge"); !strings.HasPrefix(legacy, "rosboard:v2:") {
@@ -423,7 +431,7 @@ func TestManagedCommentShortFormat(t *testing.T) {
 		comment string
 		want    bool
 	}{
-		{comment: "rb_437614df | 标签", want: true},
+		{comment: "rbs_12345678_437614df | 标签", want: true},
 		{comment: "rb_437614df", want: true},
 		{comment: "rosboard:v2:deadbeefcafe:1234567890ab:437614df7720f810 | 标签", want: true},
 		{comment: "rb_custom", want: false},

@@ -97,7 +97,7 @@ export function SubjectSelector({
   </div>
 }
 
-export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, onPresetPresentationChange }: { deviceID: string; targetLists: TargetList[]; selectedIDs: string[]; onChange: (ids: string[]) => void; onPresetPresentationChange?: (value: PresetPresentation[]) => void }) {
+export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, onPresetPresentationChange, onCreateTargetList }: { deviceID: string; targetLists: TargetList[]; selectedIDs: string[]; onChange: (ids: string[]) => void; onPresetPresentationChange?: (value: PresetPresentation[]) => void; onCreateTargetList?: (kind: PresetKind) => void }) {
   const [presets, setPresets] = useState<ApplicationPreset[]>([])
   const [previews, setPreviews] = useState<Record<string, PresetPreview>>({})
   const [category, setCategory] = useState('')
@@ -113,7 +113,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
     return () => { active = false }
   }, [])
 
-  const ordinaryTargets = useMemo(() => targetLists.filter((target) => target.sourceType !== 'preset' && !target.pendingDeletion && target.enabled), [targetLists])
+  const ordinaryTargets = useMemo(() => targetLists.filter((target) => target.sourceType !== 'preset' && !target.pendingDeletion), [targetLists])
   const domainTargets = ordinaryTargets.filter((target) => target.kind !== 'ip')
   const ipTargets = ordinaryTargets.filter((target) => target.kind === 'ip')
   const categories = useMemo(() => Array.from(new Set(presets.map((preset) => preset.category).filter(Boolean) as string[])).sort(), [presets])
@@ -221,10 +221,10 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
     await changePresetKinds(preset, next)
   }
 
-  const renderTargetSection = (title: string, targets: TargetList[]) => <section className="canonical-target-section"><h5>{title}</h5>{targets.map((target) => <label key={target.id} className={`access-multi-option${selectedIDs.includes(target.id) ? ' selected' : ''}`}><input type="checkbox" checked={selectedIDs.includes(target.id)} onChange={() => toggle(target.id)} /><span><strong>{target.name}</strong><small>{target.kind === 'ip' ? 'IP' : '域名'} · {target.counts.valid ?? 0} 条</small></span></label>)}{!targets.length ? <p className="policy-hint">暂无列表</p> : null}</section>
+  const renderTargetSection = (title: string, kind: PresetKind, targets: TargetList[]) => <section className="canonical-target-section"><div className="canonical-target-section-head"><h5>{title}</h5>{onCreateTargetList ? <button type="button" className="link-button" onClick={() => onCreateTargetList(kind)}>新增{kind === 'ip' ? ' IP' : '域名'}列表</button> : null}</div>{targets.map((target) => <label key={target.id} className={`access-multi-option${selectedIDs.includes(target.id) ? ' selected' : ''}`}><input type="checkbox" checked={selectedIDs.includes(target.id)} onChange={() => toggle(target.id)} /><span><strong>{target.name}</strong><small>{target.kind === 'ip' ? 'IP' : '域名'} · {target.counts.valid ?? 0} 条</small></span></label>)}{!targets.length ? <p className="policy-hint">暂无列表</p> : null}</section>
 
   return <div className="canonical-selector">
-    <div className="canonical-target-list">{renderTargetSection('我的域名列表', domainTargets)}{renderTargetSection('我的 IP 列表', ipTargets)}</div>
+    <div className="canonical-target-list">{renderTargetSection('我的域名列表', 'domain', domainTargets)}{renderTargetSection('我的 IP 列表', 'ip', ipTargets)}</div>
     {selectedPresets.length ? <div className="canonical-selected-presets"><strong>已选择的应用</strong>{selectedPresets.map((preset) => <button key={preset.id} type="button" className="canonical-selected-preset" onClick={() => void changePresetKinds(preset, [])}>{preset.name} · {presetChoiceLabel(choiceForPreset(preset.id))} ×</button>)}</div> : null}
     <button type="button" className="toolbar-button" onClick={() => setShowPresets((value) => !value)}>{showPresets ? '收起应用目录' : '选择应用规则'}</button>
     {showPresets ? <div className="canonical-preset-picker">

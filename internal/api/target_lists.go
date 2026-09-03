@@ -286,6 +286,9 @@ func writeTargetListSaveError(writer http.ResponseWriter, err error) {
 }
 
 func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceContext, pathID string, src policyv2.Source, previewID string) (policyv2.Source, error) {
+	// Target Library entries are always available for selection. Whether they
+	// are projected is determined solely by routing/access-control references.
+	src.Enabled = true
 	if pathID != "" {
 		src.ID = pathID
 	}

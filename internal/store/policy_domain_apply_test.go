@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 	"rosboard/internal/subject"
@@ -287,6 +288,112 @@ func TestPolicyV2AccessPresetProposalCommitsAtomically(t *testing.T) {
 	}
 	if !accessState.Applied() {
 		t.Fatalf("access preset proposal did not commit access state: %#v", accessState)
+	}
+}
+
+func TestPolicyV2AccessProposalToggleDoesNotGoStale(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "access-toggle-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rule := accesscontrol.AccessRule{
+		ID: "access-toggle-rule", Name: "Access toggle", Subject: subject.Subject{Mode: subject.ModeSelected},
+		TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{target.ID}, Enabled: true,
+	}
+	member := accesscontrol.RuleMember{
+		RuleID: rule.ID, TerminalID: "terminal-auto-toggle", Binding: accesscontrol.BindingAuto,
+		AnchorMAC: "AA:BB:CC:DD:EE:FF",
+	}
+	if _, err := accessRepository.SaveRule(ctx, rule, []accesscontrol.RuleMember{member}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	terminals := []accesscontrol.Terminal{{
+		ID: "terminal-auto-toggle", MACAddress: "AA:BB:CC:DD:EE:FF", IPv4: []string{"10.0.0.20"},
+	}}
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{
+		Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository,
+		Terminals: func() []accesscontrol.Terminal { return terminals },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	initialPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "access-rule-save", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialJob, err := manager.ApplyPlan(ctx, "default", initialPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialJob = waitPolicyV2Job(t, policyRepository, initialJob.ID); initialJob.State != "committed" {
+		t.Fatalf("initial auto-follow access apply failed: %#v", initialJob)
+	}
+
+	for _, test := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "enabled to disabled", enabled: false},
+		{name: "disabled to enabled", enabled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rules, err := accessRepository.ListRules(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rules) != 1 {
+				t.Fatalf("unexpected access rules before toggle: %#v", rules)
+			}
+			proposedRule := rules[0]
+			proposedRule.Enabled = test.enabled
+			proposal := policyv2.AccessProposal{
+				Rule: proposedRule,
+				Members: []accesscontrol.RuleMember{{
+					RuleID: proposedRule.ID, TerminalID: member.TerminalID, Binding: accesscontrol.BindingAuto,
+					AnchorMAC: "AA:BB:CC:DD:EE:FF",
+				}},
+			}
+			plan, err := manager.GeneratePlanWithOptions(ctx, "default", "access-rule-save", policyv2.PlanOptions{AccessProposal: &proposal})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Plan.Domain != policyv2.PolicyDomainAccess || len(plan.Plan.Blockers) != 0 {
+				t.Fatalf("access toggle proposal was not ready: %#v", plan.Plan)
+			}
+			job, err := manager.ApplyPlanWithHash(ctx, "default", plan.PlanID, plan.PlanHash)
+			if errors.Is(err, policyv2.ErrPlanStale) {
+				t.Fatalf("access %s proposal unexpectedly went stale: %v", test.name, err)
+			}
+			if err != nil {
+				t.Fatalf("apply access %s proposal: %v", test.name, err)
+			}
+			if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
+				t.Fatalf("access %s proposal apply failed: %#v", test.name, job)
+			}
+			if strings.Contains(job.Error, "policy plan is stale") {
+				t.Fatalf("access %s proposal recorded a stale job: %#v", test.name, job)
+			}
+			finalRules, err := accessRepository.ListRules(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(finalRules) != 1 || finalRules[0].Enabled != test.enabled {
+				t.Fatalf("access %s toggle was not committed: %#v", test.name, finalRules)
+			}
+			state, err := accessRepository.GetState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.DesiredRevision != state.AppliedRevision || !state.Applied() {
+				t.Fatalf("access %s toggle did not converge: %#v", test.name, state)
+			}
+		})
 	}
 }
 
@@ -613,7 +720,7 @@ func assertPlanDoesNotTouchAccess(t *testing.T, operations []policyv2.PlanOperat
 		case string(routeros.MenuIPFirewallFilter), string(routeros.MenuIPv6FirewallFilter):
 			t.Fatalf("routing plan touched access operation: %#v", operation)
 		case string(routeros.MenuIPFirewallAddressList), string(routeros.MenuIPv6FirewallAddressList):
-			if strings.HasPrefix(operation.LogicalID, "access") || strings.HasPrefix(operation.After["list"], "rb_ac_") || strings.HasPrefix(operation.After["address-list"], "rb_ac_") {
+			if strings.HasPrefix(operation.LogicalID, "access") || ownership.IsNamespace(operation.After["list"]) || ownership.IsNamespace(operation.After["address-list"]) || strings.HasPrefix(operation.After["list"], "rb_ac_") || strings.HasPrefix(operation.After["address-list"], "rb_ac_") {
 				t.Fatalf("routing plan touched access address-list operation: %#v", operation)
 			}
 		case string(routeros.MenuIPDNSForwarders), string(routeros.MenuIPDNSStatic):

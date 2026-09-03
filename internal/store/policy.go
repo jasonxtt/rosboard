@@ -415,6 +415,10 @@ func (r *PolicyRepository) SaveTargetList(ctx context.Context, target policyv2.T
 			return policyv2.TargetList{}, err
 		}
 	}
+	// Canonical target lists do not have an independent enabled state. Keep
+	// the legacy source column enabled so old rows cannot become unusable when
+	// they are edited through the Target Library.
+	target.Enabled = true
 	source := target.ToSource()
 	if current.ID != "" {
 		// The authority migration has already cleared the legacy association;
@@ -768,7 +772,10 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	if err != nil {
 		return err
 	}
-	if applied != 0 || activeVersion != "" {
+	// An unreferenced target is not materialized by the unified desired graph,
+	// so there is no domain apply left to perform after this transaction. Keep
+	// the tombstone only when a legacy routing association still needs cleanup.
+	if (domains.Routing || domains.Access) && (applied != 0 || activeVersion != "") {
 		_, err = tx.ExecContext(ctx, `UPDATE policy_v2_sources SET egress_id = '', enabled = 0, pending_delete = 1, revision = revision + 1, updated_at = ? WHERE id = ?`, unixTime(time.Now().UTC()), id)
 	} else {
 		_, err = tx.ExecContext(ctx, `DELETE FROM policy_v2_sources WHERE id = ?`, id)

@@ -159,7 +159,7 @@ func routingDomainProjectionConsumers(ctx context.Context, repository Repository
 				}
 				for _, targetID := range sortedUniqueProjectionIDs(rule.TargetListIDs) {
 					source, ok := sources[targetID]
-					if !ok || source.PendingDeletion || !source.Enabled || source.Kind != KindDomain {
+					if !ok || source.PendingDeletion || source.Kind != KindDomain {
 						continue
 					}
 					versionID := targetVersionForPlan(source, targetScope)
