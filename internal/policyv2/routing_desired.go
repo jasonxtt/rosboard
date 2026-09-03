@@ -75,7 +75,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		filteredTargets := make([]string, 0, len(conflictRules[ruleIndex].TargetListIDs))
 		for _, targetID := range conflictRules[ruleIndex].TargetListIDs {
 			source, ok := sourceByID[targetID]
-			if ok && !source.PendingDeletion && source.Enabled {
+			if ok && !source.PendingDeletion {
 				filteredTargets = append(filteredTargets, targetID)
 			}
 		}
@@ -110,9 +110,6 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 			if targetVersionForPlan(source, targetScope) == "" {
 				result.Warnings = append(result.Warnings, PlanIssue{Code: "target_list_has_no_version", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "目标列表尚无可应用版本：" + source.Name})
-				continue
-			}
-			if !source.Enabled {
 				continue
 			}
 			if byEgress[rule.EgressID] == nil {

@@ -18,7 +18,7 @@ func TestTargetListConversionPreservesIdentityWithoutEgressOwnership(t *testing.
 		Name:              "Domains",
 		URL:               "https://example.test/rules.yaml",
 		Schedule:          "1h",
-		Enabled:           true,
+		Enabled:           false,
 		ActiveVersionID:   "version-active",
 		PendingVersionID:  "version-pending",
 		LastGoodVersionID: "version-good",
@@ -45,6 +45,9 @@ func TestTargetListConversionPreservesIdentityWithoutEgressOwnership(t *testing.
 	target := TargetListFromSource(source)
 	if target.ID != source.ID || target.SourceType != source.Type || target.Kind != source.Kind || target.Revision != source.Revision {
 		t.Fatalf("target identity was not preserved: %#v", target)
+	}
+	if !target.Enabled {
+		t.Fatal("canonical target list must not expose a standalone disabled state")
 	}
 	if target.ActiveVersionID != source.ActiveVersionID || target.PendingVersionID != source.PendingVersionID || target.LastGoodVersionID != source.LastGoodVersionID {
 		t.Fatalf("target version state was not preserved: %#v", target)

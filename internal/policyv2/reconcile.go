@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/routeros"
 )
 
@@ -38,22 +39,26 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 	if err != nil {
 		return nil, "", err
 	}
-	legacyPrefix := legacyManagedCommentPrefix(managerID, repository.DeviceID())
-	tablePrefix := ManagedTablePrefix(managerID, repository.DeviceID())
+	deviceID := repository.DeviceID()
+	legacyPrefix := legacyManagedCommentPrefix(managerID, deviceID)
+	tablePrefix := ManagedTablePrefix(managerID, deviceID)
 	logicalByComment := make(map[string]string, len(desired))
 	logicalByTable := make(map[string]string)
+	legacyDesiredByObjectHash := make(map[string][]DesiredObject)
 	for _, object := range desired {
 		if object.Menu == string(routeros.MenuRoutingTable) {
 			logicalByTable[object.Fields["name"]] = object.LogicalID
 		} else {
 			commentIdentity := managedCommentIdentity(object.Fields["comment"])
 			logicalByComment[commentIdentity] = object.LogicalID
-			logicalByComment[accesscontrol.LegacyV1ManagedComment(managerID, repository.DeviceID(), object.LogicalID)] = object.LogicalID
-			logicalByComment[accesscontrol.LegacyManagedComment(managerID, repository.DeviceID(), object.LogicalID)] = object.LogicalID
-			logicalByComment[legacyManagedCommentPrefixV1(managerID, repository.DeviceID())+shortHash(object.LogicalID, 8)] = object.LogicalID
+			logicalByComment[ownership.LegacyScopedIdentity(managerID, deviceID, object.LogicalID)] = object.LogicalID
+			logicalByComment[accesscontrol.LegacyV1ManagedComment(managerID, deviceID, object.LogicalID)] = object.LogicalID
+			logicalByComment[accesscontrol.LegacyManagedComment(managerID, deviceID, object.LogicalID)] = object.LogicalID
+			logicalByComment[legacyManagedCommentPrefixV1(managerID, deviceID)+shortHash(object.LogicalID, 8)] = object.LogicalID
 			// Also accept the pre-shortening identity so existing RouterOS
 			// entries migrate by patching only the comment field.
 			logicalByComment[legacyPrefix+shortHash(object.LogicalID, 16)] = object.LogicalID
+			legacyDesiredByObjectHash[ownership.Object(object.LogicalID)] = append(legacyDesiredByObjectHash[ownership.Object(object.LogicalID)], object)
 		}
 	}
 	result := make([]ActualObject, 0)
@@ -66,19 +71,24 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 			comment := strings.TrimSpace(object["comment"])
 			commentIdentity := managedCommentIdentity(comment)
 			logicalID := ""
+			ownershipState := "owned"
 			if menu != routeros.MenuRoutingTable {
 				logicalID = logicalByComment[commentIdentity]
-				if logicalID == "" && accesscontrol.IsLegacyManagedComment(comment) && !accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
-					fields := make(map[string]string, len(object))
-					for key, value := range object {
-						if structuralRouterField(key) {
-							fields[key] = value
-						}
-					}
-					result = append(result, ActualObject{
-						LogicalID: "foreign-access:" + commentIdentity, Menu: string(menu), RouterID: object.ID(), Position: position,
-						Fields: fields, Ownership: "foreign",
-					})
+				if logicalID == "" && isForeignScopedPolicyComment(commentIdentity, managerID, deviceID) {
+					result = appendScannedActual(result, object, menu, position, "foreign-scoped:"+commentIdentity, "foreign")
+					continue
+				}
+				if logicalID == "" && hasForeignAccessNamespaceFields(managerID, deviceID, menu, object) {
+					result = appendScannedActual(result, object, menu, position, "foreign-scoped:"+object.ID(), "foreign")
+					continue
+				}
+				if logicalID == "" && ownership.IsUnscopedLegacy(commentIdentity) {
+					logicalID = classifyUnscopedLegacy(commentIdentity, legacyDesiredByObjectHash)
+					result = appendScannedActual(result, object, menu, position, logicalID, "ambiguous")
+					continue
+				}
+				if logicalID == "" && accesscontrol.IsLegacyManagedComment(comment) && !accesscontrol.IsManagedCommentFor(managerID, deviceID, comment) {
+					result = appendScannedActual(result, object, menu, position, "foreign-access:"+commentIdentity, "foreign")
 					continue
 				}
 			}
@@ -95,18 +105,20 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 					logicalID = "stale-table:" + name
 				}
 			} else {
-				logicalID = logicalByComment[commentIdentity]
-				accessNamespace := hasAccessNamespaceFields(menu, object)
-				if logicalID == "" && isManagedCommentFor(managerID, repository.DeviceID(), comment) {
+				if logicalID == "" {
+					logicalID = logicalByComment[commentIdentity]
+				}
+				accessNamespace := hasCurrentAccessNamespaceFields(managerID, deviceID, menu, object)
+				if logicalID == "" && isManagedCommentFor(managerID, deviceID, comment) {
 					logicalID = "stale:" + commentIdentity
 				}
-				if logicalID == "" && accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
+				if logicalID == "" && accesscontrol.IsManagedCommentFor(managerID, deviceID, comment) {
 					logicalID = "stale:" + commentIdentity
 				}
 				if logicalID == "" && accessNamespace {
 					logicalID = "stale-access:" + string(menu) + ":" + object.ID()
 				}
-				if logicalID == "" && !isManagedCommentFor(managerID, repository.DeviceID(), comment) && !accesscontrol.IsManagedCommentFor(managerID, repository.DeviceID(), comment) {
+				if logicalID == "" && !isManagedCommentFor(managerID, deviceID, comment) && !accesscontrol.IsManagedCommentFor(managerID, deviceID, comment) {
 					continue
 				}
 				if logicalID == "" {
@@ -119,7 +131,7 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 					fields[key] = value
 				}
 			}
-			result = append(result, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: object.ID(), Position: position, Fields: fields, Ownership: "owned"})
+			result = append(result, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: object.ID(), Position: position, Fields: fields, Ownership: ownershipState})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -134,6 +146,40 @@ func ScanManaged(ctx context.Context, mutation PolicyMutation, repository Reposi
 	}
 	digest := sha256.Sum256(payload)
 	return result, hex.EncodeToString(digest[:]), nil
+}
+
+func appendScannedActual(result []ActualObject, object routeros.RouterOSObject, menu routeros.MutationMenu, position int, logicalID, ownershipState string) []ActualObject {
+	fields := make(map[string]string, len(object))
+	for key, value := range object {
+		if structuralRouterField(key) {
+			fields[key] = value
+		}
+	}
+	return append(result, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: object.ID(), Position: position, Fields: fields, Ownership: ownershipState})
+}
+
+func isForeignScopedPolicyComment(identity, managerID, deviceID string) bool {
+	if ownership.IsCanonical(identity) {
+		return !ownership.IsCanonicalFor(managerID, deviceID, identity)
+	}
+	if ownership.IsLegacyScoped(identity) {
+		return !ownership.IsLegacyScopedFor(managerID, deviceID, identity)
+	}
+	if !isManagedComment(identity) {
+		return false
+	}
+	if strings.HasPrefix(identity, managedCommentIdentityPrefix+"v1_") || strings.HasPrefix(identity, legacyScopedCommentIdentityPrefix+"v1_") || strings.HasPrefix(identity, legacyManagedCommentNamespace) {
+		return !isManagedCommentFor(managerID, deviceID, identity)
+	}
+	return false
+}
+
+func classifyUnscopedLegacy(identity string, desiredByObjectHash map[string][]DesiredObject) string {
+	candidates := desiredByObjectHash[strings.TrimPrefix(identity, ownership.LegacyPrefix)]
+	if len(candidates) == 1 {
+		return candidates[0].LogicalID
+	}
+	return "ambiguous-legacy:" + identity
 }
 
 // ScanManagedForDomain keeps the shared RouterOS scanner but limits the
@@ -166,6 +212,9 @@ func managedActualDomain(object ActualObject) PolicyDomain {
 	if object.Ownership == "foreign" || strings.HasPrefix(object.LogicalID, "foreign-access:") {
 		return PolicyDomainAccess
 	}
+	if isAccessLogicalID(object.LogicalID) {
+		return PolicyDomainAccess
+	}
 	fields := object.Fields
 	if strings.HasPrefix(strings.TrimSpace(fields["list"]), "rb_ac_") ||
 		strings.HasPrefix(strings.TrimSpace(fields["address-list"]), "rb_ac_") ||
@@ -175,38 +224,55 @@ func managedActualDomain(object ActualObject) PolicyDomain {
 		strings.HasPrefix(strings.TrimSpace(fields["address-list"]), applicationListPrefix) ||
 		strings.HasPrefix(strings.TrimSpace(fields["forward-to"]), "rosboard_access_") ||
 		strings.HasPrefix(strings.TrimSpace(fields["name"]), "rosboard_access_") ||
-		hasAccessNamespaceValue(fields["name"]) ||
-		hasAccessNamespaceValue(fields["list"]) ||
-		hasAccessNamespaceValue(fields["chain"]) ||
-		hasAccessNamespaceValue(fields["jump-target"]) ||
-		hasAccessNamespaceValue(fields["interface-list"]) ||
-		hasAccessNamespaceValue(fields["interface-list-name"]) ||
-		hasAccessNamespaceValue(fields["list-name"]) ||
+		hasAccessDomainHint(fields["name"]) ||
+		hasAccessDomainHint(fields["list"]) ||
+		hasAccessDomainHint(fields["chain"]) ||
+		hasAccessDomainHint(fields["jump-target"]) ||
+		hasAccessDomainHint(fields["interface-list"]) ||
+		hasAccessDomainHint(fields["interface-list-name"]) ||
+		hasAccessDomainHint(fields["list-name"]) ||
+		hasAccessDomainHint(fields["address-list"]) ||
+		hasAccessDomainHint(fields["src-address-list"]) ||
+		hasAccessDomainHint(fields["dst-address-list"]) ||
 		strings.Contains(fields["comment"], "访问控制") ||
+		strings.Contains(fields["comment"], "访问规则") ||
 		isAccessFilterFields(object.Menu, fields) {
 		return PolicyDomainAccess
 	}
 	return PolicyDomainRouting
 }
 
-func hasAccessNamespaceFields(menu routeros.MutationMenu, object routeros.RouterOSObject) bool {
+func hasCurrentAccessNamespaceFields(managerID, deviceID string, menu routeros.MutationMenu, object routeros.RouterOSObject) bool {
 	if menu == routeros.MenuRoutingTable {
 		return false
 	}
 	for _, key := range []string{"name", "list", "chain", "jump-target", "interface-list", "interface-list-name", "list-name", "address-list", "src-address-list", "dst-address-list", "forward-to"} {
-		if hasAccessNamespaceValue(object[key]) {
+		if ownership.IsNamespaceFor(managerID, deviceID, object[key]) {
 			return true
 		}
-	}
-	if strings.Contains(object["comment"], "访问控制") || isAccessFilterFields(string(menu), map[string]string(object)) {
-		return true
 	}
 	return false
 }
 
-func hasAccessNamespaceValue(value string) bool {
+func hasForeignAccessNamespaceFields(managerID, deviceID string, menu routeros.MutationMenu, object routeros.RouterOSObject) bool {
+	if menu == routeros.MenuRoutingTable {
+		return false
+	}
+	for _, key := range []string{"name", "list", "chain", "jump-target", "interface-list", "interface-list-name", "list-name", "address-list", "src-address-list", "dst-address-list", "forward-to"} {
+		value := strings.TrimSpace(object[key])
+		if ownership.IsNamespace(value) && !ownership.IsNamespaceFor(managerID, deviceID, value) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAccessDomainHint is intentionally evaluated only after ScanManaged has
+// assigned ownership. Legacy prefixes and readable labels classify an owned
+// object for domain routing; they never prove ownership themselves.
+func hasAccessDomainHint(value string) bool {
 	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rosboard_access_")
+	return ownership.IsNamespace(value) || strings.HasPrefix(value, applicationListPrefix) || strings.HasPrefix(value, "rbac_") || strings.HasPrefix(value, "rb_ac_") || strings.HasPrefix(value, "rosboard_access_")
 }
 
 func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperation, []PlanIssue) {
@@ -236,6 +302,11 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 			operations = append(operations, PlanOperation{Order: object.Order, Phase: object.Phase, Action: "create", Menu: object.Menu, LogicalID: object.LogicalID, Ownership: "owned", After: cloneStrings(object.Fields)})
 			continue
 		}
+		if matches[0].Ownership == "ambiguous" {
+			blockers = append(blockers, PlanIssue{Code: "ambiguous_legacy_object", Status: "blocker", LogicalID: object.LogicalID, Reason: "旧版 RouterOS 对象缺少可证明的当前实例归属，已阻止迁移或覆盖"})
+			used[key] = true
+			continue
+		}
 		used[key] = true
 		before, after := changedFields(matches[0].Fields, object.Fields)
 		if len(after) > 0 {
@@ -244,7 +315,12 @@ func DiffDesired(desired []DesiredObject, actual []ActualObject) ([]PlanOperatio
 	}
 	for _, object := range actual {
 		if object.Ownership == "foreign" {
-			blockers = append(blockers, PlanIssue{Code: "foreign_access_object", Status: "blocker", LogicalID: object.LogicalID, Reason: "发现不属于当前设备实例的 AccessRule RouterOS 对象，已阻止继续同步"})
+			if strings.HasPrefix(object.LogicalID, "foreign-access:") {
+				blockers = append(blockers, PlanIssue{Code: "foreign_access_object", Status: "blocker", LogicalID: object.LogicalID, Reason: "发现不属于当前设备实例的 AccessRule RouterOS 对象，已阻止继续同步"})
+			}
+			continue
+		}
+		if object.Ownership == "ambiguous" {
 			continue
 		}
 		key := object.Menu + "\x00" + object.LogicalID
@@ -401,6 +477,9 @@ var movablePolicyMenus = map[string]bool{
 func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOperation {
 	actualByMenu := make(map[string][]ActualObject)
 	for _, object := range actual {
+		if object.Ownership == "foreign" || object.Ownership == "ambiguous" {
+			continue
+		}
 		if movablePolicyMenus[object.Menu] && !isAccessFilterFields(object.Menu, object.Fields) {
 			actualByMenu[object.Menu] = append(actualByMenu[object.Menu], object)
 		}
@@ -475,7 +554,19 @@ func isAccessJumpFields(menu string, fields map[string]string) bool {
 func isAccessFilterFields(menu string, fields map[string]string) bool {
 	return (menu == string(routeros.MenuIPFirewallFilter) || menu == string(routeros.MenuIPv6FirewallFilter)) &&
 		fields["chain"] == "forward" && accesscontrol.IsManagedComment(fields["comment"]) &&
-		(fields["action"] == "jump" || strings.Contains(fields["comment"], "访问控制"))
+		(fields["action"] == "jump" || strings.Contains(fields["comment"], "访问控制") || strings.Contains(fields["comment"], "访问规则"))
+}
+
+func isAccessLogicalID(logicalID string) bool {
+	return logicalID == "access-forwarder" ||
+		strings.HasPrefix(logicalID, "access:") ||
+		strings.HasPrefix(logicalID, "access-member:") ||
+		strings.HasPrefix(logicalID, "access-target:") ||
+		strings.HasPrefix(logicalID, "access-target-dns:") ||
+		strings.HasPrefix(logicalID, "access-internet-egress:") ||
+		strings.HasPrefix(logicalID, "access-local:") ||
+		strings.HasPrefix(logicalID, "dns:access:") ||
+		strings.HasPrefix(logicalID, "dns:application:")
 }
 
 func moveLogicalIDBefore(values []string, source, target string) []string {

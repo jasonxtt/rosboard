@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 	"rosboard/internal/subject"
@@ -91,7 +92,7 @@ func TestPolicyV2DesiredMaterializesCanonicalTargetListsForAccessOnly(t *testing
 			if list == "" {
 				list = object.Fields["address-list"]
 			}
-			if !strings.HasPrefix(list, "rb_ac_") {
+			if !ownership.IsNamespace(list) {
 				t.Fatalf("target projection must use an access-consumer list: %#v", object)
 			}
 		}

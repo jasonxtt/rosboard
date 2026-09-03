@@ -255,8 +255,6 @@ func accessRuleTargetIssues(rule accesscontrol.AccessRule, targets []policyv2.Ta
 		switch {
 		case target.PendingDeletion:
 			issues = append(issues, "目标列表 "+target.Name+" 正在清理，规则当前未能完整生效。")
-		case !target.Enabled:
-			issues = append(issues, "目标列表 "+target.Name+" 已停用，规则当前不会阻断该目标。")
 		case strings.TrimSpace(target.ActiveVersionID) == "" && strings.TrimSpace(target.PendingVersionID) == "":
 			issues = append(issues, "目标列表 "+target.Name+" 尚无已应用版本，规则当前未能完整生效。")
 		}

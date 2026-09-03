@@ -223,6 +223,12 @@ func newAccessProposalRepository(ctx context.Context, repository accesscontrol.R
 }
 
 func replaceAccessProposalMembers(members []accesscontrol.RuleMember, ruleID string, replacement []accesscontrol.RuleMember) []accesscontrol.RuleMember {
+	existingByTerminal := make(map[string]accesscontrol.RuleMember)
+	for _, member := range members {
+		if member.RuleID == ruleID {
+			existingByTerminal[member.TerminalID] = member
+		}
+	}
 	result := make([]accesscontrol.RuleMember, 0, len(members)+len(replacement))
 	for _, member := range members {
 		if member.RuleID != ruleID {
@@ -231,6 +237,19 @@ func replaceAccessProposalMembers(members []accesscontrol.RuleMember, ruleID str
 	}
 	for _, member := range replacement {
 		member.RuleID = ruleID
+		previous, ok := existingByTerminal[member.TerminalID]
+		if ok && previous.Binding == accesscontrol.BindingAuto && member.Binding == accesscontrol.BindingAuto {
+			previousAnchor, previousErr := accesscontrol.NormalizeMAC(previous.AnchorMAC)
+			memberAnchor, memberErr := accesscontrol.NormalizeMAC(member.AnchorMAC)
+			if previousErr == nil && memberErr == nil && previousAnchor != "" && previousAnchor == memberAnchor {
+				// Keep the last trusted resolution in the preview overlay. The
+				// atomic commit preserves it too; without this, an edit of an
+				// auto-follow rule hashes a resolution in preview but not after
+				// commit and is reported as a false stale plan.
+				member.LastIPv4 = append([]string(nil), previous.LastIPv4...)
+				member.LastIPv6 = append([]string(nil), previous.LastIPv6...)
+			}
+		}
 		result = append(result, member)
 	}
 	return result

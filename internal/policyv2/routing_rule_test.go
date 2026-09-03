@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 )
 
 func TestNormalizeRoutingRuleIngressFollowsSubjectMode(t *testing.T) {
@@ -252,8 +253,8 @@ func TestRoutingCommentsKeepIdentityAndUseCleanTargetLabels(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			comment := managedComment(managedCommentIdentityPrefix, test.logicalID, test.label)
-			wantIdentity := managedCommentIdentityPrefix + shortHash(test.logicalID, 8)
+			comment := managedComment("manager", "device", test.logicalID, test.label)
+			wantIdentity := ownership.Identity("manager", "device", test.logicalID)
 			if managedCommentIdentity(comment) != wantIdentity {
 				t.Fatalf("comment identity=%q, want %q", managedCommentIdentity(comment), wantIdentity)
 			}

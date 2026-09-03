@@ -116,14 +116,17 @@ func TargetListFromSource(source Source) TargetList {
 		versions[i] = TargetListVersionFromSource(version)
 	}
 	return TargetList{
-		ID:                source.ID,
-		Name:              source.Name,
-		Kind:              source.Kind,
-		SourceType:        source.Type,
-		PresetID:          source.PresetID,
-		URL:               source.URL,
-		Schedule:          source.Schedule,
-		Enabled:           source.Enabled,
+		ID:         source.ID,
+		Name:       source.Name,
+		Kind:       source.Kind,
+		SourceType: source.Type,
+		PresetID:   source.PresetID,
+		URL:        source.URL,
+		Schedule:   source.Schedule,
+		// Enabled remains on the wire for compatibility with legacy source
+		// rows, but a canonical target list has no standalone activation
+		// state. Consumer references decide whether it is projected.
+		Enabled:           true,
 		ActiveVersionID:   source.ActiveVersionID,
 		PendingVersionID:  source.PendingVersionID,
 		LastGoodVersionID: source.LastGoodVersionID,
@@ -146,14 +149,16 @@ func (target TargetList) ToSource() Source {
 		versions[i] = version.ToSource()
 	}
 	return Source{
-		ID:                target.ID,
-		Type:              target.SourceType,
-		PresetID:          target.PresetID,
-		Kind:              target.Kind,
-		Name:              target.Name,
-		URL:               target.URL,
-		Schedule:          target.Schedule,
-		Enabled:           target.Enabled,
+		ID:       target.ID,
+		Type:     target.SourceType,
+		PresetID: target.PresetID,
+		Kind:     target.Kind,
+		Name:     target.Name,
+		URL:      target.URL,
+		Schedule: target.Schedule,
+		// Target lists are reusable library content. Keep the legacy source
+		// column true on canonical writes; policy consumers own activation.
+		Enabled:           true,
 		ActiveVersionID:   target.ActiveVersionID,
 		PendingVersionID:  target.PendingVersionID,
 		LastGoodVersionID: target.LastGoodVersionID,

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/ownership"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 )
@@ -127,7 +128,7 @@ func TestRoutingRuleProjectionUsesSubjectAndConsumerScopedTargetLists(t *testing
 		default:
 			t.Fatalf("unexpected execution group identity: %#v", object)
 		}
-		if !strings.HasPrefix(object.Fields["comment"], "rb_") || !strings.Contains(object.Fields["comment"], "策略 WAN selected") || !strings.Contains(object.Fields["comment"], "IP") {
+		if !ownership.IsCanonical(object.Fields["comment"]) || !strings.Contains(object.Fields["comment"], "策略 WAN selected") || !strings.Contains(object.Fields["comment"], "IP") {
 			t.Fatalf("execution group comment lost the strategy label: %#v", object)
 		}
 		family := "IPv6"

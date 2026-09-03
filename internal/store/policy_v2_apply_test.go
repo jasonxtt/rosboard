@@ -16,15 +16,16 @@ import (
 )
 
 type policyV2FakeRouter struct {
-	mu           sync.Mutex
-	nextID       int
-	objects      map[routeros.MutationMenu]map[string]routeros.RouterOSObject
-	order        map[routeros.MutationMenu][]string
-	flushes      int
-	dnsCacheSize string
-	dnsServers   string
-	failAt       int
-	writes       int
+	mu               sync.Mutex
+	nextID           int
+	objects          map[routeros.MutationMenu]map[string]routeros.RouterOSObject
+	order            map[routeros.MutationMenu][]string
+	flushes          int
+	dnsCacheSize     string
+	dnsServers       string
+	failAt           int
+	writes           int
+	capabilityChecks int
 }
 
 func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *testing.T) {
@@ -520,6 +521,9 @@ func (r *policyV2FakeRouter) FlushDNSCache(context.Context) error {
 }
 
 func (r *policyV2FakeRouter) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
+	r.mu.Lock()
+	r.capabilityChecks++
+	r.mu.Unlock()
 	return nil
 }
 
@@ -1186,7 +1190,7 @@ func TestPolicyV2ScheduledRefreshAutoAppliesAssignedSource(t *testing.T) {
 	}
 }
 
-func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T) {
+func TestLegacyAccessSourceEnabledFlagDoesNotDisableCanonicalProjection(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1257,14 +1261,14 @@ func TestDisablingAccessReferencedSourceUpdatesItsSharedProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foundDisabled := false
+	foundActive := false
 	for _, object := range objects {
 		if object["list"] == listName && object["address"] == "203.0.113.0/24" {
-			foundDisabled = object["disabled"] == "true" || object["disabled"] == "yes"
+			foundActive = object["disabled"] == "false" || object["disabled"] == "no"
 		}
 	}
-	if !foundDisabled {
-		t.Fatalf("disabled source must leave its shared address-list projection disabled, not stale and active: %#v", objects)
+	if !foundActive {
+		t.Fatalf("legacy source enabled flag must not disable a canonical target projection: %#v", objects)
 	}
 }
 

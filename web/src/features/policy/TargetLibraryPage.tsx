@@ -65,7 +65,7 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
       <div className="policy-panel-head">
         <div>
           <h3>Target Library</h3>
-          <p className="policy-hint">这里仅管理你创建的手动、URL、上传目标列表；应用规则在策略路由 / 访问规则中选择。</p>
+          <p className="policy-hint">这里仅管理你创建的手动、URL、上传目标列表；未被策略路由或访问规则引用时保持待命，不单独写入设备。</p>
         </div>
         <button type="button" className="primary-button" onClick={() => setEditing(null)}>新增目标列表</button>
       </div>
@@ -84,7 +84,7 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
 			<tbody>{visible.map((target) => {
 				const hasConsumers = target.usage.routingRuleCount + target.usage.accessRuleCount > 0
 				const hasContent = Boolean(target.activeVersionId || target.pendingVersionId)
-				const status: { tone: StatusTone; label: string } = target.pendingDeletion ? { tone: 'warn', label: '清理中' } : !target.enabled ? { tone: 'neutral', label: '已停用' } : !hasConsumers && hasContent ? { tone: 'neutral', label: '待命' } : target.activeVersionId ? { tone: 'good', label: '已应用' } : { tone: 'warn', label: '待应用' }
+				const status: { tone: StatusTone; label: string } = target.pendingDeletion ? { tone: 'warn', label: '清理中' } : !hasConsumers && hasContent ? { tone: 'neutral', label: '待命' } : target.activeVersionId ? { tone: 'good', label: '已应用' } : { tone: 'warn', label: '待应用' }
 				return <tr key={target.id}>
                 <td><strong>{target.name}</strong><span className="policy-sub-cell">{target.id}</span></td>
                 <td>{target.kind === 'ip' ? 'IP' : '域名'}</td>
@@ -103,19 +103,18 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
         </div>
       )}
     </section>
-    {editing !== undefined ? <TargetListModal deviceID={deviceID} target={editing} onClose={() => setEditing(undefined)} onSaved={async (message) => { setEditing(undefined); setNotice(message); await reload() }} /> : null}
+	{editing !== undefined ? <TargetListModal deviceID={deviceID} target={editing} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); setNotice(editing ? '目标列表已更新。' : '目标列表已创建。'); await reload() }} /> : null}
   </div>
 }
 
-function TargetListModal({ deviceID, target, onClose, onSaved }: { deviceID: string; target: TargetList | null; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+export function TargetListModal({ deviceID, target, initialKind = 'domain', onClose, onSaved }: { deviceID: string; target: TargetList | null; initialKind?: 'domain' | 'ip'; onClose: () => void; onSaved: (target: TargetList) => Promise<void> }) {
   const [name, setName] = useState(target?.name ?? '')
-  const [kind, setKind] = useState<'domain' | 'ip'>(target?.kind ?? 'domain')
+  const [kind, setKind] = useState<'domain' | 'ip'>(target?.kind ?? initialKind)
   const [sourceType, setSourceType] = useState<SourceType>(target?.sourceType === 'url' || target?.sourceType === 'upload' ? target.sourceType : 'manual')
   const [url, setURL] = useState(target?.url ?? '')
   const [text, setText] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [schedule, setSchedule] = useState(target?.schedule && target.schedule !== 'manual' ? target.schedule : '7d')
-  const [enabled, setEnabled] = useState(target?.enabled ?? true)
   const [preview, setPreview] = useState<TargetListPreview | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -141,10 +140,11 @@ function TargetListModal({ deviceID, target, onClose, onSaved }: { deviceID: str
     setSaving(true)
     setError(null)
     try {
-      const result = await saveTargetList(deviceID, { name: name.trim(), kind, sourceType, url: sourceType === 'url' ? url.trim() : undefined, schedule: sourceType === 'url' ? schedule : 'manual', enabled, revision: target?.revision ?? 0 }, target?.id, preview?.previewId)
+      const result = await saveTargetList(deviceID, { name: name.trim(), kind, sourceType, url: sourceType === 'url' ? url.trim() : undefined, schedule: sourceType === 'url' ? schedule : 'manual', enabled: true, revision: target?.revision ?? 0 }, target?.id, preview?.previewId)
       const id = jobID(result)
       if (id) await waitForPolicyJob(deviceID, id)
-      await onSaved(target ? '目标列表已更新。' : '目标列表已创建。')
+      if (!result.targetList) throw new Error('目标列表保存响应无效')
+      await onSaved(result.targetList)
     } catch (saveError) {
       setError(saveError)
     } finally {
@@ -165,7 +165,6 @@ function TargetListModal({ deviceID, target, onClose, onSaved }: { deviceID: str
       {sourceType === 'url' ? <PolicyField label="刷新"><select className="select-control" value={schedule} onChange={(event) => setSchedule(event.target.value)}><option value="1h">每 1 小时</option><option value="6h">每 6 小时</option><option value="12h">每 12 小时</option><option value="24h">每天</option><option value="7d">每 7 天</option><option value="30d">每 30 天</option></select></PolicyField> : null}
       <button type="button" className="toolbar-button" disabled={!canPreview || previewing} onClick={() => void doPreview()}>{previewing ? '正在预览…' : '预览并校验'}</button>
       {preview ? <PolicyNotice tone={preview.errorSamples.length ? 'warn' : 'good'} title="预览结果">有效规则 {preview.validRules} 条{preview.errorSamples.length ? `，${preview.errorSamples.length} 条错误样例` : ''}。</PolicyNotice> : null}
-      <label className="policy-checkbox"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span>启用此目标列表</span></label>
     </div>
   </PolicyModal>
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchPolicyDiscovery, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type RoutingRule, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
 import { SubjectSelector, TargetSelector } from './Selectors'
+import { TargetListModal } from './TargetLibraryPage'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from './gateway'
 import { PolicyPlanPreview, type PolicyPlanSummary } from './PolicyPlanPreview'
 import { hasTrafficIngress, requiresTrafficIngress, sourceIsValid } from './source'
@@ -81,6 +82,8 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
   const [discoveryError, setDiscoveryError] = useState<unknown>(null)
   const [targetListIDs, setTargetListIDs] = useState<string[]>(() => [...(rule?.targetListIds ?? [])])
+  const [targetLists, setTargetLists] = useState<TargetList[]>(() => [...context.targetLists])
+  const [creatingTargetKind, setCreatingTargetKind] = useState<'domain' | 'ip' | null>(null)
   const [presetPresentations, setPresetPresentations] = useState<PresetPresentation[]>([])
   const [rulePriority, setRulePriority] = useState(String(rule?.priority ?? 100))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
@@ -122,6 +125,12 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     setSubject(next)
   }
 
+  const addTargetList = (target: TargetList) => {
+    setTargetLists((current) => current.some((item) => item.id === target.id) ? current.map((item) => item.id === target.id ? target : item) : [...current, target])
+    setTargetListIDs((current) => current.includes(target.id) ? current : [...current, target.id])
+    setCreatingTargetKind(null)
+  }
+
   const toggleIngress = (candidate: PolicyDiscovery['trafficIngress'][number]) => {
     if (candidate.kind === 'interface-list') {
       const selected = trafficIngress.interfaceLists.includes(candidate.name)
@@ -141,7 +150,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
         ...(presetPresentations.some((selection) => selection.previewId) ? { presetSelections: presetPresentations.filter((selection) => selection.previewId) } : {}),
       }
       const envelope = await generatePolicyPlan(deviceID, context.egresses.length ? 'structural' : 'initial', proposal)
-      setPlanSummary({ entries: planSummaryEntries(draft, discovery, trafficIngress, subject, targetListIDs, context.targetLists, presetPresentations, rulePriority, enabled) })
+      setPlanSummary({ entries: planSummaryEntries(draft, discovery, trafficIngress, subject, targetListIDs, targetLists, presetPresentations, rulePriority, enabled) })
       setPlan(envelope)
       setStep(3)
     } catch (saveError) {
@@ -152,16 +161,19 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   }
 
   const title = rule ? `编辑策略：${rule.name}` : '新增策略'
-  return <PolicyModal title={title} subtitle="完成配置后直接生成可审阅的 RouterOS 变更计划，确认后才会应用。" wide onClose={onClose} header={<PolicyWizardSteps steps={wizardSteps} current={step} onJump={(index) => { if (!saving && index <= step) { setError(null); setStep(index) } }} />} footer={plan ? undefined : <div className="policy-form-actions policy-wizard-nav policy-wizard-footer"><button type="button" className="close-button" disabled={saving} onClick={step === 0 ? onClose : () => setStep((current) => Math.max(0, current - 1))}>{step === 0 ? '取消' : '上一步'}</button>{step < 2 ? <button type="button" className="primary-button" disabled={saving || (step === 0 && (!ruleName.trim() || !sourceIsValid(subject, trafficIngress)))} onClick={() => setStep((current) => current + 1)}>下一步</button> : <button type="button" className="primary-button" disabled={saving || !canFinish || errors.length > 0} onClick={() => void saveAndGenerate()}>{saving ? '生成计划中…' : '生成变更计划'}</button>}</div>}>
+  return <>
+    <PolicyModal title={title} subtitle="完成配置后直接生成可审阅的 RouterOS 变更计划，确认后才会应用。" wide onClose={onClose} header={<PolicyWizardSteps steps={wizardSteps} current={step} onJump={(index) => { if (!saving && index <= step) { setError(null); setStep(index) } }} />} footer={plan ? undefined : <div className="policy-form-actions policy-wizard-nav policy-wizard-footer"><button type="button" className="close-button" disabled={saving} onClick={step === 0 ? onClose : () => setStep((current) => Math.max(0, current - 1))}>{step === 0 ? '取消' : '上一步'}</button>{step < 2 ? <button type="button" className="primary-button" disabled={saving || (step === 0 && (!ruleName.trim() || !sourceIsValid(subject, trafficIngress)))} onClick={() => setStep((current) => current + 1)}>下一步</button> : <button type="button" className="primary-button" disabled={saving || !canFinish || errors.length > 0} onClick={() => void saveAndGenerate()}>{saving ? '生成计划中…' : '生成变更计划'}</button>}</div>}>
     {error ? <PolicyErrorDisplay error={error} /> : null}
     {discoveryError ? <PolicyErrorDisplay error={discoveryError} /> : null}
     {!plan && discovery && !discovery.available ? <PolicyNotice tone="warn" title="设备发现不可用">{discovery.reason || '无法读取 RouterOS WAN 与入口候选。'}</PolicyNotice> : null}
     {!plan && discovery?.warnings.length ? <PolicyNotice tone="warn" title="设备发现警告">{discovery.warnings.join('；')}</PolicyNotice> : null}
     {plan ? <PolicyPlanPreview deviceID={deviceID} envelope={plan} summary={planSummary ?? undefined} onBack={() => { setPlan(null); setStep(2) }} onApplied={async () => { await onSaved(); onClose() }} /> : null}
     {!plan && step === 0 ? <StrategyAndSourceStep ruleName={ruleName} rulePriority={rulePriority} ruleEnabled={enabled} errors={errors.filter((item) => item === '规则名称不能为空')} onRuleName={setRuleName} onRulePriority={setRulePriority} onRuleEnabled={setEnabled} discovery={discovery} ingress={trafficIngress} subject={subject} terminals={context.terminals} hasIngress={hasIngress} onIngress={toggleIngress} onSubject={updateSubject} /> : null}
-    {!plan && step === 1 ? <TargetStep deviceID={deviceID} targetLists={context.targetLists} targetListIDs={targetListIDs} onTargetLists={setTargetListIDs} onPresetPresentation={setPresetPresentations} /> : null}
+    {!plan && step === 1 ? <TargetStep deviceID={deviceID} targetLists={targetLists} targetListIDs={targetListIDs} onTargetLists={setTargetListIDs} onPresetPresentation={setPresetPresentations} onCreateTargetList={setCreatingTargetKind} /> : null}
     {!plan && step === 2 ? <EgressStep draft={draft} discovery={discovery} errors={errors} onDraft={updateDraft} onFamily={updateFamily} /> : null}
   </PolicyModal>
+  {creatingTargetKind ? <TargetListModal deviceID={deviceID} target={null} initialKind={creatingTargetKind} onClose={() => setCreatingTargetKind(null)} onSaved={async (target) => { addTargetList(target) }} /> : null}
+  </>
 }
 
 function StrategyAndSourceStep({ ruleName, rulePriority, ruleEnabled, errors, onRuleName, onRulePriority, onRuleEnabled, discovery, ingress, subject, terminals, hasIngress, onIngress, onSubject }: { ruleName: string; rulePriority: string; ruleEnabled: boolean; errors: string[]; onRuleName: (name: string) => void; onRulePriority: (priority: string) => void; onRuleEnabled: (enabled: boolean) => void; discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; hasIngress: boolean; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
@@ -230,8 +242,8 @@ function SourceStep({ discovery, ingress, subject, terminals, hasIngress, onIngr
   return <div className="policy-wizard-stage"><section className="policy-section-card"><h4 className="policy-section-card-title">策略入口</h4><p className="policy-hint">入口属于当前策略。选择接口列表优先；被列表覆盖的成员不再重复添加。仅选择设备或手动地址时，入口可留空。</p><div className="policy-choice-list">{(discovery?.trafficIngress ?? []).map((candidate) => { const selected = candidate.kind === 'interface-list' ? ingress.interfaceLists.includes(candidate.name) : ingress.interfaces.includes(candidate.name); const covered = candidate.kind !== 'interface-list' && candidate.coveredBy.some((name) => selectedLists.has(name)); return <label key={`${candidate.kind}:${candidate.name}`} className={`policy-choice${selected || covered ? ' active' : ''}${covered ? ' policy-choice-disabled' : ''}`}><input type="checkbox" checked={selected || covered} disabled={covered} onChange={() => onIngress(candidate)} /><span><strong>{candidate.name}</strong><small>{kindLabel[candidate.kind] ?? candidate.kind}{candidate.addresses.length ? ` · ${candidate.addresses.join(', ')}` : ''}{candidate.reason ? ` · ${candidate.reason}` : ''}</small></span></label> })}</div>{!hasIngress && requiresTrafficIngress(subject) ? <PolicyNotice tone="warn">尚未选择入口。全部设备与排除模式必须先选择入口。</PolicyNotice> : null}</section><section className="policy-section-card"><h4 className="policy-section-card-title">来源范围</h4><SubjectSelector terminals={terminals} value={subject} allowExcluded excludedDisabled={!hasIngress} onChange={onSubject} /></section></div>
 }
 
-function TargetStep({ deviceID, targetLists, targetListIDs, onTargetLists, onPresetPresentation }: { deviceID: string; targetLists: TargetList[]; targetListIDs: string[]; onTargetLists: (ids: string[]) => void; onPresetPresentation: (value: PresetPresentation[]) => void }) {
-  return <div className="policy-wizard-stage"><section className="policy-section-card"><h4>访问目标</h4><p className="policy-hint">普通目标列表和应用规则从这里复用。应用规则按域名 / IP 独立准备，Target Library 不会显示 backing rows。</p><TargetSelector deviceID={deviceID} targetLists={targetLists} selectedIDs={targetListIDs} onChange={onTargetLists} onPresetPresentationChange={onPresetPresentation} /></section></div>
+function TargetStep({ deviceID, targetLists, targetListIDs, onTargetLists, onPresetPresentation, onCreateTargetList }: { deviceID: string; targetLists: TargetList[]; targetListIDs: string[]; onTargetLists: (ids: string[]) => void; onPresetPresentation: (value: PresetPresentation[]) => void; onCreateTargetList: (kind: 'domain' | 'ip') => void }) {
+  return <div className="policy-wizard-stage"><section className="policy-section-card"><h4>访问目标</h4><p className="policy-hint">普通目标列表和应用规则从这里复用。应用规则按域名 / IP 独立准备，Target Library 不会显示 backing rows。</p><TargetSelector deviceID={deviceID} targetLists={targetLists} selectedIDs={targetListIDs} onChange={onTargetLists} onPresetPresentationChange={onPresetPresentation} onCreateTargetList={onCreateTargetList} /></section></div>
 }
 
 function targetNamesForReview(targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[]) {

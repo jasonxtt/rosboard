@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/ownership"
 	"rosboard/internal/policy"
 	"rosboard/internal/routeros"
 )
@@ -142,7 +143,7 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 	if routingDomain && !routingRulesAuthoritative {
 		sourcesByEgress = enabledSourcesByEgress(sources)
 	}
-	prefix := managedCommentIdentityPrefix
+	deviceID := repository.DeviceID()
 	accessTargetIDs := make([]string, 0)
 	for _, rule := range accessRules {
 		if !rule.Enabled || rule.TargetScope != accesscontrol.TargetScopeTargets {
@@ -165,7 +166,7 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 	addWithLabel := func(logicalID string, menu routeros.MutationMenu, phase, label string, fields map[string]string) {
 		order++
 		if menu != routeros.MenuRoutingTable {
-			fields["comment"] = managedComment(prefix, logicalID, label)
+			fields["comment"] = managedComment(managerID, deviceID, logicalID, label)
 		}
 		result.Objects = append(result.Objects, DesiredObject{Domain: domain, LogicalID: logicalID, Menu: string(menu), Fields: fields, Phase: phase, Order: order})
 	}
@@ -194,8 +195,8 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 		if upstreamErr != nil {
 			result.Blockers = append(result.Blockers, PlanIssue{Code: "access_dns_upstream_unavailable", Status: "blocker", Reason: upstreamErr.Error()})
 		} else {
-			accessForwarder = "rosboard_access_" + shortHash("access-forwarder:"+managerID+":"+repository.DeviceID(), 10)
-			addWithLabel("access-forwarder", routeros.MenuIPDNSForwarders, "dns", "访问控制 DNS 转发器", map[string]string{"name": accessForwarder, "dns-servers": upstream})
+			accessForwarder = ownership.Namespace(managerID, repository.DeviceID()) + "dns_" + shortHash("access-forwarder:"+managerID+":"+repository.DeviceID(), 10)
+			addWithLabel("access-forwarder", routeros.MenuIPDNSForwarders, "dns", "访问规则 DNS 转发器", map[string]string{"name": accessForwarder, "dns-servers": upstream})
 		}
 	}
 	accessTargetLists := make(map[string]string)
@@ -235,7 +236,7 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 					if family == FamilyIPv6 {
 						menu = routeros.MenuIPv6FirewallAddressList
 					}
-					addWithLabel("access-target:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, menu, "foundation", "访问控制目标列表 · 地址条目", map[string]string{
+					addWithLabel("access-target:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, menu, "foundation", "访问规则目标列表 · 地址条目", map[string]string{
 						"list": listName, "address": targetRule.Domain, "disabled": routerBoolValue(!activeAccessTargetIDs[targetID]),
 					})
 					continue
@@ -247,7 +248,7 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 				if targetRule.RuleType == string(policy.RuleTypeSuffix) {
 					matchSubdomain = "yes"
 				}
-				addWithLabel("access-target-dns:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, routeros.MenuIPDNSStatic, "dns", "访问控制目标列表 · DNS 静态规则", map[string]string{
+				addWithLabel("access-target-dns:"+targetID+":"+targetRule.RuleType+":"+targetRule.Domain, routeros.MenuIPDNSStatic, "dns", "访问规则目标列表 · DNS 静态规则", map[string]string{
 					"name": targetRule.Domain, "type": "FWD", "forward-to": accessForwarder, "address-list": listName,
 					"disabled": routerBoolValue(!activeAccessTargetIDs[targetID]), "match-subdomain": matchSubdomain,
 				})
@@ -509,9 +510,8 @@ func needsAccessForwarder(rules []accesscontrol.AccessRule, targetSources map[st
 }
 
 // canonicalAccessTargetSources keeps targets required by enabled rules. A
-// disabled TargetList may remain here so its existing physical rows can be
-// represented as disabled, but a target referenced only by disabled rules is
-// omitted and reconciled away.
+// target referenced only by disabled rules is omitted and reconciled away;
+// TargetList.Enabled is a legacy field and does not gate this projection.
 func canonicalAccessTargetSources(rules []accesscontrol.AccessRule, sources map[string]Source) map[string]Source {
 	result := make(map[string]Source)
 	for _, rule := range rules {
@@ -529,7 +529,7 @@ func canonicalAccessTargetSources(rules []accesscontrol.AccessRule, sources map[
 }
 
 func accessTargetConsumerActive(rule accesscontrol.AccessRule, source Source) bool {
-	return rule.Enabled && rule.TargetScope == accesscontrol.TargetScopeTargets && source.ID != "" && source.Enabled && !source.PendingDeletion
+	return rule.Enabled && rule.TargetScope == accesscontrol.TargetScopeTargets && source.ID != "" && !source.PendingDeletion
 }
 
 func enabledAccessTargetIDs(rules []accesscontrol.AccessRule, sources map[string]Source) map[string]bool {
@@ -822,7 +822,7 @@ func AccessTargetListName(managerID, deviceID string, targetIDs ...string) strin
 	} else if len(targetIDs) >= 2 {
 		targetID = targetIDs[1]
 	}
-	return "rb_ac_" + shortHash("access-target:"+managerID+":"+deviceID+":"+strings.TrimSpace(targetID), 12)
+	return ownership.Namespace(managerID, deviceID) + "target_" + shortHash("access-target:"+managerID+":"+deviceID+":"+strings.TrimSpace(targetID), 12)
 }
 
 func deterministicFakeAlias(egressID string) string {
@@ -884,9 +884,10 @@ func allRules(ctx context.Context, repository Repository, versionID string) ([]S
 }
 
 // managedCommentIdentityPrefix marks RouterOS objects owned by this feature.
-// It is deliberately short because operators read it on the router; uniqueness
-// comes from the per-object hash appended by managedComment.
-const managedCommentIdentityPrefix = "rb_"
+// The complete canonical identity also includes the installation/device scope
+// and the logical object hash; the short prefix remains operator-readable.
+const managedCommentIdentityPrefix = ownership.Prefix
+const legacyScopedCommentIdentityPrefix = ownership.LegacyPrefix
 
 const legacyManagedCommentNamespace = "rosboard:v2:"
 
@@ -901,8 +902,11 @@ func legacyManagedCommentPrefix(managerID, deviceID string) string {
 // policy-routing identity shape.
 func isManagedComment(comment string) bool {
 	identity := managedCommentIdentity(comment)
-	if strings.HasPrefix(identity, managedCommentIdentityPrefix+"v1_") {
-		parts := strings.Split(strings.TrimPrefix(identity, managedCommentIdentityPrefix+"v1_"), "_")
+	if ownership.IsCanonical(identity) || ownership.IsLegacyScoped(identity) || ownership.IsUnscopedLegacy(identity) {
+		return true
+	}
+	if strings.HasPrefix(identity, legacyScopedCommentIdentityPrefix+"v1_") {
+		parts := strings.Split(strings.TrimPrefix(identity, legacyScopedCommentIdentityPrefix+"v1_"), "_")
 		return len(parts) == 3 && hasLowerHex(parts[0], 12) && hasLowerHex(parts[1], 12) && hasLowerHex(parts[2], 8)
 	}
 	if strings.HasPrefix(identity, managedCommentIdentityPrefix) {
@@ -916,15 +920,15 @@ func isManagedComment(comment string) bool {
 }
 
 func legacyManagedCommentPrefixV1(managerID, deviceID string) string {
-	return managedCommentIdentityPrefix + "v1_" + shortHash("manager:"+managerID, 12) + "_" + shortHash("device:"+deviceID, 12) + "_"
+	return legacyScopedCommentIdentityPrefix + "v1_" + shortHash("manager:"+managerID, 12) + "_" + shortHash("device:"+deviceID, 12) + "_"
 }
 
 func isManagedCommentFor(managerID, deviceID, comment string) bool {
 	identity := managedCommentIdentity(comment)
-	if strings.HasPrefix(identity, legacyManagedCommentPrefixV1(managerID, deviceID)) {
-		return isManagedComment(identity)
+	if ownership.IsCanonicalFor(managerID, deviceID, identity) || ownership.IsLegacyScopedFor(managerID, deviceID, identity) {
+		return true
 	}
-	if strings.HasPrefix(identity, managedCommentIdentityPrefix) && !strings.HasPrefix(identity, managedCommentIdentityPrefix+"v1_") {
+	if strings.HasPrefix(identity, legacyManagedCommentPrefixV1(managerID, deviceID)) {
 		return isManagedComment(identity)
 	}
 	legacyPrefix := legacyManagedCommentPrefix(managerID, deviceID)
@@ -955,8 +959,8 @@ func DefaultRouteTable(managerID, deviceID, egressID string, family AddressFamil
 	return ManagedTablePrefix(managerID, deviceID) + shortHash(egressID, 8) + suffix
 }
 
-func managedComment(prefix, logicalID string, labels ...string) string {
-	identity := prefix + shortHash(logicalID, 8)
+func managedComment(managerID, deviceID, logicalID string, labels ...string) string {
+	identity := ownership.Identity(managerID, deviceID, logicalID)
 	if len(labels) == 0 {
 		return identity
 	}
@@ -968,11 +972,7 @@ func managedComment(prefix, logicalID string, labels ...string) string {
 }
 
 func managedCommentIdentity(comment string) string {
-	comment = strings.TrimSpace(comment)
-	if index := strings.Index(comment, " | "); index >= 0 {
-		return strings.TrimSpace(comment[:index])
-	}
-	return comment
+	return ownership.CommentIdentity(comment)
 }
 
 func managedObjectPurpose(logicalID string) string {
