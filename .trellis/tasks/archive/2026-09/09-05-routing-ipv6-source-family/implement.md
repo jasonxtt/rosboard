@@ -9,3 +9,10 @@
 7. 只有 root review `APPROVED` 后构建 Linux amd64，部署到 `10.0.0.60`，检查 service/health/embedded assets，再交由用户实际验证；不部署生产机。
 
 回滚点：实现提交前保留工作区现状；测试机仅替换 `/opt/rosboard-test/rosboard`，如需回滚使用部署前的测试机二进制备份。生产 acceptance gate 不适用于本次测试机部署。
+
+## 完成记录
+
+- Root review 已基于 `370c5c485603fc4ea7667cce0d25275f4003fadb` 返回 `APPROVED`。
+- 测试机 `10.0.0.60` 已部署该版本并通过 service、health、嵌入式前端资源及未授权 API 检查。
+- 生产机 `10.0.0.6` 已按验收门禁完成 NAS 回滚备份并替换该版本；服务、health、嵌入式前端资源、未授权 API 和近期错误日志检查通过，用户已反馈生产环境暂时测试通过。
+- 分支 `feat/policy-access-rebuild` 和 Draft PR #4 保持开放，未合并到 `main`；后续仍可继续接收生产测试反馈。

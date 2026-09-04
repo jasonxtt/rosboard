@@ -19,9 +19,9 @@
 
 ## Acceptance Criteria
 
-- [ ] IPv4-only selected 来源 + IPv6 出口：IPv6 出口基础对象存在，IPv6 来源激活不存在，且有明确的无可用来源 IPv6 警告。
-- [ ] selected 中一个 IPv4-only 设备和一个双栈设备：IPv6 激活只匹配双栈设备地址，并明确警告未覆盖的设备。
-- [ ] excluded 中存在 IPv4-only 设备：无论是否还有双栈设备，都不生成 IPv6 排除激活，并明确警告；所有排除成员有 IPv6 时才生成 `!subject-list`。
-- [ ] all 来源、手动前缀、IPv4-only 目标、link-local/ULA/global 地址的行为符合上述语义。
-- [ ] 完成后端回归测试和项目规定的 Go/Web/Trellis 检查；同一 `feat/policy-access-rebuild` 分支和 Draft PR #4 提交并推送。
-- [ ] GitHub 根审核明确返回 `APPROVED` 后，才部署到 `10.0.0.60`；不触碰生产机 `10.0.0.6`。
+- [x] IPv4-only selected 来源 + IPv6 出口：IPv6 出口基础对象存在，IPv6 来源激活不存在，且有明确的无可用来源 IPv6 警告。
+- [x] selected 中一个 IPv4-only 设备和一个双栈设备：IPv6 激活只匹配双栈设备地址，并明确警告未覆盖的设备。
+- [x] excluded 中存在 IPv4-only 设备：无论是否还有双栈设备，都不生成 IPv6 排除激活，并明确警告；所有排除成员有 IPv6 时才生成 `!subject-list`。
+- [x] all 来源、手动前缀、IPv4-only 目标、link-local/ULA/global 地址的行为符合上述语义。
+- [x] 完成后端回归测试和项目规定的 Go/Web/Trellis 检查；同一 `feat/policy-access-rebuild` 分支和 Draft PR #4 提交并推送。
+- [x] GitHub 根审核明确返回 `APPROVED` 后，才部署到 `10.0.0.60`；不触碰生产机 `10.0.0.6`。
