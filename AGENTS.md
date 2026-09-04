@@ -20,6 +20,18 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
+## Git / GitHub Development Workflow
+
+- `main` is the stable, accepted baseline. Do not use it for long-lived work in progress.
+- One independent task uses one work branch and one corresponding Draft PR targeting `main`.
+- Slices, reviewer findings, P0/P1 fixes, UI polish, regression fixes, and test-machine feedback for the same task stay on that branch and PR.
+- At each meaningful checkpoint: run the required validation, inspect the staged diff, create a commit, and push the same branch. Do not default to `git add -A`.
+- Keep the PR Draft while the task is unfinished. Do not merge or treat the task as complete until the root reviewer / acceptance gate explicitly reports `APPROVED`.
+- Do not force-push, rewrite shared history, or push directly to the remote `main` branch without explicit, task-specific authorization.
+- This is a public repository. Never commit `.env` files, real secrets or tokens, private keys, RouterOS credentials, private local databases, sensitive production backups/exports, or other local private artifacts.
+- Before every push, inspect the status, staged paths, and staged diff for secrets and unrelated files. The current GitHub PR HEAD and diff are the review source of truth; agent summaries are auxiliary.
+- Only a genuinely independent hotfix or task that needs its own release path gets a separate branch and PR. Clean up a completed task branch after its PR is merged.
+
 ## Machines: test vs production delivery
 
 - **Test machine `10.0.0.60`** — disposable LXC Debian 12 (x86_64, systemd). SSH: `ssh rosboard-test` (alias in `~/.ssh/config`, key auth configured; fallback `sshpass -p '1234567a' ssh root@10.0.0.60`). The user may freely install, break, reset, and redeploy anything here: experimental builds, destructive tests, and scratch data need **no backup and no acceptance gate**. Never point it at production RouterOS credentials or the production SQLite data; give it its own config/data directory.
