@@ -12,6 +12,7 @@
 - Migration failure rolls back, and an old binary must be restored together with the pre-migration database.
 - Per-device files use a collision-resistant filename derived from the device ID; sanitization must never make two IDs share a database.
 - `load_samples.connection_count` stores the RouterOS IPv4+IPv6 conntrack total in the same minute bucket as CPU, memory, terminal count, and traffic. Legacy rows migrate with `-1` to mean unavailable; never present an invented zero as historical evidence.
+- `dns_observations`, `dns_features`, and `mosdns_state` exist in every device database; MosDNS log ingestion is owned by the individual device, so observations, learned features, watermarks, and sync state never cross devices. The owner database hosts the `default` device's DNS data only. The one-time `dns_scope_migrated` marker wipes the former process-global DNS rows from the owner database; do not reintroduce unscoped DNS writes.
 
 ### Tests Required
 

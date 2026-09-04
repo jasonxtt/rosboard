@@ -74,3 +74,41 @@ func TestDNSObservationsPersistDeduplicationWatermarkAndPruning(t *testing.T) {
 		t.Fatalf("pruning raw observations must retain DNS features: %#v err=%v", features, err)
 	}
 }
+
+func TestLegacyDNSScopeMigrationClearsWatermarkAndUpgradesMarker(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	storage, err := Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an owner database that already ran marker version 1: the old
+	// global watermark survived and must be cleared by the version-2 pass.
+	if _, err := storage.db.Exec(`INSERT INTO mosdns_state (key, value) VALUES ('dns_scope_migrated', '1')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO mosdns_state (key, value) VALUES ('watermark_query_time_ns', '123')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO mosdns_state (key, value) VALUES ('watermark_trace_id', 'legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(dataDir)
+	if err != nil {
+		t.Fatalf("reopen with legacy marker must not fail: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if _, hasWatermark, err := reopened.LoadDNSWatermark(ctx); err != nil || hasWatermark {
+		t.Fatalf("legacy watermark must be cleared: has=%v err=%v", hasWatermark, err)
+	}
+	var marker string
+	if err := reopened.db.QueryRow(`SELECT value FROM mosdns_state WHERE key = 'dns_scope_migrated'`).Scan(&marker); err != nil || marker != "2" {
+		t.Fatalf("marker=%q err=%v", marker, err)
+	}
+}

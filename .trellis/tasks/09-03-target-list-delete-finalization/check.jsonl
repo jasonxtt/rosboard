@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Check shared scoped identity, foreign-object isolation, legacy adoption, and Access refresh idempotency against the backend contract."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check required automated validation and the no-commit/no-production deployment boundary."}
+{"file": ".trellis/tasks/09-03-target-list-delete-finalization/prd.md", "reason": "Check the P0 root-review acceptance criteria and test-machine-only delivery scope."}

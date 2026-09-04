@@ -13,6 +13,10 @@ export function viewTitle(view: ActiveView) {
     dhcp: 'DHCP',
     routes: '路由 / 分流',
     settings: '面板设置',
+    'target-library': '目标库',
+    'policy-routing': '策略路由',
+    'access-control': '访问控制',
+    recognition: '识别设置',
   }
   return titles[view]
 }

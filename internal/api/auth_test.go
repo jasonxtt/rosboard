@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -212,6 +213,53 @@ func TestAuthenticatedServerRejectsWriteWithoutOrigin(t *testing.T) {
 	}
 }
 
+func TestSameOriginWriteUsesExactEffectiveOrigin(t *testing.T) {
+	httpRequest := httptest.NewRequest(http.MethodPost, "http://panel.example/api/settings", nil)
+	for _, origin := range []string{"http://panel.example", "http://panel.example:80"} {
+		httpRequest.Header.Set("Origin", origin)
+		if !sameOriginWrite(httpRequest) {
+			t.Fatalf("valid HTTP origin %q was rejected", origin)
+		}
+	}
+	for _, origin := range []string{"https://panel.example", "http://panel.example/path", "http://user@panel.example", "http://panel.example:81"} {
+		httpRequest.Header.Set("Origin", origin)
+		if sameOriginWrite(httpRequest) {
+			t.Fatalf("invalid HTTP origin %q was accepted", origin)
+		}
+	}
+
+	httpsRequest := httptest.NewRequest(http.MethodPost, "https://panel.example/api/settings", nil)
+	httpsRequest.TLS = &tls.ConnectionState{}
+	for _, origin := range []string{"http://panel.example", "https://panel.example/path", "https://user@panel.example"} {
+		httpsRequest.Header.Set("Origin", origin)
+		if sameOriginWrite(httpsRequest) {
+			t.Fatalf("invalid HTTPS origin %q was accepted", origin)
+		}
+	}
+	httpsRequest.Header.Set("Origin", "https://panel.example:443")
+	if !sameOriginWrite(httpsRequest) {
+		t.Fatal("valid HTTPS origin was rejected")
+	}
+
+	absoluteForm := httptest.NewRequest(http.MethodPost, "https://panel.example/api/settings", nil)
+	absoluteForm.TLS = nil
+	absoluteForm.Header.Set("Origin", "https://panel.example")
+	if sameOriginWrite(absoluteForm) {
+		t.Fatal("absolute-form request target changed the trusted HTTP scheme")
+	}
+	absoluteForm.Header.Set("Origin", "http://panel.example")
+	if !sameOriginWrite(absoluteForm) {
+		t.Fatal("absolute-form HTTP request did not use the direct connection scheme")
+	}
+
+	proxyMismatch := httptest.NewRequest(http.MethodPost, "http://panel.example/api/settings", nil)
+	proxyMismatch.TLS = &tls.ConnectionState{}
+	proxyMismatch.Header.Set("Origin", "http://panel.example")
+	if sameOriginWrite(proxyMismatch) {
+		t.Fatal("proxy scheme mismatch was accepted")
+	}
+}
+
 func TestFullResetRequiresConfirmationAndReturnsToAdminSetup(t *testing.T) {
 	server, storage := newAuthServer(t, nil)
 	server.cfg.Devices = []config.DeviceConfig{{
@@ -271,5 +319,31 @@ func TestFullResetRequiresConfirmationAndReturnsToAdminSetup(t *testing.T) {
 	}
 	if totals, err := storage.ForDevice("edge").TerminalTotals(t.Context(), []string{"mac:test"}); err != nil || len(totals) != 0 {
 		t.Fatalf("monitoring data survived reset: totals=%#v err=%v", totals, err)
+	}
+}
+
+func TestFullResetSchedulesRestartAfterClosingStore(t *testing.T) {
+	restarted := make(chan struct{}, 1)
+	server, _ := newAuthServerWithRestart(t, nil, func() { restarted <- struct{}{} })
+	if err := config.Save(server.cfg.Path, server.cfg); err != nil {
+		t.Fatal(err)
+	}
+	created := authRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, nil)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	cookie := responseCookie(t, created)
+	completed := authRequest(t, server, http.MethodPost, "/api/setup/complete", `{"skipRouterOS":true}`, cookie)
+	if completed.Code != http.StatusOK {
+		t.Fatalf("complete status=%d body=%s", completed.Code, completed.Body.String())
+	}
+	reset := authRequest(t, server, http.MethodPost, "/api/settings/full-reset", `{"confirmed":true}`, cookie)
+	if reset.Code != http.StatusOK {
+		t.Fatalf("reset status=%d body=%s", reset.Code, reset.Body.String())
+	}
+	select {
+	case <-restarted:
+	case <-time.After(time.Second):
+		t.Fatal("full reset did not schedule a restart")
 	}
 }

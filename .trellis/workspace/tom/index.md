@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 66
-- **Last Active**: 2026-08-12
+- **Total Sessions**: 96
+- **Last Active**: 2026-09-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~405 | Active |
+| `journal-2.md` | ~1992 | Active |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,36 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 96 | 2026-09-05 | Complete IPv6 routing family fix and production test deployment | `f7812ae` | `feat/policy-access-rebuild` |
+| 95 | 2026-09-03 | 完成 Unified Target / Policy Model 收尾 | `ae2ba769`, `74c01fbc` | `main` |
+| 94 | 2026-09-01 | 完成 RouterOS 策略批量应用与 ssjy 全量重建验收 | `389c576` | `main` |
+| 93 | 2026-08-31 | 完成 RouterOS 设备接入流程审核 | `b9e7708` | `main` |
+| 92 | 2026-08-30 | Policy source multi-format parsing | `333d8a4` | `main` |
+| 91 | 2026-08-30 | 补全项目开发规范并归档初始化任务 | `e59178a` | `main` |
+| 90 | 2026-08-30 | 策略路由父任务行政归档 | `3a542ab` | `main` |
+| 89 | 2026-08-30 | 策略路由 IP 列表实现与修复 | `295fd39` | `main` |
+| 88 | 2026-08-30 | 识别设置全量按设备化（MosDNS/协议分析/特征库） | `c808cb0` | `main` |
+| 87 | 2026-08-29 | 手动域名列表来源 | `e0bd6e2` | `main` |
+| 86 | 2026-08-29 | Commit and deploy integrated policy/device updates | `df2be77`, `2e03894` | `main` |
+| 85 | 2026-08-29 | 策略路由自动同步与 RouterOS 对账修复 | `c53efae` | `main` |
+| 84 | 2026-08-29 | Refine policy wizard navigation workflow | `e3dad84` | `main` |
+| 83 | 2026-08-29 | 策略路由 WAN/LAN/VPN 出口发现修复与 net 部署 | `a255e65`, `382e677` | `main` |
+| 82 | 2026-08-28 | 修复策略弹窗焦点抢占并调整出口表格列 | `a64e99a` | `main` |
+| 81 | 2026-08-28 | 设备管理界面重构与 net 部署验收 | `6082ad0` | `main` |
+| 80 | 2026-08-24 | Phase 12 review 第七轮跟进：移除 JSX 内裸注释泄漏 + 存量注释准确化 | - | `main` |
+| 79 | 2026-08-24 | Phase 12 review（第七轮·前端域名列表语义）：诚实状态文案 + 已绑定可持续删 | - | `main` |
+| 78 | 2026-08-24 | Phase 12 review 续阻塞（第六轮）：egress 解绑覆盖 pending/前端按钮一致性/probe cleanup 独立 ctx/并发单飞按 key/token 精确清理 | - | `main` |
+| 77 | 2026-08-24 | Phase 12 DNS 能力探针 fail-closed + 删除生命周期（解绑即删/解绑 tombstone/egress 自动解绑） | - | `main` |
+| 76 | 2026-08-24 | Phase 12 DNS Static 能力探针实现：358 条 dns_static_capability blocker 根因修复 | - | `main` |
+| 75 | 2026-08-24 | Phase 12 review3 最后阻塞修复（第四轮）：partial 不写 applied 证据/删除标题动态/遗留 pending 编辑死路 | - | `main` |
+| 74 | 2026-08-24 | Phase 12 review2 阻塞修复（第三轮）：legacy pending 前端删除/applied 全量期望/投影准确性/清理门禁/托管保留/stale 回调 | - | `main` |
+| 73 | 2026-08-24 | Phase 12 review 2 修复：立即删除覆盖遗留 pending/TOCTOU/applied 一致性/LAN 候选可理解性/清理 ack/成功反馈 | - | `main` |
+| 72 | 2026-08-24 | Phase 12 修订实现：域名列表立即删除/账号维护流/刷新体验/LAN 候选多选/显式下一跳/策略状态 | - | `main` |
+| 71 | 2026-08-24 | Pi 第四轮修复：unmount finally setState 门禁 + 向导打开时页面 discovery 暂停 | - | `main` |
+| 70 | 2026-08-24 | Pi 第三轮修复：Lead review 6 项真实问题（discovery 接通/门禁解耦/loader 统一过滤/identity 去 Enabled/删除带 revision/预览竞态） | - | `main` |
+| 69 | 2026-08-24 | Pi 第二轮修复：Lead review 阻塞项（共享列表/planner/health 边界/向导自动预览/UX） | - | `main` |
+| 68 | 2026-08-24 | Cmcc 域名列表语义改造 + 共享标记列表删除 bug 修复（本地实现） | - | `main` |
+| 67 | 2026-08-24 | Cmcc policy wizard discovery-unavailable: 只读诊断 + 前端 fail-closed 修复 | - | `main` |
 | 66 | 2026-08-12 | 合并刷新控件并统一轮询行为 | `05a15fc` | `agent/unify-ui-design-tokens` |
 | 65 | 2026-08-12 | 完成 UI 设计令牌第四期 | `f9c2377` | `main` |
 | 64 | 2026-08-11 | 完成 UI 设计令牌第三期 | `d7508b1` | `main` |

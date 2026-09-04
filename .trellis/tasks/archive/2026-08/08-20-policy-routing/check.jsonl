@@ -1,0 +1,16 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index and scope for review."}
+{"file": ".trellis/spec/backend/runtime-configuration.md", "reason": "Review secure YAML and API projection behavior."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Review migration, isolation, and transaction behavior."}
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "Review authentication and session invariants."}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Review Monitor read-only and API compatibility boundaries."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Review validation error behavior."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Review secret-safe logging."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review Go quality and tests."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Review package boundaries."}
+{"file": ".trellis/tasks/08-20-policy-routing/prd.md", "reason": "Review changes against frozen requirements."}
+{"file": ".trellis/tasks/08-20-policy-routing/design.md", "reason": "Review changes against approved design."}
+{"file": ".trellis/tasks/08-20-policy-routing/implement.md", "reason": "Review changes against Phase 1 scope and gates."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Review Phase 7 device-scoped job, journal, and backup persistence."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review Phase 7 fake RouterOS and fail-closed tests."}
+{"file": ".trellis/tasks/08-20-policy-routing/design.md", "reason": "Review backup, executor, verifier, and rollback contracts."}
+{"file": ".trellis/tasks/08-20-policy-routing/implement.md", "reason": "Review Phase 7 implementation and verification checklist."}

@@ -3,12 +3,16 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,18 +64,29 @@ func TestFleetOverviewRouteIsReadOnlyAndAvailableWithoutDevices(t *testing.T) {
 	}
 }
 
-func TestMosDNSRoutesAreAvailableWithoutRouterOSMonitor(t *testing.T) {
-	cfg := config.Config{ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true}, MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30}}
-	server := NewServer(cfg, nil, nil)
+func TestMosDNSRoutesRequireDeviceID(t *testing.T) {
+	server := NewServer(config.Config{ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true}}, nil, nil)
+
+	missingResponse := httptest.NewRecorder()
+	server.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns", nil))
+	if missingResponse.Code != http.StatusBadRequest {
+		t.Fatalf("MosDNS status without deviceId: status=%d body=%s", missingResponse.Code, missingResponse.Body.String())
+	}
 
 	statusResponse := httptest.NewRecorder()
-	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns", nil))
-	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"enabled":true`) {
+	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns?deviceId=missing", nil))
+	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"enabled":false`) {
 		t.Fatalf("MosDNS status route failed: status=%d body=%s", statusResponse.Code, statusResponse.Body.String())
 	}
 
+	observationsMissing := httptest.NewRecorder()
+	server.ServeHTTP(observationsMissing, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations", nil))
+	if observationsMissing.Code != http.StatusBadRequest {
+		t.Fatalf("MosDNS observations without deviceId: status=%d body=%s", observationsMissing.Code, observationsMissing.Body.String())
+	}
+
 	observationsResponse := httptest.NewRecorder()
-	server.ServeHTTP(observationsResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations", nil))
+	server.ServeHTTP(observationsResponse, httptest.NewRequest(http.MethodGet, "/api/mosdns/observations?deviceId=missing", nil))
 	if observationsResponse.Code != http.StatusOK || !strings.Contains(observationsResponse.Body.String(), `"observations":[]`) {
 		t.Fatalf("MosDNS observations route failed: status=%d body=%s", observationsResponse.Code, observationsResponse.Body.String())
 	}
@@ -112,14 +127,20 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
 		AllowedCIDRs:                []string{"127.0.0.0/8", "::1/128"},
-		MosDNS:                      config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
-		FeatureLibrary:              config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
 		RouterOS: config.RouterOSConfig{
 			BaseURL:           "http://router.test",
 			Username:          "admin",
 			Password:          "super-secret",
 			TrafficInterfaces: []string{"pppoe-out1"},
 		},
+		Devices: []config.DeviceConfig{{
+			ID:               config.DefaultDeviceID,
+			Name:             "RouterOS",
+			Enabled:          true,
+			RouterOS:         config.RouterOSConfig{BaseURL: "http://router.test", Username: "admin", Password: "super-secret", TrafficInterfaces: []string{"pppoe-out1"}},
+			ProtocolAnalysis: true,
+			FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
+		}},
 	}
 	monitor := service.NewMonitor(cfg, nil, nil, log.Default())
 	server := NewServer(cfg, monitor, nil)
@@ -180,11 +201,11 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		payload.Collection.SampleRetentionHours != cfg.SampleRetentionHours {
 		t.Fatalf("unexpected collection settings: %+v", payload.Collection)
 	}
-	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":{"enabled":false}`) {
-		t.Fatalf("unexpected protocol analysis setting: %+v", payload.ProtocolAnalysis)
+	if payload.ProtocolAnalysis.Enabled || !strings.Contains(response.Body.String(), `"protocolAnalysis":true`) {
+		t.Fatalf("unexpected protocol analysis projection: %+v", payload.ProtocolAnalysis)
 	}
-	if !strings.Contains(response.Body.String(), `"mosdns":{"enabled":true`) || !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":true`) {
-		t.Fatalf("settings projection must preserve stored child toggles: %s", response.Body.String())
+	if !strings.Contains(response.Body.String(), `"featureLibrary":{"enabled":false`) || strings.Contains(response.Body.String(), "example.test/library.yml") {
+		t.Fatalf("retired feature library must not be exposed as active settings: %s", response.Body.String())
 	}
 }
 
@@ -301,19 +322,21 @@ func TestCollectionSettingsRejectsNonPositiveValues(t *testing.T) {
 	}
 }
 
-func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
+func TestRecognitionSettingsPostSavesPerDeviceRecognition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/legacy.yml", RefreshIntervalHours: 24, MatchWindowMinutes: 45}},
+			{ID: "core", Name: "Core", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://core.test", Username: "u", Password: "p"}},
+		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":true},
-		"mosdns":{"enabled":false,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":60},
-		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/updated.yml","refreshIntervalHours":24,"matchWindowMinutes":45}
+		"devices":[
+			{"id":"edge","protocolAnalysis":true,"mosdns":{"enabled":true,"baseUrl":"10.0.0.4","syncIntervalMinutes":15,"matchWindowMinutes":22}},
+			{"id":"core","protocolAnalysis":true,"mosdns":{"enabled":false,"baseUrl":"","syncIntervalMinutes":30,"matchWindowMinutes":30}}
+		]
 	}`))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -324,27 +347,33 @@ func TestRecognitionSettingsPostSavesIndependentToggles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.MosDNS.Enabled || loaded.MosDNS.SyncIntervalMinutes != 60 {
-		t.Fatalf("MosDNS settings were not saved: %#v", loaded.MosDNS)
+	edge, found := loaded.Device("edge")
+	if !found || !edge.ProtocolAnalysis {
+		t.Fatalf("edge protocol analysis was not saved: %#v", edge)
 	}
-	if !loaded.FeatureLibrary.Enabled || loaded.FeatureLibrary.SourceURL != "https://example.test/updated.yml" || loaded.FeatureLibrary.RefreshIntervalHours != 24 || loaded.FeatureLibrary.MatchWindowMinutes != 45 {
-		t.Fatalf("feature library settings were not saved: %#v", loaded.FeatureLibrary)
+	if !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.4" || edge.MosDNS.SyncIntervalMinutes != 15 || edge.MosDNS.MatchWindowMinutes != 22 {
+		t.Fatalf("edge device MosDNS was not saved: %#v", edge.MosDNS)
+	}
+	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/legacy.yml" || edge.FeatureLibrary.RefreshIntervalHours != 24 || edge.FeatureLibrary.MatchWindowMinutes != 45 {
+		t.Fatalf("legacy feature library fields must be preserved but not actively saved: %#v", edge.FeatureLibrary)
+	}
+	core, found := loaded.Device("core")
+	if !found || core.MosDNS.Enabled || core.FeatureLibrary.Enabled {
+		t.Fatalf("core device recognition settings were not saved: %#v", core)
 	}
 }
 
-func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
+func TestRecognitionSettingsMasterSwitchDoesNotDisableMosDNS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: false, SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: false, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}, ProtocolAnalysis: true, FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/legacy.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30}},
+		},
 	}
 	server := NewServer(cfg, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":true},
-		"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30},
-		"featureLibrary":{"enabled":false,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
+		"devices":[{"id":"edge","protocolAnalysis":false,"mosdns":{"enabled":true,"baseUrl":"10.0.0.3","syncIntervalMinutes":30,"matchWindowMinutes":18}}]
 	}`))
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -355,73 +384,60 @@ func TestRecognitionSettingsAcceptsPlainMosDNSAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.MosDNS.Enabled || loaded.MosDNS.BaseURL != "http://10.0.0.3" {
-		t.Fatalf("plain MosDNS address was not saved as a URL: %#v", loaded.MosDNS)
+	edge, found := loaded.Device("edge")
+	if !found {
+		t.Fatal("edge device disappeared")
+	}
+	if edge.ProtocolAnalysis || !edge.MosDNS.Enabled || edge.MosDNS.BaseURL != "http://10.0.0.3" || edge.MosDNS.MatchWindowMinutes != 18 {
+		t.Fatalf("protocol analysis switch must not disable MosDNS: %#v", edge)
+	}
+	if !edge.FeatureLibrary.Enabled || edge.FeatureLibrary.SourceURL != "https://example.test/legacy.yml" {
+		t.Fatalf("legacy feature library fields must remain untouched: %#v", edge.FeatureLibrary)
 	}
 }
 
-func TestProtocolAnalysisDisabledShortCircuitsProtocolAPIAndRecognitionStatus(t *testing.T) {
+func TestProtocolAPIGatesPerDevice(t *testing.T) {
 	server := NewServer(config.Config{
-		MosDNS:         config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3"},
-		FeatureLibrary: config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml"},
+		Devices: []config.DeviceConfig{
+			{ID: "edge", Name: "Edge", Enabled: true, ProtocolAnalysis: true, RouterOS: config.RouterOSConfig{BaseURL: "http://edge.test", Username: "u", Password: "p"}},
+			{ID: "core", Name: "Core", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://core.test", Username: "u", Password: "p"}},
+		},
 	}, nil, nil)
 
-	protocolsResponse := httptest.NewRecorder()
-	server.ServeHTTP(protocolsResponse, httptest.NewRequest(http.MethodGet, "/api/protocols", nil))
-	if protocolsResponse.Code != http.StatusOK {
-		t.Fatalf("protocol API status=%d body=%s", protocolsResponse.Code, protocolsResponse.Body.String())
-	}
-	var protocols struct {
-		Protocols []any `json:"protocols"`
-		History   []any `json:"history"`
-		Enabled   bool  `json:"enabled"`
-	}
-	if err := json.Unmarshal(protocolsResponse.Body.Bytes(), &protocols); err != nil {
-		t.Fatal(err)
-	}
-	if protocols.Enabled || protocols.Protocols == nil || protocols.History == nil || len(protocols.Protocols) != 0 || len(protocols.History) != 0 {
-		t.Fatalf("disabled protocol API must return empty arrays and enabled=false: %#v", protocols)
-	}
-
-	recognitionResponse := httptest.NewRecorder()
-	server.ServeHTTP(recognitionResponse, httptest.NewRequest(http.MethodGet, "/api/recognition", nil))
-	if recognitionResponse.Code != http.StatusOK {
-		t.Fatalf("recognition status=%d body=%s", recognitionResponse.Code, recognitionResponse.Body.String())
-	}
-	var recognition service.RecognitionStatus
-	if err := json.Unmarshal(recognitionResponse.Body.Bytes(), &recognition); err != nil {
-		t.Fatal(err)
-	}
-	if recognition != (service.RecognitionStatus{}) {
-		t.Fatalf("disabled recognition status must be zero: %#v", recognition)
-	}
-}
-
-func TestRecognitionSettingsDisablingProtocolAnalysisDisablesChildren(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	cfg := config.Config{
-		Path: path, DataDir: t.TempDir(), PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		ProtocolAnalysis: config.ProtocolAnalysisConfig{Enabled: true},
-		MosDNS:           config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 30},
-		FeatureLibrary:   config.FeatureLibraryConfig{Enabled: true, SourceURL: "https://example.test/library.yml", RefreshIntervalHours: 168, MatchWindowMinutes: 30},
-	}
-	server := NewServer(cfg, nil, nil)
-	request := httptest.NewRequest(http.MethodPost, "/api/settings/recognition", strings.NewReader(`{
-		"protocolAnalysis":{"enabled":false},
-		"mosdns":{"enabled":true,"baseUrl":"http://10.0.0.3","syncIntervalMinutes":30},
-		"featureLibrary":{"enabled":true,"sourceUrl":"https://example.test/library.yml","refreshIntervalHours":168,"matchWindowMinutes":30}
-	}`))
+	request := httptest.NewRequest(http.MethodGet, "/api/protocols?device=core", nil)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		t.Fatalf("protocol API status=%d body=%s", response.Code, response.Body.String())
 	}
-	loaded, err := config.Load(path)
-	if err != nil {
+	var protocols struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &protocols); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.ProtocolAnalysis.Enabled || loaded.MosDNS.Enabled || loaded.FeatureLibrary.Enabled {
-		t.Fatalf("protocol analysis disable must force child toggles off: %#v", loaded)
+	if protocols.Enabled {
+		t.Fatalf("device without protocol analysis must report enabled=false: %#v", protocols)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/protocols?device=edge", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	// With the per-device switch on, the request proceeds to the monitor path;
+	// without a monitor it degrades to setup-required instead of the disabled payload.
+	if response.Code == http.StatusOK && strings.Contains(response.Body.String(), `"enabled":false`) {
+		t.Fatalf("device with protocol analysis must not receive the disabled payload: %s", response.Body.String())
+	}
+
+	recognitionMissing := httptest.NewRecorder()
+	server.ServeHTTP(recognitionMissing, httptest.NewRequest(http.MethodGet, "/api/recognition", nil))
+	if recognitionMissing.Code != http.StatusBadRequest {
+		t.Fatalf("recognition status without deviceId: status=%d", recognitionMissing.Code)
+	}
+	recognitionResponse := httptest.NewRecorder()
+	server.ServeHTTP(recognitionResponse, httptest.NewRequest(http.MethodGet, "/api/recognition?deviceId=edge", nil))
+	if recognitionResponse.Code != http.StatusOK || !strings.Contains(recognitionResponse.Body.String(), `"protocolAnalysis":true`) {
+		t.Fatalf("recognition status=%d body=%s", recognitionResponse.Code, recognitionResponse.Body.String())
 	}
 }
 
@@ -533,4 +549,358 @@ func TestDeviceLifecycleArchivesBeforePurging(t *testing.T) {
 	if len(loaded.Devices) != 0 || loaded.RouterOSConfigured() {
 		t.Fatalf("purged device remained configured: %#v", loaded.Devices)
 	}
+}
+
+func TestSettingsProjectionExcludesRetiredPolicyAccess(t *testing.T) {
+	server := NewServer(config.Config{Devices: []config.DeviceConfig{{
+		ID: "edge", Name: "Edge", Enabled: true,
+		RouterOS: config.RouterOSConfig{BaseURL: "http://router.test", Username: "monitor", Password: "monitor-secret"},
+	}}}, nil, nil)
+
+	payload, err := json.Marshal(server.settingsResponse())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(payload)
+	if strings.Contains(body, "monitor-secret") || strings.Contains(body, "policyAccess") {
+		t.Fatalf("settings projection leaked a password: %s", body)
+	}
+}
+
+func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
+	dir := t.TempDir()
+	restarted := make(chan struct{}, 1)
+	cfg := config.Config{
+		Path: filepath.Join(dir, "config.yaml"), ListenAddress: ":8080", DataDir: dir,
+		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
+		Devices: []config.DeviceConfig{{
+			ID: "edge", Name: "Edge", Enabled: true,
+			RouterOS:       config.RouterOSConfig{BaseURL: "http://10.0.0.1", Username: "rosboard_old", Password: "secret"},
+			ManagedAccount: &config.ManagedRouterOSAccount{Username: "rosboard_old", GroupName: "rosboard_g_old"},
+		}},
+	}
+	server := NewServerWithRestart(cfg, nil, nil, func() { restarted <- struct{}{} })
+	request := httptest.NewRequest(http.MethodDelete, "/api/devices/edge/account", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	device, found := server.configSnapshot().Device("edge")
+	if !found || device.Enabled || device.RouterOS.Username != "" || device.RouterOS.Password != "" || device.ManagedAccount != nil {
+		t.Fatalf("device account was not cleared safely: %#v found=%v", device, found)
+	}
+	select {
+	case <-restarted:
+	case <-time.After(time.Second):
+		t.Fatal("device restart was not scheduled")
+	}
+	loaded, err := config.Load(cfg.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, found := loaded.Device("edge")
+	if !found || persisted.Enabled || persisted.RouterOS.Username != "" || persisted.RouterOS.Password != "" || persisted.ManagedAccount != nil {
+		t.Fatalf("persisted device account was not cleared: %#v found=%v", persisted, found)
+	}
+}
+
+func newDeviceOrderTestServer(t *testing.T, devices []config.DeviceConfig) (*Server, string, *atomic.Int32) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Config{
+		Path:                        path,
+		ListenAddress:               "127.0.0.1:8080",
+		DataDir:                     t.TempDir(),
+		PollIntervalSeconds:         10,
+		RealtimePollIntervalSeconds: 1,
+		TerminalPollIntervalSeconds: 3,
+		SampleRetentionHours:        48,
+		Devices:                     devices,
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restarts atomic.Int32
+	server := NewServerWithManager(loaded, nil, nil, nil, func() { restarts.Add(1) })
+	return server, path, &restarts
+}
+
+func orderedDeviceIDs(t *testing.T, body string) []string {
+	t.Helper()
+	var payload struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(payload.Devices))
+	for _, device := range payload.Devices {
+		ids = append(ids, device.ID)
+	}
+	return ids
+}
+
+func settingsDeviceIDs(t *testing.T, body string) []string {
+	t.Helper()
+	var payload struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(payload.Devices))
+	for _, device := range payload.Devices {
+		ids = append(ids, device.ID)
+	}
+	return ids
+}
+
+func TestDeviceReorderPersistsOrderSkipsRestartAndAlignsResponses(t *testing.T) {
+	server, path, restarts := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+		{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 3},
+	})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(`{"deviceIds":["charlie","alpha","bravo"]}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Restarting bool `json:"restarting"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Restarting {
+		t.Fatal("reorder must not restart the panel")
+	}
+	if restarts.Load() != 0 {
+		t.Fatalf("reorder scheduled %d restarts", restarts.Load())
+	}
+
+	deviceResponse := httptest.NewRecorder()
+	deviceRequest := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
+	deviceRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(deviceResponse, deviceRequest)
+	if deviceResponse.Code != http.StatusOK {
+		t.Fatalf("devices status=%d body=%s", deviceResponse.Code, deviceResponse.Body.String())
+	}
+	wantOrder := []string{"charlie", "alpha", "bravo"}
+	if got := orderedDeviceIDs(t, deviceResponse.Body.String()); !equalStrings(got, wantOrder) {
+		t.Fatalf("/api/devices order = %v, want %v", got, wantOrder)
+	}
+
+	settingsResponse := httptest.NewRecorder()
+	settingsRequest := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	settingsRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(settingsResponse, settingsRequest)
+	if settingsResponse.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsResponse.Code, settingsResponse.Body.String())
+	}
+	if got := settingsDeviceIDs(t, settingsResponse.Body.String()); !equalStrings(got, wantOrder) {
+		t.Fatalf("/api/settings device order = %v, want %v", got, wantOrder)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, wantID := range wantOrder {
+		device := loaded.Devices[index]
+		if device.ID != wantID || device.SortOrder != index+1 {
+			t.Fatalf("persisted device[%d] = %q sort %d, want %q sort %d (all: %+v)", index, device.ID, device.SortOrder, wantID, index+1, loaded.Devices)
+		}
+	}
+}
+
+func TestDeviceReorderRejectsInvalidRequestsWithoutChangingConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "duplicate", body: `{"deviceIds":["alpha","alpha","charlie"]}`},
+		{name: "unknown", body: `{"deviceIds":["alpha","charlie","ghost"]}`},
+		{name: "missing", body: `{"deviceIds":["alpha"]}`},
+		{name: "empty", body: `{"deviceIds":[]}`},
+		{name: "archived included", body: `{"deviceIds":["alpha","charlie","bravo"]}`},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server, path, restarts := newDeviceOrderTestServer(t, []config.DeviceConfig{
+				{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+				{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 2},
+				{ID: "bravo", Name: "Bravo", Enabled: false, Archived: true, SortOrder: 3},
+			})
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(testCase.body))
+			request.RemoteAddr = "127.0.0.1:12345"
+			server.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if restarts.Load() != 0 {
+				t.Fatalf("rejected reorder scheduled %d restarts", restarts.Load())
+			}
+			loaded, err := config.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(loaded.Devices) != 3 || loaded.Devices[0].ID != "alpha" || loaded.Devices[0].SortOrder != 1 {
+				t.Fatalf("rejected reorder changed persisted config: %+v", loaded.Devices)
+			}
+		})
+	}
+}
+
+func TestDeviceReorderAllowsEmptyListWithoutDevices(t *testing.T) {
+	server, _, _ := newDeviceOrderTestServer(t, nil)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/devices/reorder", strings.NewReader(`{"deviceIds":[]}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceCreateAppendsTailOrderAndEditPreservesIt(t *testing.T) {
+	routerOS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/rest/interface" {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`[{"name":"ether1","running":"true","disabled":"false"}]`))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer routerOS.Close()
+	endpoint, err := url.Parse(routerOS.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(endpoint.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server, path, _ := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+	})
+
+	createResponse := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/devices", strings.NewReader(fmt.Sprintf(`{"name":"Charlie","scheme":"http","host":"%s","port":%d,"username":"u","password":"p","enabled":true,"deferRestart":true}`, endpoint.Hostname(), port)))
+	createRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	charlie, found := loaded.Device(created.ID)
+	if !found {
+		t.Fatalf("created device missing from config: %+v", loaded.Devices)
+	}
+	// config.Load normalizes the slice into display order, so the new device
+	// must be last with the next sort position.
+	last := loaded.Devices[len(loaded.Devices)-1]
+	if last.ID != created.ID || charlie.SortOrder != 3 {
+		t.Fatalf("created device must be appended at the tail, got %+v", loaded.Devices)
+	}
+
+	editResponse := httptest.NewRecorder()
+	editRequest := httptest.NewRequest(http.MethodPut, "/api/devices/"+url.PathEscape(created.ID), strings.NewReader(fmt.Sprintf(`{"name":"Charlie Renamed","scheme":"http","host":"%s","port":%d,"username":"u","enabled":true,"deferRestart":true}`, endpoint.Hostname(), port)))
+	editRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(editResponse, editRequest)
+	if editResponse.Code != http.StatusOK {
+		t.Fatalf("edit status=%d body=%s", editResponse.Code, editResponse.Body.String())
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, found := reloaded.Device(created.ID)
+	if !found || edited.SortOrder != 3 || edited.Name != "Charlie Renamed" {
+		t.Fatalf("editing a device must preserve its sort order, got %+v", reloaded.Devices)
+	}
+}
+
+func TestDeviceArchiveAndRestoreAffectOrder(t *testing.T) {
+	server, path, _ := newDeviceOrderTestServer(t, []config.DeviceConfig{
+		{ID: "alpha", Name: "Alpha", Enabled: true, SortOrder: 1},
+		{ID: "bravo", Name: "Bravo", Enabled: true, SortOrder: 2},
+		{ID: "charlie", Name: "Charlie", Enabled: true, SortOrder: 3},
+	})
+
+	archiveResponse := httptest.NewRecorder()
+	archiveRequest := httptest.NewRequest(http.MethodDelete, "/api/devices/bravo", nil)
+	archiveRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(archiveResponse, archiveRequest)
+	if archiveResponse.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", archiveResponse.Code, archiveResponse.Body.String())
+	}
+
+	deviceResponse := httptest.NewRecorder()
+	deviceRequest := httptest.NewRequest(http.MethodGet, "/api/devices", nil)
+	deviceRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(deviceResponse, deviceRequest)
+	if got := orderedDeviceIDs(t, deviceResponse.Body.String()); !equalStrings(got, []string{"alpha", "charlie"}) {
+		t.Fatalf("archived device must vanish from /api/devices, got %v", got)
+	}
+
+	restoreResponse := httptest.NewRecorder()
+	restoreRequest := httptest.NewRequest(http.MethodPost, "/api/devices/bravo/restore", nil)
+	restoreRequest.RemoteAddr = "127.0.0.1:12345"
+	server.ServeHTTP(restoreResponse, restoreRequest)
+	if restoreResponse.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", restoreResponse.Code, restoreResponse.Body.String())
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bravo, found := loaded.Device("bravo")
+	if !found || bravo.Archived {
+		t.Fatalf("restored device must be active again: %#v found=%v", bravo, found)
+	}
+	if bravo.SortOrder != 4 || loaded.Devices[len(loaded.Devices)-1].ID != "bravo" {
+		t.Fatalf("restored device must re-join at the tail, got %+v", loaded.Devices)
+	}
+}
+
+func equalStrings(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
 }

@@ -336,8 +336,64 @@ func sameOriginWrite(request *http.Request) bool {
 	if origin == "" {
 		return false
 	}
-	parsed, err := url.Parse(origin)
-	return err == nil && strings.EqualFold(parsed.Host, request.Host)
+	originScheme, originHost, originPort, ok := parseExactOrigin(origin, "")
+	if !ok {
+		return false
+	}
+	// URL.Scheme is populated from an absolute-form request target and is
+	// therefore client-controlled. The direct connection's TLS state is the
+	// trusted effective scheme; deployments terminating TLS upstream must use a
+	// separately configured HTTPS listener rather than accepting a forwarded
+	// scheme header here.
+	effectiveScheme := "http"
+	if request.TLS != nil {
+		effectiveScheme = "https"
+	}
+	requestScheme, requestHost, requestPort, ok := parseExactOrigin("//"+strings.TrimSpace(request.Host), effectiveScheme)
+	if !ok || originScheme != requestScheme || originPort != requestPort || !sameOriginHost(originHost, requestHost) {
+		return false
+	}
+	return true
+}
+
+func parseExactOrigin(raw, defaultScheme string) (scheme, host, port string, ok bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", "", "", false
+	}
+	scheme = strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme == "" {
+		scheme = strings.ToLower(strings.TrimSpace(defaultScheme))
+	}
+	if scheme != "http" && scheme != "https" {
+		return "", "", "", false
+	}
+	host = strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "" {
+		return "", "", "", false
+	}
+	port = parsed.Port()
+	if port == "" {
+		if scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	} else if value, err := strconv.Atoi(port); err != nil || value < 0 || value > 65535 {
+		return "", "", "", false
+	} else {
+		port = strconv.Itoa(value)
+	}
+	return scheme, host, port, true
+}
+
+func sameOriginHost(left, right string) bool {
+	if left == right {
+		return true
+	}
+	leftIP := net.ParseIP(left)
+	rightIP := net.ParseIP(right)
+	return leftIP != nil && rightIP != nil && leftIP.Equal(rightIP)
 }
 
 func setSecurityHeaders(writer http.ResponseWriter) {

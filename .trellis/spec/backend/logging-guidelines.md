@@ -2,50 +2,62 @@
 
 > How logging is done in this project.
 
----
-
 ## Overview
 
-<!--
-Document your project's logging conventions here.
-
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
-
-(To be filled by the team)
-
----
+The backend uses Go's standard `log.Logger`. The process entrypoint creates a
+logger and injects it into long-lived services; packages do not create their
+own global logger. Logging is operational context for operators, not a second
+error-return channel.
 
 ## Log Levels
 
-<!-- When to use each level: debug, info, warn, error -->
+The current logger exposes the standard `Print*` methods rather than a
+structured level API. Use the following convention:
 
-(To be filled by the team)
+- `log.Fatalf` only for unrecoverable command/startup failures in
+  `cmd/rosboard/main.go`.
+- `logger.Printf` for recoverable background failures and important lifecycle
+  events. Include an explicit phrase such as `refresh failed` or `job failed`
+  when the event is not fatal.
+- Return errors to the caller as well; do not log and silently continue at a
+  lower layer unless the operation is intentionally best-effort.
 
----
+## Structured Context
 
-## Structured Logging
+There is no JSON logger or request logging middleware. Use a stable one-line
+message with key context in the text. Background policy messages should include
+the device ID and job ID when available; service messages should include the
+device ID and operation. Avoid dumping whole request, response, or RouterOS
+object payloads.
 
-<!-- Log format, required fields -->
-
-(To be filled by the team)
-
----
+```go
+if m != nil && m.logger != nil {
+    m.logger.Printf("policy v2 device=%s job=%s: %v", deviceID, jobID, err)
+}
+```
 
 ## What to Log
 
-<!-- Important events to log -->
-
-(To be filled by the team)
-
----
+- Process startup and shutdown-relevant failures.
+- Device monitor, source refresh, policy job, and RouterOS verification
+  failures with the affected device and operation.
+- State transitions that help an operator understand why work paused or was
+  rejected, without recording the underlying secret-bearing payload.
 
 ## What NOT to Log
 
-<!-- Sensitive data, PII, secrets -->
+- RouterOS passwords, administrator passwords, session tokens, cookies, or
+  `Authorization` headers.
+- Full YAML/source contents, uploaded files, raw request bodies, or SQLite
+  credentials.
+- Large RouterOS object lists when a count, ID, menu, and operation is enough.
+- Sensitive data merely to make a failed test easier to debug.
 
-(To be filled by the team)
+## Common Mistakes
+
+- Creating a package-level logger makes tests and device-specific context
+  difficult to control.
+- Logging an error and then returning it repeatedly creates noisy duplicate
+  entries; log at the boundary that can act on the failure.
+- Including a raw HTTP request in a RouterOS failure can leak credentials even
+  when the error message looks harmless.

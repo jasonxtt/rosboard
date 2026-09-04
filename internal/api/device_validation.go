@@ -63,14 +63,31 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	allowed := make(map[string]struct{})
 	consumeTicket := false
 	var verifiedTicket verificationTicket
-	if connectionChanged {
+	if strings.TrimSpace(payload.VerificationToken) != "" {
 		ticket, err := s.tickets.validate(payload.VerificationToken, connectionFingerprint(baseURL, username, password))
-		if err != nil {
+		if err == nil {
+			allowed = ticket.interfaces
+			verifiedTicket = ticket
+			consumeTicket = true
+		} else if !errors.Is(err, errVerificationRequired) {
 			return config.DeviceConfig{}, false, err
+		} else {
+			return config.DeviceConfig{}, false, errVerificationRequired
 		}
-		allowed = ticket.interfaces
-		verifiedTicket = ticket
-		consumeTicket = true
+	} else if connectionChanged {
+		// Keep the legacy API path usable for callers that do not yet perform a
+		// full preview. The frontend always sends a verification ticket.
+		verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		interfaces, verifyErr := routeros.NewClient(baseURL, username, password).Interfaces(verifyCtx)
+		cancel()
+		if verifyErr != nil {
+			return config.DeviceConfig{}, false, errors.New("unable to verify RouterOS connection")
+		}
+		for _, item := range interfaces {
+			if name := strings.TrimSpace(item.Name); name != "" {
+				allowed[name] = struct{}{}
+			}
+		}
 	} else {
 		verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
@@ -103,12 +120,38 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	if !legacyTraffic {
 		// Automatic results are runtime-only; persist rules, not selected names.
 		trafficScope.Mode = "auto"
-		if connectionChanged && len(trafficScope.IncludeInterfaces) == 0 {
+		if consumeTicket && len(trafficScope.IncludeInterfaces) == 0 {
 			_, preview := service.PreviewScopes(config.RouterOSConfig{TrafficScope: trafficScope, TerminalScope: scope}, verifiedTicket.topology)
 			if len(preview.Interfaces) == 0 {
 				return config.DeviceConfig{}, false, errors.New("unable to identify an ISP traffic interface; add a traffic-scope include interface")
 			}
 		}
+	}
+
+	var mosDNS config.MosDNSConfig
+	if payload.MosDNS != nil {
+		mosDNS = config.MosDNSConfig{
+			Enabled:             payload.MosDNS.Enabled,
+			BaseURL:             config.NormalizeMosDNSBaseURL(payload.MosDNS.BaseURL),
+			SyncIntervalMinutes: payload.MosDNS.SyncIntervalMinutes,
+			MatchWindowMinutes:  payload.MosDNS.MatchWindowMinutes,
+		}
+		if mosDNS.SyncIntervalMinutes == 0 {
+			mosDNS.SyncIntervalMinutes = 30
+		}
+		if mosDNS.MatchWindowMinutes == 0 {
+			mosDNS.MatchWindowMinutes = 30
+		}
+		if mosDNS.Enabled && strings.TrimSpace(mosDNS.BaseURL) == "" {
+			return config.DeviceConfig{}, false, errors.New("MosDNS 地址不能为空")
+		}
+		if mosDNS.Configured() && (mosDNS.SyncIntervalMinutes <= 0 || mosDNS.MatchWindowMinutes <= 0) {
+			return config.DeviceConfig{}, false, errors.New("MosDNS 同步周期和证据窗口必须为正数")
+		}
+	} else if existing != nil {
+		// Device editors that do not manage recognition settings must not
+		// clobber the per-device MosDNS configuration saved elsewhere.
+		mosDNS = existing.MosDNS
 	}
 
 	device := config.DeviceConfig{
@@ -117,9 +160,15 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 			BaseURL: baseURL, Username: username, Password: password,
 			TrafficInterfaces: interfaces, TrafficScope: trafficScope, TerminalCIDRs: cidrs, TerminalScope: scope,
 		},
+		MosDNS: mosDNS,
 	}
 	if existing != nil {
 		device.Archived = existing.Archived
+		device.SortOrder = existing.SortOrder
+		// Device editors do not manage recognition settings; preserve them so a
+		// connection-only save cannot wipe per-device recognition state.
+		device.ProtocolAnalysis = existing.ProtocolAnalysis
+		device.FeatureLibrary = existing.FeatureLibrary
 		if existing.ManagedAccount != nil {
 			managedAccount := *existing.ManagedAccount
 			device.ManagedAccount = &managedAccount
@@ -211,7 +260,7 @@ func normalizedStrings(values []string) []string {
 
 func (s *Server) rejectDuplicateEndpoint(id, baseURL string) error {
 	for _, candidate := range s.configSnapshot().Devices {
-		if candidate.ID == id {
+		if candidate.ID == id || candidate.Archived {
 			continue
 		}
 		scheme, host, port := routerOSConnectionParts(candidate.RouterOS.BaseURL)

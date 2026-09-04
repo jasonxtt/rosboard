@@ -20,6 +20,7 @@ import (
 	"rosboard/internal/api"
 	"rosboard/internal/auth"
 	"rosboard/internal/config"
+	"rosboard/internal/policyv2"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
 	"rosboard/internal/ui"
@@ -39,11 +40,6 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
-	}
-	if cfg.MigrationPending && cfg.Path != "" {
-		if err := config.Save(cfg.Path, cfg); err != nil {
-			log.Fatalf("save migrated config: %v", err)
-		}
 	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
@@ -67,7 +63,7 @@ func main() {
 	defer cancel()
 
 	var manager *service.MonitorManager
-	if cfg.RouterOSConfigured() || cfg.MosDNS.Configured() {
+	if cfg.RouterOSConfigured() {
 		manager, err = service.NewMonitorManager(cfg, storage, logger)
 		if err != nil {
 			log.Fatalf("open monitor stores: %v", err)
@@ -77,10 +73,16 @@ func main() {
 	if !cfg.RouterOSConfigured() {
 		logger.Print("routeros is not configured, serving setup UI")
 	}
+	policyManager := policyv2.NewManager(logger)
+	if err := assemblePolicyRuntimes(cfg, storage, manager, policyManager); err != nil {
+		log.Fatalf("assemble policy runtimes: %v", err)
+	}
+	go policyManager.Start(ctx)
+	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, func() { os.Exit(0) }, policyManager)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           api.NewServerWithManager(cfg, manager, storage, assets, func() { os.Exit(0) }),
+		Handler:           apiServer,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
