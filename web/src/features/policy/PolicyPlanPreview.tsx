@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
 import { PolicyErrorDisplay, PolicyMetadata, PolicyNotice, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
@@ -6,7 +6,7 @@ const actionLabel: Record<string, string> = { create: '创建', patch: '修改',
 
 export type PolicyPlanSummary = { entries: Array<[string, string]> }
 
-export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBack }: { deviceID: string; envelope: PlanEnvelope; summary?: PolicyPlanSummary; onApplied: () => void; onBack: () => void }) {
+export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBack, onBusyChange }: { deviceID: string; envelope: PlanEnvelope; summary?: PolicyPlanSummary; onApplied: () => void; onBack: () => void; onBusyChange?: (busy: boolean) => void }) {
   const plan = envelope.plan
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
@@ -14,6 +14,10 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const required = plan.acknowledgements.filter((ack) => ack.required)
   const ready = !plan.blockers.length && !plan.familyBlockers.length && !plan.pendingReview && required.every((ack) => acks.has(ack.code))
+
+  useEffect(() => {
+    onBusyChange?.(applying)
+  }, [applying, onBusyChange])
   const operationGroups = useMemo(() => {
     const groups = new Map<string, PlanOperation[]>()
     for (const operation of plan.operations) {
