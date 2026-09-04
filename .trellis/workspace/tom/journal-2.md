@@ -1957,3 +1957,36 @@ Added YAML/TXT/LIST and local-upload parsing with selected domain/IP filtering; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 96: Complete IPv6 routing family fix and production test deployment
+
+**Date**: 2026-09-05
+**Task**: Complete IPv6 routing family fix and production test deployment
+**Branch**: `feat/policy-access-rebuild`
+
+### Summary
+
+Implemented family-aware IPv6 routing subject resolution on feat/policy-access-rebuild; root review approved 370c5c4; deployed to test and production with health/API/assets checks; user reports temporary production test passed; archived Trellis task routing-ipv6-source-family; PR #4 remains open Draft and unmerged.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f7812ae` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
