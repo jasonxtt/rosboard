@@ -28,6 +28,12 @@ type routingExecutionGroup struct {
 	enabled     bool
 }
 
+type routingSubjectFamilyResolution struct {
+	addresses         []string
+	unresolvedMembers []string
+	memberWarnings    []string
+}
+
 // routingDNSStaticEntry is a deferred managed RouterOS DNS Static matcher.
 // All routing DNS Statics are collected first and emitted in one globally
 // sorted pass so the desired Order — and therefore the RouterOS first-match
@@ -483,7 +489,7 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		switch rule.Subject.Mode {
 		case SubjectModeSelected:
 			subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
-			if !buildRoutingSubjectList(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled) {
+			if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled, SubjectModeSelected) {
 				continue
 			}
 			boundary = "selected"
@@ -493,7 +499,7 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 				continue
 			}
 			subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
-			if !buildRoutingSubjectList(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled) {
+			if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled, SubjectModeExcluded) {
 				continue
 			}
 			boundary = "excluded"
@@ -619,39 +625,127 @@ func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundar
 }
 
 func buildRoutingSubjectList(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), rule RoutingRule, family AddressFamily, terminals []accesscontrol.Terminal, listName string, enabled bool) bool {
+	return buildRoutingSubjectListForMode(result, add, rule, family, terminals, listName, enabled, SubjectModeSelected)
+}
+
+func buildRoutingSubjectListForMode(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), rule RoutingRule, family AddressFamily, terminals []accesscontrol.Terminal, listName string, enabled bool, mode string) bool {
+	resolution := resolveRoutingSubjectFamily(rule, family, terminals)
+	for _, reason := range resolution.memberWarnings {
+		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_member_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: reason})
+	}
+	if len(resolution.addresses) == 0 {
+		appendRoutingSubjectFamilyWarning(result, rule, family, mode, resolution)
+		return false
+	}
+	if mode == SubjectModeExcluded && len(resolution.unresolvedMembers) > 0 {
+		appendRoutingSubjectFamilyWarning(result, rule, family, mode, resolution)
+		return false
+	}
+	if mode == SubjectModeSelected && len(resolution.unresolvedMembers) > 0 {
+		appendRoutingSubjectFamilyWarning(result, rule, family, mode, resolution)
+	}
+	materializeRoutingSubjectList(add, rule, family, listName, enabled, resolution.addresses)
+	return true
+}
+
+func resolveRoutingSubjectFamily(rule RoutingRule, family AddressFamily, terminals []accesscontrol.Terminal) routingSubjectFamilyResolution {
 	addresses := make(map[string]bool)
 	for _, prefix := range rule.Subject.Prefixes {
-		if prefixFamily, err := netip.ParsePrefix(prefix); err == nil && prefixFamily.Addr().Is4() == (family == FamilyIPv4) {
-			addresses[prefixFamily.Masked().String()] = true
+		prefixFamily, err := netip.ParsePrefix(prefix)
+		if err != nil || !routingSubjectAddressUsable(prefixFamily.Addr(), family) {
+			continue
 		}
+		addresses[prefixFamily.Masked().String()] = true
 	}
+
+	terminalLabels := make(map[string]string, len(terminals))
+	for _, terminal := range terminals {
+		label := strings.TrimSpace(terminal.DisplayName)
+		if label == "" {
+			label = terminal.ID
+		}
+		terminalLabels[terminal.ID] = label
+	}
+	resolution := routingSubjectFamilyResolution{}
 	evaluations := accesscontrol.EvaluateMembers(RoutingRuleMembers(rule), terminals)
 	for _, evaluation := range evaluations {
-		if evaluation.State != accesscontrol.MemberResolved {
-			result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_member_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: evaluation.Reason})
+		memberLabel := terminalLabels[evaluation.Member.TerminalID]
+		if memberLabel == "" {
+			memberLabel = evaluation.Member.TerminalID
+		}
+		if evaluation.State != accesscontrol.MemberResolved && strings.TrimSpace(evaluation.Reason) != "" {
+			resolution.memberWarnings = append(resolution.memberWarnings, memberLabel+"："+evaluation.Reason)
 		}
 		values := evaluation.IPv4
 		if family == FamilyIPv6 {
 			values = evaluation.IPv6
 		}
+		memberAddressCount := 0
 		for _, value := range values {
-			if address, err := netip.ParseAddr(value); err == nil && address.Is4() == (family == FamilyIPv4) {
-				addresses[address.String()] = true
+			address, err := netip.ParseAddr(value)
+			if err != nil || !routingSubjectAddressUsable(address, family) {
+				continue
 			}
+			addresses[address.String()] = true
+			memberAddressCount++
+		}
+		if memberAddressCount == 0 {
+			resolution.unresolvedMembers = append(resolution.unresolvedMembers, memberLabel)
 		}
 	}
-	if len(addresses) == 0 {
-		familyLabel := "IPv4"
-		if family == FamilyIPv6 {
-			familyLabel = "IPv6"
+	resolution.addresses = make([]string, 0, len(addresses))
+	for address := range addresses {
+		resolution.addresses = append(resolution.addresses, address)
+	}
+	sort.Strings(resolution.addresses)
+	sort.Strings(resolution.unresolvedMembers)
+	uniqueMembers := resolution.unresolvedMembers[:0]
+	for _, member := range resolution.unresolvedMembers {
+		if len(uniqueMembers) == 0 || uniqueMembers[len(uniqueMembers)-1] != member {
+			uniqueMembers = append(uniqueMembers, member)
 		}
-		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "该来源当前没有可用的 " + familyLabel + " 地址，本规则 " + familyLabel + " 部分暂不生效"})
+	}
+	resolution.unresolvedMembers = uniqueMembers
+	return resolution
+}
+
+func routingSubjectAddressUsable(address netip.Addr, family AddressFamily) bool {
+	if (family != FamilyIPv4 && family != FamilyIPv6) || address.Zone() != "" || address.Is4() != (family == FamilyIPv4) {
 		return false
 	}
-	values := make([]string, 0, len(addresses))
-	for value := range addresses {
-		values = append(values, value)
+	return family != FamilyIPv6 || !address.IsLinkLocalUnicast()
+}
+
+func appendRoutingSubjectFamilyWarning(result *DesiredResult, rule RoutingRule, family AddressFamily, mode string, resolution routingSubjectFamilyResolution) {
+	familyLabel := "IPv4"
+	if family == FamilyIPv6 {
+		familyLabel = "IPv6"
 	}
+	memberNames := strings.Join(resolution.unresolvedMembers, "、")
+	if mode == SubjectModeExcluded && memberNames != "" {
+		result.Warnings = append(result.Warnings, PlanIssue{
+			Code: "routing_exclusion_family_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID,
+			Reason: "排除来源中以下设备没有可用的 " + familyLabel + " 地址，为避免扩大匹配，本规则 " + familyLabel + " 部分暂不生效：" + memberNames,
+		})
+		return
+	}
+	if len(resolution.addresses) == 0 {
+		reason := "该来源当前没有可用的 " + familyLabel + " 地址，本规则 " + familyLabel + " 部分暂不生效"
+		if memberNames != "" {
+			reason += " 未解析来源：" + memberNames
+		}
+		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: reason})
+		return
+	}
+	if mode == SubjectModeSelected && memberNames != "" {
+		result.Warnings = append(result.Warnings, PlanIssue{
+			Code: "routing_subject_family_partial", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID,
+			Reason: "该来源仅有部分可用的 " + familyLabel + " 地址，本规则 " + familyLabel + " 部分仅匹配已解析来源；未解析来源：" + memberNames,
+		})
+	}
+}
+
+func materializeRoutingSubjectList(add func(string, routeros.MutationMenu, string, map[string]string), rule RoutingRule, family AddressFamily, listName string, enabled bool, values []string) {
 	sort.Strings(values)
 	disabled := "yes"
 	if enabled {
@@ -665,7 +759,6 @@ func buildRoutingSubjectList(result *DesiredResult, add func(string, routeros.Mu
 		logicalID := "routing-subject:" + rule.ID + ":" + string(family) + ":" + value
 		add(logicalID, menu, "foundation", map[string]string{"list": listName, "address": value, "disabled": disabled})
 	}
-	return true
 }
 
 func routingTargetSupportsFamily(target *routingTargetProjection, family AddressFamily) bool {

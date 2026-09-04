@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端 policy desired 修改前的入口规范与开发检查。"}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"策略路由来源、入口、地址族和 RouterOS desired-state 语义。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"后端最小改动、测试和质量门禁要求。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"确认 policyv2 后端文件边界与测试位置。"}
