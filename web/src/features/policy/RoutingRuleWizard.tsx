@@ -96,6 +96,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   const [draftRevision, setDraftRevision] = useState(0)
   const [planDraftRevision, setPlanDraftRevision] = useState<number | null>(null)
   const draftRevisionRef = useRef(0)
+  const generationInFlightRef = useRef(false)
   const [ingressDefaulted, setIngressDefaulted] = useState(false)
 
   useEffect(() => {
@@ -205,6 +206,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   }
 
   const generateCurrentPlan = async () => {
+    if (generationInFlightRef.current || applying) return
     const invalidStep = firstInvalidStep()
     if (invalidStep !== null) {
       setError(null)
@@ -219,6 +221,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
       ...(presetPresentations.some((selection) => selection.previewId) ? { presetSelections: presetPresentations.filter((selection) => selection.previewId) } : {}),
     }
 
+    generationInFlightRef.current = true
     setGenerating(true)
     setError(null)
     setActiveStep(3)
@@ -235,15 +238,17 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     } catch (saveError) {
       setError(saveError)
     } finally {
+      generationInFlightRef.current = false
       setGenerating(false)
     }
   }
 
+  const previewReachable = Boolean(rule) || maxUnlockedStep >= 3
   const handleStepJump = (index: number) => {
     if (busy) return
     setError(null)
     if (index === 3) {
-      if (maxUnlockedStep < 3) {
+      if (!previewReachable) {
         setActiveStep(3)
         return
       }
@@ -270,19 +275,25 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
       setActiveStep(2)
       return
     }
-    if (activeStep === 2) void generateCurrentPlan()
+    if (activeStep === 2) {
+      if (planFresh) {
+        setActiveStep(3)
+        return
+      }
+      void generateCurrentPlan()
+    }
   }
 
   const title = rule ? `编辑策略：${rule.name}` : '新增策略'
-  const isPreview = activeStep === 3 && planFresh
+  const isPreview = activeStep === 3 && planFresh && !generating
   const primaryDisabled = busy || stepLocked || (activeStep === 0 && strategyErrors.length > 0) || (activeStep === 1 && targetErrors.length > 0)
   return <>
-    <PolicyModal title={title} subtitle="完成配置后直接生成可审阅的 RouterOS 变更计划，确认后才会应用。" wide closeDisabled={busy} onClose={() => { if (!busy) onClose() }} header={<PolicyWizardSteps steps={wizardSteps} current={activeStep} unlockedThrough={maxUnlockedStep} planStale={Boolean(plan && !planFresh)} disabled={busy} onJump={handleStepJump} />} footer={isPreview ? undefined : <div className="policy-form-actions policy-wizard-nav policy-wizard-footer"><button type="button" className="close-button" disabled={busy} onClick={activeStep === 0 ? onClose : () => setActiveStep((current) => Math.max(0, current - 1))}>{activeStep === 0 ? '取消' : '上一步'}</button>{activeStep < 2 ? <button type="button" className="primary-button" disabled={primaryDisabled} onClick={advanceFromStep}>下一步</button> : activeStep === 2 ? <button type="button" className="primary-button" disabled={primaryDisabled} onClick={advanceFromStep}>{generating ? '生成计划中…' : '生成变更计划'}</button> : null}</div>}>
+    <PolicyModal title={title} subtitle="完成配置后直接生成可审阅的 RouterOS 变更计划，确认后才会应用。" wide closeDisabled={busy} onClose={() => { if (!busy) onClose() }} header={<PolicyWizardSteps steps={wizardSteps} current={activeStep} unlockedThrough={previewReachable ? 3 : maxUnlockedStep} planStale={Boolean(plan && (!planFresh || generating))} disabled={busy} onJump={handleStepJump} />} footer={isPreview ? undefined : <div className="policy-form-actions policy-wizard-nav policy-wizard-footer"><button type="button" className="close-button" disabled={busy} onClick={activeStep === 0 ? onClose : () => setActiveStep((current) => Math.max(0, current - 1))}>{activeStep === 0 ? '取消' : '上一步'}</button>{activeStep < 2 ? <button type="button" className="primary-button" disabled={primaryDisabled} onClick={advanceFromStep}>下一步</button> : activeStep === 2 ? <button type="button" className="primary-button" disabled={primaryDisabled} onClick={advanceFromStep}>{generating ? '生成计划中…' : '生成变更计划'}</button> : null}</div>}>
     {error ? <PolicyErrorDisplay error={error} /> : null}
     {discoveryError ? <PolicyErrorDisplay error={discoveryError} /> : null}
     {activeStep < 3 && discovery && !discovery.available ? <PolicyNotice tone="warn" title="设备发现不可用">{discovery.reason || '无法读取 RouterOS WAN 与入口候选。'}</PolicyNotice> : null}
     {activeStep < 3 && discovery?.warnings.length ? <PolicyNotice tone="warn" title="设备发现警告">{discovery.warnings.join('；')}</PolicyNotice> : null}
-    {activeStep === 3 && !planFresh ? <PolicyNotice tone={maxUnlockedStep < 3 ? 'info' : 'warn'} title={maxUnlockedStep < 3 ? '完成前面的步骤后才能生成预览' : '预览需要更新'}>{maxUnlockedStep < 3 ? '请先完成当前步骤并点击“生成变更计划”。' : '草稿已修改，点击“预览并应用”标题会重新校验并刷新预览。'}</PolicyNotice> : null}
+    {activeStep === 3 && (!planFresh || generating) ? <PolicyNotice tone={previewReachable ? 'warn' : 'info'} title={generating ? '正在生成预览' : previewReachable ? '预览需要更新' : '完成前面的步骤后才能生成预览'}>{previewReachable ? (generating ? '正在根据当前草稿生成预览…' : '草稿已修改，点击“预览并应用”标题会重新校验并刷新预览。') : '请先完成当前步骤并点击“生成变更计划”。'}</PolicyNotice> : null}
     {isPreview ? <PolicyPlanPreview deviceID={deviceID} envelope={plan!} summary={planSummary ?? undefined} onBusyChange={setApplying} onBack={() => setActiveStep(2)} onApplied={async () => { await onSaved(); onClose() }} /> : null}
     {activeStep === 0 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><StrategyAndSourceStep ruleName={ruleName} rulePriority={rulePriority} ruleEnabled={enabled} errors={strategyErrors} onRuleName={updateRuleName} onRulePriority={updateRulePriority} onRuleEnabled={updateEnabled} discovery={discovery} ingress={trafficIngress} subject={subject} terminals={context.terminals} hasIngress={hasIngress} onIngress={toggleIngress} onSubject={updateSubject} /></fieldset></> : null}
     {activeStep === 1 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><TargetStep deviceID={deviceID} targetLists={targetLists} targetListIDs={targetListIDs} onTargetLists={updateTargetLists} onRemoveTarget={(id) => updateTargetLists(targetListIDs.filter((targetID) => targetID !== id))} onPresetPresentation={updatePresetPresentations} onCreateTargetList={setCreatingTargetKind} errors={targetErrors} invalidTargetIDs={invalidTargetIDs} /></fieldset></> : null}
