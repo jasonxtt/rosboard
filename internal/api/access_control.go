@@ -74,8 +74,11 @@ type accessRuleResponse struct {
 type accessTerminalResponse struct {
 	ID           string   `json:"id"`
 	DisplayName  string   `json:"displayName"`
+	MACAddress   string   `json:"macAddress"`
 	IPv4         []string `json:"ipv4"`
 	IPv6         []string `json:"ipv6"`
+	RoutingIPv4  []string `json:"routingIpv4"`
+	RoutingIPv6  []string `json:"routingIpv6"`
 	AutoEligible bool     `json:"autoEligible"`
 }
 
@@ -152,8 +155,9 @@ func (s *Server) serveAccessOverview(writer http.ResponseWriter, request *http.R
 	terminals := s.accessTerminals(device.device.ID)
 	terminalResponses := make([]accessTerminalResponse, 0, len(terminals))
 	for _, terminal := range terminals {
+		routingIPv4, routingIPv6 := policyv2.RoutingUsableTerminalAddresses(terminal)
 		terminalResponses = append(terminalResponses, accessTerminalResponse{
-			ID: terminal.ID, DisplayName: terminal.DisplayName, IPv4: nonNilStrings(terminal.IPv4), IPv6: nonNilStrings(terminal.IPv6),
+			ID: terminal.ID, DisplayName: terminal.DisplayName, MACAddress: terminal.MACAddress, IPv4: nonNilStrings(terminal.IPv4), IPv6: nonNilStrings(terminal.IPv6), RoutingIPv4: nonNilStrings(routingIPv4), RoutingIPv6: nonNilStrings(routingIPv6),
 			AutoEligible: accesscontrol.IsReliableMAC(terminal.MACAddress) && hasObservedAddress(terminal),
 		})
 	}

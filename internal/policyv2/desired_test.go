@@ -159,3 +159,84 @@ func TestBuildFamilyDoesNotCreateMasquerade(t *testing.T) {
 		t.Fatal("Fake DNS transport lost its policy-owned dst-nat redirect")
 	}
 }
+
+func TestRoutingIPv4SubjectDoesNotBlockOtherEgressFamily(t *testing.T) {
+	target := &routingTargetProjection{
+		id: "domain-target", list: "domain-list", source: Source{ID: "domain-target", Kind: KindDomain},
+		rules: []SourceRule{{RuleType: "DOMAIN", Domain: "example.com"}},
+	}
+	rule := RoutingRule{
+		ID: "rule-ipv4-only", EgressID: "wan-a", TargetListIDs: []string{"domain-target"}, Enabled: true,
+		Subject: Subject{Mode: SubjectModeSelected, Members: []SubjectMember{{
+			TerminalID: "terminal-a", Binding: "auto", AnchorMAC: "AA:BB:CC:DD:EE:FF",
+		}}},
+	}
+	terminals := []accesscontrol.Terminal{{ID: "terminal-a", MACAddress: "AA:BB:CC:DD:EE:FF", IPv4: []string{"192.0.2.20"}}}
+
+	for _, test := range []struct {
+		name        string
+		family      AddressFamily
+		terminals   []accesscontrol.Terminal
+		wantID      string
+		wantWarning string
+	}{
+		{name: "IPv4 only", family: FamilyIPv4, terminals: terminals, wantID: "routing-rule-connection:rule-ipv4-only:ipv4:domain-target"},
+		{name: "IPv4-only source with IPv6 egress", family: FamilyIPv6, terminals: terminals, wantWarning: "IPv6"},
+		{name: "IPv6 only", family: FamilyIPv6, terminals: []accesscontrol.Terminal{{ID: "terminal-a", MACAddress: "AA:BB:CC:DD:EE:FF", IPv6: []string{"2001:db8::20"}}}, wantID: "routing-rule-connection:rule-ipv4-only:ipv6:domain-target"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := DesiredResult{}
+			add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+				result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+			}
+			buildRoutingMangleFamily(&result, add, Egress{ID: "wan-a", Enabled: true}, EgressFamily{Family: test.family}, map[string]string{}, map[string]bool{}, "wan-a-table", []*routingTargetProjection{target}, []RoutingRule{rule}, test.terminals, "no", "manager", "device")
+			if len(result.Blockers) != 0 {
+				t.Fatalf("family %s produced blockers: %#v", test.family, result.Blockers)
+			}
+			if test.wantID != "" {
+				for _, object := range result.Objects {
+					if object.LogicalID == test.wantID {
+						return
+					}
+				}
+				t.Fatalf("IPv4 mangle was not created: %#v", result.Objects)
+			}
+			if test.wantWarning != "" {
+				for _, warning := range result.Warnings {
+					if strings.Contains(warning.Reason, test.wantWarning) && !strings.Contains(warning.Reason, "selected routing subject") {
+						return
+					}
+				}
+				t.Fatalf("IPv6 family warning was not human-readable: %#v", result.Warnings)
+			}
+		})
+	}
+}
+
+func TestRoutingAutoSubjectProjectsOnlyUsableIPv6(t *testing.T) {
+	terminals := RoutingUsableTerminals([]accesscontrol.Terminal{{
+		ID: "terminal-a", MACAddress: "AA:BB:CC:DD:EE:FF", IPv6: []string{"2001:db8::20", "fe80::20"},
+	}})
+	result := DesiredResult{}
+	add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+	}
+	rule := RoutingRule{
+		ID: "rule-ipv6-auto", EgressID: "wan-a", TargetListIDs: []string{"domain-target"}, Enabled: true,
+		Subject: Subject{Mode: SubjectModeSelected, Members: []SubjectMember{{
+			TerminalID: "terminal-a", Binding: "auto", AnchorMAC: "AA:BB:CC:DD:EE:FF",
+		}}},
+	}
+	if !buildRoutingSubjectList(&result, add, rule, FamilyIPv6, terminals, "routing-subject-list", true) {
+		t.Fatal("usable IPv6 address should produce a subject list")
+	}
+	addresses := []string{}
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPv6FirewallAddressList) {
+			addresses = append(addresses, object.Fields["address"])
+		}
+	}
+	if strings.Join(addresses, ",") != "2001:db8::20" {
+		t.Fatalf("routing subject projected non-usable IPv6 addresses: %#v", addresses)
+	}
+}

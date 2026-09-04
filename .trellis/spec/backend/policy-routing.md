@@ -198,11 +198,31 @@ remains unable to remove Access objects.
 
 Routing DNS projection capability is evaluated on distinct physical
 `(device, egressID, targetID)` projections. Enabled rules sharing the same
-Egress and Target share one projection and are allowed. Exact/suffix-overlapping
-domain content across different target IDs must block with
-`domain_projection_context_ambiguous`, including when the Egress DNS contexts
-are equal; overlapping projections across different Egresses use the same
-blocker. IP-only projections do not receive this DNS blocker.
+Egress and Target share one projection and are allowed; a shared projection's
+effective DNS priority is the smallest (highest) Priority among its ACTIVE
+consumers — an active DNS consumer is an enabled rule whose Egress exists, is
+enabled, and is not pending deletion, matching the objects that can materialize
+a live `disabled=no` DNS Static. Inactive projections keep deterministic
+ordering priority but never shadow, warn, block, or become a winner/loser.
+Domain match-space overlap between distinct projections is resolved
+by that effective Priority, which is device-global because RouterOS DNS Static
+is an ordered first-match list with no RoutingRule subject matcher:
+projections sharing an active RoutingRule are one rule's OR'ed target lists
+and never conflict; overlapping projections with different Priority produce a
+`domain_projection_priority_shadowed` warning, and the higher-priority matcher
+is ordered before the lower one so the loser keeps its non-overlapping domain
+space without any domain-set subtraction; Priority beats matcher specificity
+(a high DOMAIN-SUFFIX fully shadows a low exact inside it). Only equal-
+Priority overlap blocks with `domain_projection_context_ambiguous`, and its
+Reason names the overlapped matcher and both rule display names, never UUIDs or
+physical-projection jargon. Managed routing DNS Statics are emitted in
+effective-priority order and `/ip dns static` participates in generic owned
+order moves (batch-created statics resolve their RouterOS IDs by comment
+identity before any move references them, strictly one match per identity:
+zero or duplicate matches fail the apply closed instead of choosing); foreign
+and Access-owned statics are never moved, and Access/cross-domain domain
+overlap keeps its existing fail-closed blockers. IP-only projections receive no
+DNS resolution.
 
 Access target projection activity is at least one enabled AccessRule consumer;
 `TargetList.Enabled` is a legacy compatibility field and must not gate a

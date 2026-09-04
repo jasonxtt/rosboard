@@ -432,7 +432,11 @@ func (c *MutationClient) executeURLWithTimeout(ctx context.Context, method strin
 	}
 
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
-		requestContext, cancel := context.WithTimeout(ctx, c.requestTimeout)
+		// The per-attempt context must honor the caller-supplied requestTimeout
+		// (the batch script path deliberately raises it above the default
+		// mutation timeout, matching the httpClient.Timeout override above);
+		// capping at the field value would defeat the longer window.
+		requestContext, cancel := context.WithTimeout(ctx, requestTimeout)
 		var body io.Reader
 		if requestBody != nil {
 			body = bytes.NewReader(requestBody)
@@ -660,7 +664,8 @@ func validateMoveMenu(menu MutationMenu) error {
 	switch menu {
 	case MenuIPFirewallFilter, MenuIPv6FirewallFilter,
 		MenuIPFirewallMangle, MenuIPv6FirewallMangle,
-		MenuIPFirewallNAT, MenuIPv6FirewallNAT:
+		MenuIPFirewallNAT, MenuIPv6FirewallNAT,
+		MenuIPDNSStatic:
 		return nil
 	default:
 		return errors.New("RouterOS move menu is not allowlisted")

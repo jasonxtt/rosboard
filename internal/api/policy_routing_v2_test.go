@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/config"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
@@ -331,6 +332,241 @@ func TestPolicyV2RoutingRuleCRUDUsesCanonicalTargetReferences(t *testing.T) {
 	}
 	if _, err := repository.GetRoutingRule(ctx, created.ID); !errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
 		t.Fatalf("deleted routing rule error = %v", err)
+	}
+}
+
+func TestPolicyV2RoutingRuleSaveCanonicalizesTerminalSubjects(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	terminals := []accesscontrol.Terminal{
+		{ID: "terminal-mac", DisplayName: "有 MAC 设备", MACAddress: "aa:bb:cc:dd:ee:ff", IPv4: []string{"10.0.0.20"}},
+		{ID: "terminal-no-mac", DisplayName: "无 MAC 设备", IPv4: []string{"10.0.0.21"}, IPv6: []string{"fe80::21"}},
+		{ID: "terminal-no-mac-dual", DisplayName: "无 MAC 双栈设备", IPv4: []string{"10.0.0.22"}, IPv6: []string{"2001:db8::22", "fe80::22"}},
+		{ID: "terminal-link-local", DisplayName: "仅链路本地 IPv6", MACAddress: "22:33:44:55:66:77", IPv6: []string{"fe80::1234"}},
+		{ID: "terminal-empty", DisplayName: "无地址设备", MACAddress: "11:22:33:44:55:66"},
+	}
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return terminals }
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-subject", Name: "Subject WAN", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "192.0.2.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target := seedAccessSource(t, server, "subject-target")
+	device, ok := server.resolvePolicyDevice(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/?device=edge", nil))
+	if !ok {
+		t.Fatal("failed to resolve test policy device")
+	}
+	proposal, err := server.preparePolicyPlanProposal(ctx, device, &policyPlanProposalPayload{RoutingRule: &policyv2.RoutingRule{
+		ID: "proposal-no-mac", Name: "Proposal no MAC", EgressID: "wan-subject", TargetListIDs: []string{target.ID},
+		Subject: policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-no-mac", Binding: "auto"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal == nil || proposal.RoutingRule == nil || len(proposal.RoutingRule.Subject.Members) != 1 || proposal.RoutingRule.Subject.Members[0].Binding != "fixed" || len(proposal.RoutingRule.Subject.Members[0].PinnedIPv4) != 1 || proposal.RoutingRule.Subject.Members[0].PinnedIPv4[0] != "10.0.0.21" {
+		t.Fatalf("routing proposal was not canonicalized: %#v", proposal)
+	}
+	dualProposal, err := server.preparePolicyPlanProposal(ctx, device, &policyPlanProposalPayload{RoutingRule: &policyv2.RoutingRule{
+		ID: "proposal-no-mac-dual", Name: "Proposal no MAC dual stack", EgressID: "wan-subject", TargetListIDs: []string{target.ID},
+		Subject: policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-no-mac-dual", Binding: "auto"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dualProposal.RoutingRule.Subject.Members[0].Binding != "fixed" || strings.Join(dualProposal.RoutingRule.Subject.Members[0].PinnedIPv4, ",") != "10.0.0.22" || strings.Join(dualProposal.RoutingRule.Subject.Members[0].PinnedIPv6, ",") != "2001:db8::22" {
+		t.Fatalf("dual-stack unanchored subject was not pinned to current addresses: %#v", dualProposal.RoutingRule.Subject.Members[0])
+	}
+	overview := accessControlRequest(server, http.MethodGet, "", "")
+	if overview.Code != http.StatusOK {
+		t.Fatalf("access overview status=%d body=%s", overview.Code, overview.Body.String())
+	}
+	var overviewPayload struct {
+		Terminals []accessTerminalResponse `json:"terminals"`
+	}
+	if err := json.Unmarshal(overview.Body.Bytes(), &overviewPayload); err != nil {
+		t.Fatal(err)
+	}
+	foundNoMAC, foundLinkLocal := false, false
+	for _, terminal := range overviewPayload.Terminals {
+		if terminal.ID == "terminal-no-mac" {
+			foundNoMAC = true
+			if len(terminal.RoutingIPv4) != 1 || len(terminal.RoutingIPv6) != 0 {
+				t.Fatalf("routing terminal view retained link-local IPv6: %#v", terminal)
+			}
+		}
+		if terminal.ID == "terminal-link-local" {
+			foundLinkLocal = true
+			if len(terminal.RoutingIPv6) != 0 {
+				t.Fatalf("link-local-only terminal remained routing-addressable: %#v", terminal)
+			}
+		}
+	}
+	if !foundNoMAC || !foundLinkLocal {
+		t.Fatalf("routing terminal view omitted regression fixtures: noMAC=%v linkLocal=%v", foundNoMAC, foundLinkLocal)
+	}
+
+	save := func(ruleID string, subject policyv2.Subject) policyv2.RoutingRule {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"id": ruleID, "name": ruleID, "subject": subject, "targetListIds": []string{target.ID},
+			"egressId": "wan-subject", "priority": 10, "enabled": true, "revision": 0, "deferApply": true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := policyV2Request(t, server, http.MethodPost, "/rules", string(body))
+		if response.Code != http.StatusOK {
+			t.Fatalf("save %s status=%d body=%s", ruleID, response.Code, response.Body.String())
+		}
+		var saved policyv2.RoutingRule
+		if err := json.Unmarshal(response.Body.Bytes(), &saved); err != nil {
+			t.Fatal(err)
+		}
+		return saved
+	}
+
+	auto := save("rule-auto-terminal", policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-mac", Binding: "auto"}}})
+	storedAuto, err := repository.GetRoutingRule(ctx, auto.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedAuto.Subject.Members) != 1 || storedAuto.Subject.Members[0].Binding != "auto" || storedAuto.Subject.Members[0].AnchorMAC != "AA:BB:CC:DD:EE:FF" {
+		t.Fatalf("reliable MAC subject was not enriched: %#v", storedAuto.Subject.Members)
+	}
+	if len(auto.Subject.Members[0].PinnedIPv4) != 0 || len(auto.Subject.Members[0].PinnedIPv6) != 0 {
+		t.Fatalf("auto subject retained pins: %#v", auto.Subject.Members[0])
+	}
+	desired, err := policyv2.BuildRoutingDesired(ctx, repository, policyV2Router{}, func() []accesscontrol.Terminal { return terminals })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("canonical terminal subject blocked desired state: %#v", desired.Blockers)
+	}
+	for _, warning := range desired.Warnings {
+		if warning.LogicalID == auto.ID && warning.Code == "routing_subject_unresolved" {
+			t.Fatalf("reliable auto subject was unexpectedly unresolved: %#v", warning)
+		}
+	}
+	hasAutoAddress, hasAutoMangle := false, false
+	for _, object := range desired.Objects {
+		if strings.HasPrefix(object.LogicalID, "routing-subject:"+auto.ID+":ipv4:10.0.0.20") {
+			hasAutoAddress = true
+		}
+		if strings.HasPrefix(object.LogicalID, "routing-rule-connection:"+auto.ID+":ipv4:") {
+			hasAutoMangle = true
+		}
+	}
+	if !hasAutoAddress || !hasAutoMangle {
+		t.Fatalf("auto terminal did not produce subject address-list and mangle: address=%v mangle=%v", hasAutoAddress, hasAutoMangle)
+	}
+
+	fixed := save("rule-fixed-terminal", policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-no-mac", Binding: "auto"}}})
+	if len(fixed.Subject.Members) != 1 || fixed.Subject.Members[0].Binding != "fixed" || fixed.Subject.Members[0].AnchorMAC != "" || len(fixed.Subject.Members[0].PinnedIPv4) != 1 || fixed.Subject.Members[0].PinnedIPv4[0] != "10.0.0.21" {
+		t.Fatalf("unanchored subject was not downgraded to current fixed address: %#v", fixed.Subject.Members)
+	}
+	if len(fixed.Subject.Members[0].PinnedIPv6) != 0 {
+		t.Fatalf("fixed fallback retained link-local IPv6: %#v", fixed.Subject.Members[0])
+	}
+	fixedDesired, err := policyv2.BuildRoutingDesired(ctx, repository, policyV2Router{}, func() []accesscontrol.Terminal { return terminals })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range fixedDesired.Warnings {
+		if warning.LogicalID == fixed.ID && warning.Code == "routing_subject_unresolved" {
+			t.Fatalf("fixed fallback subject was unexpectedly unresolved: %#v", warning)
+		}
+	}
+	hasFixedAddress, hasFixedMangle := false, false
+	for _, object := range fixedDesired.Objects {
+		if strings.HasPrefix(object.LogicalID, "routing-subject:"+fixed.ID+":ipv4:10.0.0.21") {
+			hasFixedAddress = true
+		}
+		if strings.HasPrefix(object.LogicalID, "routing-rule-connection:"+fixed.ID+":ipv4:") {
+			hasFixedMangle = true
+		}
+	}
+	if !hasFixedAddress || !hasFixedMangle {
+		t.Fatalf("fixed terminal did not produce subject address-list and mangle: address=%v mangle=%v", hasFixedAddress, hasFixedMangle)
+	}
+	legacyNoMAC, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "rule-repair-no-mac", Name: "Repair no MAC", EgressID: "wan-subject", TargetListIDs: []string{target.ID}, Enabled: true,
+		Subject: policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-no-mac", Binding: "auto"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyNoMAC, err = repository.GetRoutingRule(ctx, legacyNoMAC.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyNoMACBody, err := json.Marshal(map[string]any{
+		"name": legacyNoMAC.Name, "subject": legacyNoMAC.Subject, "targetListIds": legacyNoMAC.TargetListIDs,
+		"egressId": legacyNoMAC.EgressID, "priority": legacyNoMAC.Priority, "enabled": legacyNoMAC.Enabled, "revision": legacyNoMAC.Revision, "deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairedNoMACResponse := policyV2Request(t, server, http.MethodPut, "/rules/"+legacyNoMAC.ID, string(legacyNoMACBody))
+	if repairedNoMACResponse.Code != http.StatusOK {
+		t.Fatalf("no-MAC repair save status=%d body=%s", repairedNoMACResponse.Code, repairedNoMACResponse.Body.String())
+	}
+	var repairedNoMAC policyv2.RoutingRule
+	if err := json.Unmarshal(repairedNoMACResponse.Body.Bytes(), &repairedNoMAC); err != nil {
+		t.Fatal(err)
+	}
+	if len(repairedNoMAC.Subject.Members) != 1 || repairedNoMAC.Subject.Members[0].Binding != "fixed" || len(repairedNoMAC.Subject.Members[0].PinnedIPv4) != 1 || repairedNoMAC.Subject.Members[0].PinnedIPv4[0] != "10.0.0.21" {
+		t.Fatalf("existing no-MAC auto member was not repaired to current fixed address: %#v", repairedNoMAC.Subject.Members)
+	}
+
+	noAddressBody := `{"id":"rule-empty-terminal","name":"rule-empty-terminal","subject":{"mode":"selected","members":[{"terminalId":"terminal-empty","binding":"auto"}]},"targetListIds":["subject-target"],"egressId":"wan-subject","priority":10,"enabled":true,"revision":0,"deferApply":true}`
+	noAddress := policyV2Request(t, server, http.MethodPost, "/rules", noAddressBody)
+	if noAddress.Code != http.StatusUnprocessableEntity || !strings.Contains(noAddress.Body.String(), "没有可用 IP") {
+		t.Fatalf("addressless subject was not rejected clearly: status=%d body=%s", noAddress.Code, noAddress.Body.String())
+	}
+	linkLocalOnlyBody := `{"id":"rule-link-local-terminal","name":"rule-link-local-terminal","subject":{"mode":"selected","members":[{"terminalId":"terminal-link-local","binding":"auto"}]},"targetListIds":["subject-target"],"egressId":"wan-subject","priority":10,"enabled":true,"revision":0,"deferApply":true}`
+	linkLocalOnly := policyV2Request(t, server, http.MethodPost, "/rules", linkLocalOnlyBody)
+	if linkLocalOnly.Code != http.StatusUnprocessableEntity || !strings.Contains(linkLocalOnly.Body.String(), "没有可用 IP") {
+		t.Fatalf("link-local-only subject was not rejected clearly: status=%d body=%s", linkLocalOnly.Code, linkLocalOnly.Body.String())
+	}
+
+	bad := save("rule-repair-terminal", policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{TerminalID: "terminal-mac", Binding: "auto"}}})
+	bad.Subject.Members[0].AnchorMAC = ""
+	if _, err := repository.SaveRoutingRule(ctx, bad); err != nil {
+		t.Fatal(err)
+	}
+	bad, err = repository.GetRoutingRule(ctx, bad.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateBody, err := json.Marshal(map[string]any{
+		"name": bad.Name, "subject": bad.Subject, "targetListIds": bad.TargetListIDs,
+		"egressId": bad.EgressID, "priority": bad.Priority, "enabled": bad.Enabled, "revision": bad.Revision, "deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairedResponse := policyV2Request(t, server, http.MethodPut, "/rules/"+bad.ID, string(updateBody))
+	if repairedResponse.Code != http.StatusOK {
+		t.Fatalf("repair save status=%d body=%s", repairedResponse.Code, repairedResponse.Body.String())
+	}
+	var repaired policyv2.RoutingRule
+	if err := json.Unmarshal(repairedResponse.Body.Bytes(), &repaired); err != nil {
+		t.Fatal(err)
+	}
+	storedRepaired, err := repository.GetRoutingRule(ctx, repaired.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Subject.Members[0].Binding != "auto" || storedRepaired.Subject.Members[0].AnchorMAC != "AA:BB:CC:DD:EE:FF" {
+		t.Fatalf("existing bad auto member was not repaired: %#v", repaired.Subject.Members)
 	}
 }
 

@@ -34,3 +34,33 @@ func TestClonePolicyProposalPreservesProposedTargetContent(t *testing.T) {
 		t.Fatal("cloned target content shares storage with the original proposal")
 	}
 }
+
+func TestClonePolicyProposalPreservesRoutingSubjectIdentityState(t *testing.T) {
+	proposal := &PolicyProposal{
+		RoutingRule: &RoutingRule{
+			Subject: Subject{
+				Mode: SubjectModeSelected,
+				Members: []SubjectMember{{
+					TerminalID: "mac:aa",
+					Binding:    "auto",
+					AnchorMAC:  "AA:BB:CC:DD:EE:FF",
+					LastIPv4:   []string{"10.0.0.30"},
+					LastIPv6:   []string{"2001:db8::30"},
+				}},
+			},
+		},
+	}
+
+	clone := clonePolicyProposal(proposal)
+	if clone == nil || clone.RoutingRule == nil || len(clone.RoutingRule.Subject.Members) != 1 {
+		t.Fatalf("routing subject was not cloned: %#v", clone)
+	}
+	member := clone.RoutingRule.Subject.Members[0]
+	if member.AnchorMAC != "AA:BB:CC:DD:EE:FF" || len(member.LastIPv4) != 1 || member.LastIPv4[0] != "10.0.0.30" || len(member.LastIPv6) != 1 || member.LastIPv6[0] != "2001:db8::30" {
+		t.Fatalf("routing subject identity state was dropped during clone: %#v", member)
+	}
+	member.LastIPv4[0] = "10.0.0.31"
+	if proposal.RoutingRule.Subject.Members[0].LastIPv4[0] == member.LastIPv4[0] {
+		t.Fatal("cloned routing subject state shares storage with the original proposal")
+	}
+}

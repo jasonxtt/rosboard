@@ -1433,13 +1433,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostSettingsExpanded}
               aria-controls="host-settings-menu"
-              onClick={() => {
-                const alreadyInHostSettings = activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
-                setHostSettingsExpanded((value) => alreadyInHostSettings ? !value : true)
-                if (!alreadyInHostSettings) setActiveView('policy-routing')
-                setSelectedTerminalID(null)
-                setSidebarOpen(false)
-              }}
+              onClick={() => setHostSettingsExpanded((value) => !value)}
             >
               <NavLabel icon="policy" label="主机设置" />
             </button>
@@ -1496,14 +1490,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               className={activeView === 'settings' ? 'menu-item active' : 'menu-item'}
               aria-expanded={settingsExpanded}
               aria-controls="panel-settings-menu"
-              onClick={() => {
-                const alreadyInSettings = activeView === 'settings'
-                setSettingsExpanded((value) => alreadyInSettings ? !value : true)
-                setActiveView('settings')
-                if (!alreadyInSettings) setSettingsSection('connection')
-                setSelectedTerminalID(null)
-                setSidebarOpen(false)
-              }}
+              onClick={() => setSettingsExpanded((value) => !value)}
             >
               <NavLabel icon="settings" label="面板设置" />
             </button>
