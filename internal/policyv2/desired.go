@@ -30,6 +30,13 @@ type DesiredResult struct {
 	Warnings                 []PlanIssue
 	AccessResolutions        []accesscontrol.MemberResolution
 	TargetPromotions         []TargetVersionPromotion
+	// Cross-domain state is kept out of the public desired object graph. It
+	// binds a domain plan to the other domain's DNS projections and lets the
+	// manager reconcile the device-global Access-before-Routing order without
+	// making either domain delete the other's objects.
+	crossDomainDesired     []DesiredObject
+	crossDomainResolutions []CrossDomainProjectionResolution
+	crossDomainConstraints []crossDomainDNSConstraint
 }
 
 func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
@@ -476,16 +483,32 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 	}
 	appendDNSCacheWarning(&result)
 	sort.SliceStable(result.Objects, func(i, j int) bool { return result.Objects[i].Order < result.Objects[j].Order })
-	payload, err := json.Marshal(struct {
-		Objects           []DesiredObject
-		AccessResolutions []accesscontrol.MemberResolution
-	}{result.Objects, result.AccessResolutions})
-	if err != nil {
+	if err := hashDesiredResult(&result); err != nil {
 		return DesiredResult{}, err
+	}
+	return result, nil
+}
+
+func hashDesiredResult(result *DesiredResult) error {
+	payload, err := json.Marshal(struct {
+		Objects                []DesiredObject                   `json:"Objects"`
+		AccessResolutions      []accesscontrol.MemberResolution  `json:"AccessResolutions"`
+		CrossDomainDesired     []DesiredObject                   `json:"CrossDomainDesired,omitempty"`
+		CrossDomainResolutions []CrossDomainProjectionResolution `json:"CrossDomainResolutions,omitempty"`
+		CrossDomainConstraints []crossDomainDNSConstraint        `json:"CrossDomainConstraints,omitempty"`
+	}{
+		Objects:                result.Objects,
+		AccessResolutions:      result.AccessResolutions,
+		CrossDomainDesired:     result.crossDomainDesired,
+		CrossDomainResolutions: result.crossDomainResolutions,
+		CrossDomainConstraints: result.crossDomainConstraints,
+	})
+	if err != nil {
+		return err
 	}
 	digest := sha256.Sum256(payload)
 	result.Hash = hex.EncodeToString(digest[:])
-	return result, nil
+	return nil
 }
 
 func needsAccessForwarder(rules []accesscontrol.AccessRule, targetSources map[string]Source) bool {

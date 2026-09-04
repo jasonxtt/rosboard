@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,6 +106,15 @@ func rootReviewAccessSnapshot(t *testing.T, router *policyV2FakeRouter) map[rout
 func rootReviewHasBlocker(plan policyv2.Plan, code string) bool {
 	for _, blocker := range plan.Blockers {
 		if blocker.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func rootReviewHasWarning(plan policyv2.Plan, code string) bool {
+	for _, warning := range plan.Warnings {
+		if warning.Code == code {
 			return true
 		}
 	}
@@ -273,7 +283,7 @@ func TestPolicyV2SharedTargetUsesIndependentDomainAppliesAndScopedPromotion(t *t
 	}
 }
 
-func TestPolicyV2SharedTargetSecondDomainFailurePreservesFirstCommit(t *testing.T) {
+func TestPolicyV2AccessCommitKeepsFollowUpJobNonTerminal(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -282,9 +292,155 @@ func TestPolicyV2SharedTargetSecondDomainFailurePreservesFirstCommit(t *testing.
 	ctx := context.Background()
 	policyRepository := storage.PolicyRepository()
 	accessRepository := storage.AccessRepository()
-	sharedTarget := seedCanonicalTarget(t, policyRepository, "root-failed-shared-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	if _, err := accessRepository.SaveRule(ctx, accesscontrol.AccessRule{ID: "follow-up-rule", Name: "follow-up", TargetScope: accesscontrol.TargetScopeInternet, Enabled: true}, []accesscontrol.RuleMember{{RuleID: "follow-up-rule", TerminalID: "terminal", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	accessState, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	job := policyv2.ApplyJob{ID: "follow-up-job", PlanID: "access-plan", State: "follow_up", Phase: "follow_up", CreatedAt: now, StartedAt: now}
+	if err := policyRepository.SaveApplyJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := policyRepository.CommitAccessApplyWithJobState(ctx, accessState.DesiredRevision, "access-hash", job, nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	storedJob, err := policyRepository.GetApplyJob(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedJob.State != "follow_up" || storedJob.Phase != "follow_up" || !storedJob.FinishedAt.IsZero() {
+		t.Fatalf("non-terminal Access commit exposed a terminal job state: %#v", storedJob)
+	}
+	accessAfter, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !accessAfter.Applied() {
+		t.Fatalf("Access state was not committed with the follow-up job state: %#v", accessAfter)
+	}
+}
+
+type rootReviewBlockAccessCommitRepository struct {
+	*PolicyRepository
+	committed chan struct{}
+	release   chan struct{}
+	releaseMu sync.Once
+}
+
+func (r *rootReviewBlockAccessCommitRepository) CommitAccessApplyWithJobState(ctx context.Context, accessRevision int64, appliedHash string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, promotions []policyv2.TargetVersionPromotion, terminal bool) error {
+	if err := r.PolicyRepository.CommitAccessApplyWithJobState(ctx, accessRevision, appliedHash, job, resolutions, promotions, terminal); err != nil {
+		return err
+	}
+	close(r.committed)
+	<-r.release
+	return nil
+}
+
+func (r *rootReviewBlockAccessCommitRepository) releaseCommit() {
+	r.releaseMu.Do(func() { close(r.release) })
+}
+
+func TestPolicyV2SharedDomainCommitPublishesNonTerminalJobBeforeFollowUpPlanning(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "root-follow-up-state", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"})
+	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-follow-up-egress", target.ID)
+	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-follow-up-access", target.ID)
+	router := newPolicyV2FakeRouter()
+	router.dnsServers = "192.0.2.53"
+	repository := &rootReviewBlockAccessCommitRepository{PolicyRepository: policyRepository, committed: make(chan struct{}), release: make(chan struct{})}
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: repository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialJob, err := manager.GenerateAndApplyTarget(ctx, "default", "target-list-refresh", target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.releaseCommit()
+	select {
+	case <-repository.committed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the first domain commit")
+	}
+	storedJob, err := policyRepository.GetApplyJob(ctx, initialJob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedJob.State != "follow_up" || storedJob.Terminal() {
+		t.Fatalf("first domain commit exposed a terminal job before follow-up planning: %#v", storedJob)
+	}
+	repository.releaseCommit()
+	finalJob := waitRootReviewSharedJob(t, policyRepository, accessRepository, target.ID, target.PendingVersionID, initialJob.ID, false)
+	if finalJob.State != "committed" {
+		t.Fatalf("shared domain follow-up did not finish: %#v", finalJob)
+	}
+}
+
+func TestPolicyV2SharedDomainTargetAccessFirstFailurePreventsRouting(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	sharedTarget := seedCanonicalTarget(t, policyRepository, "root-failed-shared-domain", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"})
 	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-failed-shared-egress", sharedTarget.ID)
 	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-failed-shared-access", sharedTarget.ID)
+	baseRouter := newPolicyV2FakeRouter()
+	baseRouter.dnsServers = "192.0.2.53"
+	router := &rootReviewFailAccessRouter{policyV2FakeRouter: baseRouter, failAccess: true}
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialJob, err := manager.GenerateAndApplyTarget(ctx, "default", "target-list-refresh", sharedTarget.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedJob := waitRootReviewInitialFailedJob(t, policyRepository, initialJob.ID, initialJob.PlanID)
+	if failedJob.PlanID != initialJob.PlanID || failedJob.State != "failed" {
+		t.Fatalf("access-first failure was not recorded against the initial plan: initial=%#v failed=%#v", initialJob, failedJob)
+	}
+	policyState, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessState, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policyState.Applied() {
+		t.Fatalf("routing domain was applied even though Access failed first: %#v", policyState)
+	}
+	if accessState.Applied() {
+		t.Fatalf("failed access domain was falsely reported as applied: %#v", accessState)
+	}
+}
+
+func TestPolicyV2SharedIPTargetRoutingFirstFailurePreservesRouting(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	sharedTarget := seedCanonicalTarget(t, policyRepository, "root-failed-shared-ip", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-failed-shared-ip-egress", sharedTarget.ID)
+	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-failed-shared-ip-access", sharedTarget.ID)
 	baseRouter := newPolicyV2FakeRouter()
 	router := &rootReviewFailAccessRouter{policyV2FakeRouter: baseRouter, failAccess: true}
 	manager := policyv2.NewManager(nil)
@@ -295,9 +451,9 @@ func TestPolicyV2SharedTargetSecondDomainFailurePreservesFirstCommit(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	failedJob := waitRootReviewFailedJob(t, policyRepository, initialJob.ID)
+	failedJob := waitRootReviewSharedJob(t, policyRepository, accessRepository, sharedTarget.ID, sharedTarget.PendingVersionID, initialJob.ID, true)
 	if failedJob.PlanID == initialJob.PlanID || failedJob.State != "failed" {
-		t.Fatalf("second domain failure was not recorded against the follow-up plan: initial=%#v failed=%#v", initialJob, failedJob)
+		t.Fatalf("IP shared target did not retain Routing-first follow-up failure semantics: initial=%#v failed=%#v", initialJob, failedJob)
 	}
 	policyState, err := policyRepository.GetDeviceState(ctx)
 	if err != nil {
@@ -308,10 +464,263 @@ func TestPolicyV2SharedTargetSecondDomainFailurePreservesFirstCommit(t *testing.
 		t.Fatal(err)
 	}
 	if !policyState.Applied() {
-		t.Fatalf("first routing domain was not retained as applied: %#v", policyState)
+		t.Fatalf("Routing domain was not committed before the failed Access follow-up: %#v", policyState)
 	}
 	if accessState.Applied() {
-		t.Fatalf("failed access domain was falsely reported as applied: %#v", accessState)
+		t.Fatalf("failed Access follow-up was falsely reported as applied: %#v", accessState)
+	}
+}
+
+func TestPolicyV2SharedDomainTargetAppliesAccessBeforeRoutingDNS(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "root-shared-domain", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"})
+	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-shared-domain-egress", target.ID)
+	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-shared-domain-access", target.ID)
+	router := newPolicyV2FakeRouter()
+	router.dnsServers = "192.0.2.53"
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialJob, err := manager.GenerateAndApplyTarget(ctx, "default", "target-list-refresh", target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRootReviewSharedJob(t, policyRepository, accessRepository, target.ID, target.PendingVersionID, initialJob.ID, false)
+	desired, err := policyv2.BuildDesiredWithAccessOptions(ctx, policyRepository, router, accessRepository, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, _, err := policyv2.ScanManaged(ctx, router, policyRepository, desired.Objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions := make(map[string]int)
+	present := make(map[string]bool)
+	for _, object := range actual {
+		if object.Menu == string(routeros.MenuIPDNSStatic) && object.Ownership == "owned" {
+			positions[object.LogicalID] = object.Position
+			present[object.LogicalID] = true
+		}
+	}
+	accessLogicalID := "access-target-dns:" + target.ID + ":DOMAIN-SUFFIX:youtube.com"
+	routingLogicalID := "routing-dns:root-shared-domain-egress:" + target.ID + ":DOMAIN-SUFFIX:youtube.com"
+	if !present[accessLogicalID] || !present[routingLogicalID] || positions[accessLogicalID] >= positions[routingLogicalID] {
+		t.Fatalf("Access DNS static must precede Routing DNS static: access=%d routing=%d actual=%#v", positions[accessLogicalID], positions[routingLogicalID], actual)
+	}
+}
+
+func TestPolicyV2AccessApplyMovesExistingRoutingDNSAfterCrossDomainOverlap(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "root-existing-routing-domain", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"})
+	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-existing-routing-egress", target.ID)
+	router := newPolicyV2FakeRouter()
+	router.dnsServers = "192.0.2.53"
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	routingJob, err := manager.GenerateAndApply(ctx, "default", "routing-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routingJob = waitPolicyV2Job(t, policyRepository, routingJob.ID); routingJob.State != "committed" {
+		t.Fatalf("initial Routing apply failed: %#v", routingJob)
+	}
+	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-existing-routing-access", target.ID)
+	accessPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "access-policy", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootReviewHasBlocker(accessPlan.Plan, "cross_domain_access_precedence_unavailable") || accessPlan.Plan.Summary.Move == 0 {
+		t.Fatalf("Access plan did not include the owned cross-domain move: %#v", accessPlan.Plan)
+	}
+	accessJob, err := manager.ApplyPlan(ctx, "default", accessPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessJob = waitPolicyV2Job(t, policyRepository, accessJob.ID); accessJob.State != "committed" {
+		t.Fatalf("Access apply with an existing Routing projection failed: %#v", accessJob)
+	}
+	actual, err := router.List(ctx, routeros.MenuIPDNSStatic, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := policyv2.BuildDesiredWithAccessOptions(ctx, policyRepository, router, accessRepository, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, _, err := policyv2.ScanManaged(ctx, router, policyRepository, desired.Objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logicalPositions := make(map[string]int)
+	for _, object := range managed {
+		if object.Menu == string(routeros.MenuIPDNSStatic) && object.Ownership == "owned" {
+			logicalPositions[object.LogicalID] = object.Position
+		}
+	}
+	accessLogicalID := "access-target-dns:" + target.ID + ":DOMAIN-SUFFIX:youtube.com"
+	routingLogicalID := "routing-dns:root-existing-routing-egress:" + target.ID + ":DOMAIN-SUFFIX:youtube.com"
+	if logicalPositions[accessLogicalID] >= logicalPositions[routingLogicalID] {
+		t.Fatalf("Access DNS static was not moved before existing Routing static: positions=%#v actual=%#v", logicalPositions, actual)
+	}
+	var accessRouterID, routingRouterID string
+	for _, object := range managed {
+		if object.LogicalID == accessLogicalID {
+			accessRouterID = object.RouterID
+		}
+		if object.LogicalID == routingLogicalID {
+			routingRouterID = object.RouterID
+		}
+	}
+	if accessRouterID == "" || routingRouterID == "" {
+		t.Fatalf("cross-domain DNS statics did not retain RouterOS IDs: %#v", managed)
+	}
+	routingPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "routing-policy", policyv2.PlanOptions{Domain: policyv2.PolicyDomainRouting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessPlan, err = manager.GeneratePlanWithOptions(ctx, "default", "access-policy-stale-check", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := router.Move(ctx, routeros.MenuIPDNSStatic, routeros.MoveRequest{ID: routingRouterID, BeforeID: accessRouterID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, plan := range []policyv2.PlanEnvelope{routingPlan, accessPlan} {
+		if _, err := manager.ApplyPlan(ctx, "default", plan.PlanID); !errors.Is(err, policyv2.ErrPlanStale) {
+			t.Fatalf("cross-domain DNS order drift must stale the %s plan, got %v", plan.Plan.Domain, err)
+		}
+	}
+}
+
+type rootReviewNoopMoveRouter struct {
+	*policyV2FakeRouter
+}
+
+func (r *rootReviewNoopMoveRouter) Move(context.Context, routeros.MutationMenu, routeros.MoveRequest) (routeros.MutationResponse, error) {
+	return routeros.MutationResponse{}, nil
+}
+
+func TestPolicyV2RoutingApplyRejectsUnconvergedDisabledDNSBeforeActivation(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "root-preactivation-order", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"})
+	rootReviewAddRoutingConsumer(t, ctx, policyRepository, "root-preactivation-egress", target.ID)
+	rootReviewAddAccessConsumer(t, ctx, accessRepository, "root-preactivation-access", target.ID)
+	baseRouter := newPolicyV2FakeRouter()
+	baseRouter.dnsServers = "192.0.2.53"
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: baseRouter, Mutation: baseRouter, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	routingPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "routing-seed", policyv2.PlanOptions{Domain: policyv2.PolicyDomainRouting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var routingDNS policyv2.DesiredObject
+	for _, operation := range routingPlan.Plan.Operations {
+		if operation.Action == "create" && strings.HasPrefix(operation.LogicalID, "routing-dns:") {
+			routingDNS = policyv2.DesiredObject{LogicalID: operation.LogicalID, Menu: operation.Menu, Fields: operation.After}
+			break
+		}
+	}
+	if routingDNS.LogicalID == "" {
+		t.Fatalf("routing seed plan did not contain a DNS static: %#v", routingPlan.Plan.Operations)
+	}
+	fields := make(routeros.RouterOSFields, len(routingDNS.Fields))
+	for key, value := range routingDNS.Fields {
+		fields[key] = value
+	}
+	fields["disabled"] = "yes"
+	if _, err := baseRouter.Create(ctx, routeros.MenuIPDNSStatic, fields); err != nil {
+		t.Fatal(err)
+	}
+	accessPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "access-seed", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessPlan.Plan.Summary.Move == 0 || len(accessPlan.Plan.Blockers) != 0 {
+		t.Fatalf("Access seed plan did not establish precedence: %#v", accessPlan.Plan)
+	}
+	accessJob, err := manager.ApplyPlan(ctx, "default", accessPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessJob = waitPolicyV2Job(t, policyRepository, accessJob.ID); accessJob.State != "committed" {
+		t.Fatalf("Access seed apply failed: %#v", accessJob)
+	}
+	desired, err := policyv2.BuildDesiredWithAccessOptions(ctx, policyRepository, baseRouter, accessRepository, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, _, err := policyv2.ScanManaged(ctx, baseRouter, policyRepository, desired.Objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accessID, routingID string
+	for _, object := range managed {
+		if object.LogicalID == "access-target-dns:"+target.ID+":DOMAIN-SUFFIX:youtube.com" {
+			accessID = object.RouterID
+		}
+		if object.LogicalID == routingDNS.LogicalID {
+			routingID = object.RouterID
+		}
+	}
+	if accessID == "" || routingID == "" {
+		t.Fatalf("seeded Access/Routing DNS statics were not found: %#v", managed)
+	}
+	if _, err := baseRouter.Move(ctx, routeros.MenuIPDNSStatic, routeros.MoveRequest{ID: routingID, BeforeID: accessID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := baseRouter.Patch(ctx, routeros.MenuIPDNSStatic, routingID, routeros.RouterOSFields{"disabled": "yes"}); err != nil {
+		t.Fatal(err)
+	}
+	noOpRouter := &rootReviewNoopMoveRouter{policyV2FakeRouter: baseRouter}
+	routingManager := policyv2.NewManager(nil)
+	if err := routingManager.RegisterApplier("default", &policyv2.Applier{Reader: noOpRouter, Mutation: noOpRouter, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	routingPlan, err = routingManager.GeneratePlanWithOptions(ctx, "default", "routing-order-check", policyv2.PlanOptions{Domain: policyv2.PolicyDomainRouting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routingJob, err := routingManager.ApplyPlan(ctx, "default", routingPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routingJob = waitPolicyV2Job(t, policyRepository, routingJob.ID); routingJob.State != "failed" {
+		t.Fatalf("routing apply with a no-op move must fail before activation: %#v", routingJob)
+	}
+	objects, err := baseRouter.List(ctx, routeros.MenuIPDNSStatic, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, object := range objects {
+		if object.ID() == routingID && !strings.EqualFold(strings.TrimSpace(object["disabled"]), "yes") && !strings.EqualFold(strings.TrimSpace(object["disabled"]), "true") {
+			t.Fatalf("Routing DNS static was activated despite failed preactivation order verification: %#v", object)
+		}
 	}
 }
 
@@ -558,8 +967,8 @@ func TestPolicyV2DisabledAccessTargetDoesNotCreateCrossDomainDNSConflict(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rootReviewHasBlocker(routingPlan.Plan, "cross_domain_dns_projection_ambiguous") || rootReviewHasBlocker(accessPlan.Plan, "cross_domain_dns_projection_ambiguous") {
-		t.Fatalf("disabled YouTube access consumer created a cross-domain blocker: routing=%#v access=%#v", routingPlan.Plan.Blockers, accessPlan.Plan.Blockers)
+	if rootReviewHasWarning(routingPlan.Plan, "cross_domain_access_priority_shadowed") || rootReviewHasWarning(accessPlan.Plan, "cross_domain_access_priority_shadowed") {
+		t.Fatalf("disabled YouTube access consumer created a cross-domain issue: routing=%#v access=%#v", routingPlan.Plan, accessPlan.Plan)
 	}
 	routingDesired, err := policyv2.BuildRoutingDesired(ctx, policyRepository, router, nil)
 	if err != nil {
@@ -749,16 +1158,16 @@ func TestPolicyV2AccessDomainProjectionBlockers(t *testing.T) {
 	}
 }
 
-func TestPolicyV2CrossDomainDNSProjectionBlockers(t *testing.T) {
+func TestPolicyV2CrossDomainDNSProjectionPrecedence(t *testing.T) {
 	tests := []struct {
 		name        string
 		kind        string
 		ruleA       policyv2.TargetListRule
 		ruleB       policyv2.TargetListRule
-		wantBlocker bool
+		wantWarning bool
 	}{
-		{name: "same domain target", kind: policyv2.KindDomain, ruleA: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, ruleB: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, wantBlocker: true},
-		{name: "different overlapping domain targets", kind: policyv2.KindDomain, ruleA: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, ruleB: policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"}, wantBlocker: true},
+		{name: "same domain target", kind: policyv2.KindDomain, ruleA: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, ruleB: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, wantWarning: true},
+		{name: "different overlapping domain targets", kind: policyv2.KindDomain, ruleA: policyv2.TargetListRule{RuleType: "DOMAIN", Domain: "youtube.com"}, ruleB: policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"}, wantWarning: true},
 		{name: "shared IP target", kind: policyv2.KindIP, ruleA: policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}, ruleB: policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}},
 	}
 	for _, test := range tests {
@@ -793,10 +1202,16 @@ func TestPolicyV2CrossDomainDNSProjectionBlockers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			routingBlocker := rootReviewHasBlocker(routingPlan.Plan, "cross_domain_dns_projection_ambiguous")
-			accessBlocker := rootReviewHasBlocker(accessPlan.Plan, "cross_domain_dns_projection_ambiguous")
-			if routingBlocker != test.wantBlocker || accessBlocker != test.wantBlocker {
-				t.Fatalf("cross-domain blocker routing=%v access=%v want=%v: routing=%#v access=%#v", routingBlocker, accessBlocker, test.wantBlocker, routingPlan.Plan, accessPlan.Plan)
+			routingWarning := rootReviewHasWarning(routingPlan.Plan, "cross_domain_access_priority_shadowed")
+			accessWarning := rootReviewHasWarning(accessPlan.Plan, "cross_domain_access_priority_shadowed")
+			if routingWarning != test.wantWarning || accessWarning != test.wantWarning {
+				t.Fatalf("cross-domain warning routing=%v access=%v want=%v: routing=%#v access=%#v", routingWarning, accessWarning, test.wantWarning, routingPlan.Plan, accessPlan.Plan)
+			}
+			if test.wantWarning && !rootReviewHasBlocker(routingPlan.Plan, "cross_domain_access_precedence_unavailable") {
+				t.Fatalf("routing plan did not fail closed while Access DNS projection is absent: %#v", routingPlan.Plan.Blockers)
+			}
+			if !test.wantWarning && rootReviewHasBlocker(routingPlan.Plan, "cross_domain_access_precedence_unavailable") {
+				t.Fatalf("non-overlapping routing plan unexpectedly received an Access precedence blocker: %#v", routingPlan.Plan.Blockers)
 			}
 			if routingPlan.Plan.Domain == policyv2.PolicyDomainCombined || accessPlan.Plan.Domain == policyv2.PolicyDomainCombined {
 				t.Fatalf("cross-domain validation unexpectedly used Combined: routing=%s access=%s", routingPlan.Plan.Domain, accessPlan.Plan.Domain)
@@ -899,5 +1314,23 @@ func waitRootReviewFailedJob(t *testing.T, policyRepository *PolicyRepository, i
 		t.Fatal(err)
 	}
 	t.Fatalf("timed out waiting for follow-up failure: %#v", job)
+	return policyv2.ApplyJob{}
+}
+
+func waitRootReviewInitialFailedJob(t *testing.T, policyRepository *PolicyRepository, initialJobID, initialPlanID string) policyv2.ApplyJob {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := policyRepository.GetApplyJob(context.Background(), initialJobID)
+		if err == nil && job.State == "failed" && job.PlanID == initialPlanID {
+			return job
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	job, err := policyRepository.GetApplyJob(context.Background(), initialJobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("timed out waiting for initial apply failure: %#v", job)
 	return policyv2.ApplyJob{}
 }

@@ -10,11 +10,12 @@ import (
 
 const (
 	accessDomainProjectionAmbiguousCode = "access_domain_projection_ambiguous"
-	crossDomainProjectionAmbiguousCode  = "cross_domain_dns_projection_ambiguous"
+	crossDomainPriorityShadowedCode     = "cross_domain_access_priority_shadowed"
 )
 
 type domainProjectionConsumer struct {
 	ruleID   string
+	ruleName string
 	targetID string
 	egressID string
 	rules    []SourceRule
@@ -41,13 +42,28 @@ func appendAccessDomainProjectionBlockers(ctx context.Context, repository Reposi
 	return nil
 }
 
-func appendCrossDomainProjectionBlockers(ctx context.Context, repository Repository, accessRepository accesscontrol.Repository, targetScope map[string]bool, result *DesiredResult) error {
+// CrossDomainProjectionResolution describes one active Access/Routing domain
+// overlap. Access has fixed precedence on the device-wide RouterOS DNS Static
+// list; the resolution is therefore a warning plus an ordering constraint, not
+// a blocker.
+type CrossDomainProjectionResolution struct {
+	AccessRuleID    string          `json:"accessRuleId"`
+	AccessRuleName  string          `json:"accessRuleName,omitempty"`
+	AccessTargetID  string          `json:"accessTargetId"`
+	RoutingRuleID   string          `json:"routingRuleId"`
+	RoutingRuleName string          `json:"routingRuleName,omitempty"`
+	RoutingEgressID string          `json:"routingEgressId"`
+	RoutingTargetID string          `json:"routingTargetId"`
+	Overlaps        [][2]SourceRule `json:"overlaps"`
+}
+
+func CrossDomainProjectionResolutions(ctx context.Context, repository Repository, accessRepository accesscontrol.Repository, targetScope map[string]bool) ([]CrossDomainProjectionResolution, error) {
 	if accessRepository == nil {
-		return nil
+		return nil, nil
 	}
 	sources, err := repository.ListSources(ctx, "")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sourceByID := make(map[string]Source, len(sources))
 	for _, source := range sources {
@@ -55,36 +71,71 @@ func appendCrossDomainProjectionBlockers(ctx context.Context, repository Reposit
 	}
 	routingConsumers, err := routingDomainProjectionConsumers(ctx, repository, sourceByID, targetScope)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	accessRules, err := accessRepository.ListRules(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	accessConsumers, err := accessDomainProjectionConsumers(ctx, repository, accessRules, sourceByID, targetScope)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	result := make([]CrossDomainProjectionResolution, 0)
 	seen := make(map[string]bool)
 	for _, routing := range routingConsumers {
 		for _, access := range accessConsumers {
-			if !targetRuleSetsOverlap(routing.rules, access.rules, KindDomain) {
+			overlaps := domainProjectionOverlaps(access.rules, routing.rules)
+			if len(overlaps) == 0 {
 				continue
 			}
-			key := routing.ruleID + "\x00" + access.ruleID
+			// Access and Routing may each have several rule consumers for one
+			// physical target projection. The DNS order contract is per physical
+			// Access-target/Routing-egress-target pair, not per rule pair.
+			key := access.targetID + "\x00" + routing.egressID + "\x00" + routing.targetID
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			logicalID := routing.ruleID
-			if result.Domain == PolicyDomainAccess {
-				logicalID = access.ruleID
-			}
-			result.Blockers = append(result.Blockers, PlanIssue{
-				Code: crossDomainProjectionAmbiguousCode, Status: "blocker", LogicalID: logicalID, EgressID: routing.egressID,
-				Reason: "同一域名目标同时用于策略路由和访问控制。RouterOS DNS Static 是设备级有序匹配，无法按客户端为两个独立的 DNS/address-list 上下文分别投影，请改用 IP 目标或避免两边使用重叠的域名目标。",
+			result = append(result, CrossDomainProjectionResolution{
+				AccessRuleID: access.ruleID, AccessRuleName: access.ruleName, AccessTargetID: access.targetID,
+				RoutingRuleID: routing.ruleID, RoutingRuleName: routing.ruleName, RoutingEgressID: routing.egressID,
+				RoutingTargetID: routing.targetID, Overlaps: overlaps,
 			})
 		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, right := result[i], result[j]
+		pairs := [][2]string{
+			{left.AccessRuleID, right.AccessRuleID}, {left.AccessTargetID, right.AccessTargetID},
+			{left.RoutingRuleID, right.RoutingRuleID}, {left.RoutingEgressID, right.RoutingEgressID},
+			{left.RoutingTargetID, right.RoutingTargetID},
+		}
+		for _, pair := range pairs {
+			if pair[0] != pair[1] {
+				return pair[0] < pair[1]
+			}
+		}
+		return false
+	})
+	return result, nil
+}
+
+func appendCrossDomainProjectionResolutions(ctx context.Context, repository Repository, accessRepository accesscontrol.Repository, targetScope map[string]bool, result *DesiredResult) error {
+	resolutions, err := CrossDomainProjectionResolutions(ctx, repository, accessRepository, targetScope)
+	if err != nil {
+		return err
+	}
+	result.crossDomainResolutions = append([]CrossDomainProjectionResolution(nil), resolutions...)
+	for _, resolution := range resolutions {
+		logicalID := resolution.RoutingRuleID
+		if result.Domain == PolicyDomainAccess {
+			logicalID = resolution.AccessRuleID
+		}
+		result.Warnings = append(result.Warnings, PlanIssue{
+			Code: crossDomainPriorityShadowedCode, Status: "warning", LogicalID: logicalID, EgressID: resolution.RoutingEgressID,
+			Reason: "访问控制域名投影优先于策略路由：" + domainOverlapPhrase(resolution.Overlaps) + "。访问规则「" + displayName(resolution.AccessRuleName, resolution.AccessRuleID) + "」优先于策略路由「" + displayName(resolution.RoutingRuleName, resolution.RoutingRuleID) + "」，重叠域名在本设备上不会按策略路由出口生效；其他不重叠域名不受影响。",
+		})
 	}
 	return nil
 }
@@ -114,7 +165,7 @@ func accessDomainProjectionConsumers(ctx context.Context, repository Repository,
 				continue
 			}
 			seen[key] = true
-			consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, targetID: targetID, rules: domainDomainRules(rulesForTarget)})
+			consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, ruleName: rule.Name, targetID: targetID, rules: domainDomainRules(rulesForTarget)})
 		}
 	}
 	sort.Slice(consumers, func(i, j int) bool {
@@ -170,7 +221,7 @@ func routingDomainProjectionConsumers(ctx context.Context, repository Repository
 					if err != nil {
 						return nil, err
 					}
-					consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, targetID: targetID, egressID: rule.EgressID, rules: domainDomainRules(rulesForTarget)})
+					consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, ruleName: rule.Name, targetID: targetID, egressID: rule.EgressID, rules: domainDomainRules(rulesForTarget)})
 				}
 			}
 			return consumers, nil
@@ -188,7 +239,7 @@ func routingDomainProjectionConsumers(ctx context.Context, repository Repository
 		if err != nil {
 			return nil, err
 		}
-		consumers = append(consumers, domainProjectionConsumer{targetID: source.ID, egressID: source.EgressID, rules: domainDomainRules(rulesForTarget)})
+		consumers = append(consumers, domainProjectionConsumer{ruleID: source.ID, ruleName: source.Name, targetID: source.ID, egressID: source.EgressID, rules: domainDomainRules(rulesForTarget)})
 	}
 	return consumers, nil
 }

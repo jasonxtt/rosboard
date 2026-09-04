@@ -77,16 +77,22 @@ type PlanOptions struct {
 type SourceRefresher func(context.Context, Source) (SourceRefresh, error)
 
 type Manager struct {
-	logger        *log.Logger
-	mu            sync.RWMutex
-	appliers      map[string]*Applier
-	plans         map[string]cachedPlan
-	followUpPlans map[string][]string
-	gate          *routeros.DeviceWriteGate
+	logger          *log.Logger
+	mu              sync.RWMutex
+	appliers        map[string]*Applier
+	plans           map[string]cachedPlan
+	followUpTargets map[string]targetFollowUp
+	gate            *routeros.DeviceWriteGate
+}
+
+type targetFollowUp struct {
+	kind      string
+	targetIDs []string
+	domain    PolicyDomain
 }
 
 func NewManager(logger *log.Logger) *Manager {
-	return &Manager{logger: logger, appliers: make(map[string]*Applier), plans: make(map[string]cachedPlan), followUpPlans: make(map[string][]string), gate: routeros.NewDeviceWriteGate()}
+	return &Manager{logger: logger, appliers: make(map[string]*Applier), plans: make(map[string]cachedPlan), followUpTargets: make(map[string]targetFollowUp), gate: routeros.NewDeviceWriteGate()}
 }
 
 func (m *Manager) Enabled() bool { return m != nil }
@@ -237,11 +243,13 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 			return PlanEnvelope{}, err
 		}
 	}
-	actual, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
+	actual, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, domain, desired.crossDomainConstraints)
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
+	appendCrossDomainPrecedenceBlockers(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual, &desired)
 	operations, diffBlockers := DiffDesired(desired.Objects, actual)
+	operations = append(operations, planCrossDomainDNSMoves(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual)...)
 	if domain == PolicyDomainAccess {
 		accessOrderOperations, orderErr := planAccessJumpsFirst(ctx, applier.Mutation, desired.Objects, actual)
 		if orderErr != nil {
@@ -426,7 +434,33 @@ func buildPlanDesiredWithAccessRepository(ctx context.Context, applier *Applier,
 	if err != nil {
 		return DesiredResult{}, err
 	}
-	if err := appendCrossDomainProjectionBlockers(ctx, repository, accessRepository, targetScope, &desired); err != nil {
+	if accessRepository == nil {
+		return desired, nil
+	}
+	if domain != PolicyDomainCombined {
+		otherDomain := PolicyDomainRouting
+		if domain == PolicyDomainRouting {
+			otherDomain = PolicyDomainAccess
+		}
+		other, otherErr := buildDesiredForDomainWithTargetScope(ctx, repository, applier.Reader, accessRepository, applier.Terminals, applier.Scope, internetEgresses, otherDomain, targetScope)
+		if otherErr != nil {
+			return DesiredResult{}, otherErr
+		}
+		for _, object := range other.Objects {
+			if object.Menu == string(routeros.MenuIPDNSStatic) {
+				desired.crossDomainDesired = append(desired.crossDomainDesired, object)
+			}
+		}
+	}
+	if err := appendCrossDomainProjectionResolutions(ctx, repository, accessRepository, targetScope, &desired); err != nil {
+		return DesiredResult{}, err
+	}
+	desired.crossDomainConstraints = buildCrossDomainDNSConstraints(desired.crossDomainResolutions)
+	if len(desired.crossDomainConstraints) == 0 {
+		desired.crossDomainDesired = nil
+		desired.crossDomainResolutions = nil
+	}
+	if err := hashDesiredResult(&desired); err != nil {
 		return DesiredResult{}, err
 	}
 	return desired, nil
@@ -563,10 +597,16 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 			return ApplyJob{}, ErrPlanStale
 		}
 	}
-	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, domain)
+	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, domain, desired.crossDomainConstraints)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
+	}
+	precedence := DesiredResult{}
+	appendCrossDomainPrecedenceBlockers(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual, &precedence)
+	if len(precedence.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
 	}
 	if fingerprint != cached.Plan.ActualFingerprint {
 		release()
@@ -612,7 +652,7 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 	if err != nil {
 		return ApplyJob{}, err
 	}
-	desired, err := BuildRoutingDesired(ctx, planningRepository, applier.Reader, applier.Terminals)
+	desired, err := buildPlanDesiredWithAccessRepository(ctx, applier, planningRepository, applier.Access, PolicyDomainRouting, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		return ApplyJob{}, err
 	}
@@ -647,7 +687,7 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 		release()
 		return ApplyJob{}, err
 	}
-	desired, err = BuildRoutingDesired(ctx, planningRepository, applier.Reader, applier.Terminals)
+	desired, err = buildPlanDesiredWithAccessRepository(ctx, applier, planningRepository, applier.Access, PolicyDomainRouting, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
@@ -669,10 +709,16 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 			return ApplyJob{}, ErrPlanStale
 		}
 	}
-	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainRouting)
+	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, PolicyDomainRouting, desired.crossDomainConstraints)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
+	}
+	precedence := DesiredResult{}
+	appendCrossDomainPrecedenceBlockers(PolicyDomainRouting, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual, &precedence)
+	if len(precedence.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
 	}
 	if fingerprint != cached.Plan.ActualFingerprint {
 		release()
@@ -696,7 +742,7 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 		release()
 		return ApplyJob{}, ErrPlanStale
 	}
-	committedDesired, err := BuildRoutingDesired(ctx, applier.Repo, applier.Reader, applier.Terminals)
+	committedDesired, err := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, PolicyDomainRouting, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
@@ -804,10 +850,16 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 			return ApplyJob{}, ErrPlanStale
 		}
 	}
-	_, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainAccess)
+	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, PolicyDomainAccess, desired.crossDomainConstraints)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
+	}
+	precedence := DesiredResult{}
+	appendCrossDomainPrecedenceBlockers(PolicyDomainAccess, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual, &precedence)
+	if len(precedence.Blockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
 	}
 	if fingerprint != cached.Plan.ActualFingerprint {
 		release()
@@ -827,7 +879,7 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 		release()
 		return ApplyJob{}, err
 	}
-	committedDesired, err := BuildAccessDesiredWithOptions(ctx, applier.Repo, applier.Reader, applier.Access, applier.Terminals, applier.Scope, cached.InternetEgresses)
+	committedDesired, err := buildPlanDesiredWithAccessRepository(ctx, applier, applier.Repo, applier.Access, PolicyDomainAccess, cached.InternetEgresses, cached.TargetScope)
 	if err != nil {
 		release()
 		return ApplyJob{}, err
@@ -887,8 +939,10 @@ func (m *Manager) GenerateAndApply(ctx context.Context, deviceID, kind string) (
 }
 
 // GenerateAndApplyTarget reconciles only the domains that consume one target
-// list. A shared target is deliberately applied as routing first and access
-// second, with two independently built plans and two domain-scoped commits.
+// list. A shared domain target is applied Access first, then Routing is
+// generated from the committed Access state so the second plan sees the final
+// device-global DNS precedence and target revision. Shared IP targets retain
+// the established Routing-first order.
 func (m *Manager) GenerateAndApplyTarget(ctx context.Context, deviceID, kind, targetID string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
@@ -916,42 +970,74 @@ func (m *Manager) generateAndApplyTargetDomains(ctx context.Context, deviceID, k
 	if len(targetIDs) == 0 || (!domains.Routing && !domains.Access) {
 		return ApplyJob{}, nil
 	}
-	planIDs := make([]string, 0, 2)
-	options := PlanOptions{TargetListIDs: targetIDs}
-	if domains.Routing {
-		options.Domain = PolicyDomainRouting
-		plan, err := m.GeneratePlanWithOptions(ctx, deviceID, kind, options)
-		if err != nil {
-			return ApplyJob{}, err
+	accessFirst := false
+	if domains.Access && domains.Routing {
+		applier := m.ApplierFor(deviceID)
+		if applier != nil {
+			var err error
+			accessFirst, err = targetBatchContainsDomain(ctx, applier.Repo, targetIDs)
+			if err != nil {
+				return ApplyJob{}, err
+			}
 		}
-		planIDs = append(planIDs, plan.PlanID)
 	}
-	if domains.Access {
+	options := PlanOptions{TargetListIDs: targetIDs}
+	if domains.Access && (!domains.Routing || accessFirst) {
 		options.Domain = PolicyDomainAccess
 		plan, err := m.GeneratePlanWithOptions(ctx, deviceID, kind, options)
 		if err != nil {
-			m.deleteCachedPlans(planIDs)
 			return ApplyJob{}, err
 		}
-		planIDs = append(planIDs, plan.PlanID)
+		if domains.Routing {
+			m.mu.Lock()
+			m.followUpTargets[plan.PlanID] = targetFollowUp{kind: kind, targetIDs: append([]string(nil), targetIDs...), domain: PolicyDomainRouting}
+			m.mu.Unlock()
+		}
+		job, err := m.ApplyPlan(ctx, deviceID, plan.PlanID)
+		if err != nil {
+			m.mu.Lock()
+			delete(m.followUpTargets, plan.PlanID)
+			m.mu.Unlock()
+			return ApplyJob{}, err
+		}
+		return job, nil
 	}
-	if len(planIDs) == 0 {
+	if !domains.Routing {
 		return ApplyJob{}, nil
 	}
-	if len(planIDs) > 1 {
+	options.Domain = PolicyDomainRouting
+	plan, err := m.GeneratePlanWithOptions(ctx, deviceID, kind, options)
+	if err != nil {
+		return ApplyJob{}, err
+	}
+	if domains.Access {
 		m.mu.Lock()
-		m.followUpPlans[planIDs[0]] = append([]string(nil), planIDs[1:]...)
+		m.followUpTargets[plan.PlanID] = targetFollowUp{kind: kind, targetIDs: append([]string(nil), targetIDs...), domain: PolicyDomainAccess}
 		m.mu.Unlock()
 	}
-	job, err := m.ApplyPlan(ctx, deviceID, planIDs[0])
+	job, err := m.ApplyPlan(ctx, deviceID, plan.PlanID)
 	if err != nil {
-		m.mu.Lock()
-		delete(m.followUpPlans, planIDs[0])
-		m.mu.Unlock()
-		m.deleteCachedPlans(planIDs[1:])
+		m.deleteFollowUpTarget(plan.PlanID)
 		return ApplyJob{}, err
 	}
 	return job, nil
+}
+
+func targetBatchContainsDomain(ctx context.Context, repository Repository, targetIDs []string) (bool, error) {
+	targetRepository, ok := repository.(TargetListRepository)
+	if !ok {
+		return false, nil
+	}
+	for _, targetID := range targetIDs {
+		target, err := targetRepository.GetTargetList(ctx, targetID)
+		if err != nil {
+			return false, err
+		}
+		if target.Kind == KindDomain {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *Manager) deleteCachedPlans(planIDs []string) {
@@ -1182,36 +1268,51 @@ func sourceScheduleInterval(value string) (time.Duration, bool) {
 }
 
 func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan, job ApplyJob, release func()) {
-	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for {
 		var completed bool
-		job, completed = m.runApplyDomain(ctx, deviceID, applier, cached, job)
+		job, completed = m.runApplyDomain(ctx, deviceID, applier, cached, job, m.hasFollowUpTarget(cached.Plan.PlanID))
+		if release != nil {
+			release()
+			release = nil
+		}
 		if !completed {
-			m.deleteFollowUpPlans(cached.Plan.PlanID)
+			m.deleteFollowUpTarget(cached.Plan.PlanID)
 			return
 		}
 
 		m.mu.Lock()
-		followUps := m.followUpPlans[cached.Plan.PlanID]
-		delete(m.followUpPlans, cached.Plan.PlanID)
-		var next cachedPlan
-		nextPlanID := ""
-		haveNext := false
-		if len(followUps) > 0 {
-			nextPlanID = followUps[0]
-			next, haveNext = m.plans[nextPlanID]
-			delete(m.plans, nextPlanID)
-			for _, orphanID := range followUps[1:] {
-				delete(m.plans, orphanID)
-			}
-		}
+		followUp, haveFollowUp := m.followUpTargets[cached.Plan.PlanID]
+		delete(m.followUpTargets, cached.Plan.PlanID)
 		m.mu.Unlock()
-		if nextPlanID == "" || !haveNext {
+		if !haveFollowUp {
 			return
 		}
 
+		envelope, err := m.GeneratePlanWithOptions(ctx, deviceID, followUp.kind, PlanOptions{Domain: followUp.domain, TargetListIDs: followUp.targetIDs})
+		if err != nil {
+			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", err)
+			return
+		}
+		if len(envelope.Plan.Blockers) > 0 {
+			m.deleteCachedPlans([]string{envelope.PlanID})
+			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", ErrPlanBlocked)
+			return
+		}
+		m.mu.Lock()
+		next, haveNext := m.plans[envelope.PlanID]
+		delete(m.plans, envelope.PlanID)
+		m.mu.Unlock()
+		if !haveNext {
+			m.failJob(ctx, applier.Repo, &job, "load-follow-up", ErrPlanNotFound)
+			return
+		}
+		nextRelease, acquired := m.gate.TryAcquire(deviceID)
+		if !acquired {
+			m.failJob(ctx, applier.Repo, &job, "acquire-follow-up", ErrDeviceBusy)
+			return
+		}
 		job.PlanID = next.Plan.PlanID
 		job.State = "queued"
 		job.Phase = "queued"
@@ -1220,24 +1321,29 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		job.FinishedAt = time.Time{}
 		if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 			m.failJob(ctx, applier.Repo, &job, "save-follow-up", err)
-			m.deleteFollowUpPlans(next.Plan.PlanID)
+			nextRelease()
+			m.deleteFollowUpTarget(next.Plan.PlanID)
 			return
 		}
 		cached = next
+		release = nextRelease
 	}
 }
 
-func (m *Manager) deleteFollowUpPlans(planID string) {
+func (m *Manager) deleteFollowUpTarget(planID string) {
 	m.mu.Lock()
-	remaining := m.followUpPlans[planID]
-	delete(m.followUpPlans, planID)
-	for _, followUpID := range remaining {
-		delete(m.plans, followUpID)
-	}
+	delete(m.followUpTargets, planID)
 	m.mu.Unlock()
 }
 
-func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *Applier, cached cachedPlan, job ApplyJob) (ApplyJob, bool) {
+func (m *Manager) hasFollowUpTarget(planID string) bool {
+	m.mu.RLock()
+	_, ok := m.followUpTargets[planID]
+	m.mu.RUnlock()
+	return ok
+}
+
+func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *Applier, cached cachedPlan, job ApplyJob, keepJobOpen bool) (ApplyJob, bool) {
 	domain := cached.Plan.Domain
 	if domain == "" {
 		domain = policyDomainForPlanKind(cached.Plan.Kind)
@@ -1258,10 +1364,18 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "desired-state-changed", ErrPlanStale)
 		return job, false
 	}
-	if _, fingerprint, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, planned.Objects, domain); err != nil {
+	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, planned.Objects, planned.crossDomainDesired, domain, planned.crossDomainConstraints)
+	if err != nil {
 		m.failJob(ctx, applier.Repo, &job, "actual-state-check", err)
 		return job, false
-	} else if fingerprint != cached.Plan.ActualFingerprint {
+	}
+	precedence := DesiredResult{}
+	appendCrossDomainPrecedenceBlockers(domain, planned.Objects, planned.crossDomainDesired, planned.crossDomainConstraints, allActual, &precedence)
+	if len(precedence.Blockers) > 0 {
+		m.failJob(ctx, applier.Repo, &job, "cross-domain-dns-order", ErrPlanStale)
+		return job, false
+	}
+	if fingerprint != cached.Plan.ActualFingerprint {
 		m.failJob(ctx, applier.Repo, &job, "actual-state-changed", ErrPlanStale)
 		return job, false
 	}
@@ -1358,6 +1472,10 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			return job, false
 		}
 	}
+	if err := convergeCrossDomainDNSOrder(ctx, applier.Mutation, applier.Repo, planned, domain); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "cross-domain-dns-order", err)
+		return job, false
+	}
 	job.Phase = "activation"
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-activation", err)
@@ -1388,6 +1506,10 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "verify-diff", fmt.Errorf("RouterOS still differs after apply: operations=%d blockers=%d", len(remaining), len(blockers)))
 		return job, false
 	}
+	if err := verifyCrossDomainDNSOrder(ctx, applier.Mutation, applier.Repo, planned, domain, domain == PolicyDomainRouting || domain == PolicyDomainCombined); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "verify-cross-domain-dns-order", err)
+		return job, false
+	}
 	// Monitor-driven auto addresses do not bump the persistent access revision.
 	// Re-read the desired graph immediately before committing so a terminal
 	// change during the RouterOS mutation cannot be recorded as an applied
@@ -1401,12 +1523,29 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "desired-state-changed", ErrPlanStale)
 		return job, false
 	}
+	if err := verifyCrossDomainDNSOrder(ctx, applier.Mutation, applier.Repo, latest, domain, domain == PolicyDomainRouting || domain == PolicyDomainCombined); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "verify-cross-domain-dns-order", err)
+		return job, false
+	}
 	job.Progress = len(cached.Plan.Operations)
+	if keepJobOpen {
+		job.State = "follow_up"
+		job.Phase = "follow_up"
+		job.FinishedAt = time.Time{}
+	}
 	var commitErr error
 	if domain == PolicyDomainCombined {
 		commitErr = applier.Repo.CommitApply(ctx, cached.Plan.DesiredRevision, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, true)
 	} else if committer, ok := applier.Repo.(DomainApplyRepository); ok {
-		if domain == PolicyDomainAccess {
+		if followUpCommitter, supportsFollowUpState := applier.Repo.(DomainApplyJobStateRepository); keepJobOpen && supportsFollowUpState {
+			if domain == PolicyDomainAccess {
+				commitErr = followUpCommitter.CommitAccessApplyWithJobState(ctx, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, cached.TargetPromotions, false)
+			} else {
+				commitErr = followUpCommitter.CommitRoutingApplyWithJobState(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job, cached.TargetPromotions, false)
+			}
+		} else if keepJobOpen {
+			commitErr = errors.New("policy repository does not support follow-up job state")
+		} else if domain == PolicyDomainAccess {
 			commitErr = committer.CommitAccessApply(ctx, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, cached.TargetPromotions)
 		} else {
 			commitErr = committer.CommitRoutingApply(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job, cached.TargetPromotions)
@@ -1419,6 +1558,9 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	if commitErr != nil {
 		m.failJob(ctx, applier.Repo, &job, "commit", commitErr)
 		return job, false
+	}
+	if keepJobOpen {
+		return job, true
 	}
 	job.State = "committed"
 	job.Phase = "committed"
