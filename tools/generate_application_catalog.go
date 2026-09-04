@@ -1,5 +1,5 @@
 // Command generate_application_catalog creates the checked-in application
-// preset manifest from bm7_ios_rule_script's rule/Clash tree.
+// preset manifest from Blackmatrix7's ios_rule_script rule/Clash tree.
 //
 // It intentionally uses the Git tree API only at generation time. rosboard
 // embeds the resulting manifest and never crawls GitHub while serving the UI.
@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultTreeURL = "https://api.github.com/repos/iZuoShou/bm7_ios_rule_script/git/trees/master?recursive=1"
+	defaultTreeURL = "https://api.github.com/repos/blackmatrix7/ios_rule_script/git/trees/master?recursive=1"
 	defaultOutput  = "internal/applicationpreset/catalog.json"
 )
 

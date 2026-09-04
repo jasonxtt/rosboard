@@ -1,0 +1,28 @@
+{
+  "id": "domain-access-control",
+  "name": "domain-access-control",
+  "title": "RouterOS 域名访问控制与时长配额",
+  "description": "调研并设计复用现有域名列表的按终端 RouterOS 访问控制，分阶段覆盖域名阻断、固定时段与每日使用时长配额；RouterOS 负责实际执行，rosboard 负责配置、协调与可观测性。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "policy-routing, access-control, RouterOS firewall, device SQLite, React UI",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-08-30",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-30-source-lists-permanent-deny"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

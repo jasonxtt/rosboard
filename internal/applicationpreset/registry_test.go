@@ -29,6 +29,24 @@ func TestDefaultRegistryCoversTheBM7ClashCatalog(t *testing.T) {
 	}
 }
 
+func TestCDNRuleURLRequiresCanonicalTrustedPreset(t *testing.T) {
+	path := "rule/Clash/YouTube/YouTube.yaml"
+	canonical := ApplicationPreset{RulePath: path, RuleURL: rawRuleBaseURL + path}
+	fallback, ok := CDNRuleURL(canonical)
+	if !ok || fallback != cdnRuleBaseURL+path {
+		t.Fatalf("canonical preset fallback=%q, ok=%t", fallback, ok)
+	}
+	for _, preset := range []ApplicationPreset{
+		{RulePath: path, RuleURL: "https://example.test/" + path},
+		{RulePath: "rule/Clash/../secret.yaml", RuleURL: rawRuleBaseURL + "rule/Clash/../secret.yaml"},
+		{RulePath: "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/" + path, RuleURL: rawRuleBaseURL + path},
+	} {
+		if fallback, ok := CDNRuleURL(preset); ok || fallback != "" {
+			t.Fatalf("untrusted preset produced CDN fallback=%q, ok=%t: %#v", fallback, ok, preset)
+		}
+	}
+}
+
 func containsFold(values []string, want string) bool {
 	for _, value := range values {
 		if strings.EqualFold(value, want) {

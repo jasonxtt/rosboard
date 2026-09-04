@@ -6,13 +6,17 @@ package applicationpreset
 import (
 	_ "embed"
 	"encoding/json"
+	"net/url"
 	"sort"
 	"strings"
 )
 
-const rawRuleBaseURL = "https://raw.githubusercontent.com/iZuoShou/bm7_ios_rule_script/master/"
+const (
+	rawRuleBaseURL = "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/"
+	cdnRuleBaseURL = "https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/"
+)
 
-// catalogJSON is generated from the bm7 Clash tree by
+// catalogJSON is generated from Blackmatrix7's Clash tree by
 // tools/generate_application_catalog.go. Keeping relative paths in the
 // catalog makes the runtime independent of the GitHub API and lets the
 // selector fetch only the YAML chosen by the user.
@@ -27,6 +31,31 @@ type ApplicationPreset struct {
 	Aliases  []string `json:"aliases,omitempty"`
 	RulePath string   `json:"rulePath,omitempty"`
 	RuleURL  string   `json:"ruleURL"`
+}
+
+// CDNRuleURL returns the only supported transport fallback for a built-in
+// preset. The canonical RuleURL remains the Blackmatrix7 GitHub URL; callers
+// must use the returned URL only for a retry, never as provenance.
+func CDNRuleURL(preset ApplicationPreset) (string, bool) {
+	rulePath, ok := trustedRulePath(preset.RulePath)
+	if !ok || preset.RuleURL != rawRuleURL(rulePath) {
+		return "", false
+	}
+	return cdnRuleBaseURL + rulePath, true
+}
+
+func trustedRulePath(rawPath string) (string, bool) {
+	rulePath := strings.TrimSpace(rawPath)
+	if rulePath == "" || strings.HasPrefix(rulePath, "/") || !strings.HasPrefix(rulePath, "rule/Clash/") || !strings.HasSuffix(rulePath, ".yaml") {
+		return "", false
+	}
+	for _, segment := range strings.Split(rulePath, "/") {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded != segment || segment == "" || segment == "." || segment == ".." || strings.ContainsAny(segment, `\\?#`) {
+			return "", false
+		}
+	}
+	return rulePath, true
 }
 
 type DomainEntry struct {

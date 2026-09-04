@@ -21,9 +21,15 @@ import (
 )
 
 const (
-	fetchTimeout       = 15 * time.Second
+	SourceFetchTimeout = 15 * time.Second
+	fetchTimeout       = SourceFetchTimeout
 	maxFetchRedirects  = 5
 	maxResponsePreview = MaxSourceBytes + 1
+)
+
+var (
+	ErrSourceTransport = errors.New("source transport failure")
+	ErrSourceHTTP      = errors.New("source HTTP status failure")
 )
 
 type DNSResolver interface {
@@ -41,6 +47,47 @@ type FetchOptions struct {
 	LastModified string
 	// Kind selects the content parser ("domain" or "ip"); empty reads as domain.
 	Kind string
+}
+
+// SourceTransportError preserves the safe public message while letting a
+// caller distinguish transport failures from validation failures.
+type SourceTransportError struct {
+	message   string
+	cause     error
+	retryable bool
+}
+
+func (e *SourceTransportError) Error() string { return e.message }
+
+func (e *SourceTransportError) Unwrap() error { return e.cause }
+
+func (e *SourceTransportError) Is(target error) bool { return target == ErrSourceTransport }
+
+// SourceHTTPStatusError preserves the existing status-only error text and
+// exposes the upstream status for narrow retry policy decisions.
+type SourceHTTPStatusError struct {
+	StatusCode int
+}
+
+func (e *SourceHTTPStatusError) Error() string {
+	return fmt.Sprintf("source returned HTTP status %d", e.StatusCode)
+}
+
+func (e *SourceHTTPStatusError) Is(target error) bool { return target == ErrSourceHTTP }
+
+func IsRetryableSourceError(err error) bool {
+	var transportErr *SourceTransportError
+	if errors.As(err, &transportErr) {
+		return transportErr.retryable
+	}
+	var statusErr *SourceHTTPStatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.StatusCode {
+		case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		}
+	}
+	return false
 }
 
 type FetchResult struct {
@@ -198,7 +245,7 @@ func (f *SourceFetcher) Fetch(ctx context.Context, rawURL string, options FetchO
 		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 			resp.Body.Close()
 			transport.CloseIdleConnections()
-			return FetchResult{}, fmt.Errorf("source returned HTTP status %d", resp.StatusCode)
+			return FetchResult{}, &SourceHTTPStatusError{StatusCode: resp.StatusCode}
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponsePreview))
 		resp.Body.Close()
@@ -248,12 +295,16 @@ func (f *SourceFetcher) Preview(ctx context.Context, rawURL string, options Fetc
 
 func safeSourceRequestError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return errors.New("source request timed out")
+		return newSourceTransportError("source request timed out", err)
 	}
 	if errors.Is(err, context.Canceled) {
-		return errors.New("source request was canceled")
+		return newSourceTransportError("source request was canceled", err)
 	}
-	return errors.New("source request failed")
+	return newSourceTransportError("source request failed", err)
+}
+
+func newSourceTransportError(message string, cause error) error {
+	return &SourceTransportError{message: message, cause: cause, retryable: !errors.Is(cause, context.Canceled)}
 }
 
 func boundedSourceError(err error) string {
@@ -276,10 +327,10 @@ func (f *SourceFetcher) resolvePublicIPs(ctx context.Context, host string) ([]ne
 	}
 	ips, err := f.resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return nil, errors.New("source host could not be resolved")
+		return nil, newSourceTransportError("source host could not be resolved", err)
 	}
 	if len(ips) == 0 {
-		return nil, errors.New("source host has no addresses")
+		return nil, newSourceTransportError("source host has no addresses", nil)
 	}
 	for _, ip := range ips {
 		if isForbiddenSourceIP(ip) {
