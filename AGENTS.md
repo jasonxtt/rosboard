@@ -45,9 +45,9 @@ For every change that modifies the runnable program and is meant for the live in
 2. Before replacing the build on `10.0.0.6`, preserve a timestamped backup of the existing binary, configuration, SQLite data, and service unit under the local NAS path `/Users/tom/nas/wyp/github/rosboard/backups/<timestamp>-<label>/`. Confirm that the NAS path is mounted and writable first; do not store development rollback backups on `10.0.0.6` (including `/opt/rosboard/backups`). Keep at most 10 backup directories; before creating the 11th, remove only the oldest timestamped backup directory.
 3. Verify the remote systemd service, health endpoint, affected API contracts, and embedded frontend assets.
 4. Wait for the user to manually inspect the deployed instance and explicitly approve it.
-5. Only after that approval, create the work commit and continue with Trellis task archival/session recording.
+5. Only after that approval may the production delivery be treated as accepted, the PR be merged into `main`, the release be finalized, or the Trellis task be archived/completed.
 
-Do not commit program changes before the remote manual-acceptance gate. Documentation-only or planning-only changes do not require deployment. Test-machine deployments (`10.0.0.60`) do not require backups or manual acceptance, but still require the automated checks to pass first.
+Work-branch checkpoint commits and pushes are allowed before remote manual acceptance; they are not production delivery or acceptance. Documentation-only or planning-only changes do not require deployment. Test-machine deployments (`10.0.0.60`) do not require backups or manual acceptance, but still require the automated checks to pass first.
 
 ## Mac development directory backup
 
