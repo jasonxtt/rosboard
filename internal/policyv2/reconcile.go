@@ -472,6 +472,18 @@ var movablePolicyMenus = map[string]bool{
 	string(routeros.MenuIPv6FirewallFilter): true,
 	string(routeros.MenuIPFirewallMangle):   true,
 	string(routeros.MenuIPv6FirewallMangle): true,
+	string(routeros.MenuIPDNSStatic):        true,
+}
+
+// movableDNSStatic keeps /ip dns static ordering reconciliation inside the
+// routing domain: access-owned and stale-access statics are excluded so the
+// generic mover can never re-anchor a routing DNS Static around an Access
+// projection (whose DNS precedence is unrelated to RoutingRule priority).
+// Foreign (unowned) statics never enter this path at all because ScanManaged
+// classifies them out of the owned graph.
+func movableDNSStatic(menu, logicalID string) bool {
+	return menu != string(routeros.MenuIPDNSStatic) ||
+		(!isAccessLogicalID(logicalID) && !strings.HasPrefix(logicalID, "stale-access:"))
 }
 
 func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOperation {
@@ -480,13 +492,13 @@ func desiredOrderMoves(desired []DesiredObject, actual []ActualObject) []PlanOpe
 		if object.Ownership == "foreign" || object.Ownership == "ambiguous" {
 			continue
 		}
-		if movablePolicyMenus[object.Menu] && !isAccessFilterFields(object.Menu, object.Fields) {
+		if movablePolicyMenus[object.Menu] && movableDNSStatic(object.Menu, object.LogicalID) && !isAccessFilterFields(object.Menu, object.Fields) {
 			actualByMenu[object.Menu] = append(actualByMenu[object.Menu], object)
 		}
 	}
 	desiredByMenu := make(map[string][]DesiredObject)
 	for _, object := range desired {
-		if movablePolicyMenus[object.Menu] && !isAccessFilterFields(object.Menu, object.Fields) {
+		if movablePolicyMenus[object.Menu] && movableDNSStatic(object.Menu, object.LogicalID) && !isAccessFilterFields(object.Menu, object.Fields) {
 			desiredByMenu[object.Menu] = append(desiredByMenu[object.Menu], object)
 		}
 	}

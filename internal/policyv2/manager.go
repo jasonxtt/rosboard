@@ -1291,6 +1291,7 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		switch {
 		case hasBatchMutation && operation.Action == "create" && operation.Menu == string(routeros.MenuIPDNSStatic):
 			entries := make([]routeros.RouterOSFields, 0)
+			created := make([]PlanOperation, 0)
 			nextIndex = index
 			for nextIndex < len(cached.Plan.Operations) {
 				candidate := cached.Plan.Operations[nextIndex]
@@ -1298,11 +1299,22 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 					break
 				}
 				entries = append(entries, operationFields(candidate, true))
+				created = append(created, candidate)
 				nextIndex++
 			}
 			if err := batchMutation.CreateBatch(ctx, routeros.MenuIPDNSStatic, entries); err != nil {
 				m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
 				return job, false
+			}
+			// A batch create never returns per-object IDs, but a later DNS
+			// Static move can reference these logical objects as its source or
+			// anchor. Resolve them now by their ownership comment identity so
+			// the move executes against real RouterOS IDs.
+			if unresolved := dnsStaticCreatesMissingIDs(created, createdRouterIDs); len(unresolved) > 0 {
+				if err := recordBatchCreatedDNSStatics(ctx, applier.Mutation, unresolved, createdRouterIDs); err != nil {
+					m.failJob(ctx, applier.Repo, &job, operation.LogicalID, err)
+					return job, false
+				}
 			}
 		case hasBatchMutation && isDisableOnlyPatch(operation):
 			ids := make([]string, 0)
@@ -1605,6 +1617,73 @@ func activationMenuRank(menu routeros.MutationMenu) int {
 
 func isEnableOnlyPatch(operation PlanOperation) bool {
 	return operation.Action == "patch" && len(operation.After) == 1 && strings.EqualFold(strings.TrimSpace(operation.After["disabled"]), "no")
+}
+
+// dnsStaticCreatesMissingIDs returns the batch-created operations whose
+// RouterOS IDs are still unresolved.
+func dnsStaticCreatesMissingIDs(operations []PlanOperation, createdRouterIDs map[string]string) []PlanOperation {
+	result := make([]PlanOperation, 0, len(operations))
+	for _, operation := range operations {
+		if operation.RouterID != "" || createdRouterIDs[operation.LogicalID] != "" {
+			continue
+		}
+		result = append(result, operation)
+	}
+	return result
+}
+
+// recordBatchCreatedDNSStatics resolves the RouterOS IDs of a just-issued DNS
+// Static batch create. The RouterOS batch script API only reports success, so
+// the new entries are re-read and matched by their ownership comment identity.
+// A DNS Static move later in the same apply references these logical objects
+// as its source or anchor and would otherwise fail on a missing ID.
+// Matching is strict per identity: zero or more than one RouterOS object (or
+// a match without an ID) fails the apply closed — the same rule the ordinary
+// diff enforces with duplicate_managed_object — and an identity collision
+// inside the batch itself is refused instead of silently overwriting.
+func recordBatchCreatedDNSStatics(ctx context.Context, mutation PolicyMutation, operations []PlanOperation, createdRouterIDs map[string]string) error {
+	identityByLogicalID := make(map[string]string, len(operations))
+	logicalByIDentity := make(map[string]string, len(operations))
+	for _, operation := range operations {
+		identity := managedCommentIdentity(operation.After["comment"])
+		if identity == "" {
+			return fmt.Errorf("batch-created DNS static %s has no ownership comment identity", operation.LogicalID)
+		}
+		if other, taken := logicalByIDentity[identity]; taken && other != operation.LogicalID {
+			return fmt.Errorf("batch-created DNS statics %s and %s share ownership identity %s", other, operation.LogicalID, identity)
+		}
+		identityByLogicalID[operation.LogicalID] = identity
+		logicalByIDentity[identity] = operation.LogicalID
+	}
+	objects, err := mutation.List(ctx, routeros.MenuIPDNSStatic, routeros.MutationQuery{})
+	if err != nil {
+		return fmt.Errorf("scan RouterOS DNS statics after batch create: %w", err)
+	}
+	matchedIDs := make(map[string][]string, len(logicalByIDentity))
+	for _, object := range objects {
+		identity := managedCommentIdentity(object["comment"])
+		logicalID, expected := logicalByIDentity[identity]
+		if !expected {
+			continue
+		}
+		routerID := strings.TrimSpace(object.ID())
+		if routerID == "" {
+			return fmt.Errorf("batch-created DNS static %s (identity %s) matched a RouterOS object without an ID", logicalID, identity)
+		}
+		matchedIDs[identity] = append(matchedIDs[identity], routerID)
+	}
+	for _, operation := range operations {
+		identity := identityByLogicalID[operation.LogicalID]
+		switch ids := matchedIDs[identity]; len(ids) {
+		case 0:
+			return fmt.Errorf("batch-created DNS static %s (identity %s) matched 0 RouterOS objects after create", operation.LogicalID, identity)
+		case 1:
+			createdRouterIDs[operation.LogicalID] = ids[0]
+		default:
+			return fmt.Errorf("batch-created DNS static %s (identity %s) matched %d RouterOS objects, refusing to choose", operation.LogicalID, identity, len(ids))
+		}
+	}
+	return nil
 }
 
 func isDisableOnlyPatch(operation PlanOperation) bool {

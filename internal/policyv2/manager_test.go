@@ -3,6 +3,7 @@ package policyv2
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,6 +266,92 @@ func TestApplyOperationExecutesMoveWithResolvedIDs(t *testing.T) {
 	}
 	if len(recorder.moves) != 1 || recorder.moves[0].ID != "*a" || recorder.moves[0].BeforeID != "*b" {
 		t.Fatalf("unexpected move request: %#v", recorder.moves)
+	}
+}
+
+type batchCreatedStaticRecorder struct {
+	moveRecorder
+	objects []routeros.RouterOSObject
+}
+
+func (r *batchCreatedStaticRecorder) List(_ context.Context, menu routeros.MutationMenu, _ routeros.MutationQuery) ([]routeros.RouterOSObject, error) {
+	if menu != routeros.MenuIPDNSStatic {
+		return nil, nil
+	}
+	return r.objects, nil
+}
+
+// A DNS Static batch create does not report per-object RouterOS IDs, but a
+// priority move later in the same apply may reference those created objects.
+// The IDs must be resolved by ownership comment identity after the batch.
+func TestRecordBatchCreatedDNSStaticsResolvesIDsByCommentIdentity(t *testing.T) {
+	highID := "routing-dns:wan-a:target:DOMAIN:example.com"
+	lowID := "routing-dns:wan-b:target:DOMAIN-SUFFIX:example.com"
+	created := []PlanOperation{
+		{Action: "create", Menu: string(routeros.MenuIPDNSStatic), LogicalID: highID, After: map[string]string{"comment": managedComment("manager", "edge", highID, "目标 DNS")}},
+		{Action: "create", Menu: string(routeros.MenuIPDNSStatic), LogicalID: lowID, After: map[string]string{"comment": managedComment("manager", "edge", lowID, "目标 DNS")}},
+	}
+	missing := dnsStaticCreatesMissingIDs(created, map[string]string{})
+	if len(missing) != 2 {
+		t.Fatalf("batch creates must all need ID resolution: %#v", missing)
+	}
+	recorder := &batchCreatedStaticRecorder{objects: []routeros.RouterOSObject{
+		{".id": "*1", "comment": "user foreign entry"},
+		{".id": "*3", "comment": managedComment("manager", "edge", lowID, "目标 DNS")},
+		{".id": "*2", "comment": managedComment("manager", "edge", highID, "目标 DNS")},
+	}}
+	createdRouterIDs := map[string]string{}
+	if err := recordBatchCreatedDNSStatics(context.Background(), recorder, missing, createdRouterIDs); err != nil {
+		t.Fatal(err)
+	}
+	if createdRouterIDs[highID] != "*2" || createdRouterIDs[lowID] != "*3" {
+		t.Fatalf("batch-created DNS static IDs were not resolved by comment identity: %#v", createdRouterIDs)
+	}
+	if stillMissing := dnsStaticCreatesMissingIDs(created, createdRouterIDs); len(stillMissing) != 0 {
+		t.Fatalf("resolved creates must not repeat scans: %#v", stillMissing)
+	}
+	// An unresolvable created object must fail closed rather than leave a move
+	// with an empty RouterID, and it must report the identity and match count.
+	failing := recordBatchCreatedDNSStatics(context.Background(), &batchCreatedStaticRecorder{}, []PlanOperation{created[0]}, map[string]string{})
+	if failing == nil {
+		t.Fatal("missing batch-created object must fail the apply")
+	}
+	if !strings.Contains(failing.Error(), highID) || !strings.Contains(failing.Error(), "matched 0") {
+		t.Fatalf("zero-match error must name the logical ID and match count: %v", failing)
+	}
+	// More than one RouterOS object with the same ownership identity must fail
+	// closed without silently choosing one of them.
+	duplicateRecorder := &batchCreatedStaticRecorder{objects: []routeros.RouterOSObject{
+		{".id": "*2", "comment": managedComment("manager", "edge", highID, "目标 DNS")},
+		{".id": "*4", "comment": managedComment("manager", "edge", highID, "目标 DNS")},
+	}}
+	duplicateIDs := map[string]string{}
+	duplicate := recordBatchCreatedDNSStatics(context.Background(), duplicateRecorder, []PlanOperation{created[0]}, duplicateIDs)
+	if duplicate == nil || !strings.Contains(duplicate.Error(), "matched 2") {
+		t.Fatalf("duplicate identity must fail closed with a count: %v", duplicate)
+	}
+	if len(duplicateIDs) != 0 {
+		t.Fatalf("failed duplicate resolution must not record any ID: %#v", duplicateIDs)
+	}
+	// Two expected operations carrying the same ownership identity must fail
+	// before any RouterOS read, never letting one overwrite the other.
+	collision := []PlanOperation{
+		{Action: "create", Menu: string(routeros.MenuIPDNSStatic), LogicalID: highID, After: map[string]string{"comment": managedComment("manager", "edge", highID, "目标 DNS")}},
+		{Action: "create", Menu: string(routeros.MenuIPDNSStatic), LogicalID: lowID, After: map[string]string{"comment": managedComment("manager", "edge", highID, "目标 DNS")}},
+	}
+	collisionIDs := map[string]string{}
+	if err := recordBatchCreatedDNSStatics(context.Background(), &batchCreatedStaticRecorder{}, collision, collisionIDs); err == nil {
+		t.Fatal("expected-identity collision inside the batch must fail closed")
+	}
+	if len(collisionIDs) != 0 {
+		t.Fatalf("identity collision must not record any ID: %#v", collisionIDs)
+	}
+	// A matched object without an ID is also a hard failure.
+	emptyIDRecorder := &batchCreatedStaticRecorder{objects: []routeros.RouterOSObject{
+		{"comment": managedComment("manager", "edge", highID, "目标 DNS")},
+	}}
+	if err := recordBatchCreatedDNSStatics(context.Background(), emptyIDRecorder, []PlanOperation{created[0]}, map[string]string{}); err == nil {
+		t.Fatal("matched object without a RouterOS ID must fail closed")
 	}
 }
 

@@ -35,26 +35,39 @@ function presetPresentationsFor(presets: ApplicationPreset[], selectedIDs: strin
   }))
 }
 
+function terminalAddresses(terminal: PolicyTerminal, routingOnly: boolean) {
+  return routingOnly ? { ipv4: terminal.routingIpv4, ipv6: terminal.routingIpv6 } : { ipv4: terminal.ipv4, ipv6: terminal.ipv6 }
+}
+
 export function SubjectSelector({
   terminals,
   value = emptySubject,
   onChange,
   allowExcluded = false,
   excludedDisabled = false,
+  requireObservedAddress = false,
 }: {
   terminals: PolicyTerminal[]
   value?: Subject
   onChange: (value: Subject) => void
   allowExcluded?: boolean
   excludedDisabled?: boolean
+  requireObservedAddress?: boolean
 }) {
   const [query, setQuery] = useState('')
   const selected = new Map(value.members.map((member) => [member.terminalId, member]))
   const visibleTerminals = useMemo(() => {
+    const candidates = terminals.filter((terminal) => {
+      const addresses = terminalAddresses(terminal, requireObservedAddress)
+      return !requireObservedAddress || addresses.ipv4.length + addresses.ipv6.length > 0
+    })
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return terminals
-    return terminals.filter((terminal) => [terminal.displayName, terminal.id, terminal.macAddress, ...terminal.ipv4, ...terminal.ipv6].join(' ').toLowerCase().includes(keyword))
-  }, [query, terminals])
+    if (!keyword) return candidates
+    return candidates.filter((terminal) => {
+      const addresses = terminalAddresses(terminal, requireObservedAddress)
+      return [terminal.displayName, terminal.id, terminal.macAddress, ...addresses.ipv4, ...addresses.ipv6].join(' ').toLowerCase().includes(keyword)
+    })
+  }, [query, requireObservedAddress, terminals])
 
   const update = (next: Partial<Subject>) => onChange({ ...value, ...next, members: next.members ?? value.members, prefixes: next.prefixes ?? value.prefixes })
   const toggleTerminal = (terminal: PolicyTerminal) => {
@@ -62,14 +75,16 @@ export function SubjectSelector({
     const index = members.findIndex((member) => member.terminalId === terminal.id)
     if (index >= 0) members.splice(index, 1)
     else {
+      const addresses = terminalAddresses(terminal, requireObservedAddress)
       const binding = terminal.autoEligible ? 'auto' : 'fixed'
-      members.push({ terminalId: terminal.id, binding, pinnedIpv4: binding === 'fixed' ? [...terminal.ipv4] : [], pinnedIpv6: binding === 'fixed' ? [...terminal.ipv6] : [] })
+      members.push({ terminalId: terminal.id, binding, pinnedIpv4: binding === 'fixed' ? [...addresses.ipv4] : [], pinnedIpv6: binding === 'fixed' ? [...addresses.ipv6] : [] })
     }
     update({ members })
   }
   const changeBinding = (terminal: PolicyTerminal, binding: SubjectBinding) => {
+    const addresses = terminalAddresses(terminal, requireObservedAddress)
     const members = value.members.map((member) => member.terminalId === terminal.id
-      ? { ...member, binding, pinnedIpv4: binding === 'fixed' ? [...terminal.ipv4] : [], pinnedIpv6: binding === 'fixed' ? [...terminal.ipv6] : [] }
+      ? { ...member, binding, pinnedIpv4: binding === 'fixed' ? [...addresses.ipv4] : [], pinnedIpv6: binding === 'fixed' ? [...addresses.ipv6] : [] }
       : member)
     update({ members })
   }
@@ -85,9 +100,11 @@ export function SubjectSelector({
       <div className="canonical-terminal-list">
         {visibleTerminals.map((terminal) => {
           const member = selected.get(terminal.id)
+          const addresses = terminalAddresses(terminal, requireObservedAddress)
           return <div key={terminal.id} className={`canonical-terminal-option${member ? ' selected' : ''}`}>
-            <label><input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} /><span><strong>{terminal.displayName || terminal.id}</strong><small>{terminal.ipv4.join(', ') || '无 IPv4'} · {terminal.ipv6.join(', ') || '无 IPv6'} · {terminal.macAddress || '无 MAC'}</small></span></label>
+            <label><input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} /><span><strong>{terminal.displayName || terminal.id}</strong><small>{addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'} · {terminal.macAddress || '无 MAC'}</small></span></label>
             {member ? <select className="select-control" value={member.binding} onChange={(event) => changeBinding(terminal, event.target.value as SubjectBinding)}><option value="auto" disabled={!terminal.autoEligible}>自动跟随</option><option value="fixed">固定当前地址</option></select> : null}
+            {member && requireObservedAddress && !terminal.autoEligible ? <small className="policy-hint">未获取到可靠 MAC，无法自动跟随 IP 变化，已固定使用当前地址。</small> : null}
           </div>
         })}
         {!visibleTerminals.length ? <p className="policy-hint">没有匹配的终端。</p> : null}

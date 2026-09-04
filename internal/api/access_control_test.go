@@ -338,7 +338,7 @@ func TestAccessRuleStatusDoesNotDependOnLocalScopeForInternetRule(t *testing.T) 
 func TestAccessControlOverviewNeverMarshalsNullArrays(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
-	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return []accesscontrol.Terminal{} }
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return accessTestTerminals() }
 	deviceStore, err := storage.OpenDevice("edge")
 	if err != nil {
 		t.Fatal(err)
@@ -357,10 +357,10 @@ func TestAccessControlOverviewNeverMarshalsNullArrays(t *testing.T) {
 		t.Fatalf("overview status=%d body=%s", response.Code, response.Body.String())
 	}
 	body := response.Body.Bytes()
-	if bytes.Contains(body, []byte("macAddress")) {
-		t.Fatalf("access-control overview must not expose terminal MAC identities: %s", body)
+	if !bytes.Contains(body, []byte(`"macAddress"`)) {
+		t.Fatalf("access-control overview must expose terminal MAC identities for routing selectors: %s", body)
 	}
-	for _, fragment := range []string{"\"ipv4\":null", "\"ipv6\":null", "\"targetListIds\":null", "\"members\":null", "\"issues\":null", "\"versions\":null", "\"terminals\":null", "\"targetLists\":null", "\"rules\":null"} {
+	for _, fragment := range []string{"\"ipv4\":null", "\"ipv6\":null", "\"routingIpv4\":null", "\"routingIpv6\":null", "\"targetListIds\":null", "\"members\":null", "\"issues\":null", "\"versions\":null", "\"terminals\":null", "\"targetLists\":null", "\"rules\":null"} {
 		if bytes.Contains(body, []byte(fragment)) {
 			t.Fatalf("overview response contains %s: %s", fragment, body)
 		}

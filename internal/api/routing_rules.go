@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"rosboard/internal/accesscontrol"
 	"rosboard/internal/policyv2"
+	"rosboard/internal/subject"
 )
 
 func (s *Server) servePolicyRoutingRules(writer http.ResponseWriter, request *http.Request, parts []string) {
@@ -55,6 +58,97 @@ type routingRuleSavePayload struct {
 	DeferApply bool `json:"deferApply"`
 }
 
+type routingRuleSubjectError struct {
+	code    string
+	message string
+}
+
+func (e *routingRuleSubjectError) Error() string { return e.message }
+
+func (s *Server) canonicalizeRoutingRuleSubject(ctx context.Context, device policyDeviceContext, rule policyv2.RoutingRule) (policyv2.RoutingRule, error) {
+	if rule.Subject.Mode == policyv2.SubjectModeAll {
+		return rule, nil
+	}
+
+	terminals := s.accessTerminals(device.device.ID)
+	var existing *policyv2.RoutingRule
+	if strings.TrimSpace(rule.ID) != "" {
+		current, err := device.repository.GetRoutingRule(ctx, rule.ID)
+		switch {
+		case err == nil:
+			existing = &current
+		case !errors.Is(err, policyv2.ErrRoutingRuleNotFound):
+			return policyv2.RoutingRule{}, err
+		}
+	}
+
+	members := append([]policyv2.SubjectMember(nil), rule.Subject.Members...)
+	for index := range members {
+		member := &members[index]
+		member.TerminalID = strings.TrimSpace(member.TerminalID)
+		terminal, found := accessTerminalByID(terminals, member.TerminalID)
+		if !found {
+			return policyv2.RoutingRule{}, &routingRuleSubjectError{code: "terminal_unavailable", message: "设备当前不在监控快照中，无法确认其可用 IP 地址；请等待设备上线后重试"}
+		}
+		ipv4, ipv6 := policyv2.RoutingUsableTerminalAddresses(terminal)
+		if len(ipv4)+len(ipv6) == 0 {
+			return policyv2.RoutingRule{}, &routingRuleSubjectError{code: "terminal_no_address", message: "该设备当前没有可用 IP 地址，无法作为策略来源；请使用手动地址/CIDR或等待设备上线"}
+		}
+		member.Binding = strings.TrimSpace(member.Binding)
+		switch member.Binding {
+		case subject.BindingAuto:
+			anchor := ""
+			if accesscontrol.IsReliableMAC(terminal.MACAddress) {
+				anchor, _ = accesscontrol.NormalizeMAC(terminal.MACAddress)
+			}
+			if anchor != "" {
+				member.AnchorMAC = anchor
+				member.PinnedIPv4, member.PinnedIPv6 = []string{}, []string{}
+				if previous, ok := routingRuleSubjectMember(existing, member.TerminalID); ok && previous.Binding == subject.BindingAuto && previous.AnchorMAC == anchor {
+					member.LastIPv4 = append([]string{}, previous.LastIPv4...)
+					member.LastIPv6 = append([]string{}, previous.LastIPv6...)
+				}
+				continue
+			}
+			member.Binding = subject.BindingFixed
+			member.AnchorMAC = ""
+			member.PinnedIPv4 = append([]string{}, ipv4...)
+			member.PinnedIPv6 = append([]string{}, ipv6...)
+			member.LastIPv4, member.LastIPv6 = []string{}, []string{}
+		case subject.BindingFixed:
+			pinnedIPv4, err := subject.NormalizeAddresses(member.PinnedIPv4, true)
+			if err != nil {
+				return policyv2.RoutingRule{}, &routingRuleSubjectError{code: "invalid_pinned_address", message: err.Error()}
+			}
+			pinnedIPv6, err := subject.NormalizeAddresses(member.PinnedIPv6, false)
+			if err != nil {
+				return policyv2.RoutingRule{}, &routingRuleSubjectError{code: "invalid_pinned_address", message: err.Error()}
+			}
+			member.PinnedIPv4, member.PinnedIPv6 = pinnedIPv4, pinnedIPv6
+			member.AnchorMAC = ""
+			observed := terminal
+			observed.IPv4, observed.IPv6 = ipv4, ipv6
+			if err := validatePinnedAddresses(accesscontrol.RuleMember{PinnedIPv4: pinnedIPv4, PinnedIPv6: pinnedIPv6}, observed); err != nil {
+				return policyv2.RoutingRule{}, &routingRuleSubjectError{code: "invalid_pinned_address", message: err.Error()}
+			}
+		}
+	}
+	rule.Subject.Members = members
+	return rule, nil
+}
+
+func routingRuleSubjectMember(rule *policyv2.RoutingRule, terminalID string) (policyv2.SubjectMember, bool) {
+	if rule == nil {
+		return policyv2.SubjectMember{}, false
+	}
+	for _, member := range rule.Subject.Members {
+		if member.TerminalID == terminalID {
+			return member, true
+		}
+	}
+	return policyv2.SubjectMember{}, false
+}
+
 func (s *Server) getPolicyRoutingRule(writer http.ResponseWriter, request *http.Request, id string) {
 	device, ok := s.resolvePolicyDevice(writer, request)
 	if !ok {
@@ -90,6 +184,12 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 	if payload.RoutingRule.ID == "" {
 		payload.RoutingRule.ID = uuid.NewString()
 	}
+	canonical, err := s.canonicalizeRoutingRuleSubject(request.Context(), device, payload.RoutingRule)
+	if err != nil {
+		writeRoutingRuleSaveError(writer, err)
+		return
+	}
+	payload.RoutingRule = canonical
 	rule, err := device.repository.SaveRoutingRule(request.Context(), payload.RoutingRule)
 	if err != nil {
 		writeRoutingRuleSaveError(writer, err)
@@ -148,7 +248,10 @@ func (s *Server) deletePolicyRoutingRule(writer http.ResponseWriter, request *ht
 
 func writeRoutingRuleSaveError(writer http.ResponseWriter, err error) {
 	status, code := http.StatusUnprocessableEntity, "invalid_routing_rule"
+	var subjectErr *routingRuleSubjectError
 	switch {
+	case errors.As(err, &subjectErr):
+		code = subjectErr.code
 	case errors.Is(err, policyv2.ErrRoutingRuleNotFound):
 		status, code = http.StatusNotFound, "routing_rule_not_found"
 	case errors.Is(err, policyv2.ErrRevisionStale):

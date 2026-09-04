@@ -10,6 +10,8 @@ export type PolicyTerminal = {
   macAddress: string
   ipv4: string[]
   ipv6: string[]
+  routingIpv4: string[]
+  routingIpv6: string[]
   autoEligible: boolean
 }
 
@@ -244,7 +246,7 @@ function parsePreview(value: unknown): TargetListPreview {
 
 function parseTerminal(value: unknown): PolicyTerminal {
   const object = objectValue(value)
-  return { id: stringValue(object.id), displayName: stringValue(object.displayName), macAddress: stringValue(object.macAddress), ipv4: stringArray(object.ipv4), ipv6: stringArray(object.ipv6), autoEligible: booleanValue(object.autoEligible) }
+  return { id: stringValue(object.id), displayName: stringValue(object.displayName), macAddress: stringValue(object.macAddress), ipv4: stringArray(object.ipv4), ipv6: stringArray(object.ipv6), routingIpv4: stringArray(object.routingIpv4), routingIpv6: stringArray(object.routingIpv6), autoEligible: booleanValue(object.autoEligible) }
 }
 
 function parseRule(value: unknown): AccessRule {

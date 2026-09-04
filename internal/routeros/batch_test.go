@@ -13,6 +13,7 @@ import (
 
 func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 	var scripts []string
+	var payloads []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/rest/execute" {
 			t.Fatalf("unexpected batch request: %s %s", r.Method, r.URL.Path)
@@ -21,13 +22,12 @@ func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 		if !ok || username != "policy" || password != "secret" {
 			t.Fatal("unexpected RouterOS credentials")
 		}
-		var payload struct {
-			Script string `json:"script"`
-		}
+		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode batch request: %v", err)
 		}
-		scripts = append(scripts, payload.Script)
+		scripts = append(scripts, payload["script"].(string))
+		payloads = append(payloads, payload)
 		_, _ = io.WriteString(w, `{}`)
 	}))
 	defer server.Close()
@@ -53,6 +53,23 @@ func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 	if len(scripts) != 3 {
 		t.Fatalf("batch request count = %d, want 3", len(scripts))
 	}
+	// Every /rest/execute call — each CreateBatch chunk and every
+	// SetDisabledBatch chunk — must request synchronous execution by carrying
+	// the `as-string` key. The map decode distinguishes an absent key from
+	// the empty-string value the RouterOS API expects.
+	for index, payload := range payloads {
+		script, hasScript := payload["script"].(string)
+		if !hasScript || script == "" {
+			t.Fatalf("execute request %d is missing its script: %#v", index+1, payload)
+		}
+		asString, hasAsString := payload["as-string"]
+		if !hasAsString {
+			t.Fatalf("execute request %d lacks the as-string sync key: %#v", index+1, payload)
+		}
+		if value, ok := asString.(string); !ok || value != "" {
+			t.Fatalf("execute request %d as-string = %#v, want empty string", index+1, asString)
+		}
+	}
 	if !strings.Contains(scripts[0], "/ip/dns/static/add") || !strings.Contains(scripts[0], "disabled=yes") {
 		t.Fatalf("create script is not a disabled DNS batch: %q", scripts[0])
 	}
@@ -66,17 +83,15 @@ func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 
 func TestMutationBatchAllowsDNSForwarderActivation(t *testing.T) {
 	var script string
+	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/rest/execute" {
 			t.Fatalf("unexpected batch request: %s %s", r.Method, r.URL.Path)
 		}
-		var payload struct {
-			Script string `json:"script"`
-		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode batch request: %v", err)
 		}
-		script = payload.Script
+		script, _ = payload["script"].(string)
 		_, _ = io.WriteString(w, `{}`)
 	}))
 	defer server.Close()
@@ -87,6 +102,13 @@ func TestMutationBatchAllowsDNSForwarderActivation(t *testing.T) {
 	}
 	if script != "/ip/dns/forwarders/enable *f1\n/ip/dns/forwarders/enable *f2" {
 		t.Fatalf("unexpected DNS forwarder enable script: %q", script)
+	}
+	// Activation enable/disable batches must also finish synchronously before
+	// the apply verify pass reads RouterOS back.
+	if asString, hasAsString := payload["as-string"]; !hasAsString {
+		t.Fatalf("forwarder activation request lacks the as-string sync key: %#v", payload)
+	} else if value, ok := asString.(string); !ok || value != "" {
+		t.Fatalf("forwarder activation as-string = %#v, want empty string", asString)
 	}
 }
 

@@ -156,6 +156,20 @@ func clonePolicyProposal(proposal *PolicyProposal) *PolicyProposal {
 	if err := json.Unmarshal(payload, &clone); err != nil {
 		return nil
 	}
+	if proposal.RoutingRule != nil && clone.RoutingRule != nil {
+		for cloneIndex := range clone.RoutingRule.Subject.Members {
+			terminalID := clone.RoutingRule.Subject.Members[cloneIndex].TerminalID
+			for _, sourceMember := range proposal.RoutingRule.Subject.Members {
+				if sourceMember.TerminalID != terminalID {
+					continue
+				}
+				clone.RoutingRule.Subject.Members[cloneIndex].AnchorMAC = sourceMember.AnchorMAC
+				clone.RoutingRule.Subject.Members[cloneIndex].LastIPv4 = append([]string(nil), sourceMember.LastIPv4...)
+				clone.RoutingRule.Subject.Members[cloneIndex].LastIPv6 = append([]string(nil), sourceMember.LastIPv6...)
+				break
+			}
+		}
+	}
 	for index := range clone.TargetLists {
 		clone.TargetLists[index].Version.CompressedYAML = append([]byte(nil), proposal.TargetLists[index].Version.CompressedYAML...)
 		clone.TargetLists[index].Rules = append([]TargetListRule(nil), proposal.TargetLists[index].Rules...)

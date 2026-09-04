@@ -28,11 +28,28 @@ type routingExecutionGroup struct {
 	enabled     bool
 }
 
+// routingDNSStaticEntry is a deferred managed RouterOS DNS Static matcher.
+// All routing DNS Statics are collected first and emitted in one globally
+// sorted pass so the desired Order — and therefore the RouterOS first-match
+// sequence after create/move convergence — follows the effective projection
+// DNS priority instead of the per-egress build order.
+type routingDNSStaticEntry struct {
+	priority  int
+	egressID  string
+	targetID  string
+	ruleType  string
+	domain    string
+	logicalID string
+	label     string
+	fields    map[string]string
+}
+
 func buildRoutingDesired(ctx context.Context, result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), repository Repository, reader PolicyReader, managerID, deviceID string, defaultIngress TrafficIngressScope, allowDefaultIngress bool, egresses []Egress, sources []Source, rules []RoutingRule, terminals []accesscontrol.Terminal) error {
 	return buildRoutingDesiredWithTargetScope(ctx, result, add, repository, reader, managerID, deviceID, defaultIngress, allowDefaultIngress, egresses, sources, rules, terminals, nil)
 }
 
 func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), repository Repository, reader PolicyReader, managerID, deviceID string, defaultIngress TrafficIngressScope, allowDefaultIngress bool, egresses []Egress, sources []Source, rules []RoutingRule, terminals []accesscontrol.Terminal, targetScope map[string]bool) error {
+	terminals = RoutingUsableTerminals(terminals)
 	egressByID := make(map[string]Egress, len(egresses))
 	for _, egress := range egresses {
 		egressByID[egress.ID] = egress
@@ -87,10 +104,17 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 	for _, warning := range RoutingRuleSubjectWarnings(conflictRules) {
 		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_overlap_indeterminate", Status: "warning", LogicalID: warning.RuleAID, EgressID: warning.EgressA, Reason: warning.Reason + ": " + warning.RuleAID + " / " + warning.RuleBID})
 	}
-	for _, ambiguity := range DomainProjectionContextAmbiguities(conflictRules, targetRules, targetKinds, egressByID) {
-		result.Blockers = append(result.Blockers, PlanIssue{Code: "domain_projection_context_ambiguous", Status: "blocker", LogicalID: ambiguity.RuleAID, EgressID: ambiguity.EgressA, Reason: ambiguity.Reason + ": " + ambiguity.RuleAID + " / " + ambiguity.RuleBID})
+	for _, resolution := range DomainProjectionResolutions(conflictRules, targetRules, targetKinds, egressByID) {
+		issue := PlanIssue{Code: resolution.Code, Status: resolution.Severity, LogicalID: resolution.RuleAID, EgressID: resolution.EgressA, Reason: resolution.Reason}
+		if resolution.Severity == "blocker" {
+			result.Blockers = append(result.Blockers, issue)
+		} else {
+			result.Warnings = append(result.Warnings, issue)
+		}
 	}
 
+	projectionPriorities := DomainProjectionPriorities(rules, targetKinds, egressByID)
+	routingDNSStatics := make([]routingDNSStaticEntry, 0)
 	byEgress := make(map[string]map[string]*routingTargetProjection)
 	for _, rule := range sortedRoutingRules(rules) {
 		egress, ok := egressByID[rule.EgressID]
@@ -159,7 +183,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 		}
 		if len(domainTargets) > 0 {
-			buildRoutingDomainObjects(result, addEgress, egress, families, domainTargets, disabled, managerID, deviceID)
+			buildRoutingDomainObjects(result, addEgress, egress, families, domainTargets, disabled, managerID, deviceID, projectionPriorities, &routingDNSStatics)
 		}
 		for _, target := range targets {
 			if target.source.Kind != KindIP {
@@ -209,6 +233,28 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 			buildRoutingMangleFamily(result, addEgress, egress, family, ingressLists, ingressReady, table, targets, rules, terminals, disabled, managerID, deviceID)
 		}
+	}
+	sort.SliceStable(routingDNSStatics, func(i, j int) bool {
+		left, right := routingDNSStatics[i], routingDNSStatics[j]
+		if left.priority != right.priority {
+			return left.priority < right.priority
+		}
+		if left.egressID != right.egressID {
+			return left.egressID < right.egressID
+		}
+		if left.targetID != right.targetID {
+			return left.targetID < right.targetID
+		}
+		if left.ruleType != right.ruleType {
+			return left.ruleType < right.ruleType
+		}
+		if left.domain != right.domain {
+			return left.domain < right.domain
+		}
+		return left.logicalID < right.logicalID
+	})
+	for _, entry := range routingDNSStatics {
+		add(entry.logicalID, routeros.MenuIPDNSStatic, "dns", entry.label, entry.fields)
 	}
 	return nil
 }
@@ -285,7 +331,7 @@ func routingRulesWithTerminalEvidence(rules []RoutingRule, terminals []accesscon
 	return result
 }
 
-func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, families []EgressFamily, targets []*routingTargetProjection, egressDisabled, managerID, deviceID string) {
+func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, families []EgressFamily, targets []*routingTargetProjection, egressDisabled, managerID, deviceID string, projectionPriorities map[string]int, dnsStatics *[]routingDNSStaticEntry) {
 	alias := firstNonEmptyString(egress.FakeAlias, deterministicFakeAliasForEgress(egress))
 	upstream := firstNonEmptyString(egress.DNSUpstream, "1.1.1.1")
 	aliasIP, aliasErr := netip.ParseAddr(alias)
@@ -305,10 +351,15 @@ func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.
 		}
 	}
 	add("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias, "disabled": forwarderDisabled})
+	strategyLabel := "策略 " + cleanReadableLabel(egress.Name)
 	for _, target := range targets {
 		staticDisabled := "yes"
 		if egress.Enabled && target.active {
 			staticDisabled = "no"
+		}
+		priority, ok := projectionPriorities[egress.ID+"\x00"+target.id]
+		if !ok {
+			priority = projectionPriorityUnset
 		}
 		for _, targetRule := range target.rules {
 			if !isDomainRule(targetRule.RuleType) {
@@ -319,7 +370,13 @@ func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.
 				matchSubdomain = "yes"
 			}
 			logicalID := "routing-dns:" + egress.ID + ":" + target.id + ":" + targetRule.RuleType + ":" + targetRule.Domain
-			add(logicalID, routeros.MenuIPDNSStatic, "dns", map[string]string{"name": targetRule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": target.list, "disabled": staticDisabled, "match-subdomain": matchSubdomain})
+			fields := map[string]string{"name": targetRule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": target.list, "disabled": staticDisabled, "match-subdomain": matchSubdomain}
+			*dnsStatics = append(*dnsStatics, routingDNSStaticEntry{
+				priority: priority, egressID: egress.ID, targetID: target.id,
+				ruleType: targetRule.RuleType, domain: targetRule.Domain,
+				logicalID: logicalID, label: routingObjectCommentLabel(logicalID, strategyLabel, target),
+				fields: fields,
+			})
 		}
 	}
 	dnsTable := ""
@@ -584,7 +641,11 @@ func buildRoutingSubjectList(result *DesiredResult, add func(string, routeros.Mu
 		}
 	}
 	if len(addresses) == 0 {
-		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "selected routing subject has no trustworthy address evidence for this address family"})
+		familyLabel := "IPv4"
+		if family == FamilyIPv6 {
+			familyLabel = "IPv6"
+		}
+		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_unresolved", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "该来源当前没有可用的 " + familyLabel + " 地址，本规则 " + familyLabel + " 部分暂不生效"})
 		return false
 	}
 	values := make([]string, 0, len(addresses))

@@ -118,7 +118,12 @@ func (c *MutationClient) executeScript(ctx context.Context, script string) ([]by
 	if err != nil {
 		return nil, errors.New("invalid RouterOS batch script request")
 	}
-	return c.executeURLWithTimeout(ctx, http.MethodPost, target, RouterOSFields{"script": script}, maxMutationJSONBytes, mutationNoRetryMutation, batchScriptTimeout)
+	// `as-string` switches :execute from its default detached background job to
+	// synchronous execution whose HTTP reply arrives only after every script
+	// line has run. Without it, a large CreateBatch can return while later
+	// RouterOS reads still see an incomplete batch, failing the strict ID
+	// readback and the post-apply verify pass with transient zero matches.
+	return c.executeURLWithTimeout(ctx, http.MethodPost, target, RouterOSFields{"script": script, "as-string": ""}, maxMutationJSONBytes, mutationNoRetryMutation, batchScriptTimeout)
 }
 
 func batchCreateLine(menu MutationMenu, fields RouterOSFields) (string, error) {

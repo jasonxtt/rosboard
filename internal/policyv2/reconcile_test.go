@@ -224,6 +224,70 @@ func TestDiffDesiredMovesManagedObjectsToDesiredOrder(t *testing.T) {
 	}
 }
 
+func TestDiffDesiredMovesRoutingDNSStaticsByDesiredOrder(t *testing.T) {
+	// Managed routing DNS Statics are ordered by the reconciler: the
+	// higher-priority (lower desired Order) static must physically precede the
+	// lower-priority one on RouterOS, so DNS first-match follows Priority.
+	desired := []DesiredObject{
+		{LogicalID: "routing-dns:wan-a:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), Phase: "dns", Order: 5, Fields: map[string]string{"name": "example.com"}},
+		{LogicalID: "routing-dns:wan-b:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), Phase: "dns", Order: 9, Fields: map[string]string{"name": "example.com"}},
+	}
+	actual := []ActualObject{
+		{LogicalID: "routing-dns:wan-b:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), RouterID: "*low", Position: 0, Fields: map[string]string{"name": "example.com"}},
+		{LogicalID: "routing-dns:wan-a:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), RouterID: "*high", Position: 1, Fields: map[string]string{"name": "example.com"}},
+		// A foreign (unowned) DNS static sits between the managed objects and
+		// must never be moved, patched, or deleted by the ordering pass.
+		{LogicalID: "foreign-scoped:legacy", Menu: string(routeros.MenuIPDNSStatic), RouterID: "*foreign", Position: 2, Ownership: "foreign", Fields: map[string]string{"name": "customer.example.com"}},
+	}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", blockers)
+	}
+	moves := 0
+	for _, operation := range operations {
+		if operation.Action != "move" {
+			continue
+		}
+		moves++
+		if operation.Menu != string(routeros.MenuIPDNSStatic) || operation.RouterID != "*high" || operation.Anchor == nil || operation.Anchor.RouterID != "*low" {
+			t.Fatalf("unexpected DNS static move: %#v", operation)
+		}
+	}
+	if moves != 1 {
+		t.Fatalf("expected one priority converging move: %#v", operations)
+	}
+	for _, operation := range operations {
+		if operation.LogicalID == "foreign-scoped:legacy" || operation.RouterID == "*foreign" {
+			t.Fatalf("foreign DNS static must stay untouched: %#v", operation)
+		}
+	}
+}
+
+func TestDesiredOrderMovesLeavesAccessDNSStaticsToAccessDomain(t *testing.T) {
+	// Access-owned DNS statics must never be re-anchored by the generic
+	// routing ordering pass: Access DNS precedence is unrelated to RoutingRule
+	// priority, so the mover must only reference routing-owned statics as
+	// source or anchor even when an access static sits between them.
+	routingA := DesiredObject{LogicalID: "routing-dns:wan-a:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), Phase: "dns", Order: 1, Fields: map[string]string{"name": "example.com"}}
+	accessDNS := DesiredObject{LogicalID: "access-target-dns:target:DOMAIN-SUFFIX:deny.example", Menu: string(routeros.MenuIPDNSStatic), Phase: "dns", Order: 2, Fields: map[string]string{"name": "deny.example"}}
+	routingB := DesiredObject{LogicalID: "routing-dns:wan-b:target:DOMAIN:example.com", Menu: string(routeros.MenuIPDNSStatic), Phase: "dns", Order: 3, Fields: map[string]string{"name": "example.com"}}
+	desired := []DesiredObject{routingA, accessDNS, routingB}
+	actual := []ActualObject{
+		{LogicalID: routingB.LogicalID, Menu: routingB.Menu, RouterID: "*routing-b", Position: 0, Fields: routingB.Fields},
+		{LogicalID: accessDNS.LogicalID, Menu: accessDNS.Menu, RouterID: "*access", Position: 1, Fields: accessDNS.Fields},
+		{LogicalID: routingA.LogicalID, Menu: routingA.Menu, RouterID: "*routing-a", Position: 2, Fields: routingA.Fields},
+	}
+	moves := desiredOrderMoves(desired, actual)
+	if len(moves) != 1 {
+		t.Fatalf("expected one routing-only DNS static move: %#v", moves)
+	}
+	move := moves[0]
+	if move.LogicalID != routingA.LogicalID || move.RouterID != "*routing-a" || move.Anchor == nil || move.Anchor.LogicalID != routingB.LogicalID || move.Anchor.RouterID != "*routing-b" {
+		t.Fatalf("access DNS static must not participate in routing order moves: %#v", move)
+	}
+}
+
 func TestForeignMasqueradeIsNotManagedButLegacyOwnedMasqueradeIs(t *testing.T) {
 	foreign := routeros.RouterOSObject{"chain": "srcnat", "action": "masquerade"}
 	if !isForeignMasquerade(routeros.MenuIPFirewallNAT, foreign, "") {

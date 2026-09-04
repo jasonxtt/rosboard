@@ -726,7 +726,11 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 		} else if rule.EgressID == "" {
 			rule.EgressID = boundEgressID
 		}
-		rule, err := policyv2.NormalizeRoutingRule(rule)
+		rule, err := s.canonicalizeRoutingRuleSubject(ctx, device, rule)
+		if err != nil {
+			return nil, err
+		}
+		rule, err = policyv2.NormalizeRoutingRule(rule)
 		if err != nil {
 			return nil, err
 		}
