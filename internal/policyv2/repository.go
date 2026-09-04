@@ -64,6 +64,15 @@ type DomainApplyRepository interface {
 	CommitAccessApply(context.Context, int64, string, ApplyJob, []accesscontrol.MemberResolution, []TargetVersionPromotion) error
 }
 
+// DomainApplyJobStateRepository is the follow-up-aware commit contract. A
+// non-terminal domain commit persists its applied state and the same job in a
+// non-terminal state atomically, allowing another domain apply to continue
+// without exposing a transient committed job.
+type DomainApplyJobStateRepository interface {
+	CommitRoutingApplyWithJobState(context.Context, int64, string, ApplyJob, []TargetVersionPromotion, bool) error
+	CommitAccessApplyWithJobState(context.Context, int64, string, ApplyJob, []accesscontrol.MemberResolution, []TargetVersionPromotion, bool) error
+}
+
 type TargetConsumerDomainRepository interface {
 	TargetConsumerDomains(context.Context, string) (TargetConsumerDomains, error)
 }

@@ -1060,6 +1060,10 @@ func (r *PolicyRepository) GetApplyJob(ctx context.Context, id string) (policyv2
 }
 
 func (r *PolicyRepository) CommitRoutingApply(ctx context.Context, desiredRevision int64, appliedHash string, job policyv2.ApplyJob, promotions []policyv2.TargetVersionPromotion) error {
+	return r.CommitRoutingApplyWithJobState(ctx, desiredRevision, appliedHash, job, promotions, true)
+}
+
+func (r *PolicyRepository) CommitRoutingApplyWithJobState(ctx context.Context, desiredRevision int64, appliedHash string, job policyv2.ApplyJob, promotions []policyv2.TargetVersionPromotion, terminal bool) error {
 	tx, err := r.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1082,7 +1086,11 @@ func (r *PolicyRepository) CommitRoutingApply(ctx context.Context, desiredRevisi
 		return err
 	}
 	now := time.Now().UTC()
-	job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	if terminal {
+		job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	} else {
+		job.FinishedAt = time.Time{}
+	}
 	if err := updatePolicyJobTx(ctx, tx, job); err != nil {
 		return err
 	}
@@ -1101,6 +1109,10 @@ func (r *PolicyRepository) CommitRoutingApply(ctx context.Context, desiredRevisi
 }
 
 func (r *PolicyRepository) CommitAccessApply(ctx context.Context, accessRevision int64, _ string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, promotions []policyv2.TargetVersionPromotion) error {
+	return r.CommitAccessApplyWithJobState(ctx, accessRevision, "", job, resolutions, promotions, true)
+}
+
+func (r *PolicyRepository) CommitAccessApplyWithJobState(ctx context.Context, accessRevision int64, _ string, job policyv2.ApplyJob, resolutions []accesscontrol.MemberResolution, promotions []policyv2.TargetVersionPromotion, terminal bool) error {
 	tx, err := r.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1122,7 +1134,11 @@ func (r *PolicyRepository) CommitAccessApply(ctx context.Context, accessRevision
 		}
 	}
 	now := time.Now().UTC()
-	job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	if terminal {
+		job.State, job.Phase, job.FinishedAt = "committed", "committed", now
+	} else {
+		job.FinishedAt = time.Time{}
+	}
 	if err := updatePolicyJobTx(ctx, tx, job); err != nil {
 		return err
 	}

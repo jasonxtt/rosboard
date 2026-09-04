@@ -174,19 +174,30 @@ target operation must use two explicit domain applies, with Routing and Access
 plans kept separate and applied in stable order.
 
 Each shared-target domain apply owns its own RouterOS snapshot, desired graph,
-diff, commit, and pending-version promotion. If the second apply fails, the
-first successful domain remains applied and the second remains pending.
-Refresh batches changed target IDs and domain flags before creating these
-scoped plans.
+diff, commit, and pending-version promotion. When a domain target is consumed
+by both domains, Access is generated and committed first; Routing is generated
+only after that commit so it reviews the final Access projection and DNS order.
+If Access fails, Routing must not be generated or applied. If Routing later
+fails, the successful Access domain remains applied and Routing remains
+pending. An IP-only shared target keeps the established Routing-first apply
+order because it has no DNS precedence conflict. Refresh batches changed target
+IDs and domain flags before creating these scoped plans.
 
 Access domain projection identity is one physical
 `rbs_<scope8>_target_<hash>` target projection per `(device, TargetListID)`;
 Access filters remain rule-specific. Distinct
 Access target IDs with exact/suffix-overlapping enabled domains must block with
 `access_domain_projection_ambiguous`. Enabled overlapping Routing and Access
-domain projections must block both domain plans with
-`cross_domain_dns_projection_ambiguous`; never widen either blocker into a
-`Combined` plan. Shared IP targets remain valid.
+domain projections are a device-global precedence case: Access DNS Static must
+be physically ordered before the overlapping Routing DNS Static and emits a
+`cross_domain_access_priority_shadowed` warning. Access wins regardless of
+matcher specificity or Routing Priority, so the overlapping domain is shadowed
+for the whole RouterOS device rather than per client. A Routing plan must fail
+closed with `cross_domain_access_precedence_unavailable` until the owned Access
+projection exists, is enabled, and matches the planned DNS projection fields;
+an Access plan may create and order it. Never widen either blocker into a
+`Combined` plan. Shared IP targets remain valid and retain the established
+Routing-first order.
 
 Display Egress names are non-authoritative: no required/unique UI field and no
 execution-signature input. Preserve an existing name during edits and generate
@@ -220,8 +231,10 @@ effective-priority order and `/ip dns static` participates in generic owned
 order moves (batch-created statics resolve their RouterOS IDs by comment
 identity before any move references them, strictly one match per identity:
 zero or duplicate matches fail the apply closed instead of choosing); foreign
-and Access-owned statics are never moved, and Access/cross-domain domain
-overlap keeps its existing fail-closed blockers. IP-only projections receive no
+and Access-owned statics are never moved by this Routing-only order pass.
+Cross-domain ordering is a separate owned-object move pass: it may move only
+the current manager instance's Access DNS Static before its overlapping Routing
+DNS Static, never a foreign or unowned object. IP-only projections receive no
 DNS resolution.
 
 Access target projection activity is at least one enabled AccessRule consumer;
@@ -230,4 +243,4 @@ canonical target reference. A target referenced only by disabled rules emits
 no active `rbs_<scope8>_` DNS/address-list projection, while a mixed enabled/disabled
 consumer set keeps one shared active projection and preserves each rule
 filter's independent enabled state. This activity rule is shared by desired
-state and Access/cross-domain projection validators.
+state and Access/cross-domain precedence validators.
