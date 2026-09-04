@@ -51,6 +51,7 @@ type WANRoute struct {
 	Distance         int    `json:"distance"`
 	Active           bool   `json:"active"`
 	Proven           bool   `json:"proven"`
+	PolicyManaged    bool   `json:"-"`
 }
 
 type TrafficIngressCandidate struct {
@@ -88,11 +89,11 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", err)
 	}
 	warnings := make([]string, 0)
-	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic"})
+	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
 	if err != nil {
 		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", err)
 	}
-	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic"})
+	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
 	if ipv6RouteErr != nil {
 		warnings = append(warnings, "IPv6 默认路由发现失败："+ipv6RouteErr.Error())
 		ipv6Routes = nil
@@ -185,7 +186,8 @@ func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute 
 			Gateway: gateway, ImmediateGateway: immediate,
 			Table:  firstNonEmpty(object["routing-table"], "main"),
 			Source: iface, Distance: distance, Active: active,
-			Proven: active && (gateway != "" || immediate != ""),
+			Proven:        active && (gateway != "" || immediate != ""),
+			PolicyManaged: isManagedComment(object["comment"]),
 		})
 	}
 	return result
@@ -234,7 +236,7 @@ func buildWANCandidates(interfaces []routeros.RouterOSObject, routes []WANRoute,
 	}
 	grouped := make(map[string][]WANRoute)
 	for _, route := range routes {
-		if route.Source != "" && !excluded[route.Source] {
+		if route.Source != "" && !excluded[route.Source] && !route.PolicyManaged {
 			grouped[route.Source] = append(grouped[route.Source], route)
 		}
 	}
