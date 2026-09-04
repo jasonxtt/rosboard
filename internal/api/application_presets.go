@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -77,12 +79,12 @@ func (s *Server) previewApplicationPreset(writer http.ResponseWriter, request *h
 	if fetcher == nil {
 		fetcher = policy.NewSourceFetcher(policy.FetcherOptions{})
 	}
-	fetched, err := fetcher.Fetch(request.Context(), preset.RuleURL, policy.FetchOptions{})
+	fetched, err := fetchApplicationPresetRule(request.Context(), fetcher, preset)
 	if err != nil {
 		writePolicyJson(writer, http.StatusBadGateway, map[string]any{"code": "fetch_failed", "error": err.Error()})
 		return
 	}
-	preview := applicationPresetPreview{DeviceID: device.device.ID, PresetID: preset.ID, URL: fetched.URL, ETag: fetched.ETag, LastModified: fetched.LastModified, ExpiresAt: time.Now().UTC().Add(policyPreviewLifetime)}
+	preview := applicationPresetPreview{DeviceID: device.device.ID, PresetID: preset.ID, URL: preset.RuleURL, ETag: fetched.ETag, LastModified: fetched.LastModified, ExpiresAt: time.Now().UTC().Add(policyPreviewLifetime)}
 	preview.Domain, _ = policy.PrepareSourceContent(fetched.Body, policy.KindDomain)
 	preview.IP, _ = policy.PrepareSourceContent(fetched.Body, policy.KindIP)
 	if len(preview.Domain.Rules) == 0 && len(preview.IP.Rules) == 0 {
@@ -114,6 +116,33 @@ func preparedPresetSummary(content policy.PreparedSourceContent, kind string) ma
 }
 
 const minPresetPreviewRules = 100
+
+const applicationPresetPrimaryTimeout = 6 * time.Second
+
+func fetchApplicationPresetRule(ctx context.Context, fetcher *policy.SourceFetcher, preset applicationpreset.ApplicationPreset) (policy.FetchResult, error) {
+	fallbackURL, canFallback := applicationpreset.CDNRuleURL(preset)
+	if !canFallback {
+		return fetcher.Fetch(ctx, preset.RuleURL, policy.FetchOptions{})
+	}
+
+	totalCtx, cancel := context.WithTimeout(ctx, policy.SourceFetchTimeout)
+	defer cancel()
+	primaryCtx, cancelPrimary := context.WithTimeout(totalCtx, applicationPresetPrimaryTimeout)
+	primary, primaryErr := fetcher.Fetch(primaryCtx, preset.RuleURL, policy.FetchOptions{})
+	cancelPrimary()
+	if primaryErr == nil {
+		return primary, nil
+	}
+	if !policy.IsRetryableSourceError(primaryErr) {
+		return policy.FetchResult{}, primaryErr
+	}
+
+	fallback, fallbackErr := fetcher.Fetch(totalCtx, fallbackURL, policy.FetchOptions{})
+	if fallbackErr != nil {
+		return policy.FetchResult{}, fmt.Errorf("application preset source unavailable: %w", fallbackErr)
+	}
+	return fallback, nil
+}
 
 func (s *Server) materializeApplicationPreset(writer http.ResponseWriter, request *http.Request, device policyDeviceContext, preset applicationpreset.ApplicationPreset) {
 	previewID := strings.TrimSpace(request.URL.Query().Get("previewId"))
@@ -149,7 +178,7 @@ func (s *Server) materializeApplicationPreset(writer http.ResponseWriter, reques
 		if errors.Is(findErr, policyv2.ErrTargetListNotFound) {
 			target, findErr = device.repository.SaveTargetList(request.Context(), policyv2.TargetList{
 				ID: targetID, Name: preset.Name + " · " + label, Kind: kind,
-				SourceType: policyv2.TargetSourceTypePreset, PresetID: preset.ID, URL: preview.URL,
+				SourceType: policyv2.TargetSourceTypePreset, PresetID: preset.ID, URL: preset.RuleURL,
 				Schedule: "7d", Enabled: true, NextRunAt: time.Now().UTC().Add(7 * 24 * time.Hour),
 			})
 		}

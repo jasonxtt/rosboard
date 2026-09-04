@@ -1,8 +1,15 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestCatalogGeneratorUsesBlackmatrix7CanonicalTree(t *testing.T) {
+	if !strings.Contains(defaultTreeURL, "api.github.com/repos/blackmatrix7/ios_rule_script/") {
+		t.Fatalf("default tree URL=%q, want Blackmatrix7 canonical repository", defaultTreeURL)
+	}
+}
 
 func TestBuildCatalogSelectsStableClashRulePaths(t *testing.T) {
 	data := []byte(`{"tree":[{"path":"rule/Clash/YouTube/YouTube.yaml","type":"blob"},{"path":"rule/Clash/YouTube/YouTube_IP.yaml","type":"blob"},{"path":"rule/Clash/Some App/Some App_Domain.yaml","type":"blob"},{"path":"rule/Clash/Some App/Some App_No_Resolve.yaml","type":"blob"},{"path":"rule/Clash/ignore.txt","type":"blob"}]}`)

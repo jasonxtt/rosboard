@@ -9,3 +9,10 @@ configs/config.local.yaml
 .codex/
 .opencode/
 config.yaml
+
+# Local secrets and private key material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
