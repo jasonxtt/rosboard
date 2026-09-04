@@ -172,9 +172,9 @@ type targetListDetailResponse struct {
 }
 
 func targetListEditableContent(target policyv2.TargetList) (string, error) {
-	versionID := target.ActiveVersionID
+	versionID := target.PendingVersionID
 	if versionID == "" {
-		versionID = target.PendingVersionID
+		versionID = target.ActiveVersionID
 	}
 	if versionID == "" {
 		return "", errors.New("target list has no saved content version")

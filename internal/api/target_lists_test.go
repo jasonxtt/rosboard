@@ -180,13 +180,68 @@ func TestTargetListAPIDetailReturnsSavedManualContent(t *testing.T) {
 		t.Fatalf("unexpected editable detail: %#v", detail)
 	}
 
+	deviceStorage, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStorage.PolicyRepository()
+	state, err := repository.GetDeviceState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CommitRoutingApply(context.Background(), state.DesiredRevision, "detail-active-hash", policyv2.ApplyJob{ID: "detail-active-job", PlanID: "detail-active-plan"}, []policyv2.TargetVersionPromotion{{TargetListID: target.ID, VersionID: target.PendingVersionID}}); err != nil {
+		t.Fatal(err)
+	}
+	target, err = repository.GetTargetList(context.Background(), target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.ActiveVersionID == "" || target.PendingVersionID != "" {
+		t.Fatalf("initial target was not promoted: %#v", target)
+	}
+	activeDetail := readDetail()
+	if activeDetail.EditableContent != initialEditableContent || activeDetail.ActiveVersionID != target.ActiveVersionID || activeDetail.PendingVersionID != "" {
+		t.Fatalf("unexpected active detail: %#v", activeDetail)
+	}
+
+	pendingContent, err := policy.PrepareDomainLines("example.com\nnew.example\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingPreviewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeManual, Kind: policyv2.KindDomain, Content: pendingContent})
+	pendingBody, err := json.Marshal(map[string]any{
+		"name":       target.Name,
+		"sourceType": "manual",
+		"kind":       "domain",
+		"enabled":    true,
+		"revision":   target.Revision,
+		"previewId":  pendingPreviewID,
+		"deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := targetListAPIRequest(t, server, http.MethodPut, "/"+target.ID, string(pendingBody))
+	if pending.Code != http.StatusOK {
+		t.Fatalf("pending content update status=%d body=%s", pending.Code, pending.Body.String())
+	}
+	var pendingTarget policyv2.TargetList
+	if err := json.Unmarshal(pending.Body.Bytes(), &pendingTarget); err != nil {
+		t.Fatal(err)
+	}
+	const pendingEditableContent = "DOMAIN-SUFFIX,example.com\nDOMAIN-SUFFIX,new.example"
+	pendingDetail := readDetail()
+	if pendingTarget.ActiveVersionID != target.ActiveVersionID || pendingTarget.PendingVersionID == "" || pendingDetail.EditableContent != pendingEditableContent || pendingDetail.ActiveVersionID != target.ActiveVersionID || pendingDetail.PendingVersionID != pendingTarget.PendingVersionID {
+		t.Fatalf("detail did not prefer saved pending content: target=%#v detail=%#v", pendingTarget, pendingDetail)
+	}
+
 	unsavedContent, err := policy.PrepareDomainLines("unsaved.example\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeManual, Kind: policyv2.KindDomain, Content: unsavedContent})
 	unchanged := readDetail()
-	if unchanged.EditableContent != initialEditableContent || unchanged.Revision != detail.Revision || unchanged.PendingVersionID != detail.PendingVersionID {
+	if unchanged.EditableContent != pendingEditableContent || unchanged.Revision != pendingDetail.Revision || unchanged.PendingVersionID != pendingDetail.PendingVersionID {
 		t.Fatalf("detail exposed unsaved preview: %#v", unchanged)
 	}
 
@@ -195,7 +250,7 @@ func TestTargetListAPIDetailReturnsSavedManualContent(t *testing.T) {
 		"sourceType": "manual",
 		"kind":       "domain",
 		"enabled":    true,
-		"revision":   detail.Revision,
+		"revision":   pendingDetail.Revision,
 		"deferApply": true,
 	})
 	if err != nil {
@@ -209,11 +264,11 @@ func TestTargetListAPIDetailReturnsSavedManualContent(t *testing.T) {
 	if err := json.Unmarshal(renamed.Body.Bytes(), &renamedTarget); err != nil {
 		t.Fatal(err)
 	}
-	if renamedTarget.Name != "Renamed domains" || renamedTarget.Revision != detail.Revision+1 || renamedTarget.PendingVersionID != detail.PendingVersionID {
+	if renamedTarget.Name != "Renamed domains" || renamedTarget.Revision != pendingDetail.Revision+1 || renamedTarget.PendingVersionID != pendingDetail.PendingVersionID {
 		t.Fatalf("metadata update replaced content: %#v", renamedTarget)
 	}
 
-	updatedContent, err := policy.PrepareDomainLines("example.com\nnew.example\n")
+	updatedContent, err := policy.PrepareDomainLines("example.com\nfinal.example\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +290,7 @@ func TestTargetListAPIDetailReturnsSavedManualContent(t *testing.T) {
 		t.Fatalf("content update status=%d body=%s", updated.Code, updated.Body.String())
 	}
 	updatedDetail := readDetail()
-	const updatedEditableContent = "DOMAIN-SUFFIX,example.com\nDOMAIN-SUFFIX,new.example"
+	const updatedEditableContent = "DOMAIN-SUFFIX,example.com\nDOMAIN-SUFFIX,final.example"
 	if updatedDetail.ID != target.ID || updatedDetail.EditableContent != updatedEditableContent || updatedDetail.Revision <= renamedTarget.Revision {
 		t.Fatalf("updated editable detail is incorrect: %#v", updatedDetail)
 	}
