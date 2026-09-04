@@ -33,6 +33,8 @@ export type TargetList = {
   versions: Array<{ id: string; state: string; counts: Record<string, number>; createdAt: string }>
 }
 
+export type TargetListDetail = TargetList & { editableContent?: string }
+
 export type TargetListRule = { type: string; domain?: string; address?: string }
 export type TargetListPreview = {
   previewId?: string
@@ -229,6 +231,13 @@ function parseTargetList(value: unknown): TargetList {
   }
 }
 
+function parseTargetListDetail(value: unknown): TargetListDetail {
+  const object = objectValue(value)
+  const target = parseTargetList(value)
+  const editableContent = stringValue(object.editableContent)
+  return editableContent ? { ...target, editableContent } : target
+}
+
 function parsePreview(value: unknown): TargetListPreview {
   const object = objectValue(value)
   const parseRules = (raw: unknown): TargetListRule[] => Array.isArray(raw) ? raw.map((item) => {
@@ -355,7 +364,7 @@ async function requestJSON<T>(path: string, deviceID: string, init: RequestInit 
 function jsonInit(method: string, body: unknown): RequestInit { return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } }
 
 export function fetchTargetLists(deviceID: string, includePreset = false) { return requestJSON(`/api/target-lists${includePreset ? '?includePreset=true' : ''}`, deviceID, { cache: 'no-store' }, (value) => objectValue(value).targetLists instanceof Array ? (objectValue(value).targetLists as unknown[]).map(parseTargetList) : []) }
-export function fetchTargetList(deviceID: string, id: string) { return requestJSON(`/api/target-lists/${encodeURIComponent(id)}`, deviceID, { cache: 'no-store' }, parseTargetList) }
+export function fetchTargetList(deviceID: string, id: string) { return requestJSON(`/api/target-lists/${encodeURIComponent(id)}`, deviceID, { cache: 'no-store' }, parseTargetListDetail) }
 export function saveTargetList(deviceID: string, target: Record<string, unknown>, id?: string, previewId?: string) {
   return requestJSON(`/api/target-lists${id ? `/${encodeURIComponent(id)}` : ''}`, deviceID, jsonInit(id ? 'PUT' : 'POST', { ...target, ...(previewId ? { previewId } : {}) }), (value) => {
     const object = objectValue(value)

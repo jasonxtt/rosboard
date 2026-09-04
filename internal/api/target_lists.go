@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -152,7 +155,66 @@ func (s *Server) getTargetList(writer http.ResponseWriter, request *http.Request
 		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "target_list_unavailable", "error": err.Error()})
 		return
 	}
-	writePolicyJson(writer, http.StatusOK, target)
+	response := targetListDetailResponse{TargetList: target}
+	if target.SourceType == policyv2.TargetSourceTypeManual {
+		response.EditableContent, err = targetListEditableContent(target)
+		if err != nil {
+			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "target_list_content_unavailable", "error": err.Error()})
+			return
+		}
+	}
+	writePolicyJson(writer, http.StatusOK, response)
+}
+
+type targetListDetailResponse struct {
+	policyv2.TargetList
+	EditableContent string `json:"editableContent,omitempty"`
+}
+
+func targetListEditableContent(target policyv2.TargetList) (string, error) {
+	versionID := target.ActiveVersionID
+	if versionID == "" {
+		versionID = target.PendingVersionID
+	}
+	if versionID == "" {
+		return "", errors.New("target list has no saved content version")
+	}
+
+	var version *policyv2.TargetListVersion
+	for index := range target.Versions {
+		if target.Versions[index].ID == versionID {
+			version = &target.Versions[index]
+			break
+		}
+	}
+	if version == nil || len(version.CompressedYAML) == 0 {
+		return "", errors.New("target list content version is unavailable")
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(version.CompressedYAML))
+	if err != nil {
+		return "", fmt.Errorf("decode target list content: %w", err)
+	}
+	content, readErr := io.ReadAll(io.LimitReader(reader, policy.MaxSourceBytes+1))
+	closeErr := reader.Close()
+	if readErr != nil {
+		return "", fmt.Errorf("read target list content: %w", readErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close target list content: %w", closeErr)
+	}
+	if len(content) > policy.MaxSourceBytes {
+		return "", fmt.Errorf("target list content exceeds %d bytes", policy.MaxSourceBytes)
+	}
+	prepared, err := policy.PrepareSourceContent(content, target.Kind)
+	if err != nil {
+		return "", fmt.Errorf("parse target list content: %w", err)
+	}
+	lines := make([]string, len(prepared.Rules))
+	for index, rule := range prepared.Rules {
+		lines[index] = fmt.Sprintf("%s,%s", rule.Type, rule.Domain)
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 type targetListSavePayload struct {

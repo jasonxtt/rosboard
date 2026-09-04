@@ -139,6 +139,108 @@ func TestTargetListAPICanonicalCRUDReusesPreviewAndRules(t *testing.T) {
 	}
 }
 
+func TestTargetListAPIDetailReturnsSavedManualContent(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	content, err := policy.PrepareDomainLines("example.com\nfull:full.example.com\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeManual, Kind: policyv2.KindDomain, Content: content})
+	created := targetListAPIRequest(t, server, http.MethodPost, "", `{"name":"Editable domains","sourceType":"manual","kind":"domain","enabled":true,"previewId":"`+previewID+`","deferApply":true}`)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var target policyv2.TargetList
+	if err := json.Unmarshal(created.Body.Bytes(), &target); err != nil {
+		t.Fatal(err)
+	}
+
+	type targetListDetail struct {
+		policyv2.TargetList
+		EditableContent string `json:"editableContent"`
+	}
+	readDetail := func() targetListDetail {
+		t.Helper()
+		response := targetListAPIRequest(t, server, http.MethodGet, "/"+target.ID, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("detail status=%d body=%s", response.Code, response.Body.String())
+		}
+		var detail targetListDetail
+		if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		return detail
+	}
+
+	detail := readDetail()
+	const initialEditableContent = "DOMAIN-SUFFIX,example.com\nDOMAIN,full.example.com"
+	if detail.EditableContent != initialEditableContent || detail.PendingVersionID != target.PendingVersionID || detail.Revision != target.Revision {
+		t.Fatalf("unexpected editable detail: %#v", detail)
+	}
+
+	unsavedContent, err := policy.PrepareDomainLines("unsaved.example\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeManual, Kind: policyv2.KindDomain, Content: unsavedContent})
+	unchanged := readDetail()
+	if unchanged.EditableContent != initialEditableContent || unchanged.Revision != detail.Revision || unchanged.PendingVersionID != detail.PendingVersionID {
+		t.Fatalf("detail exposed unsaved preview: %#v", unchanged)
+	}
+
+	renameBody, err := json.Marshal(map[string]any{
+		"name":       "Renamed domains",
+		"sourceType": "manual",
+		"kind":       "domain",
+		"enabled":    true,
+		"revision":   detail.Revision,
+		"deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := targetListAPIRequest(t, server, http.MethodPut, "/"+target.ID, string(renameBody))
+	if renamed.Code != http.StatusOK {
+		t.Fatalf("metadata update status=%d body=%s", renamed.Code, renamed.Body.String())
+	}
+	var renamedTarget policyv2.TargetList
+	if err := json.Unmarshal(renamed.Body.Bytes(), &renamedTarget); err != nil {
+		t.Fatal(err)
+	}
+	if renamedTarget.Name != "Renamed domains" || renamedTarget.Revision != detail.Revision+1 || renamedTarget.PendingVersionID != detail.PendingVersionID {
+		t.Fatalf("metadata update replaced content: %#v", renamedTarget)
+	}
+
+	updatedContent, err := policy.PrepareDomainLines("example.com\nnew.example\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedPreviewID := server.savePolicyPreview(policyPreviewEntry{DeviceID: "edge", SourceType: policyv2.TargetSourceTypeManual, Kind: policyv2.KindDomain, Content: updatedContent})
+	updateBody, err := json.Marshal(map[string]any{
+		"name":       renamedTarget.Name,
+		"sourceType": "manual",
+		"kind":       "domain",
+		"enabled":    true,
+		"revision":   renamedTarget.Revision,
+		"previewId":  updatedPreviewID,
+		"deferApply": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := targetListAPIRequest(t, server, http.MethodPut, "/"+target.ID, string(updateBody))
+	if updated.Code != http.StatusOK {
+		t.Fatalf("content update status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	updatedDetail := readDetail()
+	const updatedEditableContent = "DOMAIN-SUFFIX,example.com\nDOMAIN-SUFFIX,new.example"
+	if updatedDetail.ID != target.ID || updatedDetail.EditableContent != updatedEditableContent || updatedDetail.Revision <= renamedTarget.Revision {
+		t.Fatalf("updated editable detail is incorrect: %#v", updatedDetail)
+	}
+}
+
 func TestTargetListAPIUnreferencedUploadStaysStandbyWithoutApply(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
