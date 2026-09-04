@@ -7,5 +7,5 @@
 - [x] 让 `PolicyPlanPreview` 上报应用忙碌状态，阻止应用期间关闭和导航。
 - [x] 补充最小必要样式，避免无关 UI 重构。
 - [x] 运行 lint、build、diff check；检查变更路径、敏感信息和 staged diff。
-- [ ] 在当前工作分支提交并推送 checkpoint，向项目审核者汇报实现和验证结果。
+- [x] 在当前工作分支提交并推送 checkpoint，向项目审核者汇报实现和验证结果。
 - [ ] 根据审核意见继续修改并重复验证，直到审核者明确报告 `APPROVED`。
