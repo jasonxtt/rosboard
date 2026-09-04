@@ -1735,6 +1735,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-wizard-steps li.done{color:var(--mint-deep);border-color:color-mix(in srgb, var(--mint-deep) 40%, var(--surface))}
 
+.policy-wizard-steps li.locked:not(.active){opacity:.78;border-style:dashed}
+
+.policy-wizard-steps li.stale:not(.active){color:var(--status-warn);border-color:color-mix(in srgb, var(--status-warn) 42%, var(--surface))}
+
+.policy-wizard-steps li button:disabled{cursor:wait;opacity:.72}
+
+.policy-wizard-fields{min-width:0;margin:0;padding:0;border:0}
+
+.policy-wizard-fields:disabled{opacity:.72}
+
+.policy-invalid-targets{gap:var(--gap-inline);flex-wrap:wrap;display:flex}
+
 .policy-wizard-stage{gap:var(--gap-section);display:grid}
 
 .policy-wizard-stage h4{color:var(--ink);font-size:var(--fs-body);margin:0;font-weight:600}

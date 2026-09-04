@@ -106,11 +106,13 @@ export function PolicyPasswordInput({ value, onChange, className, placeholder }:
 
 // ---- Modal dialog ----
 
-export function PolicyModal({ title, subtitle, wide, onClose, header, children, footer }: { title: string; subtitle?: React.ReactNode; wide?: boolean; onClose: () => void; header?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
+export function PolicyModal({ title, subtitle, wide, closeDisabled = false, onClose, header, children, footer }: { title: string; subtitle?: React.ReactNode; wide?: boolean; closeDisabled?: boolean; onClose: () => void; header?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
+  const closeDisabledRef = useRef(closeDisabled)
   onCloseRef.current = onClose
+  closeDisabledRef.current = closeDisabled
 
   // 焦点初始化只在挂载时执行一次：父组件轮询重渲染会生成新的 onClose 引用，
   // 若把它放入依赖，effect 重跑会把焦点抢回弹窗内第一个可聚焦元素（关闭按钮），
@@ -119,7 +121,10 @@ export function PolicyModal({ title, subtitle, wide, onClose, header, children, 
     previousFocus.current = document.activeElement as HTMLElement | null
     const focusable = () => Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])') ?? []).filter((element) => !element.hasAttribute('disabled'))
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current()
+      if (e.key === 'Escape') {
+        if (!closeDisabledRef.current) onCloseRef.current()
+        return
+      }
       if (e.key !== 'Tab') return
       const elements = focusable()
       if (!elements.length) return
@@ -149,7 +154,7 @@ export function PolicyModal({ title, subtitle, wide, onClose, header, children, 
             <h3>{title}</h3>
             {subtitle ? <p className="policy-modal-subtitle">{subtitle}</p> : null}
           </div>
-          <button type="button" className="close-button" onClick={onClose}>关闭</button>
+          <button type="button" className="close-button" disabled={closeDisabled} onClick={onClose}>关闭</button>
         </div>
         {header ? <div className="policy-modal-header-addon">{header}</div> : null}
         <div className="remark-modal-body policy-modal-body">{children}</div>
@@ -161,15 +166,19 @@ export function PolicyModal({ title, subtitle, wide, onClose, header, children, 
 
 // ---- Wizard step indicator ----
 
-export function PolicyWizardSteps({ steps, current, onJump }: { steps: string[]; current: number; onJump?: (index: number) => void }) {
+export function PolicyWizardSteps({ steps, current, unlockedThrough = steps.length - 1, planStale = false, disabled = false, onJump }: { steps: string[]; current: number; unlockedThrough?: number; planStale?: boolean; disabled?: boolean; onJump?: (index: number) => void }) {
   return (
     <ol className="policy-wizard-steps" aria-label="向导步骤">
       {steps.map((step, i) => {
-        const done = i < current
+        const done = i < unlockedThrough
         const active = i === current
+        const locked = i > unlockedThrough
+        const stale = i === steps.length - 1 && planStale
+        const className = [active ? 'active' : '', done ? 'done' : '', locked ? 'locked' : '', stale ? 'stale' : ''].filter(Boolean).join(' ')
+        const stateLabel = locked ? '，仅查看，完成前面的步骤后可编辑' : stale ? '，配置已修改，需要更新预览' : ''
         return (
-          <li key={step} className={active ? 'active' : done ? 'done' : ''} aria-current={active ? 'step' : undefined}>
-            <button type="button" onClick={() => onJump?.(i)}>
+          <li key={step} className={className} aria-current={active ? 'step' : undefined}>
+            <button type="button" disabled={disabled} aria-label={`${i + 1}. ${step}${stateLabel}`} onClick={() => onJump?.(i)}>
               {i + 1}. {step}
             </button>
           </li>
