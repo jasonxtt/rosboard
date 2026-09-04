@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { deleteTargetList, fetchTargetLists, previewTargetList, refreshTargetList, saveTargetList, waitForPolicyJob, type TargetList, type TargetListPreview } from './canonical'
+import { deleteTargetList, fetchTargetList, fetchTargetLists, previewTargetList, refreshTargetList, saveTargetList, waitForPolicyJob, type TargetList, type TargetListPreview } from './canonical'
 import { PolicyEmptyState, PolicyErrorDisplay, PolicyField, PolicyModal, PolicyNotice, PolicyPreparing, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 type KindFilter = 'all' | 'domain' | 'ip'
@@ -113,16 +113,40 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
   const [sourceType, setSourceType] = useState<SourceType>(target?.sourceType === 'url' || target?.sourceType === 'upload' ? target.sourceType : 'manual')
   const [url, setURL] = useState(target?.url ?? '')
   const [text, setText] = useState('')
+  const [loadedText, setLoadedText] = useState('')
+  const [contentLoading, setContentLoading] = useState(Boolean(target?.sourceType === 'manual'))
+  const [contentLoaded, setContentLoaded] = useState(!target || target.sourceType !== 'manual')
+  const [contentLoadError, setContentLoadError] = useState<unknown>(null)
   const [file, setFile] = useState<File | null>(null)
   const [schedule, setSchedule] = useState(target?.schedule && target.schedule !== 'manual' ? target.schedule : '7d')
   const [preview, setPreview] = useState<TargetListPreview | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const loadManualContent = useCallback(async () => {
+    if (!target || target.sourceType !== 'manual') return
+    setContentLoading(true)
+    setContentLoaded(false)
+    setContentLoadError(null)
+    try {
+      const detail = await fetchTargetList(deviceID, target.id)
+      if (detail.editableContent === undefined) throw new Error('目标列表内容不可用')
+      setText(detail.editableContent)
+      setLoadedText(detail.editableContent)
+      setContentLoaded(true)
+    } catch (loadError) {
+      setContentLoadError(loadError)
+    } finally {
+      setContentLoading(false)
+    }
+  }, [deviceID, target])
+  useEffect(() => { if (target?.sourceType === 'manual') void loadManualContent() }, [loadManualContent, target?.sourceType])
   const canPreview = sourceType === 'url' ? Boolean(url.trim()) : sourceType === 'manual' ? Boolean(text.trim()) : Boolean(file)
+  const contentDirty = target?.sourceType === 'manual' ? contentLoaded && text !== loadedText : target?.sourceType === 'url' ? url.trim() !== (target.url ?? '').trim() : target?.sourceType === 'upload' ? Boolean(file) : false
+  const needsPreview = !target || contentDirty
 
   const doPreview = async () => {
-    if (!canPreview) return
+    if (!canPreview || contentLoading || !contentLoaded || contentLoadError) return
     setPreviewing(true)
     setError(null)
     try {
@@ -136,7 +160,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
   }
 
   const submit = async () => {
-    if (!name.trim() || (!target && !preview)) return
+    if (!name.trim() || contentLoading || !contentLoaded || (needsPreview && !preview)) return
     setSaving(true)
     setError(null)
     try {
@@ -154,16 +178,17 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
 
   return <PolicyModal title={target ? '编辑目标列表' : '新增目标列表'} wide onClose={onClose} footer={<>
     <button type="button" className="toolbar-button" disabled={saving} onClick={onClose}>取消</button>
-    <button type="button" className="primary-button" disabled={saving || !name.trim() || (!target && !preview)} onClick={() => void submit()}>{saving ? '正在保存…' : '保存'}</button>
+    <button type="button" className="primary-button" disabled={saving || contentLoading || !contentLoaded || !name.trim() || (needsPreview && !preview)} onClick={() => void submit()}>{saving ? '正在保存…' : '保存'}</button>
   </>}>
     <div className="policy-form">
+      {contentLoadError ? <><PolicyErrorDisplay error={contentLoadError} /><button type="button" className="toolbar-button" disabled={contentLoading} onClick={() => void loadManualContent()}>重试读取内容</button></> : null}
       {error ? <PolicyErrorDisplay error={error} /> : null}
       <PolicyField label="名称" htmlFor="target-list-name"><input id="target-list-name" className="settings-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：视频站点" /></PolicyField>
       <PolicyField label="类型"><select className="select-control" value={kind} disabled={Boolean(target)} onChange={(event) => { setKind(event.target.value as 'domain' | 'ip'); setPreview(null) }}><option value="domain">域名列表</option><option value="ip">IP 列表</option></select></PolicyField>
       <PolicyField label="来源"><select className="select-control" value={sourceType} onChange={(event) => { setSourceType(event.target.value as SourceType); setPreview(null) }}><option value="manual">手动粘贴</option><option value="url">URL</option><option value="upload">上传文件</option></select></PolicyField>
-      {sourceType === 'url' ? <PolicyField label="URL"><input className="settings-input" type="url" value={url} onChange={(event) => { setURL(event.target.value); setPreview(null) }} placeholder="https://example.com/list.txt" /></PolicyField> : sourceType === 'upload' ? <PolicyField label="文件"><input className="settings-input" type="file" accept=".txt,.list,.yaml,.yml,.csv" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null) }} /></PolicyField> : <PolicyField label="内容" hint={kind === 'ip' ? '每行一个 IP 或 CIDR。' : '每行一个域名；支持 exact / suffix 解析。'}><textarea className="settings-input policy-textarea" rows={8} value={text} onChange={(event) => { setText(event.target.value); setPreview(null) }} placeholder={kind === 'ip' ? '203.0.113.0/24' : 'example.com'} /></PolicyField>}
+      {sourceType === 'url' ? <PolicyField label="URL"><input className="settings-input" type="url" value={url} onChange={(event) => { setURL(event.target.value); setPreview(null) }} placeholder="https://example.com/list.txt" /></PolicyField> : sourceType === 'upload' ? <PolicyField label="文件"><input className="settings-input" type="file" accept=".txt,.list,.yaml,.yml,.csv" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null) }} /></PolicyField> : <PolicyField label="内容" hint={contentLoading ? '正在读取已保存内容…' : kind === 'ip' ? '每行一个 IP 或 CIDR。' : '每行一个域名；支持 exact / suffix 解析。'}><textarea className="settings-input policy-textarea" rows={8} disabled={contentLoading || Boolean(contentLoadError) || saving} value={text} onChange={(event) => { setText(event.target.value); setPreview(null) }} placeholder={kind === 'ip' ? '203.0.113.0/24' : 'example.com'} /></PolicyField>}
       {sourceType === 'url' ? <PolicyField label="刷新"><select className="select-control" value={schedule} onChange={(event) => setSchedule(event.target.value)}><option value="1h">每 1 小时</option><option value="6h">每 6 小时</option><option value="12h">每 12 小时</option><option value="24h">每天</option><option value="7d">每 7 天</option><option value="30d">每 30 天</option></select></PolicyField> : null}
-      <button type="button" className="toolbar-button" disabled={!canPreview || previewing} onClick={() => void doPreview()}>{previewing ? '正在预览…' : '预览并校验'}</button>
+      <button type="button" className="toolbar-button" disabled={!canPreview || contentLoading || !contentLoaded || Boolean(contentLoadError) || previewing} onClick={() => void doPreview()}>{previewing ? '正在预览…' : '预览并校验'}</button>
       {preview ? <PolicyNotice tone={preview.errorSamples.length ? 'warn' : 'good'} title="预览结果">有效规则 {preview.validRules} 条{preview.errorSamples.length ? `，${preview.errorSamples.length} 条错误样例` : ''}。</PolicyNotice> : null}
     </div>
   </PolicyModal>
