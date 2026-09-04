@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend package and test boundaries."}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"Review discovery and ingress ownership against project policy contracts."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review test, error, and quality-gate expectations."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Review package placement and scope control."}

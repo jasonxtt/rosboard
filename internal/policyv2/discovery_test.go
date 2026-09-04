@@ -194,6 +194,122 @@ func TestDiscoverySeparatesPPPoEParentAndManagedIngress(t *testing.T) {
 	}
 }
 
+func TestDiscoveryKeepsLANIngressAfterManagedPolicyRoute(t *testing.T) {
+	base := discoveryReader{
+		routeros.ReadMenuSystemResource: {{"board-name": "router", "version": "7.22.3"}},
+		routeros.ReadMenuInterface: {
+			{"name": "lan", "type": "ether", "running": "true"},
+			{"name": "pppoe-out1", "type": "pppoe-out", "running": "true"},
+			{"name": "ether-wan", "type": "ether", "running": "true"},
+		},
+		routeros.ReadMenuIPRoute: {
+			{"dst-address": "0.0.0.0/0", "gateway": "pppoe-out1", "immediate-gw": "pppoe-out1", "routing-table": "main", "active": "true"},
+			{"dst-address": "0.0.0.0/0", "gateway": "192.168.88.1", "immediate-gw": "192.168.88.1%ether-wan", "routing-table": "backup", "active": "true"},
+		},
+		routeros.ReadMenuIPv6Route: {
+			{"dst-address": "::/0", "gateway": "pppoe-out1", "immediate-gw": "pppoe-out1", "routing-table": "main", "active": "true"},
+		},
+		routeros.ReadMenuInterfaceList:       {},
+		routeros.ReadMenuInterfaceListMember: {},
+		routeros.ReadMenuBridgePort:          {},
+		routeros.ReadMenuIPAddress: {
+			{"interface": "lan", "address": "192.0.2.2/24"},
+			{"interface": "ether-wan", "address": "192.168.88.2/24"},
+		},
+	}
+	before, err := NewScanner(base).Scan(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	afterReader := discoveryReader{}
+	for menu, objects := range base {
+		afterReader[menu] = append([]routeros.RouterOSObject(nil), objects...)
+	}
+	managedRouteComment := managedComment("manager", "edge", "route:policy-egress:ipv4", "策略出口 · 默认路由 · IPv4")
+	afterReader[routeros.ReadMenuIPRoute] = append(afterReader[routeros.ReadMenuIPRoute], routeros.RouterOSObject{
+		"dst-address": "0.0.0.0/0", "gateway": "10.0.0.1", "immediate-gw": "10.0.0.1%lan",
+		"routing-table": "rb_policy_4", "active": "true", "comment": managedRouteComment,
+	})
+	afterReader[routeros.ReadMenuIPv6Route] = append(afterReader[routeros.ReadMenuIPv6Route], routeros.RouterOSObject{
+		"dst-address": "::/0", "gateway": "fc00::1", "immediate-gw": "fc00::1%lan",
+		"routing-table": "rb_policy_6", "active": "true", "comment": managedComment("manager", "edge", "route:policy-egress:ipv6", "策略出口 · 默认路由 · IPv6"),
+	})
+	after, err := NewScanner(afterReader).Scan(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, discovery := range map[string]Discovery{"before": before, "after": after} {
+		ingress := make(map[string]bool)
+		for _, candidate := range discovery.TrafficIngress {
+			ingress[candidate.Name] = true
+		}
+		if !ingress["lan"] {
+			t.Fatalf("%s discovery lost the physical LAN ingress candidate: %#v", name, discovery.TrafficIngress)
+		}
+		wans := make(map[string]bool)
+		for _, candidate := range discovery.WANs {
+			wans[candidate.Interface] = true
+		}
+		if !wans["pppoe-out1"] || !wans["ether-wan"] {
+			t.Fatalf("%s discovery lost a genuine WAN candidate: %#v", name, discovery.WANs)
+		}
+		if wans["lan"] {
+			t.Fatalf("%s discovery treated a managed policy route as physical WAN evidence: %#v", name, discovery.WANs)
+		}
+		if ingress["ether-wan"] {
+			t.Fatalf("%s discovery exposed a genuine WAN as an ingress candidate: %#v", name, discovery.TrafficIngress)
+		}
+	}
+}
+
+func TestDiscoveryRetainsUserIngressBehindManagedAggregate(t *testing.T) {
+	managedIngress := ManagedIngressListName("manager", "edge")
+	reader := discoveryReader{
+		routeros.ReadMenuSystemResource: {{"board-name": "router", "version": "7.22.3"}},
+		routeros.ReadMenuInterface: {
+			{"name": "bridge", "type": "bridge", "running": "true"},
+			{"name": "pppoe-out1", "type": "pppoe-out", "running": "true"},
+		},
+		routeros.ReadMenuIPRoute: {
+			{"dst-address": "0.0.0.0/0", "gateway": "pppoe-out1", "immediate-gw": "pppoe-out1", "routing-table": "main", "active": "true"},
+			{"dst-address": "0.0.0.0/0", "gateway": "10.0.0.1", "immediate-gw": "10.0.0.1%bridge", "routing-table": "rb_policy_4", "active": "true"},
+		},
+		routeros.ReadMenuInterfaceList: {
+			{"name": "LAN"},
+			{"name": managedIngress, "include": "LAN", "comment": managedComment("manager", "edge", "traffic-ingress:list", "策略流量入口聚合列表")},
+		},
+		routeros.ReadMenuInterfaceListMember: {
+			{"list": "LAN", "interface": "bridge"},
+		},
+		routeros.ReadMenuBridgePort: {},
+		routeros.ReadMenuIPAddress: {
+			{"interface": "bridge", "address": "192.0.2.1/24"},
+		},
+	}
+	discovery, err := NewScanner(reader).Scan(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ingress := make(map[string]bool)
+	for _, candidate := range discovery.TrafficIngress {
+		ingress[candidate.Name] = true
+	}
+	if !ingress["LAN"] || ingress[managedIngress] {
+		t.Fatalf("managed aggregate changed user-facing ingress candidates: %#v", discovery.TrafficIngress)
+	}
+
+	wans := make(map[string]bool)
+	for _, candidate := range discovery.WANs {
+		wans[candidate.Interface] = true
+	}
+	if !wans["pppoe-out1"] || wans["bridge"] {
+		t.Fatalf("managed aggregate no longer protects nested LAN members: %#v", discovery.WANs)
+	}
+}
+
 func TestDefaultRoutesTreatMissingOrDisabledActiveAsInactive(t *testing.T) {
 	routes := defaultRoutes([]routeros.RouterOSObject{
 		{"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "immediate-gw": "192.0.2.1%ether1"},
