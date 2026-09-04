@@ -23,6 +23,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Planning-only follow-up for future RouterOS time-window controls and daily usage quotas. Current domain access-control implementation belongs to the user-approved feat/policy-access-rebuild GitHub workstream and Draft PR #4; this task is not the umbrella task or a branch boundary. Do not start implementation here until a future scope is explicitly approved.",
   "meta": {}
 }

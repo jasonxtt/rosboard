@@ -3,7 +3,7 @@
   "name": "oaf-application-catalog",
   "title": "OAF Application Catalog and unified application recognition/access control",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "tom",
   "assignee": "tom",
   "createdAt": "2026-09-01",
-  "completedAt": null,
+  "completedAt": "2026-09-04",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "FROZEN / SUPERSEDED. Implementation and 10.0.0.60 runtime acceptance previously passed. Never deployed to production. Superseded by 09-01-unified-target-policy-model. Do not continue implementation and do not archive yet.",
+  "notes": "FROZEN / SUPERSEDED. Implementation and 10.0.0.60 runtime acceptance previously passed. Never deployed to production. Superseded by 09-01-unified-target-policy-model. Do not resume implementation; this task is being archived as superseded.",
   "meta": {}
 }

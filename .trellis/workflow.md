@@ -16,9 +16,11 @@
 
 The repository is public, and `main` is the stable, accepted baseline. Long-lived work in progress must use a task branch and a Draft PR targeting `main`.
 
+A Trellis task is a planning and execution unit; it is not automatically a Git branch boundary. The branch/PR boundary belongs to the user-approved GitHub workstream (the umbrella task). Several tightly coupled Trellis tasks may share one work branch and one Draft PR.
+
 ### Branch and PR boundaries
 
-- One independent task normally has one work branch and one corresponding Draft PR.
+- One independent GitHub workstream normally has one work branch and one corresponding Draft PR.
 - A Slice is a planning or implementation boundary, not a default Git branch boundary.
 - Slices, reviewer findings, P0/P1 fixes, UI polish, regression fixes, and test-machine feedback for the same task continue on the same branch and PR.
 - A genuinely independent hotfix or unrelated task gets its own branch and PR.
@@ -33,6 +35,8 @@ For each meaningful checkpoint:
 4. Create a focused commit and push the same task branch.
 
 Do not push every micro-edit, do not default to `git add -A`, and do not force-push or rewrite shared history without explicit task-specific authorization. Never push directly to the remote `main` branch.
+
+Work-branch checkpoint commits and pushes may occur before final production acceptance; they do not authorize a `main` merge, release, or Trellis task completion/archive.
 
 ### Review and merge states
 

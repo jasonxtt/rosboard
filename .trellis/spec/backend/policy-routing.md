@@ -78,7 +78,7 @@
 - Proposal boundary: preview leaves canonical rows and revisions unchanged;
   another GenerateAndApply sees the old graph; approval commits the reviewed
   proposal exactly once and applies that graph.
-- Quality: `go test ./...`, targeted race tests, `go vet ./...`, frontend lint/build/audit, deployed health/API/assets checks, and user acceptance before commit.
+- Quality: `go test ./...`, targeted race tests, `go vet ./...`, frontend lint/build/audit, deployed health/API/assets checks, and user acceptance before production delivery, `main` merge, or task completion. Work-branch checkpoint commits and pushes are allowed before final acceptance.
 
 ## 6.1 Cross-manager ownership safety
 
