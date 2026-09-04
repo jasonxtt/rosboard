@@ -45,3 +45,15 @@ python3 ./.trellis/scripts/task.py validate 09-05-routing-ingress-rediscovery
   vet, build, frontend lint/build/audit, diff checks, and Trellis validation
   pass. Frontend lint retains the existing `vite.config.ts` unnecessary
   escape warning.
+
+## Test-machine deployment checkpoint
+
+- Root review approved `e505c1f856c34bf2aecd74ca88e29d03b5cc0166`.
+- Built the Linux amd64 binary from that HEAD and replaced only
+  `/opt/rosboard-test/rosboard` on `10.0.0.60`.
+- Restarted `rosboard-test.service`; it is active and `/api/health` returns
+  `{"ok":true}`.
+- Embedded `index-OwJwAlVG.js` and `index-D6OjN8Dk.css` both serve successfully;
+  the unauthenticated policy-discovery endpoint correctly returns HTTP 401.
+- Production `10.0.0.6` was not accessed or changed. User manual validation is
+  still pending.
