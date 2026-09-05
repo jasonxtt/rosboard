@@ -1200,9 +1200,27 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --steel: #b3b3b3;
   --stone: #8a8a8a;
   --muted: #6a6a6a;
-  --primary: #ffffff;
-  --on-primary: #0a0a0a;
-  --mint-tint: rgba(0, 212, 164, .14);
+  /* iKuai blue scale，暗色下主蓝提亮保证对比度 */
+  --primary: #5B9DEF;
+  --on-primary: #ffffff;
+  --mint: #5B9DEF;
+  --mint-deep: #4794EB;
+  --mint-tint: rgba(91, 157, 239, .16);
+  --on-mint: #ffffff;
+  --primary-blue: #5B9DEF;
+  --primary-blue-hover: #4794EB;
+  --primary-blue-tint: rgba(91, 157, 239, .14);
+  --tint-blue: rgba(91, 157, 239, .1);
+  --tint-purple: rgba(165, 160, 248, .1);
+  --tint-orange: rgba(245, 166, 35, .1);
+  --table-head: #181818;
+  --row-line: #1c1c1c;
+  --card-line: #232323;
+  --input-fill: #1c1c1c;
+  --chart-upload: #5B9DEF;
+  --chart-download: #7FD38D;
+  --chart-purple: #A5A0F8;
+  --chart-orange: #F5A623;
   --status-ok: #2fc48f;
   --status-warn: #e0a44a;
   --status-error: #f08585;
@@ -1215,6 +1233,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 :root[data-theme="dark"] .metric-tooltip,
 :root[data-theme="dark"] .metric-composition-part::after { border-color: var(--hairline); }
+:root[data-theme="dark"] .osc-foot { border-top-color: rgba(255, 255, 255, .08); }
+/* 登录/初始化页极光渐变 · 暗色变体 */
+:root[data-theme="dark"] .setup-shell { background:
+  radial-gradient(720px 480px at 12% 8%, rgba(91, 157, 239, .12), transparent 62%),
+  radial-gradient(820px 560px at 88% 14%, rgba(165, 160, 248, .12), transparent 64%),
+  radial-gradient(900px 620px at 50% 105%, rgba(91, 157, 239, .1), transparent 66%),
+  linear-gradient(155deg, #0B1020 0%, #131226 48%, #0B1424 100%); }
 
 .select-control {
   padding-top: 0;
