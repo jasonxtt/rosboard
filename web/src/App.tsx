@@ -1508,7 +1508,19 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
 
         {activeView === 'overview' && dashboard ? (
-          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
+          <OverviewPage
+            dashboard={dashboard}
+            loadSamples={loadSamples}
+            trafficSamples={trafficSamples}
+            deviceName={currentDevice?.name}
+            deviceAddress={currentDevice ? deviceAddress(currentDevice, settings?.devices ?? []) : ''}
+            onQuickLink={(target) => {
+              setSelectedTerminalID(null)
+              if (target === 'traffic') { setActiveView(protocolAnalysisEnabled ? 'protocols' : 'policies'); return }
+              if (target === 'settings') { setActiveView('settings'); return }
+              setActiveView(target as ActiveView)
+            }}
+          />
         ) : null}
 
         {activeView === 'interfaces' && dashboard ? (
@@ -2858,7 +2870,7 @@ function FleetPercent(props: { label: string; value: number; onClick: () => void
   </button>
 }
 
-function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
+function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[]; deviceName?: string; deviceAddress?: string; onQuickLink: (target: string) => void }) {
   const { overview } = props.dashboard
   const interfaces = props.dashboard.interfaces ?? []
   const alerts = props.dashboard.alerts ?? []
@@ -2878,30 +2890,119 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
 
+  // WAN 信息：取上网线路接口的真实字段（类型/地址/速率/累计字节），后端没有的项目（运营商/月流量/延迟）不展示
+  const wanInterfaces = interfaces.filter((item) => overview.trafficInterfaces.includes(item.name))
+  const wanTypeLabel = (type: string) => type === 'pppoe-out' ? 'PPPoE' : type === 'ether' ? '以太网' : type === 'lte' ? 'LTE' : type || '-'
+  const wanAccess = wanInterfaces.length ? [...new Set(wanInterfaces.map((item) => wanTypeLabel(item.type)))].join('、') : '-'
+  const wanAddress = wanInterfaces.flatMap((item) => item.addresses)[0] || '-'
+  const wanRxBytes = wanInterfaces.reduce((total, item) => total + item.rxBytes, 0)
+  const wanTxBytes = wanInterfaces.reduce((total, item) => total + item.txBytes, 0)
+
+  const quickLinks: Array<{ key: string; label: string; icon: IconName }> = [
+    { key: 'policy-routing', label: '策略路由', icon: 'route' },
+    { key: 'terminals', label: '终端监控', icon: 'terminal' },
+    { key: 'target-library', label: '目标库', icon: 'network' },
+    { key: 'traffic', label: '流量监控', icon: 'traffic' },
+    { key: 'access-control', label: '访问控制', icon: 'shield' },
+    { key: 'recognition', label: '识别设置', icon: 'shield' },
+    { key: 'dhcp', label: '网络服务', icon: 'network' },
+    { key: 'resource', label: '系统运行', icon: 'runtime' },
+    { key: 'settings', label: '面板设置', icon: 'settings' },
+  ]
+
   return (
     <div className="overview-dashboard">
-      <section className="reference-metric-grid">
-        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" samples={cpuSamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
-        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" samples={memorySamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} icon="terminal" tone="purple" samples={terminalSamples} formatSample={(value) => `${Math.round(value)} 台`} composition={[{ label: '在线', value: terminalStates.online }, { label: '未活跃', value: terminalStates.inactive }, { label: '离线', value: terminalStates.offline }]} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
-        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} icon="connections" tone="orange" samples={connectionSamples} formatSample={(value) => Math.round(value).toLocaleString()} composition={[{ label: 'TCP', value: connectionProtocols.tcp }, { label: 'UDP', value: connectionProtocols.udp }, { label: '其他', value: connectionProtocols.other }]} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
+      <section className="panel device-strip">
+        <span className="device-strip-icon"><Icon name="router" /></span>
+        <div className="device-strip-copy">
+          <div className="device-strip-name">
+            <strong>{props.deviceName || overview.routerName || 'RouterOS'}</strong>
+            {overview.version ? <span className="device-strip-tag">{overview.version}</span> : null}
+          </div>
+          <div className="device-strip-meta">{[overview.boardName, props.deviceAddress].filter(Boolean).join(' · ') || overview.platform || '-'}</div>
+        </div>
+        {overview.uptime ? <span className="device-strip-uptime">系统运行时间：{overview.uptime}</span> : null}
+      </section>
+
+      <section className="overview-stat-grid">
+        <article className="overview-stat-card tone-purple">
+          <div className="osc-head">
+            <span className="osc-title">终端数量</span>
+            <span className="osc-legend">
+              <span><i className="osc-dot c1" />在线 {terminalStates.online}</span>
+              <span><i className="osc-dot c2" />未活跃 {terminalStates.inactive}</span>
+              <span><i className="osc-dot c3" />离线 {terminalStates.offline}</span>
+            </span>
+          </div>
+          <div className="osc-main">
+            <strong className="osc-value">{overview.connectedDeviceCount}</strong>
+            <span className="osc-spark tone-purple"><MiniSparkline title="终端数量" samples={terminalSamples} format={(value) => `${Math.round(value)} 台`} /></span>
+          </div>
+          <OverviewCompositionBar parts={[terminalStates.online, terminalStates.inactive, terminalStates.offline]} />
+          <footer className="osc-foot"><span>平均 {average(terminalValues).toFixed(0)}</span><span>峰值 {maximum(terminalValues).toFixed(0)}</span></footer>
+        </article>
+
+        <article className="overview-stat-card tone-blue">
+          <div className="osc-head"><span className="osc-title">资源使用</span></div>
+          <div className="osc-res-row"><span className="osc-res-label">CPU</span><span className="osc-res-bar"><i style={{ width: `${Math.min(100, Math.max(0, overview.cpuLoadPercent))}%` }} /></span><strong className="osc-res-pct">{overview.cpuLoadPercent}%</strong></div>
+          <div className="osc-res-row"><span className="osc-res-label">内存</span><span className="osc-res-bar"><i style={{ width: `${Math.min(100, Math.max(0, overview.memoryUsedPercent))}%` }} /></span><strong className="osc-res-pct">{overview.memoryUsedPercent.toFixed(1)}%</strong></div>
+          <footer className="osc-foot"><span>平均 CPU {average(cpuValues).toFixed(0)}% / 内存 {average(memoryValues).toFixed(0)}%</span><span>峰值 {maximum(cpuValues).toFixed(0)}%</span></footer>
+        </article>
+
+        <article className="overview-stat-card tone-orange">
+          <div className="osc-head">
+            <span className="osc-title">活动连接</span>
+            <span className="osc-legend">
+              <span><i className="osc-dot c1" />TCP {connectionProtocols.tcp}</span>
+              <span><i className="osc-dot c2" />UDP {connectionProtocols.udp}</span>
+              <span><i className="osc-dot c3" />其他 {connectionProtocols.other}</span>
+            </span>
+          </div>
+          <div className="osc-main">
+            <strong className="osc-value">{overview.connectionCount.toLocaleString()}</strong>
+            <span className="osc-spark tone-orange"><MiniSparkline title="活动连接" samples={connectionSamples} format={(value) => Math.round(value).toLocaleString()} /></span>
+          </div>
+          <OverviewCompositionBar parts={[connectionProtocols.tcp, connectionProtocols.udp, connectionProtocols.other]} />
+          <footer className="osc-foot"><span>平均 {average(connectionValues).toFixed(0)}</span><span>峰值 {maximum(connectionValues).toFixed(0)}</span></footer>
+        </article>
       </section>
 
       <section className="overview-main-grid">
+        <div className="overview-side">
+          <section className="panel reference-panel">
+            <div className="panel-head reference-panel-head"><h3>WAN信息</h3></div>
+            <dl className="wan-info-list">
+              <div><dt>接入方式</dt><dd>{wanAccess}</dd></div>
+              <div><dt>WAN IP</dt><dd>{wanAddress}</dd></div>
+              <div><dt>运行时间</dt><dd>{overview.uptime || '-'}</dd></div>
+              <div><dt>上下行速率</dt><dd><span className="wan-rate up">↑ {formatBitRate(overview.uploadBps)}</span><span className="wan-rate down">↓ {formatBitRate(overview.downloadBps)}</span></dd></div>
+              <div><dt>累计上行</dt><dd>{formatBytes(wanTxBytes)}</dd></div>
+              <div><dt>累计下行</dt><dd>{formatBytes(wanRxBytes)}</dd></div>
+              <div><dt>最后成功采集</dt><dd>{formatDateTime(overview.updatedAt)}</dd></div>
+            </dl>
+          </section>
+          <section className="panel reference-panel">
+            <div className="panel-head reference-panel-head"><h3>快捷入口</h3></div>
+            <div className="quick-link-grid">
+              {quickLinks.map((link) => <button key={link.key} type="button" className="quick-link" onClick={() => props.onQuickLink(link.key)}><Icon name={link.icon} /><span>{link.label}</span></button>)}
+            </div>
+          </section>
+        </div>
+
         <section className="panel reference-panel traffic-panel">
           <div className="panel-head reference-panel-head">
             <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span></div></div>
           </div>
           {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
         </section>
+      </section>
 
+      <section className="overview-bottom-grid">
         <section className="panel reference-panel status-panel">
           <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
           <SystemStatusList dashboard={props.dashboard} />
         </section>
-      </section>
 
-      <section className="overview-bottom-grid">
         <section className="panel reference-panel interface-summary-panel">
           <div className="panel-head reference-panel-head"><h3>接口状态</h3><span>{interfaces.length} 个接口</span></div>
           <div className="table-scroll">
@@ -2922,35 +3023,16 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
   )
 }
 
+function OverviewCompositionBar(props: { parts: number[] }) {
+  const total = props.parts.reduce((sum, value) => sum + Math.max(0, value), 0)
+  if (!total) return <div className="osc-comp osc-comp-empty"><span style={{ width: '100%' }} /></div>
+  return <div className="osc-comp">{props.parts.map((value, index) => {
+    const width = Math.max(0, value) / total * 100
+    return width ? <span key={index} className={`c${index + 1}`} style={{ width: `${width}%` }} /> : null
+  })}</div>
+}
+
 type MetricSample = { timestamp: string; value: number }
-type MetricCompositionItem = { label: string; value: number }
-
-function MetricCard(props: { title: string; value: string; detail?: string | string[]; icon: IconName; tone: string; samples: MetricSample[]; formatSample: (value: number) => string; composition?: MetricCompositionItem[]; footerLeft: string; footerRight: string; progress?: number }) {
-  const detailLines = props.detail ? (Array.isArray(props.detail) ? props.detail : [props.detail]) : []
-  return <article className={`metric-card metric-${props.tone}`}>
-    <div className="metric-card-heading"><p>{props.title}</p>{props.composition ? <MetricLegend items={props.composition} /> : null}</div>
-    <div className="metric-card-main"><div className="metric-value-row"><span className="metric-icon"><Icon name={props.icon} /></span><div className="metric-value"><strong>{props.value}</strong>{detailLines.length ? <small>{detailLines.map((line) => <span key={line}>{line}</span>)}</small> : null}</div></div><div className="metric-card-chart"><MiniSparkline title={props.title} samples={props.samples} format={props.formatSample} /></div></div>
-    {typeof props.progress === 'number' ? <div className="metric-progress" aria-label={`${props.title} ${Math.min(100, Math.max(0, props.progress)).toFixed(1)}%`}><i style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }} /></div> : props.composition ? <MetricComposition items={props.composition} /> : null}
-    <footer><span>{props.footerLeft}</span><span>{props.footerRight}</span></footer>
-  </article>
-}
-
-function MetricLegend(props: { items: MetricCompositionItem[] }) {
-  return <span className="metric-legend" aria-label={props.items.map((item) => item.label).join('、')}>{props.items.map((item, index) => <span key={item.label} className={`metric-part-${index}`}><i />{item.label}</span>)}</span>
-}
-
-function MetricComposition(props: { items: MetricCompositionItem[] }) {
-  const total = props.items.reduce((sum, item) => sum + Math.max(0, item.value), 0)
-  const label = total ? props.items.map((item) => `${item.label} ${item.value}`).join('，') : '暂无构成数据'
-  return <div className={`metric-composition${total ? '' : ' empty'}`} role="img" aria-label={label}>
-    {total ? props.items.map((item, index) => {
-      const value = Math.max(0, item.value)
-      if (!value) return null
-      const percent = value / total * 100
-      return <span key={item.label} className={`metric-composition-part metric-part-${index}`} style={{ width: `${percent}%` }} tabIndex={0} aria-label={`${item.label} ${value.toLocaleString()}，占比 ${percent.toFixed(1)}%`} data-tooltip={`${item.label}：${value.toLocaleString()}（${percent.toFixed(1)}%）`} />
-    }) : null}
-  </div>
-}
 
 function metricSampleTime(timestamp: string) {
   const date = new Date(timestamp)
@@ -2982,8 +3064,6 @@ function SystemStatusList(props: { dashboard: DashboardResponse }) {
   const freshnessSeconds = Math.max(0, (Date.now() - updatedAt.getTime()) / 1000)
   const fresh = Number.isFinite(freshnessSeconds) && freshnessSeconds <= 30
   const rows = [
-    { icon: 'runtime' as IconName, label: '运行时间', value: overview.uptime || '-', ok: Boolean(overview.uptime) },
-    { icon: 'router' as IconName, label: 'RouterOS 版本', value: overview.version || '-', ok: Boolean(overview.version) },
     { icon: 'refresh' as IconName, label: '最后成功采集', value: Number.isNaN(updatedAt.getTime()) ? '-' : formatDateTime(overview.updatedAt), ok: fresh },
     { icon: 'network' as IconName, label: '活动接口', value: `${activeInterfaces} / ${interfaces.length}`, ok: activeInterfaces > 0 },
     { icon: 'storage' as IconName, label: '存储使用率', value: overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '-', ok: !overview.storageTotalBytes || overview.storageUsedPercent < 85 },
