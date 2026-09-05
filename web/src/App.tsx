@@ -797,7 +797,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() ? 'settings' : panelPreferences.landingView)
-  const initialActiveView = useRef(activeView)
   const [query, setQuery] = useState('')
   const [fleetQuery, setFleetQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -833,9 +832,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [trafficWindow, setTrafficWindow] = useState(() => window.sessionStorage.getItem(trafficWindowKey) ?? '5m')
   const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [statusExpanded, setStatusExpanded] = useState(false)
-  const [hostSettingsExpanded, setHostSettingsExpanded] = useState(false)
-  const [settingsExpanded, setSettingsExpanded] = useState(false)
+  // 双列导航：二级列展示选中组的子菜单；当前视图所属组优先，刷新后自动正确展开
+  const [selectedNavGroup, setSelectedNavGroup] = useState<'status' | 'host' | 'settings' | null>(null)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
   const updatePanelPreferences = (next: PanelPreferences) => {
@@ -999,15 +997,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
-
-  useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition') return
-    setStatusExpanded(true)
-  }, [activeView])
-
-  useEffect(() => {
-    if (activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') setHostSettingsExpanded(true)
-  }, [activeView])
 
   useEffect(() => {
     if (activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
@@ -1273,7 +1262,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const detailMode = activeView === 'terminals' && selectedTerminalID && terminalDetail
   const connectionDetailMode = Boolean(detailMode && terminalTab === 'connections')
   const terminalListMode = Boolean(activeView === 'terminals' && !detailMode)
-  const statusActive = activeView === 'interfaces' || activeView === 'terminals' || (activeView === 'protocols' && protocolAnalysisEnabled) || activeView === 'policies' || activeView === 'load' || activeView === 'resource' || activeView === 'routes' || activeView === 'dhcp'
   const monitorTabs: MonitorTabConfig | null = activeView === 'interfaces'
     ? {
         value: interfaceCategory,
@@ -1330,6 +1318,12 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   ]
   const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
 
+  // 双列导航：视图 → 一级组归属；二级列内容 = 当前视图所属组，否则为最后手动选中的组
+  const statusMonitorViews: ActiveView[] = ['interfaces', 'terminals', 'protocols', 'policies', 'dhcp', 'routes', 'resource', 'load']
+  const hostSettingsViews: ActiveView[] = ['target-library', 'policy-routing', 'access-control', 'recognition']
+  const activeNavGroup: 'status' | 'host' | 'settings' | null = statusMonitorViews.includes(activeView) ? 'status' : hostSettingsViews.includes(activeView) ? 'host' : activeView === 'settings' ? 'settings' : null
+  const visibleNavGroup = activeNavGroup ?? selectedNavGroup
+
   return (
     <main className={`${sidebarOpen ? 'shell sidebar-open' : 'shell'}${connectionDetailMode ? ' connection-detail-shell' : ''}`}>
       <button
@@ -1347,172 +1341,57 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </div>
         </div>
 
-        <DeviceSwitcher
-          devices={devices}
-          settingsDevices={settings?.devices ?? []}
-          selectedDeviceID={selectedDeviceID}
-          loading={!devicesLoaded}
-          onChange={(deviceID) => {
-            setSelectedDeviceID(deviceID)
-            setSidebarOpen(false)
-          }}
-        />
+        <div className="nav-cols">
+          <div className="nav-primary">
+            <div className="nav-search">
+              <Icon name="search" />
+              <input
+                value={activeView === 'fleet' ? fleetQuery : query}
+                onChange={(event) => { if (activeView === 'fleet') setFleetQuery(event.target.value); else setQuery(event.target.value) }}
+                placeholder={activeView === 'fleet' ? '搜索设备名称、型号、版本或 IP' : '备注 / 名称 / IP / MAC'}
+                aria-label="搜索"
+              />
+            </div>
 
-        <nav className="menu">
-          <button
-            type="button"
-            className={activeView === 'fleet' ? 'menu-item active' : 'menu-item'}
-            onClick={() => {
-              setActiveView('fleet')
-              setSelectedTerminalID(null)
-              setSidebarOpen(false)
-            }}
-          >
-            <NavLabel icon="overview" label="仪表台" />
-          </button>
-          <button
-            type="button"
-            className={activeView === 'overview' ? 'menu-item active' : 'menu-item'}
-            onClick={() => {
-              setActiveView('overview')
-              setSelectedTerminalID(null)
-              setSidebarOpen(false)
-            }}
-          >
-            <NavLabel icon="overview" label="系统概览" />
-          </button>
+            <DeviceSwitcher
+              devices={devices}
+              settingsDevices={settings?.devices ?? []}
+              selectedDeviceID={selectedDeviceID}
+              loading={!devicesLoaded}
+              onChange={(deviceID) => {
+                setSelectedDeviceID(deviceID)
+                setSidebarOpen(false)
+              }}
+            />
 
-          <div className="menu-group">
-            <button
-              type="button"
-              className={
-                statusActive
-                  ? 'menu-item active'
-                  : 'menu-item'
-              }
-              aria-expanded={statusExpanded}
-              aria-controls="status-monitor-menu"
-              onClick={() => setStatusExpanded((value) => !value)}
-            >
-              <NavLabel icon="status" label="状态监控" />
-            </button>
-            {statusExpanded ? <div className="submenu" id="status-monitor-menu">
-              <button
-                type="button"
-                className={activeView === 'interfaces' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => {
-                  setActiveView('interfaces')
-                  setInterfaceCategory('physical')
-                  setSelectedTerminalID(null)
-                  setSidebarOpen(false)
-                }}
-              >
-                <NavLabel icon="network" label="接口监控" />
-              </button>
-              <button
-                type="button"
-                className={activeView === 'terminals' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => {
-                  setActiveView('terminals')
-                  setTerminalFamily('all')
-                  setSelectedTerminalID(null)
-                  setSidebarOpen(false)
-                }}
-              >
-                <NavLabel icon="terminal" label="终端监控" />
-              </button>
+            <nav className="menu nav-primary-menu" aria-label="主导航">
+              <button type="button" className={activeView === 'fleet' ? 'menu-item active' : 'menu-item'} onClick={() => { setSelectedNavGroup(null); setActiveView('fleet'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="overview" label="仪表台" /></button>
+              <button type="button" className={activeView === 'overview' ? 'menu-item active' : 'menu-item'} onClick={() => { setSelectedNavGroup(null); setActiveView('overview'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="overview" label="系统概览" /></button>
+              <button type="button" className={activeNavGroup === 'status' ? 'menu-item active' : 'menu-item'} aria-expanded={visibleNavGroup === 'status'} aria-controls="nav-secondary-menu" onClick={() => { setSelectedNavGroup('status'); setActiveView('interfaces'); setInterfaceCategory('physical'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="status" label="状态监控" /></button>
+              <button type="button" className={activeNavGroup === 'host' ? 'menu-item active' : 'menu-item'} aria-expanded={visibleNavGroup === 'host'} aria-controls="nav-secondary-menu" onClick={() => { setSelectedNavGroup('host'); setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="policy" label="主机设置" /></button>
+              <button type="button" className={activeNavGroup === 'settings' ? 'menu-item active' : 'menu-item'} aria-expanded={visibleNavGroup === 'settings'} aria-controls="nav-secondary-menu" onClick={() => { setSelectedNavGroup('settings'); setActiveView('settings'); setSettingsSection('connection'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="settings" label="面板设置" /></button>
+            </nav>
+          </div>
+
+          {visibleNavGroup ? <nav className="menu nav-secondary" id="nav-secondary-menu" aria-label="子导航">
+            {visibleNavGroup === 'status' ? <>
+              <button type="button" className={activeView === 'interfaces' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('interfaces'); setInterfaceCategory('physical'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="接口监控" /></button>
+              <button type="button" className={activeView === 'terminals' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('terminals'); setTerminalFamily('all'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="terminal" label="终端监控" /></button>
               <button type="button" className={activeView === 'policies' || (activeView === 'protocols' && protocolAnalysisEnabled) ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView(protocolAnalysisEnabled ? 'protocols' : 'policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
-            </div> : null}
-          </div>
-
-          <div className="menu-group">
-            <button
-              type="button"
-              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
-              aria-expanded={hostSettingsExpanded}
-              aria-controls="host-settings-menu"
-              onClick={() => setHostSettingsExpanded((value) => !value)}
-            >
-              <NavLabel icon="policy" label="主机设置" />
-            </button>
-            {hostSettingsExpanded ? <div className="submenu" id="host-settings-menu">
-              <button
-                type="button"
-                className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => { setHostSettingsExpanded(true); setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
-              >
-                <NavLabel icon="network" label="目标库" />
-              </button>
-              <button
-                type="button"
-                className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => {
-                  setHostSettingsExpanded(true)
-                  setActiveView('policy-routing')
-                  setSelectedTerminalID(null)
-                  setSidebarOpen(false)
-                }}
-              >
-                <NavLabel icon="route" label="策略路由" />
-              </button>
-              <button
-                type="button"
-                className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => {
-                  setHostSettingsExpanded(true)
-                  setActiveView('access-control')
-                  setSelectedTerminalID(null)
-                  setSidebarOpen(false)
-                }}
-              >
-                <NavLabel icon="shield" label="访问控制" />
-              </button>
-              <button
-                type="button"
-                className={activeView === 'recognition' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => {
-                  setHostSettingsExpanded(true)
-                  setActiveView('recognition')
-                  setSelectedTerminalID(null)
-                  setSidebarOpen(false)
-                }}
-              >
-                <NavLabel icon="shield" label="识别设置" />
-              </button>
-            </div> : null}
-          </div>
-
-          <div className="menu-group">
-            <button
-              type="button"
-              className={activeView === 'settings' ? 'menu-item active' : 'menu-item'}
-              aria-expanded={settingsExpanded}
-              aria-controls="panel-settings-menu"
-              onClick={() => setSettingsExpanded((value) => !value)}
-            >
-              <NavLabel icon="settings" label="面板设置" />
-            </button>
-            {settingsExpanded ? <div className="submenu" id="panel-settings-menu">
-              {settingsSections.map((section) => (
-                <button
-                  key={section.key}
-                  type="button"
-                  className={activeView === 'settings' && settingsSection === section.key ? 'submenu-item active' : 'submenu-item'}
-                  onClick={() => {
-                    setActiveView('settings')
-                    setSettingsSection(section.key)
-                    setSelectedTerminalID(null)
-                    setSidebarOpen(false)
-                  }}
-                >
-                  <NavLabel icon={section.icon} label={section.label} />
-                </button>
-              ))}
-            </div> : null}
-          </div>
-        </nav>
+            </> : null}
+            {visibleNavGroup === 'host' ? <>
+              <button type="button" className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="目标库" /></button>
+              <button type="button" className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('policy-routing'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="route" label="策略路由" /></button>
+              <button type="button" className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('access-control'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="shield" label="访问控制" /></button>
+              <button type="button" className={activeView === 'recognition' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('recognition'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="shield" label="识别设置" /></button>
+            </> : null}
+            {visibleNavGroup === 'settings' ? settingsSections.map((section) => (
+              <button key={section.key} type="button" className={activeView === 'settings' && settingsSection === section.key ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('settings'); setSettingsSection(section.key); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon={section.icon} label={section.label} /></button>
+            )) : null}
+          </nav> : null}
+        </div>
       </aside>
 
       <section className={connectionDetailMode ? 'content connection-detail-content' : terminalListMode ? 'content terminal-list-content' : 'content'}>
@@ -1564,8 +1443,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               ) : null}
               {activeView !== 'fleet' && activeView !== 'access-control' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
               <div className="topbar-refresh-controls">
-                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
-                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
                 <ChoiceMenu
                   value={panelPreferences.theme}
                   options={panelThemeOptions}
