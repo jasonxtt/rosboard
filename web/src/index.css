@@ -551,28 +551,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* ---------------------------------------------------------------------------
    Metric cards
    --------------------------------------------------------------------------- */
-.reference-metric-grid { display: grid; min-width: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.metric-card { display: grid; grid-template-rows: auto 1fr auto auto; min-width: 0; min-height: 152px; padding: var(--pad-card); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-md); box-shadow: var(--elev-1); }
-.metric-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-bottom: 10px; }
-.metric-card-heading > p { margin: 0; color: var(--steel); font-size: var(--fs-caption); font-weight: 600; white-space: nowrap; }
-.metric-legend { display: inline-flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; color: var(--stone); font-size: var(--fs-micro); font-weight: 500; white-space: nowrap; }
-.metric-legend > span { display: inline-flex; align-items: center; gap: 4px; }
-.metric-legend i { width: 5px; height: 5px; background: var(--metric-part-color); border-radius: 50%; }
-.metric-card-main { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px; min-height: 50px; }
-.metric-value-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; }
-.metric-icon { display: grid; place-items: center; width: 36px; height: 36px; color: var(--metric-color); background: color-mix(in srgb, var(--metric-color) 10%, var(--surface)); border-radius: var(--radius-md); }
-.metric-icon .ui-icon { font-size: 19px; }
-.metric-value { display: grid; min-width: 0; }
-.metric-value strong { color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-stat-lg); font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: var(--track-tighter); }
-.metric-value small { display: grid; gap: 1px; margin-top: 4px; overflow: visible; color: var(--stone); font-size: var(--fs-caption); line-height: 1.3; white-space: nowrap; }
-.metric-blue { --metric-color: var(--ink); --metric-secondary: var(--status-info); --metric-tertiary: var(--status-idle); }
-.metric-green { --metric-color: var(--status-info); --metric-secondary: var(--mint-deep); --metric-tertiary: var(--status-idle); }
-.metric-purple { --metric-color: var(--mint-deep); --metric-secondary: var(--status-warn); --metric-tertiary: var(--status-idle); }
-.metric-orange { --metric-color: var(--status-warn); --metric-secondary: var(--status-info); --metric-tertiary: var(--status-idle); }
-.metric-part-0 { --metric-part-color: var(--metric-color); }
-.metric-part-1 { --metric-part-color: var(--metric-secondary); }
-.metric-part-2 { --metric-part-color: var(--metric-tertiary); }
-.metric-card-chart { align-self: start; min-width: 0; padding: 1px 18px 0; }
 .mini-sparkline-wrap { position: relative; height: 38px; cursor: crosshair; }
 .mini-sparkline { display: block; width: 100%; height: 38px; overflow: visible; }
 .mini-sparkline polyline { fill: none; stroke: var(--metric-color); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
@@ -582,18 +560,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .metric-tooltip.align-right { transform: translateX(calc(-100% + 8px)); }
 .metric-tooltip small { color: var(--muted); font-size: var(--fs-micro); }
 .metric-tooltip strong { font-weight: 600; }
-.metric-progress { height: 4px; margin: 10px 0 8px; overflow: hidden; background: var(--hairline-soft); border-radius: var(--radius-full); }
-.metric-progress i { display: block; height: 100%; background: var(--metric-color); border-radius: inherit; }
-.metric-composition { position: relative; display: flex; height: 12px; margin: 6px 0 4px; background: var(--hairline-soft); background-clip: content-box; border-block: 4px solid transparent; border-radius: var(--radius-full); }
-.metric-composition-part { position: relative; height: 12px; margin-block: -4px; background: var(--metric-part-color); background-clip: content-box; border-block: 4px solid transparent; }
-.metric-composition-part:first-child { border-radius: var(--radius-full) 0 0 var(--radius-full); }
-.metric-composition-part:last-child { border-radius: 0 var(--radius-full) var(--radius-full) 0; }
-.metric-composition-part:only-child { border-radius: var(--radius-full); }
-.metric-composition-part::after { position: absolute; bottom: calc(100% + 3px); left: 50%; z-index: 6; display: none; min-width: max-content; padding: 7px 9px; color: var(--on-code); background: var(--surface-code); border: 1px solid color-mix(in srgb, var(--on-code) 14%, var(--surface-code)); border-radius: var(--radius-md); box-shadow: var(--elev-2); content: attr(data-tooltip); font-size: var(--fs-caption); line-height: 1.3; pointer-events: none; transform: translateX(-50%); }
-.metric-composition-part:hover::after, .metric-composition-part:focus-visible::after { display: block; }
-.metric-composition-part:focus { outline: none; }
-.metric-composition-part:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); /* restores the ring the :focus rule above suppresses */ }
-.metric-card footer { display: flex; align-self: end; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 9px; color: var(--stone); border-top: 1px solid var(--hairline-soft); font-size: var(--fs-caption); }
 
 /* ---------------------------------------------------------------------------
    Overview panels
@@ -1231,8 +1197,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   --elev-2: 0 4px 12px rgba(0, 0, 0, .55);
   --elev-3: 0 24px 48px -8px rgba(0, 0, 0, .7);
 }
-:root[data-theme="dark"] .metric-tooltip,
-:root[data-theme="dark"] .metric-composition-part::after { border-color: var(--hairline); }
+:root[data-theme="dark"] .metric-tooltip { border-color: var(--hairline); }
 :root[data-theme="dark"] .osc-foot { border-top-color: rgba(255, 255, 255, .08); }
 /* 登录/初始化页极光渐变 · 暗色变体 */
 :root[data-theme="dark"] .setup-shell { background:
@@ -1271,7 +1236,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resource-card-cpu, .resource-card-system, .resource-card-memory, .resource-card-storage, .resource-card-irq, .resource-card-hardware { grid-column: span 1; }
-  .reference-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-main-grid, .overview-bottom-grid { grid-template-columns: 1fr; }
   .fleet-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -1347,9 +1311,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .resource-grid { grid-template-columns: 1fr; }
   .resource-card-cpu, .resource-card-system, .resource-card-memory, .resource-card-storage, .resource-card-irq, .resource-card-hardware { grid-column: span 1; }
   .resource-card-system .resource-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .reference-metric-grid { grid-template-columns: 1fr; gap: 9px; }
-  .metric-card-main { grid-template-columns: 36px minmax(0, 1fr) minmax(72px, 112px); }
-  .metric-value-row { grid-column: 1 / 3; }
   .overview-main-grid, .overview-bottom-grid { grid-template-columns: 1fr; }
   .fleet-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .fleet-summary { min-height: 76px; padding: 12px; gap: 9px; }
