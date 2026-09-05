@@ -73,6 +73,12 @@
   --card-line: #EAEEF2;
   --input-fill: #EEF2F8;
 
+  /* chart palette — 上行蓝 / 下行绿 / 紫 / 橙；面积图填充用同色 15% 透明度渐变 */
+  --chart-upload: #4794EB;
+  --chart-download: #7FD38D;
+  --chart-purple: #A5A0F8;
+  --chart-orange: #F5A623;
+
   /* text ramp */
   --ink: #1a1a1a;
   --charcoal: #333333;
@@ -522,8 +528,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .device-overview-traffic { display: grid; min-width: 0; align-content: center; gap: var(--gap-stack-sm); }
 .device-overview-traffic strong { display: grid; grid-template-columns: 13px 30px minmax(0, 1fr); min-width: 0; align-items: baseline; gap: 2px; font-size: var(--fs-micro); white-space: nowrap; }
-.device-overview-traffic strong.upload { color: var(--mint-deep); }
-.device-overview-traffic strong.download { color: var(--status-info); }
+.device-overview-traffic strong.upload { color: var(--chart-upload); }
+.device-overview-traffic strong.download { color: var(--chart-download); }
 .device-overview-traffic strong span { color: var(--stone); font-weight: 500; }
 .device-overview-traffic b { overflow: hidden; color: var(--slate); font-family: var(--font-mono); font-size: var(--fs-caption); font-weight: 600; text-overflow: ellipsis; }
 
@@ -600,8 +606,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .traffic-live-values { display: grid; gap: 5px; color: var(--slate); font-family: var(--font-mono); font-size: var(--fs-body-sm); font-weight: 500; font-variant-numeric: tabular-nums; }
 .traffic-live-values span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .traffic-live-values span::before { width: 7px; height: 7px; content: ""; border-radius: 50%; }
-.download-key::before { background: var(--status-info); }
-.upload-key::before { background: var(--mint-deep); }
+.download-key::before { background: var(--chart-download); }
+.upload-key::before { background: var(--chart-upload); }
 .range-pills { display: inline-flex; gap: 2px; padding: 2px; background: var(--row-line); border: 1px solid var(--hairline); border-radius: var(--radius-sm); }
 .range-pill { min-width: 44px; height: 26px; /* inline chip inside a segmented wrapper, not its own step */ padding: 0 10px; color: var(--steel); background: transparent; border: 0; border-radius: var(--radius-xs); font-size: var(--fs-micro); font-weight: 500; transition: color var(--motion), background var(--motion); }
 .range-pill:hover:not(.active) { color: var(--ink); }
@@ -847,7 +853,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .toolbar-button.active:hover { color: var(--on-primary); background: var(--primary-blue-hover); border-color: var(--primary-blue-hover); }
 .load-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .metric-history svg { width: 100%; height: 170px; }
-.metric-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.metric-line { fill: none; stroke: var(--chart-upload); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .chart-time { display: flex; justify-content: space-between; color: var(--stone); font-family: var(--font-mono); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
 .load-current { padding: 12px 14px; color: var(--slate); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-md); }
 .overview-info { gap: 0; }
