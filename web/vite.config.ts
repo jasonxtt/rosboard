@@ -12,11 +12,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://10.0.0.6:8080',
+        // 默认代理到本机实例，避免开发时误触生产数据；可用 ROSBOARD_DEV_PROXY 覆盖
+        target: process.env.ROSBOARD_DEV_PROXY || 'http://127.0.0.1:8080',
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq, req) => {
-            const targetOrigin = 'http://10.0.0.6:8080'
+            const targetOrigin = process.env.ROSBOARD_DEV_PROXY || 'http://127.0.0.1:8080'
             if (req.headers.origin) proxyReq.setHeader('origin', targetOrigin)
             if (req.headers.referer) {
               const referer = req.headers.referer.replace(/^https?:\/\/[^\/]+/, targetOrigin)

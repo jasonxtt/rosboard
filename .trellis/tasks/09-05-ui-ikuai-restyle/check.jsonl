@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端规范入口与质量检查"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "检查时的质量标准"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "TS 严格性检查"}
+{"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/rosboard-feature-inventory.md", "reason": "功能零丢失核对基线，检查阶段逐项对照"}
+{"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/ikuai-40-design-tokens.md", "reason": "设计 token 依据，核对还原度"}
