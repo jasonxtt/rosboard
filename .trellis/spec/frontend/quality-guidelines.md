@@ -65,3 +65,26 @@ browser evidence and the user has approved that route.
   approval mechanism?
 - If visual validation is needed, did the handoff tell the user exactly how to
   inspect it themselves?
+
+---
+
+## Embedded dist and visual-verification workflow (learned 2026-09, ui-ikuai-restyle)
+
+- `npm run build` writes to the **git-tracked** `internal/ui/dist` (Go embed
+  source). During iteration, restore it after each verification build
+  (`git checkout -- internal/ui/dist && git clean -fd internal/ui/dist`) to
+  keep the tree clean; commit the rebuilt dist together with the feature work
+  that requires it, as the repo convention tracks built assets.
+- The vite dev proxy target is configurable via `ROSBOARD_DEV_PROXY`
+  (default `http://127.0.0.1:8080`). Point dev tooling at a scratch instance,
+  never at production.
+- For flows the backend blocks in a dev environment (e.g. policy plan
+  generation under a read-only RouterOS account), verify rendering with
+  playwright `page.route()` intercepting the API and returning a
+  schema-conformant response (derive the schema from the feature's API parser,
+  e.g. `features/policy/canonical.ts`). Keep the mock in the test script only —
+  never in product code.
+- A running binary serves the UI from its embedded dist, not from `web/src`.
+  After UI changes, rebuild the binary and restart the instance before asking
+  for visual acceptance; vite-dev screenshots and the served binary can
+  otherwise silently diverge.
