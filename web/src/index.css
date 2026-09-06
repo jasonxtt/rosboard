@@ -869,6 +869,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .overview-main-grid { grid-template-columns: minmax(300px, .9fr) minmax(0, 2.1fr); align-items: start; }
 .overview-halves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.overview-main { display: grid; min-width: 0; align-content: start; gap: 12px; }
 .overview-side { display: grid; min-width: 0; align-content: start; gap: 12px; }
 
 .wan-info-list { display: grid; margin: 0; }
@@ -1791,7 +1792,44 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-ack-required-badge{color:var(--status-error);font-size:var(--fs-micro);margin-left:6px}
 
-.policy-operations{gap:var(--gap-stack);display:grid}
+/* codex 版式：预览并应用 */
+.policy-plan .policy-meta{background:transparent;border:0;border-radius:0;padding:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 36px}
+
+.policy-plan .policy-meta div{display:flex;align-items:baseline;justify-content:space-between;gap:14px}
+
+.policy-plan .policy-meta dt{flex:0 0 auto;font-size:var(--fs-caption);font-weight:400}
+
+.policy-plan .policy-meta dd{font-size:var(--fs-body-sm);font-weight:500;text-align:right}
+
+.policy-plan-details{border:1px solid var(--hairline);border-radius:var(--radius-sm);background:var(--surface-soft)}
+
+.policy-plan-details > summary{padding:10px 14px;color:var(--slate);cursor:pointer;font-size:var(--fs-body-sm);list-style:none}
+
+.policy-plan-details > summary::-webkit-details-marker{display:none}
+
+.policy-plan-details > summary::before{content:"▶";margin-right:8px;color:var(--muted);font-size:var(--fs-micro);transition:transform var(--motion)}
+
+.policy-plan-details[open] > summary::before{transform:rotate(90deg)}
+
+.policy-plan-details .policy-meta{margin:0;padding:0 14px 14px}
+
+.policy-operations{gap:10px;display:grid}
+
+.policy-operation-groups{border:1px solid var(--hairline);border-radius:var(--radius-md);overflow:hidden}
+
+.policy-operation-groups .policy-operation-type-group{gap:0}
+
+.policy-operation-groups .policy-operation-type-group + .policy-operation-type-group{border-top:1px solid var(--hairline)}
+
+.policy-operation-groups .policy-operation-head{display:none}
+
+.policy-operation-groups .policy-operation-more{margin:0 14px 10px}
+
+.policy-operation-groups .policy-operation{border:0;border-radius:0;padding:11px 14px;grid-template-columns:28px minmax(0,1fr) auto auto;align-items:center}
+
+.policy-operation-groups .policy-operation + .policy-operation{border-top:1px solid var(--hairline-soft)}
+
+.policy-operation-groups .policy-operation-seq{font-variant-numeric:tabular-nums}
 
 .policy-operation-list{gap:var(--gap-stack-sm);margin:0;padding:0;list-style:none;display:grid}
 
@@ -1861,7 +1899,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-invalid-targets{gap:var(--gap-inline);flex-wrap:wrap;display:flex}
 
-.policy-wizard-stage{gap:var(--gap-section);display:grid}
+.policy-wizard-stage{gap:0;display:grid}
+
+/* codex 版式：向导内容直接落在对话框底上，分区之间 1px 横线分隔 */
+.policy-modal .policy-section-card{background:transparent;border:0;border-radius:0;padding:18px 0;gap:var(--gap-stack)}
+
+.policy-modal .policy-wizard-stage > .policy-section-card:first-child{padding-top:4px}
+
+.policy-modal .policy-wizard-stage > .policy-section-card + .policy-section-card{border-top:1px solid var(--hairline-soft)}
+
+.policy-modal .policy-section-card-title{font-size:var(--fs-body)}
 
 .policy-wizard-stage h4{color:var(--ink);font-size:var(--fs-body);margin:0;font-weight:600}
 
@@ -2028,7 +2075,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .segmented-control{display:inline-flex;border:1px solid var(--hairline);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-soft)}
 .segmented-control button{border:0;border-right:1px solid var(--hairline);background:transparent;color:var(--slate);padding:8px 14px;cursor:pointer}.segmented-control button:last-child{border-right:0}.segmented-control button.active{background:var(--surface);color:var(--ink);font-weight:600}
 .canonical-selector{display:grid;gap:var(--gap-stack)}
-.canonical-terminal-list,.canonical-target-list{display:grid;gap:var(--gap-stack-sm);max-height:260px;overflow:auto;padding:2px}
+.canonical-terminal-list{display:grid;gap:var(--gap-stack-sm);max-height:260px;overflow:auto;padding:2px}
+
+/* codex 版式：来源范围三个选项卡横排一行 */
+.canonical-selector > .policy-choice-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+
+.canonical-addr{display:block;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 自建目标列表：左右两个并排面板 */
+.canonical-target-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap-section);padding:2px}
+
+.canonical-target-section{align-content:start;padding:12px 14px;border:1px solid var(--hairline);border-radius:var(--radius-md)}
+
+/* 入口选项卡一行两张 */
+.policy-modal .policy-section-card .policy-choice-list{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+
+.policy-modal .policy-section-card .policy-choice-list .policy-choice{min-width:0}
 .canonical-terminal-option{display:flex;align-items:center;justify-content:space-between;gap:var(--gap-row);padding:9px 10px;border:1px solid var(--hairline);border-radius:var(--radius-md);background:var(--surface)}
 .canonical-terminal-option.selected{border-color:color-mix(in srgb,var(--mint-deep) 55%,var(--hairline));background:color-mix(in srgb,var(--mint-tint) 40%,var(--surface))}
 .canonical-terminal-option label{min-width:0;display:flex;align-items:center;gap:10px}.canonical-terminal-option label span{min-width:0;display:grid;gap:3px}.canonical-terminal-option small,.canonical-preset-card small{color:var(--stone);font-size:var(--fs-micro);overflow-wrap:anywhere}

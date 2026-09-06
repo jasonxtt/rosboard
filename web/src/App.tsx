@@ -2990,15 +2990,15 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
           </section>
         </div>
 
-        <section className="panel reference-panel traffic-panel">
-          <div className="panel-head reference-panel-head">
-            <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span></div></div>
-          </div>
-          {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
-        </section>
-      </section>
+        <div className="overview-main">
+          <section className="panel reference-panel traffic-panel">
+            <div className="panel-head reference-panel-head">
+              <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span></div></div>
+            </div>
+            {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
+          </section>
 
-      <section className="panel reference-panel interface-summary-panel overview-interface-row">
+          <section className="panel reference-panel interface-summary-panel overview-interface-row">
           <div className="panel-head reference-panel-head"><h3>接口状态</h3><span>{interfaces.length} 个接口</span></div>
           <div className="table-scroll">
             <table className="overview-interface-table">
@@ -3019,6 +3019,8 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
           <div className="event-list">{alerts.length ? alerts.slice(0, 5).map((item) => <div className={`event-row event-${item.level === 'error' ? 'danger' : 'warning'}`} key={item.id}><span className="event-icon"><Icon name={item.level === 'error' ? 'alert' : 'info'} /></span><span><strong>{item.source}</strong> · {item.message}</span><small>{formatShortTime(item.timestamp)}</small></div>) : <div className="event-empty"><Icon name="check" /><span>当前没有采集告警</span></div>}</div>
           <div className="event-summary"><span className="danger-dot">严重 {alerts.filter((item) => item.level === 'error').length}</span><span className="warning-dot">警告 {alerts.filter((item) => item.level === 'warning').length}</span></div>
         </section>
+      </section>
+        </div>
       </section>
     </div>
   )

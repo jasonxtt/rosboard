@@ -59,27 +59,27 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
 
   return <div className="policy-plan policy-plan--compact">
     {summary ? <><h4>本次配置</h4><PolicyMetadata entries={summary.entries} /></> : null}
-    <PolicyMetadata entries={[
+    {plan.blockers.length ? <IssueBlock title="阻断项" issues={plan.blockers} tone="bad" /> : null}
+    {plan.familyBlockers.length ? <IssueBlock title="地址族阻断" issues={plan.familyBlockers} tone="bad" /> : null}
+    {plan.warnings.length ? <IssueBlock title="警告" issues={plan.warnings} tone="warn" /> : null}
+    {plan.pendingReview ? <PolicyNotice tone="warn" title="计划需要重新审阅">结构性变化或来源缩减尚未获得应用确认。</PolicyNotice> : null}
+    {operationGroups.length ? <div className="policy-operations"><h4>变更清单</h4><div className="policy-operation-groups">{operationGroups.map((group) => { const expanded = expandedGroups.has(group.label); const visibleOperations = expanded ? group.operations : group.operations.slice(0, 1); return <div key={group.label} className="policy-operation-type-group"><div className="policy-operation-head"><strong>{group.label}</strong><span className="policy-operation-count">{group.operations.length}</span></div><div className="policy-operation-list">{visibleOperations.map((operation) => <OperationRow key={`${group.label}:${operation.seq}`} operation={operation} />)}{group.operations.length > 1 ? <button type="button" className="link-button policy-operation-more" aria-expanded={expanded} onClick={() => toggleOperationGroup(group.label)}>{expanded ? '收起' : `查看更多（剩余 ${group.operations.length - 1} 条）`}</button> : null}</div></div> })}</div></div> : <PolicyNotice tone="info">没有需要写入 RouterOS 的变更。</PolicyNotice>}
+    {required.length ? <div className="policy-acknowledge-block"><h4>应用前确认</h4>{required.map((ack) => <label key={ack.code} className="policy-ack-item"><input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} /><span>{ack.code}</span><span className="policy-ack-required-badge">必选</span></label>)}</div> : null}
+    <details className="policy-plan-details"><summary>计划详情</summary><PolicyMetadata entries={[
       ['计划类型', plan.kind || '—'],
       ['计划状态', plan.state || '—'],
       ['目标修订', String(plan.desiredRevision)],
       ['操作数量', String(plan.operations.length)],
       ['执行组', String(plan.executionGroups.length)],
       ['计划哈希', plan.planHash ? `${plan.planHash.slice(0, 16)}…` : '—'],
-    ]} />
-    {plan.blockers.length ? <IssueBlock title="阻断项" issues={plan.blockers} tone="bad" /> : null}
-    {plan.familyBlockers.length ? <IssueBlock title="地址族阻断" issues={plan.familyBlockers} tone="bad" /> : null}
-    {plan.warnings.length ? <IssueBlock title="警告" issues={plan.warnings} tone="warn" /> : null}
-    {plan.pendingReview ? <PolicyNotice tone="warn" title="计划需要重新审阅">结构性变化或来源缩减尚未获得应用确认。</PolicyNotice> : null}
-    {operationGroups.length ? <div className="policy-operations"><h4>变更清单</h4>{operationGroups.map((group) => { const expanded = expandedGroups.has(group.label); const visibleOperations = expanded ? group.operations : group.operations.slice(0, 1); return <div key={group.label} className="policy-operation-type-group"><div className="policy-operation-head"><strong>{group.label}</strong><span className="policy-operation-count">{group.operations.length}</span></div><div className="policy-operation-list">{visibleOperations.map((operation) => <OperationRow key={`${group.label}:${operation.seq}`} operation={operation} />)}{group.operations.length > 1 ? <button type="button" className="link-button policy-operation-more" aria-expanded={expanded} onClick={() => toggleOperationGroup(group.label)}>{expanded ? '收起' : `查看更多（剩余 ${group.operations.length - 1} 条）`}</button> : null}</div></div> })}</div> : <PolicyNotice tone="info">没有需要写入 RouterOS 的变更。</PolicyNotice>}
-    {required.length ? <div className="policy-acknowledge-block"><h4>应用前确认</h4>{required.map((ack) => <label key={ack.code} className="policy-ack-item"><input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} /><span>{ack.code}</span><span className="policy-ack-required-badge">必选</span></label>)}</div> : null}
+    ]} /></details>
     {error ? <PolicyErrorDisplay error={error} /> : null}
     <div className="policy-form-actions"><button type="button" className="toolbar-button" disabled={applying} onClick={onBack}>返回修改</button><button type="button" className="primary-button" disabled={!ready || applying} onClick={() => void apply()}>{applying ? '正在应用…' : '确认并应用'}</button></div>
   </div>
 }
 
 function OperationRow({ operation }: { operation: PlanOperation }) {
-  return <div className="policy-operation"><span className="policy-operation-seq">{operation.seq}</span><span className="policy-operation-target">{operationLabel(operation)}</span>{operation.family ? <PolicyStatusBadge tone="neutral">{operation.family}</PolicyStatusBadge> : null}<span className="policy-status policy-status-info">{actionLabel[operation.action] ?? operation.action}</span></div>
+  return <div className="policy-operation"><span className="policy-operation-seq">{String(operation.seq).padStart(2, '0')}</span><span className="policy-operation-target">{operationLabel(operation)}</span>{operation.family ? <PolicyStatusBadge tone="neutral">{operation.family}</PolicyStatusBadge> : null}<span className="policy-status policy-status-info">{actionLabel[operation.action] ?? operation.action}</span></div>
 }
 
 function operationLabel(operation: PlanOperation) {

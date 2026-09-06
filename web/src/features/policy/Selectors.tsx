@@ -102,7 +102,7 @@ export function SubjectSelector({
           const member = selected.get(terminal.id)
           const addresses = terminalAddresses(terminal, requireObservedAddress)
           return <div key={terminal.id} className={`canonical-terminal-option${member ? ' selected' : ''}`}>
-            <label><input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} /><span><strong>{terminal.displayName || terminal.id}</strong><small>{addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'} · {terminal.macAddress || '无 MAC'}</small></span></label>
+            <label><input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} /><span><strong>{terminal.displayName || terminal.id}</strong><small className="canonical-addr" title={`${addresses.ipv4.join(', ') || '无 IPv4'} · ${addresses.ipv6.join(', ') || '无 IPv6'}`}>{addresses.ipv4.join(', ') || '无 IPv4'}{addresses.ipv6.length ? ` · ${addresses.ipv6.join(', ')}` : ''}</small><small className="canonical-addr" title={terminal.macAddress || '无 MAC'}>{terminal.macAddress || '无 MAC'}</small></span></label>
             {member ? <select className="select-control" value={member.binding} onChange={(event) => changeBinding(terminal, event.target.value as SubjectBinding)}><option value="auto" disabled={!terminal.autoEligible}>自动跟随</option><option value="fixed">固定当前地址</option></select> : null}
             {member && requireObservedAddress && !terminal.autoEligible ? <small className="policy-hint">未获取到可靠 MAC，无法自动跟随 IP 变化，已固定使用当前地址。</small> : null}
           </div>
