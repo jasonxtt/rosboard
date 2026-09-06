@@ -7,9 +7,9 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-2.md`
-- **Total Sessions**: 96
-- **Last Active**: 2026-09-05
+- **Active File**: `journal-3.md`
+- **Total Sessions**: 97
+- **Last Active**: 2026-09-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1992 | Active |
+| `journal-3.md` | ~40 | Active |
+| `journal-2.md` | ~1992 | Archived |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 97 | 2026-09-07 | iKuai 风格 UI 重构实施至暂时验收 | `23c34c5` | `feat/ui-ikuai-restyle` |
 | 96 | 2026-09-05 | Complete IPv6 routing family fix and production test deployment | `f7812ae` | `feat/policy-access-rebuild` |
 | 95 | 2026-09-03 | 完成 Unified Target / Policy Model 收尾 | `ae2ba769`, `74c01fbc` | `main` |
 | 94 | 2026-09-01 | 完成 RouterOS 策略批量应用与 ssjy 全量重建验收 | `389c576` | `main` |
