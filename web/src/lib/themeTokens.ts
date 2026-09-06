@@ -29,6 +29,10 @@ const tokenNames = [
   '--status-error',
   '--status-info',
   '--status-idle',
+  '--chart-upload',
+  '--chart-download',
+  '--chart-purple',
+  '--chart-orange',
 ] as const
 
 export type ThemeTokenName = (typeof tokenNames)[number]
@@ -37,25 +41,29 @@ export type ThemeTokens = Record<ThemeTokenName, string>
 const fallback: ThemeTokens = {
   '--font-sans': 'Inter, system-ui, sans-serif',
   '--font-mono': "'Geist Mono', ui-monospace, monospace",
-  '--canvas': '#fafafa',
+  '--canvas': '#F5F7FA',
   '--surface': '#ffffff',
   '--surface-soft': '#f7f7f7',
   '--surface-code': '#1c1c1e',
-  '--hairline': '#e5e5e5',
-  '--hairline-soft': '#ededed',
-  '--ink': '#0a0a0a',
-  '--slate': '#3a3a3c',
-  '--steel': '#5a5a5c',
-  '--stone': '#888888',
-  '--muted': '#a8a8aa',
-  '--mint': '#00d4a4',
-  '--mint-deep': '#00b48a',
+  '--hairline': '#EAEEF2',
+  '--hairline-soft': '#F0F0F0',
+  '--ink': '#1a1a1a',
+  '--slate': '#333333',
+  '--steel': '#666666',
+  '--stone': '#999999',
+  '--muted': '#999999',
+  '--mint': '#4794EB',
+  '--mint-deep': '#3A83D4',
   '--on-code': '#f5f5f7',
-  '--status-ok': '#1ba673',
-  '--status-warn': '#c37d0d',
+  '--status-ok': '#22C55E',
+  '--status-warn': '#F5A623',
   '--status-error': '#d45656',
-  '--status-info': '#3772cf',
+  '--status-info': '#4794EB',
   '--status-idle': '#888888',
+  '--chart-upload': '#4794EB',
+  '--chart-download': '#7FD38D',
+  '--chart-purple': '#A5A0F8',
+  '--chart-orange': '#F5A623',
 }
 
 const listeners = new Set<() => void>()
@@ -116,9 +124,9 @@ export function statusColor(tokens: ThemeTokens, key: string): string {
     case 'offline':
       return tokens['--status-idle']
     case 'tcp':
-      return tokens['--status-info']
+      return tokens['--chart-upload']
     case 'udp':
-      return tokens['--mint-deep']
+      return tokens['--chart-purple']
     default:
       return tokens['--muted']
   }

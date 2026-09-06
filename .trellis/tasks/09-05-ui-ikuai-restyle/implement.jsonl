@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端规范入口，含开发前检查清单"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "组件编写规范，外壳重构与组件换皮需遵守"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "状态管理约定，外壳导航改动涉及 panelPreferences/theme"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "前端目录约定"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量检查要求"}
+{"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/ikuai-40-design-tokens.md", "reason": "iKuai 4.0 实测设计 token，换皮取色依据"}
+{"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/rosboard-feature-inventory.md", "reason": "功能零丢失核对基线"}

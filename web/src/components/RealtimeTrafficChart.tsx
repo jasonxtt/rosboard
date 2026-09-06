@@ -102,8 +102,8 @@ function baseOption(tokens: ThemeTokens, reducedMotion: boolean): EChartsCoreOpt
       splitLine: { lineStyle: { color: grid, type: 'dashed' } },
     },
     series: [
-      seriesOption('upload-series', UPLOAD_SERIES, tokens['--mint-deep'], 0.2),
-      seriesOption('download-series', DOWNLOAD_SERIES, tokens['--status-info'], 0.24),
+      seriesOption('upload-series', UPLOAD_SERIES, tokens['--chart-upload'], 0.15),
+      seriesOption('download-series', DOWNLOAD_SERIES, tokens['--chart-download'], 0.15),
     ],
   }
 }
