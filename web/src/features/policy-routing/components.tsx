@@ -179,7 +179,7 @@ export function PolicyWizardSteps({ steps, current, unlockedThrough = steps.leng
         return (
           <li key={step} className={className} aria-current={active ? 'step' : undefined}>
             <button type="button" disabled={disabled} aria-label={`${i + 1}. ${step}${stateLabel}`} onClick={() => onJump?.(i)}>
-              {i + 1}. {step}
+              <span className="step-number">{i + 1}</span><span>{step}</span>
             </button>
           </li>
         )

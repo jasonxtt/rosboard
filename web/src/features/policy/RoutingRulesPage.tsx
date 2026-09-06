@@ -54,8 +54,8 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
     {notice ? <PolicyNotice tone="good">{notice}</PolicyNotice> : null}
     {error ? <PolicyErrorDisplay error={error} /> : null}
     <section className="panel policy-panel" aria-label="策略路由">
-      <div className="policy-panel-head"><div><h3>策略路由</h3><p className="policy-hint">每条策略一次配置来源、目标和出口；出口配置会在后台自动复用或安全复制。</p></div><button type="button" className="primary-button" onClick={openNewRule}>新增策略</button></div>
-      {context.rules.length === 0 ? <PolicyEmptyState title="尚未配置策略" description="将来源、访问目标和出口组合成一条策略，即可生成可审阅的 RouterOS 变更计划。" action={<button type="button" className="primary-button" onClick={openNewRule}>新增策略</button>} /> : <div className="policy-table-scroll"><table className="data-table"><thead><tr><th>名称</th><th>来源</th><th>目标</th><th>出口</th><th>状态</th><th>操作</th></tr></thead><tbody>{context.rules.map((rule) => {
+      <div className="policy-panel-head"><div><p className="policy-hint">每条策略一次配置来源、目标和出口；出口配置会在后台自动复用或安全复制。</p></div><button type="button" className="primary-button" onClick={openNewRule}>新增策略</button></div>
+      {context.rules.length === 0 ? <PolicyEmptyState title="尚未配置策略" description="将来源、访问目标和出口组合成一条策略，即可生成可审阅的 RouterOS 变更计划。" action={<button type="button" className="primary-button" onClick={openNewRule}>新增策略</button>} /> : <><div className="policy-table-scroll"><table className="data-table"><thead><tr><th>名称</th><th>来源</th><th>目标</th><th>出口</th><th>状态</th><th>操作</th></tr></thead><tbody>{context.rules.map((rule) => {
         const egress = egressByID.get(rule.egressId)
         const status = egressStatus(rule, egress)
         const targetNames = rule.targetListIds.map((id) => targetByID.get(id)?.name ?? id).join('、')
@@ -68,7 +68,7 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
             await reload()
           } catch (toggleError) { setError(toggleError) }
         }} />
-      })}</tbody></table></div>}
+      })}</tbody></table></div><div className="policy-table-footer"><span>共 {context.rules.length} 条</span></div></>}
     </section>
     {editing ? <RoutingRuleWizard deviceID={deviceID} context={context} rule={editing.rule} egress={editing.egress} onClose={() => setEditing(undefined)} onSaved={async () => { setNotice('策略已应用。'); await reload() }} /> : null}
     {deleting ? <PolicyModal title="删除路由策略" onClose={() => setDeleting(null)} footer={<><button type="button" className="toolbar-button" onClick={() => setDeleting(null)}>取消</button><button type="button" className="danger-button" onClick={() => void (async () => { try { const result = await deleteRoutingRule(deviceID, deleting.id, deleting.revision); const id = jobID(result); if (id) await waitForPolicyJob(deviceID, id); setDeleting(null); setNotice('策略已删除。'); await reload() } catch (deleteError) { setError(deleteError) } })()}>删除</button></>}><p>确定删除“{deleting.name}”？删除后会在变更计划中清理对应的 RouterOS 规则。</p></PolicyModal> : null}
@@ -77,5 +77,6 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
 
 function RoutingRuleRow({ rule, subject, targets, egressSummary: summary, status, onEdit, onDelete, onToggle }: { rule: RoutingRule; subject: string; targets: string; egressSummary: string; status: { tone: StatusTone; label: string }; onEdit: () => void; onDelete: () => void; onToggle: () => Promise<void> }) {
   const [toggling, setToggling] = useState(false)
-  return <tr className={rule.enabled ? '' : 'disabled-row'}><td><strong>{rule.name}</strong><span className="policy-sub-cell">Priority {rule.priority}</span></td><td>{subject}</td><td>{targets}</td><td>{summary}</td><td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td><td><div className="action-links"><button type="button" className="link-button" disabled={toggling} onClick={() => { setToggling(true); void onToggle().finally(() => setToggling(false)) }}>{toggling ? '处理中…' : rule.enabled ? '停用' : '启用'}</button><button type="button" className="link-button" disabled={toggling} onClick={onEdit}>编辑</button><button type="button" className="link-button link-button--danger" disabled={toggling} onClick={onDelete}>删除</button></div></td></tr>
+  const [egressMain, ...egressRest] = summary.split('；')
+  return <tr className={rule.enabled ? '' : 'disabled-row'}><td><strong>{rule.name}</strong><span className="policy-sub-cell">Priority {rule.priority}</span></td><td>{subject}</td><td>{targets === '—' ? '—' : <span className="policy-target-tags">{targets.split('、').map((name) => <span key={name}>{name}</span>)}</span>}</td><td>{egressMain}{egressRest.length ? <span className="policy-sub-cell">{egressRest.join('；')}</span> : null}</td><td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td><td><div className="action-links"><button type="button" className="link-button" disabled={toggling} onClick={() => { setToggling(true); void onToggle().finally(() => setToggling(false)) }}>{toggling ? '处理中…' : rule.enabled ? '停用' : '启用'}</button><button type="button" className="link-button" disabled={toggling} onClick={onEdit}>编辑</button><button type="button" className="link-button link-button--danger" disabled={toggling} onClick={onDelete}>删除</button></div></td></tr>
 }

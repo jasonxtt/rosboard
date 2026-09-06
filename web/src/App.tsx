@@ -2912,19 +2912,20 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
 
   return (
     <div className="overview-dashboard">
-      <section className="panel device-strip">
-        <span className="device-strip-icon"><Icon name="router" /></span>
-        <div className="device-strip-copy">
-          <div className="device-strip-name">
-            <strong>{props.deviceName || overview.routerName || 'RouterOS'}</strong>
-            {overview.version ? <span className="device-strip-tag">{overview.version}</span> : null}
+      <section className="overview-top-grid">
+        <div className="panel device-strip device-strip-card">
+          <div className="device-strip-head">
+            <span className="device-strip-icon"><Icon name="router" /></span>
+            <div className="device-strip-copy">
+              <div className="device-strip-name">
+                <strong>{props.deviceName || overview.routerName || 'RouterOS'}</strong>
+                {overview.version ? <span className="device-strip-tag">{overview.version}</span> : null}
+              </div>
+              <div className="device-strip-meta">{[overview.boardName, props.deviceAddress].filter(Boolean).join(' · ') || overview.platform || '-'}</div>
+            </div>
           </div>
-          <div className="device-strip-meta">{[overview.boardName, props.deviceAddress].filter(Boolean).join(' · ') || overview.platform || '-'}</div>
+          {overview.uptime ? <span className="device-strip-uptime">系统运行时间：{overview.uptime}</span> : null}
         </div>
-        {overview.uptime ? <span className="device-strip-uptime">系统运行时间：{overview.uptime}</span> : null}
-      </section>
-
-      <section className="overview-stat-grid">
         <article className="overview-stat-card tone-purple">
           <div className="osc-head">
             <span className="osc-title">终端数量</span>
@@ -2997,13 +2998,7 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
         </section>
       </section>
 
-      <section className="overview-bottom-grid">
-        <section className="panel reference-panel status-panel">
-          <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
-          <SystemStatusList dashboard={props.dashboard} />
-        </section>
-
-        <section className="panel reference-panel interface-summary-panel">
+      <section className="panel reference-panel interface-summary-panel overview-interface-row">
           <div className="panel-head reference-panel-head"><h3>接口状态</h3><span>{interfaces.length} 个接口</span></div>
           <div className="table-scroll">
             <table className="overview-interface-table">
@@ -3011,6 +3006,12 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
               <tbody>{interfaceRows.map((item) => <tr key={item.name}><td><strong>{item.name}</strong></td><td>{item.type || '-'}</td><td><StatusText ok={item.running && !item.disabled} trueText="已连接" falseText={item.disabled ? '已禁用' : '未连接'} /></td><td>{item.linkRate || (item.running ? '运行中' : '-')}</td><td>{formatBits(item.currentRxBps)}</td><td>{formatBits(item.currentTxBps)}</td><td>{formatBytes(item.rxBytes)}</td><td>{formatBytes(item.txBytes)}</td></tr>)}</tbody>
             </table>
           </div>
+        </section>
+
+      <section className="overview-halves">
+        <section className="panel reference-panel status-panel">
+          <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
+          <SystemStatusList dashboard={props.dashboard} />
         </section>
 
         <section className="panel reference-panel events-panel">
