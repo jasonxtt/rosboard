@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🔎`,title:`识别设置`,description:`协议分析与 mosdns 域名识别的开关与状态`})}export{r as default};

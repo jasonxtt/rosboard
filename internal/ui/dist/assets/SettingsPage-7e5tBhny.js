@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`⚙️`,title:`面板设置`,description:`设备管理、采集参数、界面偏好与维护操作`})}export{r as default};

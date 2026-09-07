@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`📊`,title:`系统概览`,description:`当前设备的实时速率、资源占用、活跃终端与正在发生的事件`})}export{r as default};

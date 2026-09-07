@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🧷`,title:`策略统计`,description:`RouterOS 上分流相关规则的实时命中计数与速率`})}export{r as default};
