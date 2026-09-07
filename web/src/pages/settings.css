@@ -1,0 +1,95 @@
+/* SettingsPage layout (§9.4): left glass sub-nav + right content.
+   Below 768px the sub-nav becomes horizontal scroll pills (§11). */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border-radius: var(--r-lg);
+  position: sticky;
+  top: var(--space-4);
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 9px var(--space-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  text-align: left;
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.settings-nav-item:hover {
+  color: var(--ink);
+  background: var(--glass-2);
+}
+
+.settings-nav-active,
+.settings-nav-active:hover {
+  color: var(--ink);
+  background: var(--glass-2);
+  box-shadow: var(--shadow-card);
+}
+
+.settings-nav-icon {
+  width: 18px;
+  text-align: center;
+  flex: none;
+}
+
+.settings-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (max-width: 767px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 3px;
+    border-radius: var(--r-pill);
+    gap: 2px;
+    scrollbar-width: none;
+    /* §11: mobile backdrop-filter stays on the top/bottom bars only */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--glass-2);
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-nav-item {
+    width: auto;
+    flex: none;
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: var(--r-pill);
+    white-space: nowrap;
+  }
+}

@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
 import { Skeleton, ToastHost } from '../ui'
+import { EmptyDevicePanel } from '../features/settings'
 import { MobileNav } from './MobileNav'
 import { ShellProvider } from './ShellProvider'
 import { TopNav } from './TopNav'
@@ -39,14 +40,16 @@ function PageFallback() {
 }
 
 function ShellBody() {
-  const { view, selectedDeviceId } = useShell()
+  const { view, selectedDeviceId, devices, devicesLoading, navigate } = useShell()
   const Page = pageComponents[view]
   // Device-scoped views remount on device switch, resetting all page state (§12).
   const pageKey = DEVICE_SCOPED_VIEWS.has(view) ? `${view}:${selectedDeviceId}` : view
+  const hasUsableDevice = devices.some((device) => device.enabled && !device.archived)
+  const showEmptyDevice = !devicesLoading && !hasUsableDevice && DEVICE_SCOPED_VIEWS.has(view)
   return (
     <main className="shell-main">
       <Suspense fallback={<PageFallback />}>
-        <Page key={pageKey} />
+        {showEmptyDevice ? <EmptyDevicePanel onAdd={() => navigate('settings')} /> : <Page key={pageKey} />}
       </Suspense>
     </main>
   )

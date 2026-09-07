@@ -1,0 +1,353 @@
+/* OverviewPage 系统概览 — hero signature layout (UX standard §9.1).
+   Token-only values; glass material and chart chrome come from base/shell. */
+
+.ov-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--err-soft);
+  color: var(--err);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: var(--text-sm);
+}
+
+/* ---------- hero grid ---------- */
+.ov-hero-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.ov-hero {
+  border-radius: var(--r-xl);
+  padding: var(--space-6) var(--space-6) 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ov-hero-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.ov-hero-device {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ov-big {
+  font-size: var(--text-hero);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.ov-big small {
+  font-size: var(--text-section);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.ov-metrics {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.ov-metrics b {
+  display: block;
+  font-size: var(--text-page-title);
+  font-weight: 700;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+/* chart bottom-bleed: canvas runs edge to edge (§9.1 hero) */
+.ov-chart {
+  margin: var(--space-4) calc(-1 * var(--space-6)) 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.ov-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-6) var(--space-2);
+}
+
+.ov-chart-title {
+  font-size: var(--text-card-title);
+  font-weight: 650;
+}
+
+.ov-chart-bleed .chart-legend {
+  padding: 0 var(--space-6);
+}
+
+/* ---------- side gauges card ---------- */
+.ov-side {
+  border-radius: var(--r-xl);
+  padding: var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.ov-gauges {
+  display: flex;
+  justify-content: space-around;
+  gap: var(--space-2);
+}
+
+.ov-meta {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--stroke);
+  padding-top: var(--space-3);
+}
+
+.ov-warn-text {
+  color: var(--warn);
+}
+
+/* ---------- active terminals ---------- */
+.ov-terms {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+}
+
+.ov-term {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 15px 17px;
+}
+
+/* reinforce over .card padding for the clickable Card terminals */
+.card.ov-term {
+  padding: 15px 17px;
+}
+
+.ov-term-av {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: var(--glass-2);
+  flex: none;
+}
+
+.ov-term-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ov-term-id b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-card-title);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-term-id small {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-term-rate {
+  margin-left: auto;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+
+.ov-term-rate b {
+  color: var(--ok);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.ov-term-rate small {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.ov-term-idle {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ---------- bottom: events + interfaces ---------- */
+.ov-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.ov-events {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ov-event {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-md);
+  background: var(--glass);
+}
+
+.ov-event-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  flex: none;
+}
+
+.ov-event-warn {
+  background: var(--warn-soft);
+}
+
+.ov-event-err {
+  background: var(--err-soft);
+}
+
+.ov-event p {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.ov-event p b {
+  font-weight: 600;
+}
+
+.ov-event small {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  flex: none;
+}
+
+.ov-allclear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--ink-2);
+}
+
+.ov-allclear-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.ov-allclear strong {
+  font-size: var(--text-card-title);
+  color: var(--ink);
+}
+
+.ov-rate-down {
+  color: var(--accent);
+}
+
+.ov-rate-down small,
+.ov-term-rate b small {
+  color: inherit;
+}
+
+/* ---------- skeletons ---------- */
+.ov-skel-big {
+  margin: var(--space-3) 0;
+}
+
+.ov-skel-chart {
+  margin-top: auto;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+
+.ov-skel-ring {
+  border-radius: 50%;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1199px) {
+  .ov-hero-grid,
+  .ov-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .ov-terms {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .ov-hero {
+    padding: var(--space-5) var(--space-5) 0;
+  }
+
+  .ov-big {
+    font-size: 32px;
+  }
+
+  .ov-metrics {
+    gap: var(--space-4);
+  }
+
+  .ov-chart {
+    margin: var(--space-4) calc(-1 * var(--space-5)) 0;
+  }
+
+  .ov-chart-head,
+  .ov-chart-bleed .chart-legend {
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+  }
+
+  .ov-terms {
+    grid-template-columns: 1fr;
+  }
+}
