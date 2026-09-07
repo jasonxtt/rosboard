@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Rosboard</title>
+  <defs>
+    <linearGradient id="a" x1="8" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#1670EE"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#a)" d="M32 4C16.54 4 4 16.54 4 32s12.54 28 28 28c5.65 0 10.9-1.67 15.3-4.54l-8.18-9.12A16.3 16.3 0 0 1 32 48.01c-8.84 0-16-7.17-16-16.01S23.16 15.99 32 15.99c7.47 0 13.75 5.12 15.5 12.04h-9.17A7.1 7.1 0 0 0 32 24.1a7.9 7.9 0 1 0 5.17 13.88L53.1 55.75A27.94 27.94 0 0 0 60 37.3V32C60 16.54 47.46 4 32 4Z"/>
+  <circle cx="32" cy="32" r="4.8" fill="#fff"/>
+</svg>

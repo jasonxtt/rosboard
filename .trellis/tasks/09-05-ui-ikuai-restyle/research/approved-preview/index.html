@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rosboard · iKuai 风格交互预览</title>
+  <link rel="stylesheet" href="style.css?v=compact-nav-2">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="studybar"><span><b>视觉方案 01</b><span class="study-note">iKuai 4.0 参考 · 示例数据 · 不连接设备</span></span><div><label>导航布局 <select id="layout"><option value="double">双列导航</option><option value="single">单列导航</option></select></label><button id="theme">切换深色</button></div></div>
+  <div id="app" class="app">
+    <aside class="navigation"><div class="brand"><img src="mark.svg" alt=""><strong>Rosboard</strong></div><div class="device"><span class="status-dot"></span><select aria-label="切换示例设备"><option>主路由 · CHR</option><option>实验路由 · RB5009</option></select></div><div class="nav-columns"><nav id="primary" aria-label="主导航"></nav><nav id="secondary" aria-label="二级导航"></nav></div><div class="nav-bottom"><span class="status-dot"></span>设备连接正常<span class="version">设计预览</span></div></aside>
+    <main><header id="topbar"></header><div id="page"></div><footer class="page-footer">Rosboard<span>示例数据，不代表设备实时状态</span></footer></main>
+  </div>
+  <dialog id="editor"><div id="dialog-content"></div></dialog>
+  <div id="toast" role="status" hidden></div>
+</body>
+</html>
