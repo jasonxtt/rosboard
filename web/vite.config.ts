@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const targetOrigin = process.env.ROSBOARD_DEV_PROXY || 'http://127.0.0.1:8080'
+
 export default defineConfig({
   plugins: [react()],
   base: './',
@@ -12,14 +14,13 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://10.0.0.6:8080',
+        target: targetOrigin,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq, req) => {
-            const targetOrigin = 'http://10.0.0.6:8080'
             if (req.headers.origin) proxyReq.setHeader('origin', targetOrigin)
             if (req.headers.referer) {
-              const referer = req.headers.referer.replace(/^https?:\/\/[^\/]+/, targetOrigin)
+              const referer = req.headers.referer.replace(/^https?:\/\/[^/]+/, targetOrigin)
               proxyReq.setHeader('referer', referer)
             }
           })

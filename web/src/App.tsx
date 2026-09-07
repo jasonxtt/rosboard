@@ -797,7 +797,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() ? 'settings' : panelPreferences.landingView)
-  const initialActiveView = useRef(activeView)
   const [query, setQuery] = useState('')
   const [fleetQuery, setFleetQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -833,9 +832,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [trafficWindow, setTrafficWindow] = useState(() => window.sessionStorage.getItem(trafficWindowKey) ?? '5m')
   const [trafficSamples, setTrafficSamples] = useState<RateSample[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [statusExpanded, setStatusExpanded] = useState(false)
-  const [hostSettingsExpanded, setHostSettingsExpanded] = useState(false)
-  const [settingsExpanded, setSettingsExpanded] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
   const [themePreview, setThemePreview] = useState<PanelTheme | null>(null)
   const updatePanelPreferences = (next: PanelPreferences) => {
@@ -999,15 +995,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
-
-  useEffect(() => {
-    if (activeView === initialActiveView.current || activeView === 'fleet' || activeView === 'overview' || activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition') return
-    setStatusExpanded(true)
-  }, [activeView])
-
-  useEffect(() => {
-    if (activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') setHostSettingsExpanded(true)
-  }, [activeView])
 
   useEffect(() => {
     if (activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
@@ -1329,9 +1316,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
   ]
   const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
+  const hostActive = ['target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
+  const hasSecondary = statusActive || hostActive || activeView === 'settings'
 
   return (
-    <main className={`${sidebarOpen ? 'shell sidebar-open' : 'shell'}${connectionDetailMode ? ' connection-detail-shell' : ''}`}>
+    <main className={`${sidebarOpen ? 'shell sidebar-open' : 'shell'}${connectionDetailMode ? ' connection-detail-shell' : ''}${hasSecondary ? '' : ' no-secondary'}`} onKeyDown={(event) => { if (event.key === 'Escape' && sidebarOpen) { setSidebarOpen(false); event.currentTarget.querySelector<HTMLButtonElement>('.mobile-menu-button')?.focus() } }}>
       <button
         type="button"
         className="sidebar-backdrop"
@@ -1358,6 +1347,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           }}
         />
 
+        <div className="nav-columns">
         <nav className="menu">
           <button
             type="button"
@@ -1390,13 +1380,42 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   ? 'menu-item active'
                   : 'menu-item'
               }
-              aria-expanded={statusExpanded}
+              aria-expanded={statusActive}
               aria-controls="status-monitor-menu"
-              onClick={() => setStatusExpanded((value) => !value)}
+              onClick={() => { setActiveView('interfaces'); setInterfaceCategory('physical'); setSelectedTerminalID(null) }}
             >
               <NavLabel icon="status" label="状态监控" />
             </button>
-            {statusExpanded ? <div className="submenu" id="status-monitor-menu">
+
+          </div>
+
+          <div className="menu-group">
+            <button
+              type="button"
+              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
+              aria-expanded={hostActive}
+              aria-controls="host-settings-menu"
+              onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null) }}
+            >
+              <NavLabel icon="policy" label="主机设置" />
+            </button>
+
+          </div>
+
+          <div className="menu-group">
+            <button
+              type="button"
+              className={activeView === 'settings' ? 'menu-item active' : 'menu-item'}
+              aria-expanded={activeView === 'settings'}
+              aria-controls="panel-settings-menu"
+              onClick={() => { setActiveView('settings'); setSelectedTerminalID(null) }}
+            >
+              <NavLabel icon="settings" label="面板设置" />
+            </button>
+
+          </div>
+        </nav>
+          {hasSecondary ? <nav className="secondary-menu" aria-label="分组导航"><div className="nav-caption">{statusActive ? '状态监控' : hostActive ? '主机设置' : '面板设置'}</div>{statusActive ? (<div className="submenu" id="status-monitor-menu">
               <button
                 type="button"
                 className={activeView === 'interfaces' ? 'submenu-item active' : 'submenu-item'}
@@ -1424,24 +1443,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <button type="button" className={activeView === 'policies' || (activeView === 'protocols' && protocolAnalysisEnabled) ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView(protocolAnalysisEnabled ? 'protocols' : 'policies'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="traffic" label="流量监控" /></button>
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
-            </div> : null}
-          </div>
-
-          <div className="menu-group">
-            <button
-              type="button"
-              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
-              aria-expanded={hostSettingsExpanded}
-              aria-controls="host-settings-menu"
-              onClick={() => setHostSettingsExpanded((value) => !value)}
-            >
-              <NavLabel icon="policy" label="主机设置" />
-            </button>
-            {hostSettingsExpanded ? <div className="submenu" id="host-settings-menu">
+            </div>) : hostActive ? (<div className="submenu" id="host-settings-menu">
               <button
                 type="button"
                 className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => { setHostSettingsExpanded(true); setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
+                onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
               >
                 <NavLabel icon="network" label="目标库" />
               </button>
@@ -1449,7 +1455,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 type="button"
                 className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
-                  setHostSettingsExpanded(true)
                   setActiveView('policy-routing')
                   setSelectedTerminalID(null)
                   setSidebarOpen(false)
@@ -1461,7 +1466,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 type="button"
                 className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
-                  setHostSettingsExpanded(true)
                   setActiveView('access-control')
                   setSelectedTerminalID(null)
                   setSidebarOpen(false)
@@ -1473,7 +1477,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                 type="button"
                 className={activeView === 'recognition' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
-                  setHostSettingsExpanded(true)
                   setActiveView('recognition')
                   setSelectedTerminalID(null)
                   setSidebarOpen(false)
@@ -1481,20 +1484,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               >
                 <NavLabel icon="shield" label="识别设置" />
               </button>
-            </div> : null}
-          </div>
-
-          <div className="menu-group">
-            <button
-              type="button"
-              className={activeView === 'settings' ? 'menu-item active' : 'menu-item'}
-              aria-expanded={settingsExpanded}
-              aria-controls="panel-settings-menu"
-              onClick={() => setSettingsExpanded((value) => !value)}
-            >
-              <NavLabel icon="settings" label="面板设置" />
-            </button>
-            {settingsExpanded ? <div className="submenu" id="panel-settings-menu">
+            </div>) : (<div className="submenu" id="panel-settings-menu">
               {settingsSections.map((section) => (
                 <button
                   key={section.key}
@@ -1510,9 +1500,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   <NavLabel icon={section.icon} label={section.label} />
                 </button>
               ))}
-            </div> : null}
-          </div>
-        </nav>
+            </div>)}</nav> : null}
+        </div>
       </aside>
 
       <section className={connectionDetailMode ? 'content connection-detail-content' : terminalListMode ? 'content terminal-list-content' : 'content'}>
@@ -1523,7 +1512,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               className="mobile-menu-button"
               aria-label="打开导航"
               aria-expanded={sidebarOpen}
-              onClick={() => setSidebarOpen(true)}
+              onClick={(event) => {
+                const shell = event.currentTarget.closest('main')
+                setSidebarOpen(true)
+                requestAnimationFrame(() => shell?.querySelector<HTMLButtonElement>('.sidebar button')?.focus())
+              }}
             >
               <span />
             </button>
@@ -1564,8 +1557,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               ) : null}
               {activeView !== 'fleet' && activeView !== 'access-control' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
               <div className="topbar-refresh-controls">
-                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
-                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
                 <ChoiceMenu
                   value={panelPreferences.theme}
                   options={panelThemeOptions}
@@ -1605,6 +1596,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </div>
         </header>
 
+        {activeView === 'fleet' || (activeView === 'terminals' && !detailMode) ? <div className="page-search-toolbar">
+                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
+                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
+        </div> : null}
         {globalWarnings.length && warningsExpanded ? (
           <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
             <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" className="pill pill--xs pill--pad-sm global-warning-collapse" onClick={() => setWarningsExpanded(false)}>收起</button></div>
@@ -1631,7 +1626,14 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
 
         {activeView === 'overview' && dashboard ? (
-          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} />
+          <OverviewPage dashboard={dashboard} loadSamples={loadSamples} trafficSamples={trafficSamples} deviceName={currentDevice?.name} deviceAddress={settings?.devices.find((device) => device.id === selectedDeviceID)?.host} onQuickLink={(target) => {
+            setActiveView(target === 'traffic' ? (protocolAnalysisEnabled ? 'protocols' : 'policies') : target as ActiveView)
+            if (target === 'terminals') setTerminalFamily('all')
+            if (target === 'interfaces') setInterfaceCategory('physical')
+            if (target === 'settings') setSettingsSection('connection')
+            setSelectedTerminalID(null)
+            setSidebarOpen(false)
+          }} />
         ) : null}
 
         {activeView === 'interfaces' && dashboard ? (
@@ -1800,7 +1802,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
 	const hideTopbarHeading = section === 'interfaces'
 	const choose = (value: typeof section) => { setSection(value); setSidebarOpen(false) }
-	return <main className={sidebarOpen ? 'shell empty-device-shell sidebar-open' : 'shell empty-device-shell'}>
+	return <main className={sidebarOpen ? 'shell no-secondary empty-device-shell sidebar-open' : 'shell no-secondary empty-device-shell'} onKeyDown={(event) => { if (event.key === 'Escape' && sidebarOpen) { setSidebarOpen(false); event.currentTarget.querySelector<HTMLButtonElement>('.mobile-menu-button')?.focus() } }}>
 		<button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />
 		<aside className="sidebar">
 			<div className="brand"><img className="brand-mark" src={rosboardMark} alt="" /><div className="brand-copy"><h1>Rosboard</h1><p>尚未连接设备</p></div></div>
@@ -1814,7 +1816,11 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
 				<button className={section === 'maintenance' ? 'menu-item active' : 'menu-item'} onClick={() => choose('maintenance')}><NavLabel icon="storage" label="维护设置" /></button>
 			</nav>
 		</aside>
-		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={() => setSidebarOpen(true)}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
+		<section className="content"><header className={hideTopbarHeading ? 'topbar headingless-topbar' : 'topbar'}><div className="topbar-title"><button type="button" className="mobile-menu-button" aria-label="打开导航" onClick={(event) => {
+                const shell = event.currentTarget.closest('main')
+                setSidebarOpen(true)
+                requestAnimationFrame(() => shell?.querySelector<HTMLButtonElement>('.sidebar button')?.focus())
+              }}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
 			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
@@ -2981,7 +2987,7 @@ function FleetPercent(props: { label: string; value: number; onClick: () => void
   </button>
 }
 
-function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[] }) {
+function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSample[]; trafficSamples: RateSample[]; deviceName?: string; deviceAddress?: string; onQuickLink: (target: string) => void }) {
   const { overview } = props.dashboard
   const interfaces = props.dashboard.interfaces ?? []
   const alerts = props.dashboard.alerts ?? []
@@ -3001,16 +3007,118 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
 
+  const wanInterfaces = interfaces.filter((item) => overview.trafficInterfaces.includes(item.name))
+  const wanAddresses = wanInterfaces.flatMap((item) => item.addresses)
+  const quickLinks: Array<{ key: string; label: string; icon: IconName }> = [
+    { key: 'policy-routing', label: '策略路由', icon: 'route' },
+    { key: 'terminals', label: '终端监控', icon: 'terminal' },
+    { key: 'target-library', label: '目标库', icon: 'network' },
+    { key: 'traffic', label: '流量监控', icon: 'traffic' },
+    { key: 'access-control', label: '访问控制', icon: 'shield' },
+    { key: 'recognition', label: '识别设置', icon: 'shield' },
+    { key: 'dhcp', label: '网络服务', icon: 'network' },
+    { key: 'resource', label: '系统运行', icon: 'runtime' },
+    { key: 'settings', label: '面板设置', icon: 'settings' },
+  ]
+
   return (
     <div className="overview-dashboard">
-      <section className="reference-metric-grid">
-        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" samples={cpuSamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
-        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" samples={memorySamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
-        <MetricCard title="在线终端" value={`${overview.connectedDeviceCount}`} icon="terminal" tone="purple" samples={terminalSamples} formatSample={(value) => `${Math.round(value)} 台`} composition={[{ label: '在线', value: terminalStates.online }, { label: '未活跃', value: terminalStates.inactive }, { label: '离线', value: terminalStates.offline }]} footerLeft={`平均 ${average(terminalValues).toFixed(0)}`} footerRight={`峰值 ${maximum(terminalValues).toFixed(0)}`} />
-        <MetricCard title="活动连接" value={overview.connectionCount.toLocaleString()} icon="connections" tone="orange" samples={connectionSamples} formatSample={(value) => Math.round(value).toLocaleString()} composition={[{ label: 'TCP', value: connectionProtocols.tcp }, { label: 'UDP', value: connectionProtocols.udp }, { label: '其他', value: connectionProtocols.other }]} footerLeft={`平均 ${average(connectionValues).toFixed(0)}`} footerRight={`峰值 ${maximum(connectionValues).toFixed(0)}`} />
+      <section className="overview-top-grid">
+        <div className="panel device-strip device-strip-card">
+          <div className="device-strip-head">
+            <span className="device-strip-icon"><Icon name="router" /></span>
+            <div className="device-strip-copy">
+              <div className="device-strip-name">
+                <strong>{props.deviceName || overview.routerName || 'RouterOS'}</strong>
+                {overview.version ? <span className="device-strip-tag">{overview.version}</span> : null}
+              </div>
+              <div className="device-strip-meta">{[overview.boardName, props.deviceAddress].filter(Boolean).join(' · ') || overview.platform || '-'}</div>
+            </div>
+          </div>
+          {overview.uptime ? <span className="device-strip-uptime">系统运行时间：{overview.uptime}</span> : null}
+        </div>
+        <article className="overview-stat-card tone-purple">
+          <div className="osc-head">
+            <span className="osc-title">终端数量</span>
+            <span className="osc-legend">
+              <span><i className="osc-dot c1" />在线 {terminalStates.online}</span>
+              <span><i className="osc-dot c2" />未活跃 {terminalStates.inactive}</span>
+              <span><i className="osc-dot c3" />离线 {terminalStates.offline}</span>
+            </span>
+          </div>
+          <div className="osc-main">
+            <strong className="osc-value">{overview.connectedDeviceCount}</strong>
+            <span className="osc-spark tone-purple"><MiniSparkline title="终端数量" samples={terminalSamples} format={(value) => `${Math.round(value)} 台`} /></span>
+          </div>
+          <OverviewCompositionBar parts={[terminalStates.online, terminalStates.inactive, terminalStates.offline]} />
+          <footer className="osc-foot"><span>平均 {average(terminalValues).toFixed(0)}</span><span>峰值 {maximum(terminalValues).toFixed(0)}</span></footer>
+        </article>
+
+        <article className="overview-stat-card tone-blue">
+          <div className="osc-head"><span className="osc-title">资源使用</span></div>
+          <div className="osc-res-row"><span className="osc-res-label">CPU</span><span className="osc-res-bar"><i style={{ width: `${Math.min(100, Math.max(0, overview.cpuLoadPercent))}%` }} /></span><strong className="osc-res-pct">{overview.cpuLoadPercent}%</strong></div>
+          <div className="osc-res-row"><span className="osc-res-label">内存</span><span className="osc-res-bar"><i style={{ width: `${Math.min(100, Math.max(0, overview.memoryUsedPercent))}%` }} /></span><strong className="osc-res-pct">{overview.memoryUsedPercent.toFixed(1)}%</strong></div>
+          <footer className="osc-foot"><span>平均 CPU {average(cpuValues).toFixed(0)}% / 内存 {average(memoryValues).toFixed(0)}%</span><span>峰值 {maximum(cpuValues).toFixed(0)}%</span></footer>
+        </article>
+
+        <article className="overview-stat-card tone-orange">
+          <div className="osc-head">
+            <span className="osc-title">活动连接</span>
+            <span className="osc-legend">
+              <span><i className="osc-dot c1" />TCP {connectionProtocols.tcp}</span>
+              <span><i className="osc-dot c2" />UDP {connectionProtocols.udp}</span>
+              <span><i className="osc-dot c3" />其他 {connectionProtocols.other}</span>
+            </span>
+          </div>
+          <div className="osc-main">
+            <strong className="osc-value">{overview.connectionCount.toLocaleString()}</strong>
+            <span className="osc-spark tone-orange"><MiniSparkline title="活动连接" samples={connectionSamples} format={(value) => Math.round(value).toLocaleString()} /></span>
+          </div>
+          <OverviewCompositionBar parts={[connectionProtocols.tcp, connectionProtocols.udp, connectionProtocols.other]} />
+          <footer className="osc-foot"><span>平均 {average(connectionValues).toFixed(0)}</span><span>峰值 {maximum(connectionValues).toFixed(0)}</span></footer>
+        </article>
       </section>
 
       <section className="overview-main-grid">
+        <div className="overview-side">
+          <section className="panel reference-panel">
+            <div className="panel-head reference-panel-head"><h3>接口信息</h3><span>WAN 汇总</span></div>
+            <dl className="overview-info-list">
+              <div><dt>流量接口</dt><dd>{overview.trafficInterfaces.join('、') || '-'}</dd></div>
+              <div><dt>接口类型</dt><dd>{[...new Set(wanInterfaces.map((item) => item.type))].join('、') || '-'}</dd></div>
+              <div><dt>接口地址</dt><dd>{wanAddresses.join('、') || '-'}</dd></div>
+              <div><dt>链路</dt><dd>{wanInterfaces.map((item) => `${item.name} · ${item.linkRate || (item.running ? '运行中' : '未连接')}`).join('、') || '-'}</dd></div>
+            </dl>
+            <div className="overview-wan-rates"><div className="upload-key"><small>汇总上行</small><strong>{formatBitRate(overview.uploadBps)}</strong></div><div className="download-key"><small>汇总下行</small><strong>{formatBitRate(overview.downloadBps)}</strong></div></div>
+            <dl className="overview-info-list">
+              <div><dt>累计上行</dt><dd>{formatBytes(wanInterfaces.reduce((total, item) => total + item.txBytes, 0))}</dd></div>
+              <div><dt>累计下行</dt><dd>{formatBytes(wanInterfaces.reduce((total, item) => total + item.rxBytes, 0))}</dd></div>
+              <div><dt>最后成功采集</dt><dd>{formatDateTime(overview.updatedAt)}</dd></div>
+            </dl>
+            <button type="button" className="overview-detail-link" onClick={() => props.onQuickLink('interfaces')}>查看全部接口 →</button>
+          </section>
+          <section className="panel reference-panel">
+            <div className="panel-head reference-panel-head"><h3>快捷入口</h3></div>
+            <div className="quick-link-grid">
+              {quickLinks.map((link) => <button key={link.key} type="button" className="quick-link" onClick={() => props.onQuickLink(link.key)}><Icon name={link.icon} /><span>{link.label}</span></button>)}
+            </div>
+          </section>
+          <section className="panel reference-panel">
+            <div className="panel-head reference-panel-head"><h3>设备信息</h3></div>
+            <dl className="overview-info-list">
+              <div><dt>设备名称</dt><dd>{props.deviceName || overview.routerName || '-'}</dd></div>
+              <div><dt>管理地址</dt><dd>{props.deviceAddress || '-'}</dd></div>
+              <div><dt>设备型号</dt><dd>{overview.boardName || '-'}</dd></div>
+              <div><dt>平台</dt><dd>{overview.platform || '-'}</dd></div>
+              <div><dt>架构</dt><dd>{overview.systemResource?.architectureName || '-'}</dd></div>
+              <div><dt>处理器</dt><dd>{overview.systemResource?.cpuCount ? `${overview.systemResource.cpuCount} 核心` : '-'}</dd></div>
+              <div><dt>系统版本</dt><dd>{overview.version || '-'}</dd></div>
+              <div><dt>运行时间</dt><dd>{overview.uptime || '-'}</dd></div>
+            </dl>
+            <button type="button" className="overview-detail-link" onClick={() => props.onQuickLink('resource')}>资源监控 →</button>
+          </section>
+        </div>
+        <div className="overview-main">
         <section className="panel reference-panel traffic-panel">
           <div className="panel-head reference-panel-head">
             <div className="traffic-heading-block"><h3>实时流量</h3><div className="traffic-live-values" aria-live="polite"><span className="upload-key">上传（{formatBitRate(overview.uploadBps)}）</span><span className="download-key">下载（{formatBitRate(overview.downloadBps)}）</span></div></div>
@@ -3018,13 +3126,16 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
           {props.trafficSamples.length ? <Suspense fallback={<div className="realtime-traffic-chart chart-loading">正在加载图表...</div>}><RealtimeTrafficChart samples={props.trafficSamples} /></Suspense> : <div className="empty-chart">暂无速率采样</div>}
         </section>
 
+        <section className="overview-resource-grid">
+        <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" samples={cpuSamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
+        <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" samples={memorySamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
+        </section>
+
         <section className="panel reference-panel status-panel">
           <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
           <SystemStatusList dashboard={props.dashboard} />
         </section>
-      </section>
 
-      <section className="overview-bottom-grid">
         <section className="panel reference-panel interface-summary-panel">
           <div className="panel-head reference-panel-head"><h3>接口状态</h3><span>{interfaces.length} 个接口</span></div>
           <div className="table-scroll">
@@ -3040,9 +3151,19 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
           <div className="event-list">{alerts.length ? alerts.slice(0, 5).map((item) => <div className={`event-row event-${item.level === 'error' ? 'danger' : 'warning'}`} key={item.id}><span className="event-icon"><Icon name={item.level === 'error' ? 'alert' : 'info'} /></span><span><strong>{item.source}</strong> · {item.message}</span><small>{formatShortTime(item.timestamp)}</small></div>) : <div className="event-empty"><Icon name="check" /><span>当前没有采集告警</span></div>}</div>
           <div className="event-summary"><span className="danger-dot">严重 {alerts.filter((item) => item.level === 'error').length}</span><span className="warning-dot">警告 {alerts.filter((item) => item.level === 'warning').length}</span></div>
         </section>
+        </div>
       </section>
     </div>
   )
+}
+
+function OverviewCompositionBar(props: { parts: number[] }) {
+  const total = props.parts.reduce((sum, value) => sum + Math.max(0, value), 0)
+  if (!total) return <div className="osc-comp osc-comp-empty"><span style={{ width: '100%' }} /></div>
+  return <div className="osc-comp">{props.parts.map((value, index) => {
+    const width = Math.max(0, value) / total * 100
+    return width ? <span key={index} className={`c${index + 1}`} style={{ width: `${width}%` }} /> : null
+  })}</div>
 }
 
 type MetricSample = { timestamp: string; value: number }
