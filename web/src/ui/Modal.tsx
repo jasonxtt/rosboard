@@ -17,18 +17,26 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
 export function Modal({ open, onClose, title, children, footer, maxWidth = 640 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  // onClose identity changes on every parent render (polling pages); keep it in
+  // a ref so the open effect below runs once per open transition, not per render.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!open) return
     restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const dialog = dialogRef.current
-    const focusables = dialog?.querySelectorAll<HTMLElement>(FOCUSABLE)
-    ;(focusables && focusables.length > 0 ? focusables[0] : dialog)?.focus()
+    // Autofocus only when focus is not already inside the dialog (e.g. first
+    // open); never yank it out of an input the user is typing in.
+    if (dialog && !dialog.contains(document.activeElement)) {
+      const focusables = dialog.querySelectorAll<HTMLElement>(FOCUSABLE)
+      ;(focusables.length > 0 ? focusables[0] : dialog).focus({ preventScroll: true })
+    }
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== 'Tab' || !dialog) return
@@ -54,9 +62,11 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 640 }
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
       document.body.style.overflow = previousOverflow
-      restoreFocusRef.current?.focus()
+      // preventScroll: restoring focus must not scroll the page behind the
+      // dialog (the trigger often sits at the top of a long page).
+      restoreFocusRef.current?.focus({ preventScroll: true })
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   return createPortal(
