@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { TrafficChart } from '../charts/TrafficChart'
-import { formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
+import { formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
 import type { AlertEvent, ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, GaugeRing, Glass, SegTabs, Skeleton, StatusDot, type TableColumn } from '../ui'
@@ -150,7 +150,28 @@ function Hero({
   )
 }
 
+function formatFrequency(mhz: string): string {
+  const value = Number(mhz)
+  if (!Number.isFinite(value) || value <= 0) return mhz.trim()
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} GHz` : `${Math.round(value)} MHz`
+}
+
+function cpuLine(overview: Overview): string {
+  const cpu = overview.system.cpu.trim()
+  const spec = [overview.system.cpuCount.trim() ? `${overview.system.cpuCount.trim()} 核` : '', overview.system.cpuFrequency.trim() ? `@ ${formatFrequency(overview.system.cpuFrequency)}` : '']
+    .filter(Boolean)
+    .join(' ')
+  return [cpu, spec].filter(Boolean).join(' · ') || '-'
+}
+
+function capacityLine(usedBytes: number, totalBytes: number, percent: number): string {
+  if (totalBytes <= 0) return '-'
+  return `${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}（${Math.round(percent)}%）`
+}
+
 function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overview; issueCount: number; collectSeconds: number | null }) {
+  const platformArch = [overview.platform.trim(), overview.system.architectureName.trim()].filter(Boolean).join(' · ')
+  const collectLine = [`${collectSeconds ? `${collectSeconds} 秒实时` : '定时采集'}`, `更新于 ${formatRelativeTime(overview.updatedAt)}`].join(' · ')
   return (
     <>
       <div className="ov-gauges">
@@ -159,25 +180,49 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
-        <div className="kv">
-          <span>RouterOS 版本</span>
-          <b>{overview.version ? `v${overview.version}` : '-'}</b>
+        <div className="ov-meta-col">
+          <div className="kv">
+            <span>RouterOS 版本</span>
+            <b>{overview.version ? `v${overview.version}` : '-'}</b>
+          </div>
+          <div className="kv">
+            <span>平台 / 架构</span>
+            <b title={platformArch}>{platformArch || '-'}</b>
+          </div>
+          <div className="kv">
+            <span>CPU</span>
+            <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
+          </div>
+          <div className="kv">
+            <span>运行时长</span>
+            <b>{formatUptime(overview.uptime)}</b>
+          </div>
+          <div className="kv">
+            <span>健康监测</span>
+            <b className={overview.healthEnabled ? undefined : 'ov-warn-text'}>{overview.healthEnabled ? '已开启' : '未开启'}</b>
+          </div>
         </div>
-        <div className="kv">
-          <span>平台</span>
-          <b>{overview.platform || '-'}</b>
-        </div>
-        <div className="kv">
-          <span>采集间隔</span>
-          <b>{collectSeconds ? `${collectSeconds} 秒实时采集` : '-'}</b>
-        </div>
-        <div className="kv">
-          <span>告警数</span>
-          <b className={issueCount > 0 ? 'ov-warn-text' : undefined}>{issueCount} 条</b>
-        </div>
-        <div className="kv">
-          <span>健康监测</span>
-          <b>{overview.healthEnabled ? '已开启' : '未开启'}</b>
+        <div className="ov-meta-col">
+          <div className="kv">
+            <span>内存</span>
+            <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes, overview.memoryUsedPercent)}</b>
+          </div>
+          <div className="kv">
+            <span>存储</span>
+            <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes, overview.storageUsedPercent)}</b>
+          </div>
+          <div className="kv">
+            <span>统计接口</span>
+            <b title={overview.trafficInterfaces.join('、')}>{overview.trafficInterfaces.length ? overview.trafficInterfaces.join('、') : '-'}</b>
+          </div>
+          <div className="kv">
+            <span>告警数</span>
+            <b className={issueCount > 0 ? 'ov-warn-text' : undefined}>{issueCount > 0 ? `${issueCount} 条` : '无'}</b>
+          </div>
+          <div className="kv">
+            <span>采集</span>
+            <b>{collectLine}</b>
+          </div>
         </div>
       </div>
     </>

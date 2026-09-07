@@ -58,7 +58,8 @@
   align-items: center;
 }
 
-.pill-nav > button {
+.pill-nav > button,
+.pill-nav > .nav-pop > button {
   border: 0;
   background: transparent;
   color: var(--ink-2);
@@ -72,11 +73,13 @@
   white-space: nowrap;
 }
 
-.pill-nav > button:hover {
+.pill-nav > button:hover,
+.pill-nav > .nav-pop > button:hover {
   color: var(--ink);
 }
 
-.pill-nav > button.on {
+.pill-nav > button.on,
+.pill-nav > .nav-pop > button.on {
   background: var(--glass-2);
   color: var(--ink);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
