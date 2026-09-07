@@ -164,6 +164,90 @@
   margin-top: 6px;
 }
 
+/* ---------- grouped nav flyout (mega popover) ---------- */
+.nav-chevron {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.nav-mega {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.nav-mega-2col {
+  grid-template-columns: 1fr 1fr;
+}
+
+.mega-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink-2);
+  transition: background 150ms ease;
+}
+
+.mega-item:hover {
+  background: var(--glass-2);
+  color: var(--ink);
+}
+
+.mega-item-ic {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--glass-2);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  flex: none;
+  color: var(--ink);
+}
+
+.mega-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mega-item-text b {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.mega-item-text small {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mega-item-on,
+.mega-item-on:hover {
+  background: var(--accent-soft);
+}
+
+.mega-item-on .mega-item-ic {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mega-item-on .mega-item-text b {
+  color: var(--accent);
+}
+
 /* ---------- warning bar (§6) ---------- */
 .warnbar {
   display: flex;

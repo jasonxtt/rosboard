@@ -4,7 +4,7 @@ import { formatRelativeTime } from '../lib/format'
 import type { AlertEvent } from '../lib/types'
 import { useShell } from './useShell'
 import { Popover } from './Popover'
-import { MORE_NAV, PRIMARY_NAV, VIEW_TITLES } from './views'
+import { NAV_GROUPS, NAV_ITEM_META, TOP_LEVEL_NAV, VIEW_TITLES, navGroupOf } from './views'
 
 function DevicePill() {
   const { devices, selectedDeviceId, selectDevice, navigate } = useShell()
@@ -110,29 +110,50 @@ function RefreshControl() {
 /** Top glass bar (§6): logo, center pill nav, device pill, bell, theme, settings. */
 export function TopNav() {
   const { view, navigate, theme, toggleTheme } = useShell()
-  const moreActive = MORE_NAV.includes(view)
   return (
     <header className="topnav glass">
       <span className="logo" aria-hidden="true">R</span>
       <b className="brand">rosboard</b>
       <nav className="pill-nav" aria-label="主导航">
-        {PRIMARY_NAV.map((item) => (
+        {TOP_LEVEL_NAV.map((item) => (
           <button key={item} type="button" className={view === item ? 'on' : undefined} onClick={() => navigate(item)}>
             {VIEW_TITLES[item]}
           </button>
         ))}
-        <Popover align="left" ariaLabel="更多页面" trigger={(open, toggle) => (
-          <button type="button" className={moreActive || open ? 'on' : undefined} onClick={toggle} aria-expanded={open} aria-haspopup="menu">
-            更多 <span aria-hidden="true">▾</span>
-          </button>
-        )}>
-          {MORE_NAV.map((item) => (
-            <button key={item} type="button" className="popover-item" role="menuitem" onClick={() => navigate(item)}>
-              <span>{VIEW_TITLES[item]}</span>
-              {view === item ? <Badge tone="accent">当前</Badge> : null}
-            </button>
-          ))}
-        </Popover>
+        {NAV_GROUPS.map((group) => {
+          const active = navGroupOf(view) === group.key
+          const wide = group.items.length > 4
+          return (
+            <Popover
+              key={group.key}
+              align="left"
+              ariaLabel={group.label}
+              width={wide ? 470 : 240}
+              trigger={(open, toggle) => (
+                <button type="button" className={active || open ? 'on' : undefined} onClick={toggle} aria-expanded={open} aria-haspopup="menu">
+                  {group.label} <span aria-hidden="true" className="nav-chevron">▾</span>
+                </button>
+              )}
+            >
+              <div className={wide ? 'nav-mega nav-mega-2col' : 'nav-mega'}>
+                {group.items.map((item) => {
+                  const meta = NAV_ITEM_META[item]
+                  const current = view === item
+                  return (
+                    <button key={item} type="button" role="menuitem" className={current ? 'mega-item mega-item-on' : 'mega-item'} onClick={() => navigate(item)}>
+                      <span className="mega-item-ic" aria-hidden="true">{meta?.icon ?? '·'}</span>
+                      <span className="mega-item-text">
+                        <b>{VIEW_TITLES[item]}</b>
+                        {wide && meta ? <small>{meta.desc}</small> : null}
+                      </span>
+                      {current ? <Badge tone="accent">当前</Badge> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            </Popover>
+          )
+        })}
       </nav>
       <DevicePill />
       <AlertsBell />

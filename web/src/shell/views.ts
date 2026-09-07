@@ -34,14 +34,45 @@ export const VIEW_TITLES: Record<View, string> = {
   settings: '面板设置',
 }
 
-/** Center pill nav (§6): 概览 / 接口 / 终端 / 策略 + 更多 overflow. */
-export const PRIMARY_NAV: View[] = ['overview', 'interfaces', 'terminals', 'policy-routing']
+/** Top-level pill nav (§6): direct entries + two grouped flyout menus. */
+export const TOP_LEVEL_NAV: View[] = ['fleet', 'overview']
 
-/** Views folded into the 更多 menu. 设备总览 also lives in the device pill. */
-export const MORE_NAV: View[] = ['fleet', 'protocols', 'policies', 'dhcp', 'routes', 'resource', 'load', 'target-library', 'access-control', 'recognition']
+export type NavGroup = 'monitor' | 'host'
 
-/** Mobile bottom bar (§11): four entries + 更多 drawer. */
-export const MOBILE_NAV: View[] = ['overview', 'interfaces', 'terminals', 'policy-routing']
+export const NAV_GROUPS: Array<{ key: NavGroup; label: string; items: View[] }> = [
+  {
+    key: 'monitor',
+    label: '状态监控',
+    items: ['interfaces', 'terminals', 'protocols', 'policies', 'dhcp', 'routes', 'resource', 'load'],
+  },
+  {
+    key: 'host',
+    label: '主机设置',
+    items: ['target-library', 'policy-routing', 'access-control', 'recognition'],
+  },
+]
+
+/** Flyout item metadata: icon + one-line description (mega popover / mobile drawer). */
+export const NAV_ITEM_META: Partial<Record<View, { icon: string; desc: string }>> = {
+  interfaces: { icon: '⇄', desc: '链路状态、实时速率与趋势' },
+  terminals: { icon: '⛁', desc: '在线终端、连接与流量明细' },
+  protocols: { icon: '∿', desc: '按应用与协议看流量构成' },
+  policies: { icon: '▤', desc: 'RouterOS 队列与标记计数' },
+  dhcp: { icon: '⌗', desc: '地址池用量与租约' },
+  routes: { icon: '⤢', desc: '路由表与分流命中情况' },
+  resource: { icon: '✚', desc: 'CPU、内存、硬件与 IRQ' },
+  load: { icon: '⧗', desc: '多时间窗的系统负载曲线' },
+  'target-library': { icon: '◎', desc: '域名 / IP 目标列表与订阅' },
+  'policy-routing': { icon: '⑂', desc: '谁 → 访问什么 → 走哪条线路' },
+  'access-control': { icon: '⊘', desc: '断网与目标屏蔽规则' },
+  recognition: { icon: '✦', desc: '协议分析与 MosDNS 接入' },
+}
+
+/** Group that contains a view, if any (drives parent-pill active state). */
+export function navGroupOf(view: View): NavGroup | null {
+  for (const group of NAV_GROUPS) if (group.items.includes(view)) return group.key
+  return null
+}
 
 /** Views whose data belongs to the selected device; they remount on switch. */
 export const DEVICE_SCOPED_VIEWS: ReadonlySet<View> = new Set([
