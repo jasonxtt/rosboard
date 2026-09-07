@@ -25,12 +25,13 @@
   --modal-blur: 24px;
 
   /* floating layers (popovers/modals/toasts) and persistent bars (topnav,
-     mobile bottomnav) must fully cover content behind them — near-opaque
-     glass with a stronger stroke; static cards keep the airy --glass above */
-  --glass-float: rgba(17, 20, 40, 0.92);
+     mobile bottomnav): fully opaque — user decision; any see-through text
+     behind these layers was judged uncomfortable. blur tokens stay for
+     future opacity tweaks. */
+  --glass-float: #12152c;
   --glass-float-blur: 24px;
   --glass-float-stroke: rgba(255, 255, 255, 0.16);
-  --glass-bar: rgba(10, 12, 28, 0.78);
+  --glass-bar: #0d1026;
   --glass-bar-blur: 20px;
 
   /* semantic */
@@ -83,11 +84,11 @@
   --glass-blur: 10px;
   --modal-blur: 10px;
 
-  /* floating layers / persistent bars: near-opaque for readability */
-  --glass-float: rgba(255, 255, 255, 0.94);
+  /* floating layers / persistent bars: fully opaque for readability */
+  --glass-float: #ffffff;
   --glass-float-blur: 10px;
   --glass-float-stroke: rgba(23, 26, 43, 0.14);
-  --glass-bar: rgba(255, 255, 255, 0.86);
+  --glass-bar: #ffffff;
   --glass-bar-blur: 10px;
 
   /* text tones one step darker for light surfaces */
