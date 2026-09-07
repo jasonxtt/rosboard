@@ -1,0 +1,1 @@
+.pol-egr-grid{gap:var(--space-4);grid-template-columns:repeat(auto-fill,minmax(320px,1fr));display:grid}@media (max-width:767px){.pol-egr-grid{grid-template-columns:1fr}}

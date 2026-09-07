@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🔌`,title:`接口监控`,description:`物理、逻辑与系统接口的链路状态、速率与丢包错误统计`})}export{r as default};

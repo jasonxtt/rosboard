@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🧾`,title:`DHCP`,description:`DHCP 服务、地址池使用率与租约明细`})}export{r as default};
