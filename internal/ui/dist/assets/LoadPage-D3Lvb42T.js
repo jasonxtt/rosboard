@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`📈`,title:`负载历史`,description:`CPU、内存、在线终端、连接数与流量的历史趋势小图`})}export{r as default};

@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`▦`,title:`仪表台`,description:`所有 RouterOS 设备的健康状态、流量与告警一览`})}export{r as default};

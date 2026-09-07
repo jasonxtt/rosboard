@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🧠`,title:`资源监控`,description:`CPU、内存、存储与每核负载、硬件资源明细`})}export{r as default};

@@ -1,1 +1,0 @@
-import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🎯`,title:`目标库`,description:`域名 / IP 目标列表、来源订阅、版本与引用情况`})}export{r as default};
