@@ -1,0 +1,376 @@
+/* Shell layout: topnav, device pill, popovers, warning bar, mobile bottom
+   nav, startup/setup screens, page stubs, chart chrome. */
+
+.shell {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 22px 26px 70px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.shell-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- topnav (§6) ---------- */
+.topnav {
+  position: sticky;
+  top: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  border-radius: var(--r-lg);
+  margin-bottom: var(--space-5);
+}
+
+.logo {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--grad-brand);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: var(--accent-ink);
+  font-size: 15px;
+  flex: none;
+}
+
+.brand {
+  font-size: 15.5px;
+  letter-spacing: 0.02em;
+  margin-right: var(--space-2);
+}
+
+.pill-nav {
+  display: flex;
+  gap: 2px;
+  margin: 0 auto;
+  background: var(--glass);
+  border-radius: var(--r-pill);
+  padding: 3px;
+  align-items: center;
+}
+
+.pill-nav > button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  padding: 6px 15px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast);
+  white-space: nowrap;
+}
+
+.pill-nav > button:hover {
+  color: var(--ink);
+}
+
+.pill-nav > button.on {
+  background: var(--glass-2);
+  color: var(--ink);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* device pill */
+.devpill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-soft);
+  border-radius: var(--r-pill);
+  padding: 6px 13px;
+  font-size: 12.5px;
+  color: var(--ok);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+  max-width: 240px;
+}
+
+.devpill:hover {
+  background: var(--glass-2);
+}
+
+.devpill .devpill-name {
+  font-weight: 600;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.devpill .devpill-state {
+  color: var(--ok);
+  opacity: 0.85;
+}
+
+.devpill .devpill-chevron {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* refresh control */
+.refresh-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refresh-select {
+  width: auto;
+  height: 36px;
+  font-size: var(--text-sm);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* popover anchoring */
+.nav-pop {
+  position: relative;
+  display: inline-flex;
+}
+
+.popover {
+  top: calc(100% + 8px);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.popover-right {
+  right: 0;
+}
+
+.popover-left {
+  left: 0;
+}
+
+.alert-item {
+  cursor: default;
+  align-items: flex-start;
+}
+
+.alert-item .status-dot {
+  margin-top: 6px;
+}
+
+/* ---------- warning bar (§6) ---------- */
+.warnbar {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-soft);
+  color: var(--warn);
+  border-radius: var(--r-md);
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  cursor: pointer;
+}
+
+.warnbar-icon {
+  flex: none;
+}
+
+.warnbar-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.warnbar-more {
+  flex: none;
+  font-size: var(--text-xs);
+  opacity: 0.85;
+}
+
+/* ---------- mobile bottom nav (§11) ---------- */
+.bottomnav {
+  display: none;
+}
+
+.mobile-more {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 767px) {
+  .shell {
+    padding: 14px 14px 110px;
+  }
+
+  .pill-nav,
+  .refresh-select,
+  .devpill .devpill-state {
+    display: none;
+  }
+
+  .topnav {
+    top: 8px;
+    margin-bottom: var(--space-4);
+  }
+
+  .brand {
+    margin-right: auto;
+  }
+
+  /* §11: backdrop-filter only on the top and bottom bars */
+  .bottomnav {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex;
+    gap: 2px;
+    padding: 4px;
+    border-radius: var(--r-pill);
+  }
+
+  .bottomnav button {
+    border: 0;
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 12.5px;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .bottomnav button.on {
+    background: var(--glass-2);
+    color: var(--ink);
+  }
+}
+
+/* ---------- startup / setup placeholders ---------- */
+.startup-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+}
+
+.startup-card {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-6);
+  border-radius: var(--r-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.setup-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.setup-brand h1 {
+  font-size: var(--text-page-title);
+}
+
+.setup-brand p {
+  font-size: var(--text-sm);
+}
+
+.startup-error {
+  color: var(--err);
+  font-size: var(--text-sm);
+  background: var(--err-soft);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+}
+
+/* ---------- page stub ---------- */
+.stub-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2);
+}
+
+.stub-icon {
+  font-size: 28px;
+}
+
+.glass-skeleton {
+  border-radius: var(--r-lg);
+}
+
+/* ---------- chart chrome (uPlot wrappers) ---------- */
+.traffic-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chart-legend {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  justify-content: flex-end;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend-item b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.chart-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.chart-dot-down {
+  background: var(--series-1);
+}
+
+.chart-dot-up {
+  background: var(--series-2);
+}
+
+.chart-frame {
+  position: relative;
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.uplot,
+.uplot * {
+  user-select: none;
+}

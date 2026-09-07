@@ -10,9 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "echarts": "^6.1.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
