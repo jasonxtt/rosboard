@@ -38,20 +38,6 @@ export function EgressFields({ draft, discovery, onChange, readOnly = false, sho
           <Field label="出口名称" hint={draft.id ? '名称创建后不可修改' : '例如：电信 · PPPoE'}>
             <Input value={draft.name} onChange={(name) => patch({ name })} placeholder="给这条 WAN 线路起个名字" disabled={readOnly || Boolean(draft.id)} />
           </Field>
-          <Field label="优先级" hint="数字越小越优先">
-            <Input type="number" min={0} value={String(draft.priority)} onChange={(value) => patch({ priority: Number(value) || 0 })} disabled={readOnly} />
-          </Field>
-          <Field label="地址列表" hint="共享列表可被等价出口复用">
-            <Select
-              value={draft.listMode === 'dedicated' ? 'dedicated' : 'shared'}
-              onChange={(listMode) => patch({ listMode })}
-              disabled={readOnly}
-              options={[
-                { value: 'shared', label: '共享地址列表' },
-                { value: 'dedicated', label: '独立地址列表' },
-              ]}
-            />
-          </Field>
         </div>
       ) : null}
       {(['ipv4', 'ipv6'] as const).map((family) => (
@@ -286,6 +272,7 @@ export function EgressModal({ deviceID, egress, onClose, onSaved }: EgressModalP
   return (
     <Modal
       open
+      persistent
       onClose={() => {
         if (!saving) onClose()
       }}

@@ -44,7 +44,7 @@ export function DangerZone() {
         完全重新初始化
       </Button>
 
-      <Modal open={open} onClose={resetting ? () => undefined : () => setOpen(false)} title="完全重新初始化">
+      <Modal open={open} persistent onClose={resetting ? () => undefined : () => setOpen(false)} title="完全重新初始化">
         <div className="purge-confirm">
           <p>
             此操作会删除<strong>管理员账号、全部设备配置和所有采集历史</strong>，无法撤销。输入「RESET」以确认。

@@ -330,6 +330,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
     <>
       <Modal
         open
+        persistent
         onClose={() => {
           if (!busy) onClose()
         }}

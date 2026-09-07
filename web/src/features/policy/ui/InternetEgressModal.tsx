@@ -35,6 +35,7 @@ export function InternetEgressModal({ candidates, busy = false, onClose, onSubmi
   return (
     <Modal
       open
+      persistent
       onClose={() => {
         if (!busy) onClose()
       }}

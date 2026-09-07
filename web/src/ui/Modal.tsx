@@ -9,18 +9,26 @@ type ModalProps = {
   footer?: ReactNode
   /** defaults to the 640px §7 dialog width */
   maxWidth?: number
+  /**
+   * Form dialogs set this to true: clicking the overlay or pressing Esc will
+   * NOT close the dialog, so an accidental click or an IME Esc never drops
+   * unsaved input. Only the explicit ✕ / cancel / save controls close it.
+   */
+  persistent?: boolean
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 /** Centered glass dialog; becomes a bottom sheet below 768px. Esc closes, focus is trapped. */
-export function Modal({ open, onClose, title, children, footer, maxWidth = 640 }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, maxWidth = 640, persistent = false }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   // onClose identity changes on every parent render (polling pages); keep it in
   // a ref so the open effect below runs once per open transition, not per render.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+  const persistentRef = useRef(persistent)
+  persistentRef.current = persistent
 
   useEffect(() => {
     if (!open) return
@@ -35,6 +43,9 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 640 }
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Persistent dialogs ignore Esc — IME candidate cancellation also
+        // fires Esc and must not drop unsaved form input.
+        if (persistentRef.current) return
         event.stopPropagation()
         onCloseRef.current()
         return
@@ -73,7 +84,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 640 }
     <div
       className="modal-overlay"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (!persistent && event.target === event.currentTarget) onClose()
       }}
     >
       <div

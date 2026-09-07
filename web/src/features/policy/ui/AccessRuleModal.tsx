@@ -63,6 +63,7 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
     <>
       <Modal
         open
+        persistent
         onClose={() => {
           if (!saving) onClose()
         }}

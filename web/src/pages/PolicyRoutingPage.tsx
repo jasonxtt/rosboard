@@ -22,11 +22,9 @@ import {
 } from '../features/policy/canonical'
 import {
   deleteEgress,
-  fetchInterfaceRates,
   fetchPolicyOverviewMeta,
   jobIdOf,
   setEgressEnabled,
-  type InterfaceRate,
   type PolicyOverviewMeta,
 } from '../features/policy/api'
 import { EgressCard } from '../features/policy/ui/EgressCard'
@@ -93,7 +91,6 @@ export default function PolicyRoutingPage() {
   const { selectedDeviceId, reloadNonce } = useShell()
   const [context, setContext] = useState<RoutingContext | null>(null)
   const [meta, setMeta] = useState<PolicyOverviewMeta | null>(null)
-  const [rates, setRates] = useState<Map<string, InterfaceRate> | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [trackedJob, setTrackedJob] = useState<TrackedJob | null>(null)
@@ -120,12 +117,6 @@ export default function PolicyRoutingPage() {
         if (!silent) setLoadError(errorMessage(error, '策略路由读取失败'))
       } finally {
         setInitialLoading(false)
-      }
-      // Live rates are best-effort; never let them break the page.
-      try {
-        setRates(await fetchInterfaceRates(selectedDeviceId))
-      } catch {
-        /* keep previous rates */
       }
     },
     [selectedDeviceId],
@@ -363,7 +354,6 @@ export default function PolicyRoutingPage() {
             <EgressCard
               key={egress.id}
               egress={egress}
-              rates={rates ?? undefined}
               busy={busyId === egress.id}
               onEdit={() => setEgressEditor(egress)}
               onDelete={() => {
@@ -395,7 +385,9 @@ export default function PolicyRoutingPage() {
       </div>
       {context.rules.length ? (
         <div className="pol-rule-list">
-          {context.rules.map((rule) => {
+          {[...context.rules]
+            .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'zh-Hans-CN'))
+            .map((rule) => {
             const egress = egressByID.get(rule.egressId)
             const status = ruleStatus(rule, egress)
             const pending = status.label === '待应用'
