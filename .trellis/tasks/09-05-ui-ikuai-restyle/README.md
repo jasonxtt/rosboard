@@ -1,10 +1,10 @@
 # UI restyle: handoff entry
 
-**2026-09-07: Phase 1 implemented; awaiting user visual review.**
+**2026-09-07: Overview direction approved; requested amendments and remaining-page styling implemented.**
 
-The latest user instruction explicitly authorized implementation on `codex/ui-compact-rebuild`, Draft PR #6, limited to shared appearance, compact navigation and overview. This supersedes the earlier planning-only instructions below. Further page migration waits for the user's visual confirmation. No production deployment or merge is authorized.
+The user approved the overview's overall appearance and explicitly requested removal of its system-status module, moving storage usage and data freshness into device information, renaming interface information to WAN信息, and a new mobile order. The same instruction authorizes extending the compact treatment to remaining pages. This supersedes the phase-1 pause below. Final visual and integrated business acceptance remain pending; no production deployment or merge is authorized.
 
-See [the phase-1 checkpoint](research/phase1-checkpoint.md) for verification, the actual application preview and review steps.
+See [the rollout checkpoint](research/rollout-checkpoint.md) for changes, verification, preservation boundaries and the updated actual application preview. The [phase-1 checkpoint](research/phase1-checkpoint.md) is historical evidence.
 
 ## Planning history (superseded by the authorization above)
 

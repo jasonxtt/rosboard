@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated read-only fixture API for reviewing the actual phase-1 React build.
+"""Isolated read-only fixture API for reviewing the actual compact React build.
 
 Run with Python, then point ROSBOARD_DEV_PROXY at http://127.0.0.1:18792.
 No RouterOS connection, credentials, persistent writes, or production API proxy.
@@ -63,12 +63,61 @@ def fixture(device_id, window):
                   terminalOnline=count, terminalInactive=6, terminalOffline=9, connectionCount=719,
                   connectionTCP=630, connectionUDP=80, connectionOther=9, uptime=overview['uptime'])
              for i, d in enumerate(devices)]
-    dashboard = dict(overview=overview, interfaces=interfaces, terminals=[], protocols=[], policies=[],
+    terminals = [dict(id=f'lab-{i}', displayName=name, autoName=name, customName='', remark='模拟终端',
+                      macAddress=f'02:00:00:00:01:{i:02x}', primaryInterface='ether2',
+                      ipv4=[f'198.51.100.{i+8}'], ipv6=[f'2001:db8::{i}'],
+                      routingIpv4=[f'198.51.100.{i+8}'], routingIpv6=[f'2001:db8::{i}'], autoEligible=True,
+                      connectionCount=12*i, currentUploadBps=12000*i, currentDownloadBps=400000*i,
+                      totalUploadBytes=1000000*i, totalDownloadBytes=6000000*i,
+                      trackingSince=stamp, lastSeen=stamp, primaryIpv4=f'198.51.100.{i+8}',
+                      primaryIpv6=f'2001:db8::{i}', state='online', onlineSince=stamp, familyStats={})
+                 for i, name in enumerate(['办公电脑', '客厅平板', '测试手机'], 1)]
+    overview['systemResource'] = dict(architectureName='arm64', cpuCount='4', cpuFrequency='1400',
+                                     cpu='ARM', boardName=overview['boardName'], cpuCores=[], irqs=[], hardware=[])
+    dashboard = dict(overview=overview, interfaces=interfaces, terminals=terminals, protocols=[], policies=[],
                      routes=[], capabilities=[], warnings=[], alerts=[], dhcp=dict(servers=[], pools=[], leases=[]))
-    return {'/api/bootstrap': dict(phase='ready', username='preview'), '/api/devices': dict(devices=devices),
+    data = {'/api/bootstrap': dict(phase='ready', username='preview'), '/api/devices': dict(devices=devices),
             '/api/settings': settings, '/api/dashboard': dashboard, '/api/realtime': overview,
             '/api/load': dict(samples=samples), '/api/traffic-history': dict(samples=samples),
             '/api/fleet-overview': dict(totalDevices=2, onlineDevices=2, offlineDevices=0, alertDevices=0, devices=fleet)}
+    targets = [dict(id=f'target-{kind}', name=name, kind=kind, sourceType='manual', schedule='24h',
+                    enabled=True, activeVersionId='v1', revision=1, pendingDeletion=False,
+                    counts=dict(validRules=3), usage=dict(routingRuleCount=1, accessRuleCount=0),
+                    versions=[], editableContent='example.com' if kind == 'domain' else '203.0.113.0/24')
+               for kind, name in [('domain', '办公域名'), ('ip', '测试网段')]]
+    ingress = dict(interfaceLists=[], interfaces=['ether2'])
+    subject = dict(mode='selected', members=[dict(terminalId='lab-1', binding='auto', pinnedIpv4=[], pinnedIpv6=[])], prefixes=[])
+    egress = dict(id='egress-1', name='主线路', priority=1, enabled=True, pendingDeletion=False, revision=1,
+                  applied=True, failureMode='strict', routerOutput=False, families=[dict(family='ipv4', enabled=True,
+                  wanInterface='ether1', gateway='192.0.2.1', routeTable='lab', routeMode='strict', natMode='', wanSource='')])
+    data.update({
+        '/api/target-lists': dict(targetLists=targets),
+        '/api/application-presets': dict(presets=[]),
+        '/api/policy-routing/overview': dict(egresses=[egress], trafficIngress=ingress),
+        '/api/policy-routing/rules': dict(rules=[dict(id='rule-1', name='办公设备走主线路', subject=subject,
+            ingress=ingress, targetListIds=['target-domain'], egressId='egress-1', priority=10, enabled=True, revision=1)]),
+        '/api/policy-routing/discovery': dict(available=True, warnings=[], wans=[dict(interface='ether1',
+            type='ether', running=True, pointToPoint=False, proven=True, routes=[dict(family='ipv4',
+            destination='0.0.0.0/0', gateway='192.0.2.1', immediateGateway='192.0.2.1%ether1',
+            table='main', active=True, proven=True)])], trafficIngress=[dict(name='ether2', kind='interface',
+            include=[], exclude=[], staticMembers=[], dynamicMembers=False, frozen=False,
+            addresses=['198.51.100.1/24'], reason='模拟 LAN 入口', coveredBy=[], default=True, dynamic=False, running=True)]),
+        '/api/protocols': dict(protocols=[], history=[]),
+    })
+    for device in devices:
+        data[f"/api/access-control/devices/{device['id']}"] = dict(device=device, terminals=terminals,
+            targetLists=targets, rules=[dict(id='access-1', name='测试设备互联网限制', subject=subject,
+            targetScope='internet', targetListIds=[], enabled=False, revision=1, members=[], status='disabled', issues=[])],
+            state=dict(desiredRevision=1, appliedRevision=1), boundary='仅作用于受控设备的转发流量，局域网访问不受影响。')
+    for item in targets:
+        data[f"/api/target-lists/{item['id']}"] = item
+    for item in interfaces:
+        data[f"/api/interfaces/{item['name']}"] = dict(interface=item, samples=samples)
+    for item in terminals:
+        data[f"/api/terminals/{item['id']}"] = dict(terminal=item, connections=[], history=samples,
+            capabilities=[], flowCategories=[], familySummaries={}, routeInterfaces=[], egressInterfaces=[])
+    return data
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -87,10 +136,20 @@ class Handler(BaseHTTPRequestHandler):
         if url.path in data:
             self.reply(200, data[url.path])
         else:
-            self.reply(501, dict(error='此隔离预览仅提供第一阶段监控数据，其他业务接口尚未连接。'))
+            self.reply(501, dict(error='此隔离预览未模拟该接口；没有连接真实设备。'))
 
     def do_POST(self):
-        if urlparse(self.path).path in ('/api/viewer-heartbeat', '/api/terminal-viewer-heartbeat'):
+        if self.command == 'POST' and urlparse(self.path).path == '/api/policy-routing/plans':
+            # A display fixture only; applying it still returns the write-rejection below.
+            self.reply(200, dict(planId='preview-plan', planHash='synthetic-preview', readOnly=True,
+                plan=dict(planID='preview-plan', planHash='synthetic-preview', kind='routing', state='preview',
+                desiredRevision=1, actualFingerprint='synthetic', lifecycle='prepared',
+                createdAt=datetime.now(timezone.utc).isoformat(), blockers=[], familyBlockers=[],
+                warnings=[dict(code='preview_only', reason='这是模拟变更计划，仅用于检查界面，不会写入设备。')],
+                pendingReview=False, acknowledgements=[dict(code='确认模拟预览', required=True, accepted=False)],
+                operations=[dict(seq=1, phase='routing', action='create', menu='routing/table', family='ipv4',
+                    after=dict(comment='preview | 模拟策略路由表'))], executionGroups=[], summary={})))
+        elif urlparse(self.path).path in ('/api/viewer-heartbeat', '/api/terminal-viewer-heartbeat'):
             self.reply(200, {})
         else:
             self.reply(405, dict(error='模拟数据预览不执行业务写入。'))

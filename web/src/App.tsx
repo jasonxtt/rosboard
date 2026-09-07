@@ -3007,6 +3007,8 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
     .sort((left, right) => Number(right.running && !right.disabled) - Number(left.running && !left.disabled))
     .slice(0, 7)
 
+  const freshnessSeconds = Math.max(0, (Date.now() - new Date(overview.updatedAt).getTime()) / 1000)
+  const fresh = Number.isFinite(freshnessSeconds) && freshnessSeconds <= 30
   const wanInterfaces = interfaces.filter((item) => overview.trafficInterfaces.includes(item.name))
   const wanAddresses = wanInterfaces.flatMap((item) => item.addresses)
   const quickLinks: Array<{ key: string; label: string; icon: IconName }> = [
@@ -3081,8 +3083,8 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
 
       <section className="overview-main-grid">
         <div className="overview-side">
-          <section className="panel reference-panel">
-            <div className="panel-head reference-panel-head"><h3>接口信息</h3><span>WAN 汇总</span></div>
+          <section className="panel reference-panel overview-wan">
+            <div className="panel-head reference-panel-head"><h3>WAN信息</h3><span>WAN 汇总</span></div>
             <dl className="overview-info-list">
               <div><dt>流量接口</dt><dd>{overview.trafficInterfaces.join('、') || '-'}</dd></div>
               <div><dt>接口类型</dt><dd>{[...new Set(wanInterfaces.map((item) => item.type))].join('、') || '-'}</dd></div>
@@ -3097,13 +3099,13 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
             </dl>
             <button type="button" className="overview-detail-link" onClick={() => props.onQuickLink('interfaces')}>查看全部接口 →</button>
           </section>
-          <section className="panel reference-panel">
+          <section className="panel reference-panel overview-shortcuts">
             <div className="panel-head reference-panel-head"><h3>快捷入口</h3></div>
             <div className="quick-link-grid">
               {quickLinks.map((link) => <button key={link.key} type="button" className="quick-link" onClick={() => props.onQuickLink(link.key)}><Icon name={link.icon} /><span>{link.label}</span></button>)}
             </div>
           </section>
-          <section className="panel reference-panel">
+          <section className="panel reference-panel overview-device">
             <div className="panel-head reference-panel-head"><h3>设备信息</h3></div>
             <dl className="overview-info-list">
               <div><dt>设备名称</dt><dd>{props.deviceName || overview.routerName || '-'}</dd></div>
@@ -3114,6 +3116,8 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
               <div><dt>处理器</dt><dd>{overview.systemResource?.cpuCount ? `${overview.systemResource.cpuCount} 核心` : '-'}</dd></div>
               <div><dt>系统版本</dt><dd>{overview.version || '-'}</dd></div>
               <div><dt>运行时间</dt><dd>{overview.uptime || '-'}</dd></div>
+              <div><dt>存储使用率</dt><dd>{overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '-'} <StatusText ok={!overview.storageTotalBytes || overview.storageUsedPercent < 85} trueText="正常" falseText="注意" /></dd></div>
+              <div><dt>数据新鲜度</dt><dd>{Number.isFinite(freshnessSeconds) ? relativeUpdateTime(overview.updatedAt) : '-'} <StatusText ok={fresh} trueText="正常" falseText="注意" /></dd></div>
             </dl>
             <button type="button" className="overview-detail-link" onClick={() => props.onQuickLink('resource')}>资源监控 →</button>
           </section>
@@ -3129,11 +3133,6 @@ function OverviewPage(props: { dashboard: DashboardResponse; loadSamples: LoadSa
         <section className="overview-resource-grid">
         <MetricCard title="CPU 使用率" value={`${overview.cpuLoadPercent}%`} detail="当前负载" icon="cpu" tone="blue" samples={cpuSamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(cpuValues).toFixed(0)}%`} footerRight={`峰值 ${maximum(cpuValues).toFixed(0)}%`} progress={overview.cpuLoadPercent} />
         <MetricCard title="内存使用率" value={`${overview.memoryUsedPercent.toFixed(1)}%`} icon="memory" tone="green" samples={memorySamples} formatSample={(value) => `${value.toFixed(1)}%`} footerLeft={`平均 ${average(memoryValues).toFixed(1)}%`} footerRight={`峰值 ${maximum(memoryValues).toFixed(1)}%`} progress={overview.memoryUsedPercent} />
-        </section>
-
-        <section className="panel reference-panel status-panel">
-          <div className="panel-head reference-panel-head"><h3>系统状态</h3></div>
-          <SystemStatusList dashboard={props.dashboard} />
         </section>
 
         <section className="panel reference-panel interface-summary-panel">
@@ -3216,24 +3215,6 @@ function MiniSparkline(props: { title: string; samples: MetricSample[]; format: 
     <svg className="mini-sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><polyline points={points} />{active ? <line className="mini-sparkline-pointer" x1={active.x} x2={active.x} y1={1} y2={height - 1} /> : null}</svg>
     {active && sample ? <><i className="mini-sparkline-point" style={{ left: `${active.x / width * 100}%`, top: `${active.y / height * 100}%` }} /><span className={`metric-tooltip${active.x > width / 2 ? ' align-right' : ''}`} style={{ left: `${active.x / width * 100}%` }}><small>时间：{metricSampleTime(sample.timestamp)}</small><strong>{props.title}：{props.format(sample.value)}</strong></span></> : null}
   </div>
-}
-
-function SystemStatusList(props: { dashboard: DashboardResponse }) {
-  const { overview } = props.dashboard
-  const interfaces = props.dashboard.interfaces ?? []
-  const activeInterfaces = interfaces.filter((item) => item.running && !item.disabled).length
-  const updatedAt = new Date(overview.updatedAt)
-  const freshnessSeconds = Math.max(0, (Date.now() - updatedAt.getTime()) / 1000)
-  const fresh = Number.isFinite(freshnessSeconds) && freshnessSeconds <= 30
-  const rows = [
-    { icon: 'runtime' as IconName, label: '运行时间', value: overview.uptime || '-', ok: Boolean(overview.uptime) },
-    { icon: 'router' as IconName, label: 'RouterOS 版本', value: overview.version || '-', ok: Boolean(overview.version) },
-    { icon: 'refresh' as IconName, label: '最后成功采集', value: Number.isNaN(updatedAt.getTime()) ? '-' : formatDateTime(overview.updatedAt), ok: fresh },
-    { icon: 'network' as IconName, label: '活动接口', value: `${activeInterfaces} / ${interfaces.length}`, ok: activeInterfaces > 0 },
-    { icon: 'storage' as IconName, label: '存储使用率', value: overview.storageTotalBytes ? `${overview.storageUsedPercent.toFixed(1)}%` : '-', ok: !overview.storageTotalBytes || overview.storageUsedPercent < 85 },
-    { icon: 'shield' as IconName, label: '数据新鲜度', value: Number.isFinite(freshnessSeconds) ? relativeUpdateTime(overview.updatedAt) : '-', ok: fresh },
-  ]
-  return <div className="system-status-list">{rows.map((row) => <div className="system-status-row" key={row.label}><span className="status-row-icon"><Icon name={row.icon} /></span><span>{row.label}</span><strong>{row.value}</strong><StatusText ok={row.ok} trueText="正常" falseText="注意" /></div>)}</div>
 }
 
 function StatusText(props: { ok: boolean; trueText: string; falseText: string }) { return <span className={props.ok ? 'status-text status-good' : 'status-text status-bad'}><i />{props.ok ? props.trueText : props.falseText}</span> }

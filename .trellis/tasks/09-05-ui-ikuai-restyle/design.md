@@ -66,3 +66,8 @@ Preview retains all configuration and plan metadata, grouped operations, family/
 - `internal/ui/dist`: update only as a deliberate verified frontend build checkpoint during later implementation, never during planning.
 
 The preserved study stays immutable. If the user changes the visual direction, record an explicit new revision rather than silently editing the accepted reference.
+
+
+## Accepted overview amendment — 2026-09-07
+
+Latest user feedback approves the overall overview direction and authorizes rollout to remaining pages. Remove the separate system-status module; retain storage usage and data freshness in device information. Rename the WAN summary to **WAN信息**. Desktop left order remains WAN信息 → 快捷入口 → 设备信息. On mobile keep the header cards unchanged; after 活动连接 use 实时流量 → 快捷入口 → WAN信息 → CPU使用率 → 内存使用率 → 接口状态 → 设备信息 → 当前告警. This explicit amendment supersedes earlier system-status preservation and mobile ordering instructions; it does not authorize other business-field or control deletions. The frozen preview stays unchanged.
