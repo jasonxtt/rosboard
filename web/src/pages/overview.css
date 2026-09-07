@@ -33,14 +33,38 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
   font-size: var(--text-md);
   color: var(--ink-2);
 }
 
+.ov-hero-statustext {
+  flex: none;
+}
+
+/* Device identity is capped at half the hero width (user requirement) so the
+   window picker always keeps its space; full text stays available via title. */
 .ov-hero-device {
   font-weight: 600;
   color: var(--ink);
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-hero-uptime {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-hero-window {
+  margin-left: auto;
+  flex: none;
 }
 
 .ov-big {
@@ -76,30 +100,19 @@
   margin-top: 2px;
 }
 
-/* chart bottom-bleed: canvas runs edge to edge (§9.1 hero) */
+/* chart bottom-bleed: canvas runs edge to edge (§9.1 hero). The hero big
+   numbers already carry the live rates, so the chart's own legend readout is
+   hidden in this context. */
 .ov-chart {
-  margin: var(--space-4) calc(-1 * var(--space-6)) 0;
+  margin: var(--space-3) calc(-1 * var(--space-6)) 0;
   display: flex;
   flex-direction: column;
   flex: 1;
   justify-content: flex-end;
 }
 
-.ov-chart-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 0 var(--space-6) var(--space-2);
-}
-
-.ov-chart-title {
-  font-size: var(--text-card-title);
-  font-weight: 650;
-}
-
 .ov-chart-bleed .chart-legend {
-  padding: 0 var(--space-6);
+  display: none;
 }
 
 /* ---------- side gauges card ---------- */
@@ -108,21 +121,39 @@
   padding: var(--space-5) var(--space-5);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: var(--space-4);
 }
 
 .ov-gauges {
   display: flex;
   justify-content: space-around;
   gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-3);
 }
 
+/* Meta rows fill the remaining card height evenly (no dead zones), and the
+   fixed label column keeps values close to their labels instead of scattered
+   across the full card width. */
 .ov-meta {
   display: flex;
   flex-direction: column;
+  justify-content: space-evenly;
+  flex: 1;
   border-top: 1px solid var(--stroke);
-  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.ov-meta .kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.ov-meta .kv b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ov-warn-text {
@@ -329,6 +360,20 @@
     padding: var(--space-5) var(--space-5) 0;
   }
 
+  .ov-hero-status {
+    flex-wrap: wrap;
+  }
+
+  .ov-hero-device {
+    max-width: 100%;
+  }
+
+  .ov-hero-window {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .ov-big {
     font-size: 32px;
   }
@@ -338,13 +383,7 @@
   }
 
   .ov-chart {
-    margin: var(--space-4) calc(-1 * var(--space-5)) 0;
-  }
-
-  .ov-chart-head,
-  .ov-chart-bleed .chart-legend {
-    padding-left: var(--space-5);
-    padding-right: var(--space-5);
+    margin: var(--space-3) calc(-1 * var(--space-5)) 0;
   }
 
   .ov-terms {

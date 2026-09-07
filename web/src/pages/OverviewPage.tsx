@@ -85,21 +85,39 @@ function HeroSkeleton() {
   )
 }
 
-function Hero({ overview, issueCount }: { overview: Overview; issueCount: number }) {
+function Hero({
+  overview,
+  issueCount,
+  trafficWindow,
+  onWindowChange,
+}: {
+  overview: Overview
+  issueCount: number
+  trafficWindow: ChartWindow
+  onWindowChange: (next: ChartWindow) => void
+}) {
   const down = splitBitRate(overview.downloadBps)
   const up = splitBitRate(overview.uploadBps)
   const states = overview.terminalStateCounts
   const terminalTotal = Math.max(0, states.online + states.inactive + states.offline)
   const protocols = overview.connectionProtocolCounts
+  // CHR boards report identical routerName/boardName — dedupe, then CSS caps
+  // the identity at half the hero width so the window picker keeps its space.
+  const identity = useMemo(() => {
+    const parts = [overview.routerName.trim(), overview.boardName.trim()].filter(Boolean)
+    const unique = parts.filter((part, index) => index === 0 || part !== parts[index - 1])
+    return unique.join(' · ') || 'RouterOS 设备'
+  }, [overview.routerName, overview.boardName])
   return (
     <>
       <div className="ov-hero-status">
         <StatusDot tone={issueCount > 0 ? 'warn' : 'ok'} pulse={issueCount === 0} />
-        <span>{issueCount > 0 ? `存在 ${issueCount} 条告警` : '网络状态极佳'}</span>
-        <span className="ov-hero-device">
-          {[overview.routerName, overview.boardName].filter(Boolean).join(' · ') || 'RouterOS 设备'}
+        <span className="ov-hero-statustext">{issueCount > 0 ? `存在 ${issueCount} 条告警` : '网络状态极佳'}</span>
+        <span className="ov-hero-device" title={identity}>
+          {identity}
         </span>
-        <span className="faint">已运行 {formatUptime(overview.uptime)}</span>
+        <span className="faint ov-hero-uptime">已运行 {formatUptime(overview.uptime)}</span>
+        <SegTabs className="ov-hero-window" options={WINDOW_OPTIONS} value={trafficWindow} onChange={onWindowChange} ariaLabel="流量时间窗口" />
       </div>
       <div className="ov-big num">
         {down.value} <small>{down.unit} 下载</small>
@@ -403,12 +421,8 @@ export default function OverviewPage() {
       ) : (
         <div className="ov-hero-grid">
           <Glass className="ov-hero">
-            <Hero overview={overview} issueCount={issueCount} />
+            <Hero overview={overview} issueCount={issueCount} trafficWindow={trafficWindow} onWindowChange={changeWindow} />
             <div className="ov-chart">
-              <div className="ov-chart-head">
-                <span className="ov-chart-title">实时流量</span>
-                <SegTabs options={WINDOW_OPTIONS} value={trafficWindow} onChange={changeWindow} ariaLabel="流量时间窗口" />
-              </div>
               <TrafficChart
                 samples={traffic.data?.samples ?? []}
                 window={trafficWindow}
