@@ -56,6 +56,8 @@ export type Overview = {
   healthEnabled: boolean
   updatedAt: string
   chartSamples: RateSample[]
+  /** Light pick from the nested systemResource payload (values arrive as strings). */
+  system: { architectureName: string; cpu: string; cpuCount: string; cpuFrequency: string }
 }
 
 export type InterfaceRelation = { kind: 'carrier' | 'parent' | 'bridge' | 'member' | string; interface: string }
@@ -278,6 +280,7 @@ export function parseOverview(value: unknown): Overview {
   const o = safeObject(value)
   const states = safeObject(o.terminalStateCounts)
   const protocols = safeObject(o.connectionProtocolCounts)
+  const system = safeObject(o.systemResource)
   return {
     routerName: safeString(o.routerName),
     platform: safeString(o.platform),
@@ -301,6 +304,12 @@ export function parseOverview(value: unknown): Overview {
     healthEnabled: safeBoolean(o.healthEnabled),
     updatedAt: safeString(o.updatedAt),
     chartSamples: safeArray<unknown>(o.chartSamples).map(parseRateSample),
+    system: {
+      architectureName: safeString(system.architectureName),
+      cpu: safeString(system.cpu),
+      cpuCount: safeString(system.cpuCount),
+      cpuFrequency: safeString(system.cpuFrequency),
+    },
   }
 }
 
