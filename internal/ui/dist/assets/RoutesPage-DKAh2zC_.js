@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`🛣️`,title:`路由 / 分流`,description:`路由表条目、分流标记与规则命中情况`})}export{r as default};

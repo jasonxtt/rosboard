@@ -1,0 +1,1 @@
+import{r as e}from"./index-C60J2g8c.js";import{t}from"./PageStub-Ds9jPfzI.js";var n=e();function r(){return(0,n.jsx)(t,{icon:`📱`,title:`终端监控`,description:`局域网终端的在线状态、连接数、实时速率与详情`})}export{r as default};
