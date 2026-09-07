@@ -11,7 +11,10 @@ type SparklineProps = {
   ariaLabel?: string
 }
 
-/** Small SVG sparkline; non-scaling stroke, fills its container width (§7/§8). */
+/**
+ * Small SVG sparkline; non-scaling stroke, fills its container width (§7/§8).
+ * `stroke` accepts any CSS color — pass token references like 'var(--accent)'.
+ */
 export function Sparkline({ points, width = 120, height = 34, stroke = 'var(--accent)', area = true, ariaLabel }: SparklineProps) {
   const gradientId = useId()
   if (points.length < 2) {
@@ -44,14 +47,22 @@ export function Sparkline({ points, width = 120, height = 34, stroke = 'var(--ac
         <>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor={stroke} stopOpacity="0.28" />
-              <stop offset="1" stopColor={stroke} stopOpacity="0" />
+              <stop offset="0" style={{ stopColor: stroke, stopOpacity: 0.28 }} />
+              <stop offset="1" style={{ stopColor: stroke, stopOpacity: 0 }} />
             </linearGradient>
           </defs>
-          <path d={fill} fill={`url(#${gradientId})`} stroke="none" />
+          <path d={fill} stroke="none" style={{ fill: `url(#${gradientId})` }} />
         </>
       ) : null}
-      <path d={line} fill="none" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path
+        d={line}
+        fill="none"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+        style={{ stroke }}
+      />
     </svg>
   )
 }
