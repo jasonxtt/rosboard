@@ -180,6 +180,10 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
+        <div className="kv ov-meta-wide" title={cpuLine(overview)}>
+          <span>CPU</span>
+          <b>{cpuLine(overview)}</b>
+        </div>
         <div className="ov-meta-col">
           <div className="kv">
             <span>RouterOS 版本</span>
@@ -188,10 +192,6 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
           <div className="kv">
             <span>平台 / 架构</span>
             <b title={platformArch}>{platformArch || '-'}</b>
-          </div>
-          <div className="kv">
-            <span>CPU</span>
-            <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
           </div>
           <div className="kv">
             <span>运行时长</span>
