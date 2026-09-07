@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard · 风格 04 · CRT 终端</title>
+<style>
+  :root{
+    --bg:#050805; --panel:#070b07;
+    --grn:#3dff73; --grn-dim:#1f8f43; --grn-faint:#0f3d20;
+    --amb:#ffb000; --red:#ff4444; --cyn:#3de0ff;
+    --mono:"SF Mono","JetBrains Mono","Geist Mono",Menlo,Consolas,"PingFang SC",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:13px}
+  body{background:var(--bg);color:var(--grn);font-family:var(--mono);padding:14px;-webkit-font-smoothing:antialiased;
+    background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);}
+  .crt-glow{text-shadow:0 0 6px rgba(61,255,115,.45)}
+  .frame{max-width:1280px;margin:0 auto;border:1px solid var(--grn-dim);background:var(--panel);box-shadow:0 0 40px rgba(61,255,115,.08),inset 0 0 60px rgba(0,0,0,.5)}
+
+  .titlebar{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--grn-dim);padding:8px 14px;font-size:12px;letter-spacing:.06em}
+  .titlebar .led{width:8px;height:8px;border-radius:50%;background:var(--grn);box-shadow:0 0 8px var(--grn);animation:blink 2.4s infinite}
+  @keyframes blink{0%,92%{opacity:1}96%{opacity:.25}100%{opacity:1}}
+  .titlebar b{letter-spacing:.14em}
+  .titlebar .right{margin-left:auto;color:var(--grn-dim)}
+  .titlebar .fk{border:1px solid var(--grn-dim);padding:0 7px;cursor:pointer;color:var(--grn)}
+  .titlebar .fk.on{background:var(--grn);color:#04120a;font-weight:700;text-shadow:none}
+
+  .sec{border-bottom:1px solid var(--grn-faint);padding:10px 14px}
+  .sec-h{color:var(--grn-dim);font-size:11px;letter-spacing:.18em;margin-bottom:8px}
+  .sec-h b{color:var(--grn)}
+  .cols{display:grid;gap:14px}
+  .c4{grid-template-columns:repeat(4,1fr)} .c2{grid-template-columns:1.6fr 1fr} .c3{grid-template-columns:repeat(3,1fr)}
+
+  .kpi .big{font-size:26px;font-weight:700;letter-spacing:.02em}
+  .kpi .lbl{color:var(--grn-dim);font-size:10.5px;letter-spacing:.16em}
+  .kpi .sub{color:var(--grn-dim);font-size:11px;margin-top:2px}
+  .meter{font-size:12px;letter-spacing:1px;white-space:nowrap;overflow:hidden}
+  .meter .f{color:var(--grn)} .meter .e{color:var(--grn-faint)}
+  .amb{color:var(--amb);text-shadow:0 0 6px rgba(255,176,0,.4)}
+  .red{color:var(--red);text-shadow:0 0 6px rgba(255,68,68,.4)}
+  .cyn{color:var(--cyn)}
+  .dim{color:var(--grn-dim)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{color:var(--grn-dim);text-align:left;font-weight:400;letter-spacing:.1em;font-size:10.5px;padding:4px 8px;border-bottom:1px dashed var(--grn-faint)}
+  td{padding:4.5px 8px;border-bottom:1px solid rgba(15,61,32,.5);white-space:nowrap}
+  tr:hover td{background:rgba(61,255,115,.06)}
+  .num{text-align:right}
+  .box{border:1px solid var(--grn-faint);padding:8px 10px}
+  .box .bt{color:var(--grn-dim);font-size:10.5px;letter-spacing:.14em;margin-bottom:6px}
+  .ascii-chart{font-size:12px;line-height:1.15;white-space:pre;letter-spacing:0;color:var(--grn);overflow:hidden}
+  .ascii-chart .u{color:var(--cyn)}
+  .legend{font-size:10.5px;color:var(--grn-dim);margin-top:4px;letter-spacing:.08em}
+  .kv{display:flex;justify-content:space-between;font-size:11.5px;padding:1.5px 0}
+  .footerbar{padding:7px 14px;font-size:11px;color:var(--grn-dim);display:flex;gap:16px;letter-spacing:.05em}
+  .footerbar b{color:var(--grn)}
+  a{color:var(--cyn);text-decoration:none;cursor:pointer}
+  .mock-note{position:fixed;left:12px;bottom:12px;background:#04120a;border:1px solid var(--grn-dim);color:var(--grn);font-size:11px;padding:7px 12px;z-index:9;font-family:var(--mono)}
+  .mock-note b{color:var(--cyn)}
+  .view{display:none}.view.on{display:block}
+  @media(max-width:900px){.c4{grid-template-columns:repeat(2,1fr)}.c2,.c3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="frame crt-glow">
+  <div class="titlebar">
+    <span class="led"></span>
+    <b>ROSBOARD v2.4.1</b>
+    <span class="dim">│</span><span>NODE: 主路由 (RB5009UG+S+)</span>
+    <span class="dim">│</span><span>ROS v7.22.3</span>
+    <span class="dim">│</span><span>UP 23d 04:12:55</span>
+    <span class="right">
+      <span class="fk on" data-view="dash">F1 MONITOR</span>
+      <span class="fk" data-view="policy">F2 POLICY</span>
+      <span class="fk">F3 LOGS</span>
+    </span>
+  </div>
+
+  <!-- ======== MONITOR ======== -->
+  <section class="view on" id="view-dash">
+    <div class="sec">
+      <div class="sec-h">── SYSTEM ────────────────────────────────────────────────────────────</div>
+      <div class="cols c4">
+        <div class="kpi"><div class="lbl">CPU LOAD</div><div class="big">34%</div>
+          <div class="meter"><span class="f">███████████</span><span class="e">░░░░░░░░░░░░░░░░░░░░░</span></div>
+          <div class="sub">8 cores · peak 61% (1h)</div></div>
+        <div class="kpi"><div class="lbl">MEMORY</div><div class="big">61%</div>
+          <div class="meter"><span class="f">███████████████████</span><span class="e">░░░░░░░░░░░░░</span></div>
+          <div class="sub">623 / 1024 MiB</div></div>
+        <div class="kpi"><div class="lbl">STORAGE</div><div class="big">42%</div>
+          <div class="meter"><span class="f">█████████████</span><span class="e">░░░░░░░░░░░░░░░░░░░</span></div>
+          <div class="sub">58 MiB free</div></div>
+        <div class="kpi"><div class="lbl">CONNTRACK</div><div class="big">1482</div>
+          <div class="sub">tcp 1204 · udp 261 · oth 17</div>
+          <div class="sub">terminals <b>23</b>/41 online</div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">── WAN TRAFFIC · rx <b>▼186.4 Mbps</b> · tx <b>▲42.7 Mbps</b> ── window: <b>5m</b> [5m|1h|6h|24h] ──</div>
+      <div class="ascii-chart" id="asciiChart"></div>
+      <div class="legend">▓ rx (pppoe-out1 + ether2) &nbsp;&nbsp; <span class="cyn">─ tx</span> &nbsp;&nbsp; 1s sampling · source /interface/monitor-traffic</div>
+    </div>
+
+    <div class="sec">
+      <div class="cols c2">
+        <div>
+          <div class="sec-h">── TOP TERMINALS ─────────────────────────────────────────── <a>[all 41]</a></div>
+          <table>
+            <thead><tr><th>HOST</th><th>ADDR</th><th class="num">CONN</th><th class="num">RX</th><th class="num">TX</th><th>TREND</th><th>ST</th></tr></thead>
+            <tbody>
+              <tr><td>台式机·书房</td><td class="dim">192.168.88.22</td><td class="num">341</td><td class="num">52.1M</td><td class="num">6.3M</td><td>▂▅█▇█</td><td>●</td></tr>
+              <tr><td>小米电视·客厅</td><td class="dim">192.168.88.57</td><td class="num">23</td><td class="num">31.5M</td><td class="num">0.4M</td><td>▃█▇▆▅</td><td>●</td></tr>
+              <tr><td>iPhone 15 Pro</td><td class="dim">192.168.88.42</td><td class="num">86</td><td class="num">12.4M</td><td class="num">1.2M</td><td>▂▃▅▃▅</td><td>●</td></tr>
+              <tr><td>MacBook Pro 14</td><td class="dim">192.168.88.31</td><td class="num">214</td><td class="num">8.7M</td><td class="num">3.9M</td><td>▄▃▂▅▄</td><td>●</td></tr>
+              <tr><td>NAS·群晖</td><td class="dim">192.168.88.10</td><td class="num">178</td><td class="num">6.2M</td><td class="num">22.8M</td><td>▅▆▅▆▇</td><td>●</td></tr>
+              <tr><td class="dim">扫地机器人 vlan20</td><td class="dim">192.168.90.15</td><td class="num dim">3</td><td class="num dim">—</td><td class="num dim">—</td><td class="dim">▁▁▂▁▁</td><td class="amb">◐</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="sec-h">── EVENTS [2 active] ──────────────────────</div>
+          <table>
+            <tbody>
+              <tr><td class="amb">WARN</td><td>ether4 link flap ×6/10m</td><td class="num dim">12m</td></tr>
+              <tr><td class="cyn">INFO</td><td>dns feature db stale 3d</td><td class="num dim">3d</td></tr>
+              <tr><td>OK..</td><td>plan #a91f applied (42 ops)</td><td class="num dim">21h</td></tr>
+              <tr><td>OK..</td><td>gfwlist refreshed: 12480</td><td class="num dim">3h</td></tr>
+              <tr><td class="red">ERR.</td><td>ipv6 nd poll timeout ×1</td><td class="num dim">2h</td></tr>
+            </tbody>
+          </table>
+          <div class="sec-h" style="margin-top:12px">── INTERFACES ─────────────────────────────</div>
+          <table>
+            <tbody>
+              <tr><td>pppoe-out1</td><td class="dim">电信</td><td class="num">↓152M ↑38M</td><td>▲</td></tr>
+              <tr><td>ether2</td><td class="dim">联通</td><td class="num">↓34M ↑4.7M</td><td>▲</td></tr>
+              <tr><td>sfp-sfpplus1</td><td class="dim">10G</td><td class="num">↓61M ↑48M</td><td>▲</td></tr>
+              <tr><td>ether4</td><td class="dim">—</td><td class="num dim">—</td><td class="amb">⚠</td></tr>
+              <tr><td>vlan20-iot</td><td class="dim">virt</td><td class="num">↓0.2M</td><td class="dim">◆</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== POLICY ======== -->
+  <section class="view" id="view-policy">
+    <div class="sec">
+      <div class="sec-h">── EGRESS PATHS ─────────────────────────────────────────────────────── <a>[+ add]</a></div>
+      <div class="cols c3">
+        <div class="box"><div class="bt">EGRESS #1 · APPLIED</div>
+          <div class="kv"><span class="dim">name</span><b>电信</b></div>
+          <div class="kv"><span class="dim">iface</span><b>pppoe-out1</b></div>
+          <div class="kv"><span class="dim">family</span><b>v4+v6</b></div>
+          <div class="kv"><span class="dim">failmode</span><b>strict</b></div>
+          <div class="kv"><span class="dim">load</span><b>↓152M ↑38M</b></div></div>
+        <div class="box"><div class="bt">EGRESS #2 · APPLIED</div>
+          <div class="kv"><span class="dim">name</span><b>联通</b></div>
+          <div class="kv"><span class="dim">iface</span><b>ether2</b></div>
+          <div class="kv"><span class="dim">family</span><b>v4</b></div>
+          <div class="kv"><span class="dim">failmode</span><b>fallback→电信</b></div>
+          <div class="kv"><span class="dim">load</span><b>↓34M ↑4.7M</b></div></div>
+        <div class="box" style="opacity:.5"><div class="bt">EGRESS #3 · DISABLED</div>
+          <div class="kv"><span class="dim">name</span><b>移动</b></div>
+          <div class="kv"><span class="dim">iface</span><b>ether3</b></div>
+          <div class="kv"><span class="dim">family</span><b>v4</b></div>
+          <div class="kv"><span class="dim">failmode</span><b>strict</b></div>
+          <div class="kv"><span class="dim">load</span><b>—</b></div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">── ROUTING RULES · write access <b>✓</b> ───────────────────────────────── <a>[N: new rule]</a></div>
+      <table>
+        <thead><tr><th>PRI</th><th>RULE</th><th>SUBJECT</th><th>TARGET</th><th>EGRESS</th><th class="num">REV</th><th>STATE</th><th>CMD</th></tr></thead>
+        <tbody>
+          <tr><td>10</td><td>苹果服务加速</td><td class="dim">all</td><td>apple[14344]</td><td>电信</td><td class="num">7</td><td>● applied</td><td><a>[e]</a></td></tr>
+          <tr><td>20</td><td>流媒体走联通</td><td class="dim">tv,switch</td><td>netflix+youtube[531]</td><td>联通</td><td class="num">3</td><td>● applied</td><td><a>[e]</a></td></tr>
+          <tr><td>30</td><td>办公优先</td><td class="dim">mac,pc</td><td>internet</td><td>auto</td><td class="num">1</td><td class="amb">● pending(2)</td><td><a>[review]</a></td></tr>
+          <tr class="dim"><td>90</td><td>默认分流</td><td>all</td><td>gfwlist[12480]</td><td>移动</td><td class="num">12</td><td>○ disabled</td><td><a>[on]</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sec">
+      <div class="cols c2">
+        <div>
+          <div class="sec-h">── TARGET LISTS ────────────────────────────</div>
+          <table>
+            <thead><tr><th>NAME</th><th>KIND</th><th class="num">RULES</th><th>SCHED</th></tr></thead>
+            <tbody>
+              <tr><td>gfwlist</td><td>domain</td><td class="num">12480</td><td class="dim">24h</td></tr>
+              <tr><td>netflix<span class="dim">:preset</span></td><td>d+ip</td><td class="num">228</td><td class="dim">manual</td></tr>
+              <tr><td>adblock</td><td>domain</td><td class="num">320</td><td class="dim">manual</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="sec-h">── ACCESS CONTROL ────────────────────────</div>
+          <table>
+            <tbody>
+              <tr><td class="red">DENY</td><td>儿童平板 22:00-07:00</td><td>● active</td></tr>
+              <tr><td class="red">DENY</td><td>all → adblock[320]</td><td>● active</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footerbar">
+    <span><b>F1</b> monitor</span><span><b>F2</b> policy</span><span><b>F3</b> logs</span><span><b>Q</b> quit</span>
+    <span style="margin-left:auto">poll 1s · session tom@10.0.0.6 · <b>▮</b></span>
+  </div>
+</div>
+
+<div class="mock-note">STYLE <b>04 · CRT TERMINAL</b> — phosphor green / ascii charts / htop vibes</div>
+
+<script>
+// ascii chart
+(function(){
+  const rows=9, cols=96;
+  function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  const r1=rng(7),r2=rng(21);
+  const dn=[],up=[];let v=0.62,w=0.22;
+  for(let i=0;i<cols;i++){v+=(r1()-.5)*.16;v=Math.max(.18,Math.min(.97,v));dn.push(v);
+    w+=(r2()-.5)*.1;w=Math.max(.05,Math.min(.5,w));up.push(w)}
+  const grid=[];
+  for(let y=0;y<rows;y++){let line='';
+    for(let x=0;x<cols;x++){
+      const h=dn[x]*rows, uh=up[x]*rows;
+      const lvl=rows-y;
+      if(h>=lvl) line+='█';
+      else if(h>lvl-1) line+= (h-(lvl-1))>.66?'▓':(h-(lvl-1))>.33?'▒':'░';
+      else line+=' ';
+    }
+    grid.push(line)}
+  // tx as dots on own line positions
+  const txRow=grid.map(l=>l.split(''));
+  up.forEach((u,x)=>{const y=rows-Math.round(u*rows); if(y>=0&&y<rows&&txRow[y][x]===' ') txRow[y][x]='·'});
+  const el=document.getElementById('asciiChart');
+  el.innerHTML=grid.map((l,i)=>{const t=txRow[i].join('');
+    return t.replace(/·/g,'<span class="u">·</span>')}).join('\n');
+})();
+// tabs
+const fks=document.querySelectorAll('.fk[data-view]');
+fks.forEach(b=>b.onclick=()=>{fks.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById('view-'+b.dataset.view).classList.add('on');});
+</script>
+</body>
+</html>

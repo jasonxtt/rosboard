@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard · 风格 02 · NOC 深色大屏</title>
+<style>
+  :root{
+    --bg:#0a0d13; --bg2:#0d1119; --card:#10151f; --card2:#131926;
+    --line:#1c2434; --line2:#232e44;
+    --ink:#d7e0ee; --ink2:#8593ab; --ink3:#55637c;
+    --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; --violet:#a78bfa;
+    --mono:"SF Mono","JetBrains Mono","Geist Mono",Menlo,Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:13px}
+  body{font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  .app{display:grid;grid-template-columns:64px 1fr;min-height:100vh}
+  /* icon rail */
+  .rail{background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;position:sticky;top:0;height:100vh}
+  .rail .logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#164e63,#0e7490);display:grid;place-items:center;color:var(--cyan);font-family:var(--mono);font-weight:700;margin-bottom:12px;border:1px solid #155e75}
+  .rail a{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;color:var(--ink3);text-decoration:none;font-size:17px;position:relative}
+  .rail a:hover{color:var(--ink);background:var(--card2)}
+  .rail a.on{color:var(--cyan);background:#0e2a33;box-shadow:inset 2px 0 0 var(--cyan)}
+  .rail a .tip{position:absolute;left:52px;background:var(--card2);border:1px solid var(--line2);color:var(--ink);font-size:11.5px;padding:4px 9px;border-radius:6px;white-space:nowrap;display:none;z-index:5}
+  .rail a:hover .tip{display:block}
+  .rail .sep{width:24px;height:1px;background:var(--line);margin:6px 0}
+
+  .main{padding:16px 20px 50px;min-width:0}
+  /* status strip */
+  .strip{display:flex;align-items:center;gap:18px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 16px;margin-bottom:14px;font-size:12px}
+  .strip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+  .strip b{color:var(--cyan);font-weight:600}
+  .strip .item{display:flex;gap:7px;align-items:center;color:var(--ink2)}
+  .strip .item b{color:var(--ink)}
+  .strip .sp{flex:1}
+  .vtab{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .vtab button{background:transparent;border:0;color:var(--ink2);font-size:12px;padding:5px 14px;border-radius:6px;cursor:pointer}
+  .vtab button.on{background:var(--card2);color:var(--cyan);box-shadow:inset 0 0 0 1px var(--line2)}
+  .pill{font-size:11px;border-radius:99px;padding:2px 9px;font-weight:600}
+  .pill.g{color:var(--green);background:rgba(52,211,153,.12)}
+  .pill.a{color:var(--amber);background:rgba(251,191,36,.12)}
+  .pill.r{color:var(--red);background:rgba(248,113,113,.12)}
+  .pill.c{color:var(--cyan);background:rgba(34,211,238,.1)}
+  .pill.n{color:var(--ink2);background:var(--card2)}
+
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:10px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px 10px;position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent,var(--cyan));opacity:.7}
+  .kpi .lbl{font-size:11px;color:var(--ink3);letter-spacing:.08em;display:flex;justify-content:space-between}
+  .kpi .val{font-family:var(--mono);font-size:23px;font-weight:600;margin:5px 0 2px;color:var(--ink)}
+  .kpi .val small{font-size:11px;color:var(--ink3)}
+  .kpi svg{position:absolute;right:10px;bottom:8px;opacity:.9}
+  .kpi .delta{font-size:10.5px;color:var(--ink3)}
+
+  .grid{display:grid;gap:10px}
+  .g21{grid-template-columns:2.1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card-h{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--card2)}
+  .card-h h3{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--ink2)}
+  .card-h h3::before{content:"▸ ";color:var(--cyan)}
+  .card-h .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .mini-btn{background:var(--card);border:1px solid var(--line2);color:var(--ink2);font-size:11px;padding:3px 10px;border-radius:6px;cursor:pointer}
+  .mini-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+  .mini-btn.on{color:var(--bg);background:var(--cyan);border-color:var(--cyan);font-weight:700}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10.5px;color:var(--ink3);text-align:left;font-weight:600;letter-spacing:.08em;padding:7px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
+  td{padding:7.5px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink)}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:rgba(34,211,238,.04)}
+  .num{text-align:right;font-family:var(--mono)}
+  .up{color:var(--violet)} .dn{color:var(--green)} .ok{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .dim{color:var(--ink3)}
+
+  .alert{display:flex;gap:9px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:12px;align-items:baseline}
+  .alert:last-child{border:0}
+  .alert time{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink3);white-space:nowrap}
+  .sq{width:8px;height:8px;border-radius:2px;flex:none;transform:translateY(0)}
+  .egress{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .egress .row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink2);padding:3px 0}
+  .egress .row b{color:var(--ink);font-weight:500;font-family:var(--mono)}
+  .bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:4px}
+  .bar i{display:block;height:100%;background:var(--cyan)}
+  .heat{display:inline-grid;grid-auto-flow:column;gap:2px}
+  .heat i{width:7px;height:12px;border-radius:1.5px;background:var(--line2)}
+  .heat i.a{background:#155e75}.heat i.b{background:#0891b2}.heat i.c{background:#22d3ee}
+  .mock-note{position:fixed;left:76px;bottom:12px;background:#0e2a33;border:1px solid #155e75;color:var(--cyan);font-size:11.5px;padding:7px 12px;border-radius:8px;z-index:9;font-family:var(--mono)}
+  .view{display:none}.view.on{display:block}
+  .led{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="logo">R</div>
+    <a href="#"><span>▦</span><span class="tip">设备总览</span></a>
+    <a href="#" class="on"><span>◔</span><span class="tip">系统概览</span></a>
+    <div class="sep"></div>
+    <a href="#"><span>⇄</span><span class="tip">接口监控</span></a>
+    <a href="#"><span>⛁</span><span class="tip">终端监控</span></a>
+    <a href="#"><span>∿</span><span class="tip">流量监控</span></a>
+    <a href="#"><span>⌗</span><span class="tip">网络服务</span></a>
+    <a href="#"><span>✚</span><span class="tip">系统运行</span></a>
+    <div class="sep"></div>
+    <a href="#"><span>◎</span><span class="tip">目标库</span></a>
+    <a href="#"><span>⑂</span><span class="tip">策略路由</span></a>
+    <a href="#"><span>⊘</span><span class="tip">访问控制</span></a>
+    <div class="sep"></div>
+    <a href="#"><span>⚙</span><span class="tip">面板设置</span></a>
+    <a href="#" style="color:var(--amber)"><span>⚠</span><span class="tip">告警 · 2</span></a>
+  </nav>
+
+  <main class="main">
+    <div class="strip">
+      <span class="dot"></span><span><b>主路由</b> · RB5009UG+S+</span>
+      <span class="item">RouterOS <b class="mono">v7.22.3</b></span>
+      <span class="item">UPTIME <b class="mono">23d 04:12:55</b></span>
+      <span class="item">采集 <b class="mono ok">1s</b></span>
+      <span class="item">延迟 <b class="mono">4ms</b></span>
+      <span class="sp"></span>
+      <div class="vtab"><button class="on" data-view="dash">MONITOR</button><button data-view="policy">POLICY</button></div>
+      <span class="pill a">⚠ 2 告警</span>
+      <span class="pill c">LIVE</span>
+    </div>
+
+    <!-- ======== MONITOR ======== -->
+    <section class="view on" id="view-dash">
+      <div class="kpis">
+        <div class="kpi" style="--accent:#22d3ee"><div class="lbl">CPU <span>8C</span></div><div class="val">34<small>%</small></div><div class="delta">peak 61% · 1h</div><svg class="spark" data-seed="7" data-base="34" data-amp="12" width="72" height="22"></svg></div>
+        <div class="kpi" style="--accent:#34d399"><div class="lbl">MEM <span>1G</span></div><div class="val">61<small>%</small></div><div class="delta">623 MiB used</div><svg class="spark" data-seed="11" data-base="61" data-amp="6" width="72" height="22"></svg></div>
+        <div class="kpi" style="--accent:#60a5fa"><div class="lbl">STORAGE</div><div class="val">42<small>%</small></div><div class="delta">58 MiB free</div><svg class="spark" data-seed="5" data-base="42" data-amp="2" width="72" height="22"></svg></div>
+        <div class="kpi" style="--accent:#a78bfa"><div class="lbl">TERMINALS</div><div class="val">23<small>/41</small></div><div class="delta">4 idle · 14 off</div><svg class="spark" data-seed="17" data-base="23" data-amp="5" width="72" height="22"></svg></div>
+        <div class="kpi" style="--accent:#fbbf24"><div class="lbl">CONNTRACK</div><div class="val">1,482</div><div class="delta">tcp 1204 udp 261</div><svg class="spark" data-seed="3" data-base="1480" data-amp="240" width="72" height="22"></svg></div>
+        <div class="kpi" style="--accent:#f87171"><div class="lbl">THROUGHPUT</div><div class="val" style="font-size:19px;padding-top:3px"><span class="dn">▼186</span> <span class="up">▲43</span><small> Mbps</small></div><div class="delta">2 WAN 聚合</div><svg class="spark" data-seed="9" data-base="180" data-amp="50" width="72" height="22"></svg></div>
+      </div>
+
+      <div class="grid g21">
+        <div class="card">
+          <div class="card-h"><h3>REALTIME TRAFFIC · WAN AGGREGATE</h3>
+            <div class="r"><span class="mono" style="font-size:11px"><span class="dn">▼ rx 186.4 Mbps</span>&nbsp;&nbsp;<span class="up">▲ tx 42.7 Mbps</span></span>
+            <button class="mini-btn on">5M</button><button class="mini-btn">1H</button><button class="mini-btn">6H</button><button class="mini-btn">24H</button></div>
+          </div>
+          <svg id="chartMain" width="100%" height="210" viewBox="0 0 760 210" preserveAspectRatio="none" style="display:block"></svg>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>EVENTS</h3><div class="r"><span class="pill a">2 active</span></div></div>
+          <div class="alert"><span class="sq" style="background:var(--amber)"></span><span><b class="warn">WARN</b> · ether4 链路抖动 ×6 / 10min</span><time>12m</time></div>
+          <div class="alert"><span class="sq" style="background:var(--blue)"></span><span><b class="dim">INFO</b> · DNS 特征库 3d 未更新</span><time>3d</time></div>
+          <div class="alert"><span class="sq" style="background:var(--green)"></span><span><b class="ok">OK</b> · 计划 #a91f 应用成功 (42 ops)</span><time>21h</time></div>
+          <div class="alert"><span class="sq" style="background:var(--green)"></span><span><b class="ok">OK</b> · 目标库 gfwlist 刷新 12,480 条</span><time>3h</time></div>
+          <div class="alert"><span class="sq" style="background:var(--red)"></span><span><b class="bad">ERR</b> · ipv6 neighbor 采集超时 1 次</span><time>2h</time></div>
+        </div>
+      </div>
+
+      <div class="grid g21" style="margin-top:10px;grid-template-columns:3fr 2fr">
+        <div class="card">
+          <div class="card-h"><h3>TOP TERMINALS · BY RATE</h3><div class="r"><button class="mini-btn">全部 41</button></div></div>
+          <table>
+            <thead><tr><th>HOST</th><th>ADDR</th><th class="num">CONN</th><th class="num">RX</th><th class="num">TX</th><th>趋势</th><th>STATE</th></tr></thead>
+            <tbody>
+              <tr><td>iPhone 15 Pro <span class="dim">· Apple</span></td><td class="mono dim">192.168.88.42</td><td class="num">86</td><td class="num dn">12.4M</td><td class="num up">1.2M</td><td><span class="heat"><i class="a"></i><i class="b"></i><i class="c"></i><i class="b"></i><i class="c"></i></span></td><td><span class="led" style="background:var(--green)"></span><span class="ok">online</span></td></tr>
+              <tr><td>MacBook Pro 14</td><td class="mono dim">192.168.88.31</td><td class="num">214</td><td class="num dn">8.7M</td><td class="num up">3.9M</td><td><span class="heat"><i class="b"></i><i class="b"></i><i class="a"></i><i class="c"></i><i class="b"></i></span></td><td><span class="led" style="background:var(--green)"></span><span class="ok">online</span></td></tr>
+              <tr><td>NAS · 群晖</td><td class="mono dim">192.168.88.10</td><td class="num">178</td><td class="num dn">6.2M</td><td class="num up">22.8M</td><td><span class="heat"><i class="c"></i><i class="c"></i><i class="b"></i><i class="c"></i><i class="c"></i></span></td><td><span class="led" style="background:var(--green)"></span><span class="ok">online</span></td></tr>
+              <tr><td>小米电视 · 客厅</td><td class="mono dim">192.168.88.57</td><td class="num">23</td><td class="num dn">31.5M</td><td class="num up">0.4M</td><td><span class="heat"><i class="a"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="b"></i></span></td><td><span class="led" style="background:var(--green)"></span><span class="ok">online</span></td></tr>
+              <tr><td>台式机 · 书房</td><td class="mono dim">192.168.88.22</td><td class="num">341</td><td class="num dn">52.1M</td><td class="num up">6.3M</td><td><span class="heat"><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i><i class="c"></i></span></td><td><span class="led" style="background:var(--green)"></span><span class="ok">online</span></td></tr>
+              <tr><td>扫地机器人 <span class="dim">· vlan20</span></td><td class="mono dim">192.168.90.15</td><td class="num">3</td><td class="num dim">—</td><td class="num dim">—</td><td><span class="heat"><i></i><i class="a"></i><i></i><i class="a"></i><i></i></span></td><td><span class="led" style="background:var(--amber)"></span><span class="warn">idle</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>INTERFACES</h3><div class="r"><button class="mini-btn">14</button></div></div>
+          <table>
+            <thead><tr><th>IF</th><th class="num">RX/TX</th><th>ST</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">pppoe-out1 <span class="dim">电信</span></td><td class="num"><span class="dn">152M</span> <span class="up">38M</span></td><td class="ok">R</td></tr>
+              <tr><td class="mono">ether2 <span class="dim">联通</span></td><td class="num"><span class="dn">34M</span> <span class="up">4.7M</span></td><td class="ok">R</td></tr>
+              <tr><td class="mono">sfp+1 <span class="dim">10G 内网</span></td><td class="num"><span class="dn">61M</span> <span class="up">48M</span></td><td class="ok">R</td></tr>
+              <tr><td class="mono">bridge <span class="dim">LAN</span></td><td class="num dim">—</td><td class="ok">R</td></tr>
+              <tr><td class="mono">ether4</td><td class="num dim">—</td><td class="warn">FLAP</td></tr>
+              <tr><td class="mono">vlan20-iot</td><td class="num"><span class="dn">0.2M</span></td><td class="dim">V</td></tr>
+            </tbody>
+          </table>
+          <div class="card-h" style="border-top:1px solid var(--line)"><h3>CONNS BY PROTO</h3></div>
+          <div style="padding:12px 14px;display:flex;gap:18px" class="mono">
+            <span style="font-size:11px">TCP <b style="font-size:15px">1204</b></span>
+            <span style="font-size:11px;color:var(--cyan)">UDP <b style="font-size:15px">261</b></span>
+            <span style="font-size:11px;color:var(--violet)">OTH <b style="font-size:15px">17</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== POLICY ======== -->
+    <section class="view" id="view-policy">
+      <div class="grid g3">
+        <div class="egress">
+          <div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">EGRESS · 电信</b><span class="pill g" style="margin-left:auto">applied</span></div>
+          <div class="row"><span>interface</span><b>pppoe-out1</b></div>
+          <div class="row"><span>families</span><b>v4+v6</b></div>
+          <div class="row"><span>failure</span><b>strict</b></div>
+          <div class="row"><span>load</span><b class="dn">152M ↓</b></div>
+          <div class="bar"><i style="width:72%"></i></div>
+        </div>
+        <div class="egress">
+          <div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">EGRESS · 联通</b><span class="pill g" style="margin-left:auto">applied</span></div>
+          <div class="row"><span>interface</span><b>ether2</b></div>
+          <div class="row"><span>families</span><b>v4</b></div>
+          <div class="row"><span>failure</span><b>fallback→电信</b></div>
+          <div class="row"><span>load</span><b class="dn">34M ↓</b></div>
+          <div class="bar"><i style="width:24%"></i></div>
+        </div>
+        <div class="egress" style="opacity:.55">
+          <div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">EGRESS · 移动</b><span class="pill n" style="margin-left:auto">disabled</span></div>
+          <div class="row"><span>interface</span><b>ether3</b></div>
+          <div class="row"><span>families</span><b>v4</b></div>
+          <div class="row"><span>failure</span><b>strict</b></div>
+          <div class="row"><span>load</span><b>—</b></div>
+          <div class="bar"><i style="width:0%"></i></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:10px">
+        <div class="card-h"><h3>ROUTING RULES · policy-routing/v2</h3><div class="r"><span class="pill c">write ✓</span><button class="mini-btn on">+ NEW RULE</button></div></div>
+        <table>
+          <thead><tr><th>PRI</th><th>RULE</th><th>SUBJECT</th><th>TARGET</th><th>EGRESS</th><th class="num">REV</th><th>STATE</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="num">10</td><td><b>苹果服务加速</b></td><td>all</td><td class="mono dim">apple.domain[12204] apple.ip[2140]</td><td>电信</td><td class="num">7</td><td class="ok">● applied</td><td class="num"><a class="dim" style="cursor:pointer">edit</a></td></tr>
+            <tr><td class="num">20</td><td><b>流媒体走联通</b></td><td class="mono dim">小米电视, Switch</td><td class="mono dim">netflix[142] youtube[389]</td><td>联通</td><td class="num">3</td><td class="ok">● applied</td><td class="num"><a class="dim" style="cursor:pointer">edit</a></td></tr>
+            <tr><td class="num">30</td><td><b>办公优先</b></td><td class="mono dim">MacBook, 台式机</td><td class="mono dim">internet</td><td>auto</td><td class="num">1</td><td class="warn">● pending(2)</td><td class="num"><a style="color:var(--cyan);cursor:pointer">review→apply</a></td></tr>
+            <tr style="opacity:.5"><td class="num">90</td><td><b>默认分流</b></td><td>all</td><td class="mono dim">gfwlist[12480]</td><td>移动</td><td class="num">12</td><td class="dim">○ disabled</td><td class="num"><a class="dim" style="cursor:pointer">enable</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid" style="grid-template-columns:3fr 2fr;margin-top:10px">
+        <div class="card">
+          <div class="card-h"><h3>TARGET LISTS</h3><div class="r"><button class="mini-btn">manage</button></div></div>
+          <table>
+            <thead><tr><th>NAME</th><th>KIND</th><th class="num">RULES</th><th>SCHED</th><th>USED BY</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">gfwlist</td><td><span class="pill c">domain</span></td><td class="num">12,480</td><td class="dim">24h</td><td class="dim">rule#90</td></tr>
+              <tr><td class="mono">netflix <span class="dim">preset</span></td><td><span class="pill c">domain+ip</span></td><td class="num">228</td><td class="dim">manual</td><td class="dim">rule#20</td></tr>
+              <tr><td class="mono">adblock</td><td><span class="pill c">domain</span></td><td class="num">320</td><td class="dim">manual</td><td class="dim">acl#2</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>ACCESS CONTROL</h3><div class="r"><button class="mini-btn">manage</button></div></div>
+          <div class="alert"><span class="sq" style="background:var(--red)"></span><span>儿童平板 · 断网 <span class="mono dim">22:00-07:00</span></span><span class="pill g" style="margin-left:auto">active</span></div>
+          <div class="alert"><span class="sq" style="background:var(--red)"></span><span>屏蔽广告域名 <span class="mono dim">adblock[320]</span></span><span class="pill g" style="margin-left:auto">active</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="mock-note">STYLE 02 · NOC OPS — dark / dense / mono digits</div>
+
+<script>
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function series(seed,n,base,amp){const r=rng(seed);let v=base;const out=[];for(let i=0;i<n;i++){v+=(r()-.5)*amp;v=Math.max(base*.35,v);out.push(v)}return out}
+function path(pts,w,h,pad){const max=Math.max(...pts)*1.12,min=Math.min(...pts)*.55;const step=(w-pad*2)/(pts.length-1);return pts.map((p,i)=>{const x=pad+i*step,y=h-pad-((p-min)/(max-min))*(h-pad*2);return(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1)}).join(' ')}
+// main chart
+(function(){
+  const svg=document.getElementById('chartMain'),W=760,H=210;
+  const dn=series(7,100,150,30),up=series(21,100,42,10);
+  const dPath=path(dn,W,H,8),uPath=path(up,W,H,8);
+  const area=dPath+` L${W-8},${H-8} L8,${H-8} Z`;
+  svg.innerHTML=`
+    <defs><linearGradient id="gf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34d399" stop-opacity=".18"/><stop offset="1" stop-color="#34d399" stop-opacity="0"/></linearGradient></defs>
+    ${[0.25,0.5,0.75].map(f=>`<line x1="8" x2="${W-8}" y1="${H*f}" y2="${H*f}" stroke="#1c2434" stroke-width="1" stroke-dasharray="3 4"/>`).join('')}
+    <path d="${area}" fill="url(#gf)"/>
+    <path d="${dPath}" fill="none" stroke="#34d399" stroke-width="1.6"/>
+    <path d="${uPath}" fill="none" stroke="#a78bfa" stroke-width="1.2" opacity=".9"/>`;
+})();
+// kpi sparklines
+document.querySelectorAll('svg.spark').forEach(s=>{
+  const pts=series(+s.dataset.seed,26,+s.dataset.base,+s.dataset.amp);
+  s.innerHTML=`<path d="${path(pts,72,22,1)}" fill="none" stroke="${getComputedStyle(s.parentElement).getPropertyValue('--accent')||'#22d3ee'}" stroke-width="1.3" opacity=".85"/>`;
+});
+// tabs
+const tabs=document.querySelectorAll('.vtab button');
+tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById('view-'+b.dataset.view).classList.add('on');});
+</script>
+</body>
+</html>
