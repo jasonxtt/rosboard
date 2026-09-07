@@ -1,0 +1,140 @@
+/* rosboard Aurora design tokens — design/UX-STANDARD.md §2 / §5.
+   Every color, radius, and shadow must be referenced through these
+   variables; components never hard-code values. */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* page base + aurora layers (top-left / top-right / bottom-center) */
+  --bg-base: #0a0c1c;
+  --bg-aurora-1: rgba(99, 102, 241, 0.34);
+  --bg-aurora-2: rgba(34, 211, 238, 0.22);
+  --bg-aurora-3: rgba(168, 85, 247, 0.2);
+
+  /* ink */
+  --ink: #eef2ff;
+  --ink-2: rgba(226, 232, 255, 0.62);
+  --ink-3: rgba(226, 232, 255, 0.38);
+
+  /* glass material */
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-2: rgba(255, 255, 255, 0.09);
+  --stroke: rgba(255, 255, 255, 0.11);
+  --glass-blur: 18px;
+  --modal-blur: 24px;
+
+  /* semantic */
+  --ok: #6ee7b7;
+  --ok-soft: rgba(110, 231, 183, 0.14);
+  --warn: #fcd34d;
+  --warn-soft: rgba(252, 211, 77, 0.13);
+  --err: #fda4af;
+  --err-soft: rgba(253, 164, 175, 0.13);
+  --accent: #67e8f9;
+  --accent-soft: rgba(103, 232, 249, 0.12);
+  --accent-2: #c4b5fd;
+  --grad-brand: linear-gradient(135deg, #818cf8, #22d3ee);
+  --grad-ok: linear-gradient(90deg, #34d399, #22d3ee);
+  --accent-ink: #0b0d20;
+
+  /* elevation */
+  --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.25);
+  --shadow-pop: 0 16px 56px rgba(0, 0, 0, 0.42);
+  --overlay: rgba(5, 6, 16, 0.55);
+
+  /* chart series (uPlot reads these via getComputedStyle) */
+  --series-1: #67e8f9;
+  --series-2: #c4b5fd;
+  --series-3: #6ee7b7;
+  --series-4: #fcd34d;
+  --series-5: #fda4af;
+  --grad-line-from: #818cf8;
+  --grad-line-to: #67e8f9;
+  --grid-line: rgba(255, 255, 255, 0.11);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-base: #eef1f9;
+  /* aurora at 35% of the dark opacity */
+  --bg-aurora-1: rgba(99, 102, 241, 0.12);
+  --bg-aurora-2: rgba(34, 211, 238, 0.08);
+  --bg-aurora-3: rgba(168, 85, 247, 0.07);
+
+  --ink: #171a2b;
+  --ink-2: rgba(23, 26, 43, 0.62);
+  --ink-3: rgba(23, 26, 43, 0.4);
+
+  /* glass degrades to a translucent white card; shadow carries depth */
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-2: #ffffff;
+  --stroke: rgba(23, 26, 43, 0.08);
+  --glass-blur: 10px;
+  --modal-blur: 10px;
+
+  /* text tones one step darker for light surfaces */
+  --ok: #047857;
+  --ok-soft: rgba(5, 150, 105, 0.1);
+  --warn: #b45309;
+  --warn-soft: rgba(217, 119, 6, 0.12);
+  --err: #e11d48;
+  --err-soft: rgba(225, 29, 72, 0.09);
+  --accent: #0e7490;
+  --accent-soft: rgba(8, 145, 178, 0.1);
+  --accent-2: #7c3aed;
+  --grad-brand: linear-gradient(135deg, #6366f1, #0891b2);
+  --grad-ok: linear-gradient(90deg, #059669, #0891b2);
+  --accent-ink: #ffffff;
+
+  --shadow-card: 0 2px 6px rgba(30, 35, 80, 0.06), 0 12px 32px rgba(30, 35, 80, 0.08);
+  --shadow-pop: 0 16px 48px rgba(30, 35, 80, 0.16);
+  --overlay: rgba(23, 26, 43, 0.32);
+
+  --series-1: #0891b2;
+  --series-2: #7c3aed;
+  --series-3: #059669;
+  --series-4: #b45309;
+  --series-5: #e11d48;
+  --grad-line-from: #6366f1;
+  --grad-line-to: #0891b2;
+  --grid-line: rgba(23, 26, 43, 0.1);
+}
+
+:root {
+  /* radii — §5 */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* type scale — §4 (11/12/13/14/16/19/26/44) */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-card-title: 14px;
+  --text-section: 16px;
+  --text-page-title: 19px;
+  --text-metric: 26px;
+  --text-hero: 44px;
+
+  /* 8pt spacing baseline — §5 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 26px;
+  --space-7: 32px;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+  --motion-fast: 150ms ease;
+  --motion-modal: 180ms ease;
+
+  --content-max: 1320px;
+}
