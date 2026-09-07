@@ -725,6 +725,11 @@ time,
 }
 
 @media (max-width: 767px) {
+  /* §11: touch targets ≥40px on mobile */
+  .btn {
+    min-height: 40px;
+  }
+
   .modal-overlay {
     align-items: flex-end;
     padding: 0;

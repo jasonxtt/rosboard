@@ -1,0 +1,85 @@
+/* 资源监控 (tokens only). */
+
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.resource-card-cpu {
+  grid-column: 1 / -1;
+}
+
+.resource-cpu-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.resource-primary {
+  font-size: var(--text-hero);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.resource-cpu-kv {
+  flex: 1;
+  min-width: 240px;
+  max-width: 420px;
+}
+
+.resource-gauge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.resource-gauge-kv {
+  flex: 1;
+  min-width: 0;
+}
+
+.resource-meter-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.resource-meter-track {
+  flex: 1;
+}
+
+.resource-meter-value {
+  min-width: 36px;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+.resource-irq-users {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+@media (max-width: 1199px) {
+  .resource-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .resource-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .resource-primary {
+    font-size: 32px;
+  }
+}

@@ -1,0 +1,110 @@
+/* Shared monitor-page helpers for the slice-2 pages (tokens only):
+   toolbar rows, inline error notes, thin usage/share meters.
+   Classes carry the `mon-` prefix so parallel page slices cannot collide. */
+
+.mon-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.mon-toolbar .search-input {
+  margin-left: auto;
+}
+
+.mon-error-note {
+  margin: 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+}
+
+/* thin meter track (pool usage, share-of-total, per-core load) */
+.mon-meter {
+  position: relative;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--glass-2);
+  overflow: hidden;
+}
+
+.mon-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--grad-brand);
+  transition: width var(--motion-fast);
+}
+
+.mon-meter-fill-warn {
+  background: var(--warn);
+}
+
+.mon-meter-fill-err {
+  background: var(--err);
+}
+
+/* summary metric cards (§7 指标卡) */
+.mon-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.mon-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mon-summary-label {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.mon-summary-value {
+  font-size: var(--text-metric);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mon-summary-value-text {
+  font-size: var(--text-page-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mon-summary-sub {
+  font-size: var(--text-xs);
+}
+
+/* stacked key/value rows (detail cards) */
+.mon-kv-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 767px) {
+  .mon-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mon-toolbar {
+    gap: var(--space-2);
+  }
+
+  .mon-toolbar .search-input {
+    margin-left: 0;
+    width: 100% !important;
+  }
+
+  .mon-toolbar .search-input .input {
+    min-height: 40px;
+  }
+}

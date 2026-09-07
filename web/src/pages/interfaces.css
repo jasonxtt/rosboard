@@ -1,0 +1,118 @@
+/* 接口监控 (tokens only). */
+
+.interfaces-toolbar {
+  margin: 0 var(--space-1);
+}
+
+.toolbar-count {
+  font-size: var(--text-sm);
+}
+
+.interface-name-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relation-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.relation-chip {
+  font-size: var(--text-xs);
+  background: var(--glass-2);
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  padding: 1px 8px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.interface-address-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.interface-rates {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.interface-rate-down {
+  color: var(--accent);
+}
+
+.interface-rate-up {
+  color: var(--accent-2);
+}
+
+.interface-rate-head {
+  display: inline-flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.interface-errors-hot {
+  color: var(--warn);
+}
+
+.interface-row-down td {
+  background: var(--warn-soft);
+}
+
+.interface-row-disabled td {
+  opacity: 0.55;
+}
+
+/* ---------- inline detail panel ---------- */
+
+.interface-detail-card {
+  display: block;
+}
+
+.detail-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.detail-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.detail-summary-item span {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.detail-summary-item strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1199px) {
+  .detail-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .detail-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

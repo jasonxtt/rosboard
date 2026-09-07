@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } 
 import { apiGet, apiPost, scoped } from '../lib/api'
 import { getTheme, subscribeTheme, toggleTheme } from '../lib/theme'
 import { parseDashboard, parseDevices, type DeviceStatus } from '../lib/types'
+import { loadPanelPreferences } from '../features/settings/prefs'
 import { usePolling } from './usePolling'
 import { REFRESH_MS_KEY, REFRESH_OPTIONS, SELECTED_DEVICE_KEY, ShellContext, type ShellContextValue } from './shellContext'
 import type { View } from './views'
@@ -33,7 +34,7 @@ function readSelectedDevice(): string {
  * `selectedDeviceId` changes (see ShellApp).
  */
 export function ShellProvider({ children }: { children: ReactNode }) {
-  const [view, setView] = useState<View>('overview')
+  const [view, setView] = useState<View>(() => loadPanelPreferences().landingView)
   const [devices, setDevices] = useState<DeviceStatus[]>([])
   const [devicesLoading, setDevicesLoading] = useState(true)
   const [selectedDeviceId, setSelectedDeviceId] = useState(readSelectedDevice)

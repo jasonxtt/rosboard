@@ -1,0 +1,345 @@
+/* 终端监控 + 终端详情 (tokens only, design/UX-STANDARD.md §9.3). */
+
+.terminals-toolbar {
+  margin: 0 var(--space-1);
+}
+
+.terminal-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.terminal-name-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.terminal-display-name {
+  font-weight: 600;
+}
+
+.terminal-custom-flag {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+.terminal-address-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-rates {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.terminal-rate-down {
+  color: var(--accent);
+}
+
+.terminal-rate-up {
+  color: var(--accent-2);
+}
+
+.terminal-rate-head {
+  display: inline-flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.terminal-remark {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--ink-2);
+}
+
+.terminal-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+.terminal-list-footer .select {
+  width: auto;
+}
+
+/* ---------- inline terminal detail ---------- */
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.detail-back {
+  flex: none;
+  min-height: 40px;
+  margin-top: 2px;
+}
+
+.detail-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.detail-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-md);
+  background: var(--glass-2);
+  border: 1px solid var(--stroke);
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  flex: none;
+}
+
+.detail-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.detail-name-row h1 {
+  font-size: var(--text-page-title);
+  font-weight: 650;
+}
+
+.detail-edit {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.detail-chips {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.detail-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  background: var(--glass-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-sm);
+  padding: 3px 10px;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-chip-label {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.detail-meta {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+}
+
+.detail-remark {
+  max-width: 560px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.conntrack-note {
+  margin: 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+}
+
+.detail-connections-card {
+  padding: var(--space-3);
+}
+
+/* ---------- 流量分布 bars ---------- */
+
+.flow-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.flow-note {
+  font-size: var(--text-sm);
+}
+
+.flow-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flow-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.flow-bar-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.flow-bar-rates {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.flow-bar-track {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--glass-2);
+  overflow: hidden;
+}
+
+.flow-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width var(--motion-fast);
+}
+
+.flow-bar-down {
+  background: var(--grad-brand);
+}
+
+.flow-bar-up {
+  background: var(--accent-2);
+}
+
+.flow-bar-legend {
+  font-size: var(--text-xs);
+}
+
+/* ---------- 历史记录 ---------- */
+
+.terminal-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.history-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.history-stat strong {
+  font-size: var(--text-metric);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.history-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+}
+
+.history-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent-soft);
+  border-top: 2px solid var(--accent);
+  transition: height var(--motion-fast);
+}
+
+.history-bar:hover {
+  background: var(--accent);
+}
+
+.history-family-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.detail-back-fallback {
+  align-self: flex-start;
+}
+
+/* ---------- metadata modal ---------- */
+
+.metadata-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.metadata-note {
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 767px) {
+  .detail-header {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .detail-back {
+    align-self: flex-end;
+    order: -1;
+  }
+
+  .history-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .history-family-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .terminal-remark {
+    max-width: 120px;
+  }
+}

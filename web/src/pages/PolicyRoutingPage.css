@@ -1,0 +1,12 @@
+/* 策略路由 page layout (component styles live in features/policy/policy.css). */
+.pol-egr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 767px) {
+  .pol-egr-grid {
+    grid-template-columns: 1fr;
+  }
+}
