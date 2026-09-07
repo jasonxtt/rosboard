@@ -27,6 +27,12 @@
   padding: 10px 14px;
   border-radius: var(--r-lg);
   margin-bottom: var(--space-5);
+  /* persistent bar: near-opaque glass so scrolling content behind stays
+     unreadable (no text collision) */
+  background: var(--glass-bar);
+  backdrop-filter: blur(var(--glass-bar-blur));
+  -webkit-backdrop-filter: blur(var(--glass-bar-blur));
+  border-color: var(--glass-float-stroke);
 }
 
 .logo {
@@ -327,6 +333,10 @@
     gap: 2px;
     padding: 4px;
     border-radius: var(--r-pill);
+    background: var(--glass-bar);
+    backdrop-filter: blur(var(--glass-bar-blur));
+    -webkit-backdrop-filter: blur(var(--glass-bar-blur));
+    border-color: var(--glass-float-stroke);
   }
 
   .bottomnav button {

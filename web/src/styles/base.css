@@ -683,6 +683,13 @@ time,
   overflow: auto;
   border-radius: var(--r-xl);
   animation: modal-in var(--motion-modal);
+  /* floating layer: near-opaque glass so dialog text never collides with
+     content behind it */
+  background: var(--glass-float);
+  backdrop-filter: blur(var(--glass-float-blur));
+  -webkit-backdrop-filter: blur(var(--glass-float-blur));
+  border-color: var(--glass-float-stroke);
+  box-shadow: var(--shadow-pop);
 }
 
 .modal-header {
@@ -774,6 +781,11 @@ time,
   border-radius: var(--r-md);
   font-size: var(--text-md);
   animation: toast-in var(--motion-modal);
+  /* floating layer: near-opaque glass so it fully covers content behind */
+  background: var(--glass-float);
+  backdrop-filter: blur(var(--glass-float-blur));
+  -webkit-backdrop-filter: blur(var(--glass-float-blur));
+  border-color: var(--glass-float-stroke);
 }
 
 .toast-leaving {
@@ -865,10 +877,10 @@ time,
   left: 50%;
   bottom: calc(100% + 7px);
   transform: translateX(-50%) translateY(2px);
-  background: var(--glass-2);
-  border: 1px solid var(--stroke);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: var(--glass-float);
+  border: 1px solid var(--glass-float-stroke);
+  backdrop-filter: blur(var(--glass-float-blur));
+  -webkit-backdrop-filter: blur(var(--glass-float-blur));
   color: var(--ink);
   font-size: var(--text-xs);
   font-weight: 500;
@@ -899,6 +911,13 @@ time,
   border-radius: var(--r-md);
   animation: modal-in var(--motion-modal);
   transform-origin: top right;
+  /* floating layer: near-opaque glass so menu text never collides with
+     content behind it */
+  background: var(--glass-float);
+  backdrop-filter: blur(var(--glass-float-blur));
+  -webkit-backdrop-filter: blur(var(--glass-float-blur));
+  border-color: var(--glass-float-stroke);
+  box-shadow: var(--shadow-pop);
 }
 
 .popover-item {
