@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard UI 风格候选 · 评审画廊</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:#101014;color:#e8e8ee;padding:36px 28px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1380px;margin:0 auto}
+  header{margin-bottom:30px}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.01em}
+  .sub{color:#8b8b99;font-size:13.5px;margin-top:8px;line-height:1.7}
+  .sub b{color:#c8c8d4}
+  .grid{display:grid;grid-template-columns:1fr;gap:34px}
+  .card{background:#17171d;border:1px solid #26262f;border-radius:18px;overflow:hidden}
+  .card-h{display:flex;align-items:baseline;gap:14px;padding:18px 22px 14px;flex-wrap:wrap}
+  .num{font-family:Menlo,monospace;font-size:12px;color:#6363f1;background:#1d1d2e;border:1px solid #2e2e4a;border-radius:7px;padding:3px 9px}
+  .card-h h2{font-size:17px;font-weight:650}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{font-size:11px;color:#9a9aa8;background:#1e1e26;border:1px solid #2b2b35;border-radius:99px;padding:2.5px 10px}
+  .card-h .open{margin-left:auto;font-size:13px;color:#7c7cf4;text-decoration:none;font-weight:600}
+  .card-h .open:hover{color:#a5a5ff}
+  .desc{padding:0 22px 14px;font-size:13px;color:#9a9aa8;line-height:1.7;max-width:900px}
+  .desc b{color:#c8c8d4}
+  .preview{position:relative;height:380px;background:#000;cursor:pointer;border-top:1px solid #26262f}
+  .preview iframe{width:1440px;height:1024px;border:0;transform:scale(.62);transform-origin:0 0;pointer-events:none;position:absolute}
+  .preview .mask{position:absolute;inset:0;display:grid;place-items:center;opacity:0;background:rgba(10,10,14,.45);transition:.15s}
+  .preview:hover .mask{opacity:1}
+  .mask span{background:#fff;color:#111;font-size:13px;font-weight:650;border-radius:99px;padding:10px 22px}
+  .compare{margin-top:36px;background:#17171d;border:1px solid #26262f;border-radius:18px;padding:22px 26px}
+  .compare h2{font-size:16px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{color:#8b8b99;text-align:left;font-weight:550;padding:7px 12px;border-bottom:1px solid #26262f;font-size:11.5px}
+  td{padding:8px 12px;border-bottom:1px solid #1f1f27;color:#c2c2ce;vertical-align:top;line-height:1.6}
+  tr:last-child td{border-bottom:0}
+  td:first-child{white-space:nowrap;font-weight:600;color:#e8e8ee}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>rosboard 新 UI · 风格候选评审</h1>
+    <p class="sub">以下 5 个静态 mock 均基于 <b>feat/policy-access-rebuild 后端真实功能</b>（系统概览 / 终端 / 接口 / 告警 / 策略路由 / 出口 / 目标库 / 访问控制），数据为演示用。每个页面内可在 <b>「仪表盘 ⇄ 策略路由」</b>两个视图间切换，以同时评估监控与设置场景的观感。点击预览图或「打开」在新标签页查看全尺寸。</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-h">
+        <span class="num">01</span><h2>UniFi 启发</h2>
+        <div class="tags"><span class="tag">浅色</span><span class="tag">卡片化</span><span class="tag">环形仪表</span><span class="tag">企业网管感</span></div>
+        <a class="open" href="01-unifi.html" target="_blank">打开 ↗</a>
+      </div>
+      <p class="desc">对标 UniFi Network Application：白底卡片 + 蓝色主调 + 状态徽标，信息分组清晰、密度适中。优势是<b>成熟稳妥、学习成本低、长时间看不累</b>，与「路由器管理面板」的心智模型最贴合。</p>
+      <a class="preview" href="01-unifi.html" target="_blank"><iframe src="01-unifi.html" scrolling="no" loading="lazy"></iframe><div class="mask"><span>全尺寸查看 ↗</span></div></a>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="num">02</span><h2>NOC 深色大屏</h2>
+        <div class="tags"><span class="tag">深色</span><span class="tag">高密度</span><span class="tag">等宽数字</span><span class="tag">运维感</span></div>
+        <a class="open" href="02-noc.html" target="_blank">打开 ↗</a>
+      </div>
+      <p class="desc">对标 Grafana / 机房运维大屏：近黑底色、1px 细线、青色信号色系，每个 KPI 自带迷你趋势线。优势是<b>信息密度最高、故障一眼可见</b>，适合挂在屏幕上常开监控；代价是设置类表单会显得「硬核」。</p>
+      <a class="preview" href="02-noc.html" target="_blank"><iframe src="02-noc.html" scrolling="no" loading="lazy"></iframe><div class="mask"><span>全尺寸查看 ↗</span></div></a>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="num">03</span><h2>Linear 极简</h2>
+        <div class="tags"><span class="tag">浅色</span><span class="tag">单强调色</span><span class="tag">键盘优先</span><span class="tag">开发者工具感</span></div>
+        <a class="open" href="03-linear.html" target="_blank">打开 ↗</a>
+      </div>
+      <p class="desc">对标 Linear / Vercel：几乎无装饰的细线界面、灰阶 + 单一紫色强调、⌘K 命令菜单与快捷键。优势是<b>极致干净、表单与表格最高效</b>，策略配置这类复杂操作的体验最好；监控大屏感较弱。</p>
+      <a class="preview" href="03-linear.html" target="_blank"><iframe src="03-linear.html" scrolling="no" loading="lazy"></iframe><div class="mask"><span>全尺寸查看 ↗</span></div></a>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="num">04</span><h2>CRT 终端</h2>
+        <div class="tags"><span class="tag">深色</span><span class="tag">荧光绿</span><span class="tag">ASCII 图表</span><span class="tag">极客玩具感</span></div>
+        <a class="open" href="04-crt.html" target="_blank">打开 ↗</a>
+      </div>
+      <p class="desc">致敬 htop / 终端美学：磷光绿、等宽字体、ASCII 折线图、F1/F2 功能键切换。优势是<b>个性极强、与 RouterOS 极客气质契合</b>；缺点是中文等宽渲染一般、移动端与复杂表单不友好，更适合作为「彩蛋主题」而非主界面。</p>
+      <a class="preview" href="04-crt.html" target="_blank"><iframe src="04-crt.html" scrolling="no" loading="lazy"></iframe><div class="mask"><span>全尺寸查看 ↗</span></div></a>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="num">05</span><h2>Aurora 玻璃拟态</h2>
+        <div class="tags"><span class="tag">深色渐变</span><span class="tag">毛玻璃</span><span class="tag">大数字</span><span class="tag">消费级亲和力</span></div>
+        <a class="open" href="05-aurora.html" target="_blank">打开 ↗</a>
+      </div>
+      <p class="desc">对标 eero / Plume / Apple 家庭 App：极光渐变背景 + 毛玻璃卡片 + 大字号关键指标，策略规则用<b>「谁 → 什么目标 → 哪条线路」流向图</b>表达，是 5 个方案里策略概念最易懂的。密度最低，适合「好看 + 好用」优先、终端数量不爆炸的场景。</p>
+      <a class="preview" href="05-aurora.html" target="_blank"><iframe src="05-aurora.html" scrolling="no" loading="lazy"></iframe><div class="mask"><span>全尺寸查看 ↗</span></div></a>
+    </div>
+  </div>
+
+  <div class="compare">
+    <h2>横向对比</h2>
+    <table>
+      <thead><tr><th>风格</th><th>监控查看效率</th><th>设置/表单效率</th><th>信息密度</th><th>美观/个性</th><th>实现成本</th></tr></thead>
+      <tbody>
+        <tr><td>01 UniFi</td><td>高</td><td>高</td><td>中</td><td>稳、专业</td><td>低</td></tr>
+        <tr><td>02 NOC</td><td>极高</td><td>中</td><td>高</td><td>硬核</td><td>低-中</td></tr>
+        <tr><td>03 Linear</td><td>中</td><td>极高</td><td>中</td><td>克制、精致</td><td>中</td></tr>
+        <tr><td>04 CRT</td><td>中</td><td>低</td><td>高</td><td>极强（小众）</td><td>中</td></tr>
+        <tr><td>05 Aurora</td><td>中-高</td><td>高（流向图好懂）</td><td>低-中</td><td>最强（大众向）</td><td>中-高（毛玻璃性能需注意）</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px;color:#8b8b99;margin-top:14px;line-height:1.7">也可以混搭：例如「以 03 Linear 的骨架承载 05 的流向图表达」，或「01 为主 + 02 作为深色主题」。选定后我会把风格规范（色板 / 圆角 / 字体 / 组件 / 动效）写入 AGENTS.md 作为 UX 标准，再开始正式开发。</p>
+  </div>
+</div>
+</body>
+</html>
