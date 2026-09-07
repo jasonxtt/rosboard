@@ -74,11 +74,13 @@ export function PolicyNotice({ tone, title, children }: { tone: StatusTone; titl
 
 export function PolicyField({ label, htmlFor, error, hint, children }: { label: string; htmlFor?: string; error?: string | null; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="policy-field">
+    <div className="policy-field policy-field-row">
       <label className="policy-field-label" htmlFor={htmlFor}>{label}</label>
-      {children}
-      {error ? <p className="policy-field-error" role="alert">{error}</p> : null}
-      {hint && !error ? <p className="policy-hint">{hint}</p> : null}
+      <div className="policy-field-control">
+        {children}
+        {error ? <p className="policy-field-error" role="alert">{error}</p> : null}
+        {hint && !error ? <p className="policy-hint">{hint}</p> : null}
+      </div>
     </div>
   )
 }
@@ -179,7 +181,7 @@ export function PolicyWizardSteps({ steps, current, unlockedThrough = steps.leng
         return (
           <li key={step} className={className} aria-current={active ? 'step' : undefined}>
             <button type="button" disabled={disabled} aria-label={`${i + 1}. ${step}${stateLabel}`} onClick={() => onJump?.(i)}>
-              {i + 1}. {step}
+              <span className="policy-step-number" aria-hidden="true">{i + 1}</span><span>{step}</span>
             </button>
           </li>
         )

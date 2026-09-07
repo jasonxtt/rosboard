@@ -96,6 +96,7 @@ export function SubjectSelector({
       {allowExcluded ? <label className={`policy-choice${value.mode === 'excluded' ? ' active' : ''}${excludedDisabled ? ' disabled' : ''}`}><input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} /><span><strong>入口内排除设备 / 地址</strong><small>{excludedDisabled ? '需要先选择有效的 TrafficIngress' : '先匹配 TrafficIngress，再排除下面的终端和地址'}</small></span></label> : null}
     </div>
     {value.mode === 'selected' || value.mode === 'excluded' ? <>
+      <p className="policy-hint">自动跟随：按可靠 MAC 识别设备，跟随其 IP 地址变化。固定当前地址：保留当前选定的 IP，后续地址变化不会自动更新。</p>
       <input className="settings-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、IP 或 MAC" aria-label="搜索受控设备" />
       <div className="canonical-terminal-list">
         {visibleTerminals.map((terminal) => {
