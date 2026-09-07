@@ -133,6 +133,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
   return (
     <Modal
       open
+      persistent
       onClose={() => {
         if (!saving) onClose()
       }}

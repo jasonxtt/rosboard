@@ -163,7 +163,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
         </Button>
       </div>
 
-      <Modal open={replaceOpen} onClose={replaceBusy ? () => undefined : () => setReplaceOpen(false)} title="更换 RouterOS 接入账号">
+      <Modal open={replaceOpen} persistent onClose={replaceBusy ? () => undefined : () => setReplaceOpen(false)} title="更换 RouterOS 接入账号">
         <div className="replace-account">
           <p className="faint">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。验证通过后 rosboard 会替换保存的凭据并重启。</p>
           {session ? (
@@ -196,7 +196,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
         </div>
       </Modal>
 
-      <Modal open={clearOpen} onClose={clearBusy ? () => undefined : () => setClearOpen(false)} title="清除已存账号">
+      <Modal open={clearOpen} persistent onClose={clearBusy ? () => undefined : () => setClearOpen(false)} title="清除已存账号">
         <p>
           删除 rosboard 保存的设备账号？设备 <strong>{device.name}</strong> 将同时停用，但不会删除 RouterOS 中的用户。
         </p>

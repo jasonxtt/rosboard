@@ -114,7 +114,7 @@ export function ArchivedSection({ devices, restartGate, onChanged }: ArchivedSec
         {cleanup ? <CleanupCard cleanup={cleanup} onClose={() => setCleanup(null)} /> : null}
       </Modal>
 
-      <Modal open={purgeTarget !== null} onClose={purging ? () => undefined : () => setPurgeTarget(null)} title="永久清除设备数据">
+      <Modal open={purgeTarget !== null} persistent onClose={purging ? () => undefined : () => setPurgeTarget(null)} title="永久清除设备数据">
         {purgeTarget ? (
           <div className="purge-confirm">
             <p>

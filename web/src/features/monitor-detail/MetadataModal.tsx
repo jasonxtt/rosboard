@@ -47,6 +47,7 @@ export function MetadataModal({ open, terminal, scopedPath, onClose, onSaved }: 
       open={open}
       onClose={onClose}
       title="编辑终端"
+      persistent
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={saving}>

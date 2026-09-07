@@ -368,7 +368,7 @@ type PlanReviewModalProps = {
 export function PlanReviewModal({ open, deviceID, envelope, onClose, onApplied, onRepreview }: PlanReviewModalProps) {
   if (!envelope) return null
   return (
-    <Modal open={open} onClose={onClose} title="审查变更计划" maxWidth={720}>
+    <Modal open={open} onClose={onClose} title="审查变更计划" maxWidth={720} persistent>
       <PlanReviewBody deviceID={deviceID} envelope={envelope} onApplied={onApplied} onBack={onClose} onRepreview={onRepreview} />
     </Modal>
   )

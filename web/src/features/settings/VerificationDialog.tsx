@@ -50,7 +50,7 @@ export function VerificationDialog({
   const identityMeta = [identity.platform, identity.version].filter(Boolean).join(' · ')
 
   return (
-    <Modal open onClose={busy ? () => undefined : onCancel} title="连接验证结果" maxWidth={720}>
+    <Modal open persistent onClose={busy ? () => undefined : onCancel} title="连接验证结果" maxWidth={720}>
       <div className="verify-dialog">
         <p className="faint">确认检测到的 WAN / LAN 范围后保存设备。</p>
 

@@ -1,15 +1,11 @@
 import { Badge } from '../../../ui/Badge'
 import type { BadgeTone } from '../../../ui/Badge'
 import { StatusDot } from '../../../ui/StatusDot'
-import { formatBitRate } from '../../../lib/format'
 import type { Egress } from '../canonical'
-import type { InterfaceRate } from '../api'
-import { failureModeLabel, natModeLabel } from './labels'
+import { failureModeLabel } from './labels'
 
 type EgressCardProps = {
   egress: Egress
-  /** live rates keyed by WAN interface name, when resolvable */
-  rates?: Map<string, InterfaceRate>
   busy?: boolean
   onEdit: () => void
   onDelete: () => void
@@ -27,8 +23,8 @@ function familyLabel(family: string): string {
   return family === 'ipv6' ? 'IPv6' : 'IPv4'
 }
 
-/** 出口卡 (§9.2): WAN 图标 + 名称 + 状态徽章 + kv 行（接口/协议族/网关/故障策略/当前负载）. */
-export function EgressCard({ egress, rates, busy = false, onEdit, onDelete, onToggle }: EgressCardProps) {
+/** 出口卡 (§9.2): WAN 图标 + 名称 + 状态徽章 + kv 行（接口/网关/故障策略），操作集中在右下角。 */
+export function EgressCard({ egress, busy = false, onEdit, onDelete, onToggle }: EgressCardProps) {
   const badge = egressBadge(egress)
   const enabledFamilies = egress.families.filter((family) => family.enabled)
   const interfaceText =
@@ -36,22 +32,6 @@ export function EgressCard({ egress, rates, busy = false, onEdit, onDelete, onTo
   const gatewayText = enabledFamilies
     .map((family) => `${familyLabel(family.family)} ${family.gateway || (family.wanInterface ? '自动' : '—')}`)
     .join(' · ')
-  const tableText = enabledFamilies.map((family) => `${familyLabel(family.family)} ${family.routeTable || '自动'}`).join(' · ')
-  const natText = enabledFamilies.map((family) => `${familyLabel(family.family)} ${natModeLabel(family.natMode)}`).join(' · ')
-
-  let download = 0
-  let upload = 0
-  let resolved = false
-  if (rates) {
-    for (const family of enabledFamilies) {
-      const rate = rates.get(family.wanInterface)
-      if (rate) {
-        download += rate.downloadBps
-        upload += rate.uploadBps
-        resolved = true
-      }
-    }
-  }
 
   return (
     <div className={`glass pol-egr-card${egress.enabled ? '' : ' pol-egr-disabled'}`}>
@@ -75,20 +55,8 @@ export function EgressCard({ egress, rates, busy = false, onEdit, onDelete, onTo
           <b>{gatewayText || '—'}</b>
         </div>
         <div className="pol-kv">
-          <span>路由表</span>
-          <b>{tableText || '—'}</b>
-        </div>
-        <div className="pol-kv">
-          <span>NAT</span>
-          <b>{natText || '—'}</b>
-        </div>
-        <div className="pol-kv">
           <span>故障策略</span>
           <b>{failureModeLabel(egress.failureMode)}</b>
-        </div>
-        <div className="pol-kv">
-          <span>当前负载</span>
-          <b className={resolved ? 'pol-egr-rate' : undefined}>{resolved ? `↓${formatBitRate(download)} ↑${formatBitRate(upload)}` : '—'}</b>
         </div>
       </div>
       <div className="pol-egr-actions">

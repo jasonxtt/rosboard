@@ -173,7 +173,7 @@
 
 .pol-egr-rate { color: var(--ok); }
 
-.pol-egr-actions { display: flex; gap: var(--space-3); margin-top: auto; }
+.pol-egr-actions { display: flex; gap: var(--space-3); margin-top: auto; justify-content: flex-end; }
 
 .link-danger { color: var(--err); }
 
@@ -578,15 +578,18 @@
   align-items: center;
 }
 
+/* 分流规则卡片网格：按优先级从左到右排列（用户指定，与出口卡同款栅格） */
 .pol-rule-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: var(--space-3);
+  align-items: stretch;
 }
 
 @media (max-width: 767px) {
   .pol-target-list { grid-template-columns: 1fr; }
   .pol-form-grid { grid-template-columns: 1fr; }
+  .pol-rule-list { grid-template-columns: 1fr; }
   .pol-meta-grid { grid-template-columns: 1fr 1fr; }
   .pol-op-diff-key { min-width: 80px; }
   .pol-flow-head-right { width: 100%; justify-content: flex-end; }
