@@ -1,54 +1,56 @@
 import { useState } from 'react'
 import { Modal } from '../ui/Modal'
-import { StatusDot } from '../ui/StatusDot'
 import { useShell } from './useShell'
-import { MORE_NAV, MOBILE_NAV, VIEW_TITLES, type View } from './views'
+import { NAV_GROUPS, NAV_ITEM_META, TOP_LEVEL_NAV, VIEW_TITLES, navGroupOf, type NavGroup } from './views'
 
-/** Mobile (<768px) bottom floating pill: 概览/接口/终端/策略 + 更多 drawer (§11). */
+/** Mobile (<768px) bottom floating pill: 仪表台/系统概览 + group drawers (§11). */
 export function MobileNav() {
-  const { view, navigate, selectedDeviceId, devices } = useShell()
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const current = devices.find((device) => device.id === selectedDeviceId)
-  const moreActive = MORE_NAV.includes(view)
-
-  const go = (next: View) => {
-    setDrawerOpen(false)
-    navigate(next)
-  }
+  const { view, navigate } = useShell()
+  const [openGroup, setOpenGroup] = useState<NavGroup | null>(null)
+  const group = NAV_GROUPS.find((candidate) => candidate.key === openGroup)
 
   return (
     <>
       <nav className="bottomnav glass" aria-label="移动端主导航">
-        {MOBILE_NAV.map((item) => (
+        {TOP_LEVEL_NAV.map((item) => (
           <button key={item} type="button" className={view === item ? 'on' : undefined} onClick={() => navigate(item)}>
             {VIEW_TITLES[item]}
           </button>
         ))}
-        <button type="button" className={moreActive || drawerOpen ? 'on' : undefined} onClick={() => setDrawerOpen(true)} aria-haspopup="dialog">
-          更多
-        </button>
+        {NAV_GROUPS.map((candidate) => (
+          <button
+            key={candidate.key}
+            type="button"
+            className={navGroupOf(view) === candidate.key || openGroup === candidate.key ? 'on' : undefined}
+            onClick={() => setOpenGroup(candidate.key)}
+            aria-haspopup="dialog"
+          >
+            {candidate.label}
+          </button>
+        ))}
       </nav>
-      <Modal open={drawerOpen} onClose={() => setDrawerOpen(false)} title="全部页面">
-        <div className="mobile-more">
-          <button type="button" className="popover-item" onClick={() => go('fleet')}>
-            <span aria-hidden="true">▦</span>
-            <span>设备总览</span>
-          </button>
-          {MORE_NAV.filter((item) => item !== 'fleet').map((item) => (
-            <button key={item} type="button" className="popover-item" onClick={() => go(item)}>
-              <span>{VIEW_TITLES[item]}</span>
-            </button>
-          ))}
-          <button type="button" className="popover-item" onClick={() => go('settings')}>
-            <span aria-hidden="true">⚙️</span>
-            <span>{VIEW_TITLES.settings}</span>
-          </button>
-          {current ? (
-            <span className="popover-item faint">
-              <StatusDot tone={current.healthy ? 'ok' : 'err'} />
-              <span>当前设备：{current.name}（在桌面端顶栏切换）</span>
-            </span>
-          ) : null}
+      <Modal open={group != null} onClose={() => setOpenGroup(null)} title={group?.label ?? ''}>
+        <div className="mobile-more nav-mega">
+          {group?.items.map((item) => {
+            const meta = NAV_ITEM_META[item]
+            return (
+              <button
+                key={item}
+                type="button"
+                className={view === item ? 'mega-item mega-item-on' : 'mega-item'}
+                onClick={() => {
+                  setOpenGroup(null)
+                  navigate(item)
+                }}
+              >
+                <span className="mega-item-ic" aria-hidden="true">{meta?.icon ?? '·'}</span>
+                <span className="mega-item-text">
+                  <b>{VIEW_TITLES[item]}</b>
+                  {meta ? <small>{meta.desc}</small> : null}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </Modal>
     </>
