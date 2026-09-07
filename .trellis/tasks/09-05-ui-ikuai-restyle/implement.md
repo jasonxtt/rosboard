@@ -7,8 +7,8 @@
 - [ ] After user authorization, refresh HEAD/status and source differences; preserve unrelated working files.
 - [ ] Complete the feature checklist against real handlers and conditional branches; capture baseline behavior for affected flows without production mutations.
 - [ ] Apply semantic tokens, compact shell, device switcher and correctly scoped search; include no-device shell and responsive states.
-- [ ] Rebuild overview using the data mapping in `design.md`.
-- [ ] Present the actual shell/overview in light/dark and narrow layouts beside the frozen study. Resolve user visual feedback before spreading the treatment to all pages.
+- [ ] Rebuild overview using `design.md` and `research/overview-reference-amendment.md`: preserve branch-reference header cards/colors/charts and quick links; order the left rail interface information → quick links → study device information.
+- [ ] Present the actual shell/overview in light/dark and narrow layouts beside the frozen study plus the pinned overview exceptions. Do not report the unchanged study as a preview of the amended overview. Resolve user visual feedback before spreading the treatment to all pages.
 
 ## Phase 2 — monitoring and settings
 

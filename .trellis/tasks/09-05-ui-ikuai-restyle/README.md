@@ -4,6 +4,8 @@
 
 The user approved the compact interactive study in this conversation, but is dissatisfied with the subsequent UI implementation by another agent. The latest instruction is to reread the repository and finish the plan without executing it. Earlier statements of acceptance or permission to begin do not authorize implementation now.
 
+The user subsequently approved the overall plan and requested two specific overview exceptions: copy the other branch UI’s four header cards and quick-link module; place the preview’s device-information panel below quick links. This is a planning amendment, not authorization to implement. The original preview remains unchanged.
+
 Read in order:
 
 1. [Requirements](prd.md)
@@ -13,7 +15,7 @@ Read in order:
 5. [Future implementation and verification](implement.md)
 6. [Frozen approved preview](research/approved-preview/README.md)
 
-Reference precedence: latest user instructions → compact approved preview for appearance → accepted functional baseline for behavior → this migration plan → earlier iKuai research. The prototype does not define the product's feature set.
+Reference precedence: latest user instructions → [explicit overview exceptions](research/overview-reference-amendment.md) for the four header cards and quick links → compact approved preview for all other appearance → accepted functional baseline for behavior → this migration plan → earlier iKuai research. The prototype does not define the product's feature set.
 
 - Work branch: `feat/ui-ikuai-restyle`; audited HEAD: `1049314`.
 - Functional reference: `feat/policy-access-rebuild`, commit `7a7d463da028519661878070a0027cae50b69e0c`.

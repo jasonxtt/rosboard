@@ -59,9 +59,9 @@ For every ID record the final component/location, exercised scenario and result 
 | NAV-01 | App.tsx: PanelApp | All five primary groups and every subview listed above, correct active state and group landing | Compact navigation |
 | NAV-02 | App.tsx: PanelApp | Multi-device switch, device identity, theme persistence, refresh stop/1/3/5/10s, mobile open/close | Switcher/topbar/drawer |
 | FLEET-01 | App.tsx: fleet view | Device summaries, status, query and open-device action | Fleet cards and local toolbar |
-| OVER-01 | App.tsx: OverviewPage | CPU/memory/terminal/connection metrics, sparklines, composition, averages and peaks | Grouped banner and metric charts |
+| OVER-01 | App.tsx: OverviewPage | CPU/memory/terminal/connection metrics, sparklines, composition, averages and peaks | Branch-reference four cards and metric charts (see overview amendment) |
 | OVER-02 | App.tsx: OverviewPage, SystemStatusList | WAN aggregates, interface addresses/link info, uptime/version, last success, active interfaces, storage, freshness | Information rail and status area |
-| OVER-03 | App.tsx: OverviewPage | Upload/download series, interface table, all nine quick links, alerts with severity/source/time/counts | Monitoring area plus compact quick links |
+| OVER-03 | App.tsx: OverviewPage | Upload/download series, interface table, all nine quick links, alerts with severity/source/time/counts | Monitoring area; branch-reference quick links between interface and device information |
 | MON-01 | App.tsx: interfaces view | Physical/logical/system tabs, all existing table fields, interface details and trend | Styled table/detail |
 | MON-02 | App.tsx: terminals view | IPv4/IPv6/all, query, supported header sorts, online header filter, page size 10/20/50 and previous/next | Terminal toolbar/table/footer |
 | MON-03 | App.tsx: terminal detail/editor | Identity/IP/MAC, connections with sorts/filters, live chart, custom name/note edit, cancel/save/errors | Detail and editor |

@@ -21,10 +21,11 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-09-07: user dissatisfied with intervening UI implementation. Planning only; implementation explicitly paused. Compact conversation preview is the visual reference. Read README.md before continuing.",
+  "notes": "2026-09-07: user dissatisfied with intervening UI implementation. Planning only; implementation explicitly paused. Compact conversation preview is the visual reference. Read README.md before continuing. User approved overall plan with overview-only exceptions: branch header cards and quick links; study device panel below. Implementation remains paused.",
   "meta": {
     "audited_head": "1049314",
     "functional_baseline": "7a7d463da028519661878070a0027cae50b69e0c",
-    "implementation_authorized": false
+    "implementation_authorized": false,
+    "overview_reference_commit": "74ac43aa6a6d3ca8b3fde33f8002b912d0f70757"
   }
 }

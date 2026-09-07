@@ -2,6 +2,10 @@
 
 Audited `feat/ui-ikuai-restyle` at `1049314` against functional baseline `7a7d463`. This is a source audit, not a new browser acceptance of the current implementation. The working tree had no tracked modifications before planning; unrelated untracked artifacts are excluded.
 
+## Subsequent user decision
+
+The user now explicitly likes the branch’s four overview header components (including their colors/charts) and quick-link module. Those are adopted as exceptions; the historical difference findings below no longer imply replacing them with the study’s header. See [the amendment](overview-reference-amendment.md). Other source findings remain applicable.
+
 ## What already changed
 
 The branch contains token replacement, shell navigation, component styling, overview/authentication changes, chart recoloring, dark theme, wizard layout and rebuilt embedded assets. There are 34 changed files against the functional reference. Reusing working logic is preferable to resetting the branch.
@@ -15,7 +19,7 @@ No diff was found in `RoutingRuleWizard.tsx`, policy `canonical.ts`, `source.ts`
 | Search | Primary nav search changes fleet query on fleet and terminal query elsewhere | Place existing searches on fleet/terminal toolbars so scope is visible; preserve state and filtering |
 | Switcher | Primary-column styling hides address in trigger | Compact trigger with full name accessible and address/status available in menu; do not discard data |
 | Tokens | Primary/chart upload use bright `#4794EB`; title token is 24 px | Use approved muted palette, 18 px page title and sans metrics with tabular digits |
-| Overview | Identity plus three separate metric cards; terminal purple, resources blue, connections orange | One grouped identity/metric banner; terminal blue, connections purple, resources amber |
+| Overview | Identity plus three separate metric cards; terminal purple, resources blue, connections orange | Superseded by user amendment: copy these four cards, their existing colors/charts and internal layouts |
 | Overview details | WAN aggregate, nine quick links, traffic/resource charts, interface table, status and alerts exist | Preserve their information/actions; rearrange using study's left information/right monitoring hierarchy |
 | Empty state | `EmptyDevicePanel` retains another shell structure | Bring into same visual system while preserving setup/maintenance routes |
 | Wizard | State machine unchanged; step/preview CSS already altered | Restyle existing components, retain jumping/editing/locking and application rules |

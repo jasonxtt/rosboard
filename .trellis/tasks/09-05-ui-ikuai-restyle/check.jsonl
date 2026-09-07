@@ -6,3 +6,4 @@
 {"file": ".trellis/tasks/09-05-ui-ikuai-restyle/design.md", "reason": "Superseding compact approved visual specification"}
 {"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/current-state-audit.md", "reason": "Existing restyle differences and reuse boundaries"}
 {"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/approved-preview/README.md", "reason": "Frozen visual reference provenance; demo is not feature contract"}
+{"file": ".trellis/tasks/09-05-ui-ikuai-restyle/research/overview-reference-amendment.md", "reason": "User-approved overview exceptions with immutable source reference; all other study directions unchanged"}

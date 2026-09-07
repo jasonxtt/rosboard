@@ -14,6 +14,10 @@ Then open http://10.0.0.86:8791/. On another host use its own bind address, or u
 
 Data is synthetic and interactions are illustrative/in-memory. Some buttons display a toast, some pages are not drawn, and forms omit real advanced fields. This is a visual reference, not a functional replacement, runnable app acceptance, or authorization to remove controls. Do not send its example forms to an API.
 
+## Subsequent overview amendment
+
+The user later selected the branch implementation’s four header cards and quick-link module, with the study’s device-information panel below the latter. See [the overview amendment](../overview-reference-amendment.md). This frozen preview (and the original 8791 service) still shows the original study; it has not been edited to show that combination. All other sections, particularly routing-policy selectors and layout, remain authoritative.
+
 ## Frozen file hashes (SHA-256)
 
 | File | SHA-256 |

@@ -2,7 +2,7 @@
 
 ## Status and outcome
 
-Replanned on 2026-09-07 after the user rejected the intervening restyle. Only the compact study's appearance has been approved. This plan is ready for review; implementation must wait for a new instruction. Previous milestone completion and acceptance statements are historical, superseded by this status.
+Replanned on 2026-09-07 after the user rejected the intervening restyle. The compact study’s appearance and the subsequent explicit overview exceptions have been approved. This plan is ready for review; implementation must wait for a new instruction. Previous milestone completion and acceptance statements are historical, superseded by this status.
 
 Make Rosboard a restrained, compact Chinese network administration interface consistent with the approved study: narrow navigation, clear hierarchy, gentle blue emphasis, pale grouped metrics, dense readable tables and orderly forms. iKuai 4.0 is the design reference; Rosboard's actual data and workflows remain the product contract.
 
@@ -21,4 +21,4 @@ No backend/API/schema/permission/policy semantics rewrite, framework replacement
 
 ## Acceptance
 
-The implemented interface must match the compact study in navigation proportions, color restraint, typography and page hierarchy. Every checklist item must have a real destination and verified behavior, including conditional and destructive-action states. Automated checks alone do not establish visual acceptance. The user must review the actual implementation; production acceptance and merge remain subject to repository gates.
+The implemented interface must match the compact study in navigation proportions, color restraint, typography and page hierarchy, except the four overview header cards and quick-link module explicitly adopted from the pinned branch reference. The overview left rail must read interface information → quick links → device information. Every checklist item must have a real destination and verified behavior, including conditional and destructive-action states. Automated checks alone do not establish visual acceptance. The user must review the actual implementation; production acceptance and merge remain subject to repository gates.

@@ -2,9 +2,11 @@
 
 ## Authority and implementation boundary
 
-Use [the frozen preview](research/approved-preview/README.md) for visual judgment and the functional baseline for behavior. This supersedes the old 280 px navigation and bright-blue design in this task. Existing root preview files and earlier measured iKuai tokens are not acceptance targets.
+Use [the frozen preview](research/approved-preview/README.md) for visual judgment, with the user-approved [overview exceptions](research/overview-reference-amendment.md), and the functional baseline for behavior. This supersedes the old 280 px navigation and bright-blue design in this task. Existing root preview files and earlier measured iKuai tokens are not acceptance targets.
 
 Continue the current branch selectively. Keep React, ECharts, request/state logic and policy modules. Change existing design tokens, CSS, presentation markup and small reusable patterns where repetition warrants it. Do not create a parallel component framework, copy demo JavaScript into React, or wholesale replace `App.tsx`.
+
+The four overview header cards and quick-link module explicitly reuse the pinned branch reference. Their card palette, chart styling and internal composition override the general tokens below locally; do not recolor them to the study’s terminal-blue/connection-purple/resource-amber scheme. All other areas, especially the new-routing-policy selector controls and layout, retain the study’s design.
 
 ## Visual contract
 
@@ -32,12 +34,12 @@ Dark mode uses the preview's root palette: canvas `#151e2a`, surface `#1b2533`, 
 
 Device switcher sits above the two columns. Preserve all primary/submenu entries, actual group landing destinations, active selection, device switching and stored preferences. Fleet/overview have no empty secondary rail. Put existing page searches with their respective page toolbars; keep topbar page identity, refresh and existing theme controls. The study's review toolbar and layout selector are not shipped.
 
-Proposed production breakpoints adapt the study to the existing mobile contract: above 900 px dual navigation; 768–900 px compact single navigation; at or below 767 px drawer. The study itself switches the mobile drawer at 650 px; this adjustment preserves usable controls on existing mobile widths. Overview identity spans a row below approximately 1250 px; monitoring stacks as width runs out. Tables scroll inside their own container, not the entire page. Dialogs fit the viewport, scroll their body and keep actions reachable.
+Proposed production breakpoints adapt the study to the existing mobile contract: above 900 px dual navigation; 768–900 px compact single navigation; at or below 767 px drawer. The study itself switches the mobile drawer at 650 px; this adjustment preserves usable controls on existing mobile widths. The four overview cards retain the branch reference’s desktop composition and adapt to two/one columns on smaller screens; monitoring stacks as width runs out. Tables scroll inside their own container, not the entire page. Dialogs fit the viewport, scroll their body and keep actions reachable.
 
 ## Overview: visual structure and real-data mapping
 
-1. A single bordered banner groups device identity and three softly tinted metric areas: terminals (blue), connections (purple), resources (amber). Preserve CPU and memory readings, sparklines, composition and average/peak information from existing metrics, even if placed in the resource area or charts below.
-2. Desktop left information rail is approximately 300 px (330 px on wide displays): existing WAN/collection-interface information, device/system information, existing quick links in a compact clearly labelled block.
+1. Copy the pinned branch reference’s four independent header cards: system/device identity, terminal count (purple), resource usage (blue), and active connections (orange). Preserve their card backgrounds, internal layout, terminal/connection sparklines, legends, composition bars, average/peak footers and CPU/memory progress bars. Keep the source order (identity → terminals → resources → connections); the user’s enumeration names the components rather than explicitly requiring a reorder. Do not use the former single-banner proposal. See the amendment for exact source anchors and colors.
+2. Desktop left information rail is approximately 300 px (330 px on wide displays), strictly ordered: interface information (study direction, real WAN/collection fields) → quick links (copy the branch reference’s three-column icon/text module and all nine actions) → device information (the study’s module, adapted to real fields). Keep the lower device-information panel even when some identity fields also appear in the header; no deduplication/deletion is authorized.
 3. Flexible right region: real upload/download chart, CPU and memory trends, actual interface-status table, current alerts and remaining system status information. Preserve severity counts and freshness/last-success signals.
 4. The study's illustrative terminal table does not replace the real interface table. It establishes table appearance only; no terminal ranking feature is added. Keep all nine quick-link actions unless the user later approves removal.
 5. Preserve current aggregate WAN semantics and label them accurately. Do not represent aggregated rates as a selected single interface or add a fake selector. Keep actual time ranges, units, series and empty/error states; prototype sample values never enter production.
