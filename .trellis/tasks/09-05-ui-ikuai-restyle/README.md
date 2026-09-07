@@ -1,6 +1,12 @@
 # UI restyle: handoff entry
 
-**2026-09-07: PLANNING ONLY. Implementation is paused by the user.**
+**2026-09-07: Phase 1 implemented; awaiting user visual review.**
+
+The latest user instruction explicitly authorized implementation on `codex/ui-compact-rebuild`, Draft PR #6, limited to shared appearance, compact navigation and overview. This supersedes the earlier planning-only instructions below. Further page migration waits for the user's visual confirmation. No production deployment or merge is authorized.
+
+See [the phase-1 checkpoint](research/phase1-checkpoint.md) for verification, the actual application preview and review steps.
+
+## Planning history (superseded by the authorization above)
 
 The user approved the compact interactive study in this conversation, but is dissatisfied with the subsequent UI implementation by another agent. The latest instruction is to reread the repository and finish the plan without executing it. Earlier statements of acceptance or permission to begin do not authorize implementation now.
 

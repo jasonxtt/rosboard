@@ -1,13 +1,13 @@
-# Future execution plan — NOT STARTED
+# Execution plan — Phase 1 awaiting visual review
 
-**User instruction on 2026-09-07: finish the plan; do not implement.** All phases below are future work. Historical M1–M10/build/test claims do not count as verification of this revision.
+**User authorization on 2026-09-07: implement shared appearance, compact navigation and overview, then pause for visual review.** Phase 2 onward remains pending. See `research/phase1-checkpoint.md` for current evidence; historical M1–M10 claims are not evidence for this revision.
 
 ## Phase 1 — establish the comparison and shared appearance
 
-- [ ] After user authorization, refresh HEAD/status in the independent worktree. Verify application code starts at functional baseline `7a7d463`, not the other UI branch; preserve unrelated working files.
+- [x] After user authorization, refresh HEAD/status in the independent worktree. Verify application code starts at functional baseline `7a7d463`, not the other UI branch; preserve unrelated working files.
 - [ ] Complete the feature checklist against real handlers and conditional branches; capture baseline behavior for affected flows without production mutations.
-- [ ] Apply semantic tokens, compact shell, device switcher and correctly scoped search; include no-device shell and responsive states.
-- [ ] Rebuild overview using `design.md` and `research/overview-reference-amendment.md`: preserve branch-reference header cards/colors/charts and quick links; order the left rail interface information → quick links → study device information.
+- [x] Apply semantic tokens, compact shell, device switcher and correctly scoped search; include no-device shell and responsive states.
+- [x] Rebuild overview using `design.md` and `research/overview-reference-amendment.md`: preserve branch-reference header cards/colors/charts and quick links; order the left rail interface information → quick links → study device information.
 - [ ] Present the actual shell/overview in light/dark and narrow layouts beside the frozen study plus the pinned overview exceptions. Do not report the unchanged study as a preview of the amended overview. Resolve user visual feedback before spreading the treatment to all pages.
 
 ## Phase 2 — monitoring and settings
