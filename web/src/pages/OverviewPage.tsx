@@ -157,11 +157,13 @@ function formatFrequency(mhz: string): string {
 }
 
 function cpuLine(overview: Overview): string {
-  const cpu = overview.system.cpu.trim()
-  const spec = [overview.system.cpuCount.trim() ? `${overview.system.cpuCount.trim()} 核` : '', overview.system.cpuFrequency.trim() ? `@ ${formatFrequency(overview.system.cpuFrequency)}` : '']
+  const model = overview.system.cpu.trim()
+  const spec = [overview.system.cpuCount.trim() ? `${overview.system.cpuCount.trim()}核` : '', overview.system.cpuFrequency.trim() ? `@ ${formatFrequency(overview.system.cpuFrequency)}` : '']
     .filter(Boolean)
     .join(' ')
-  return [cpu, spec].filter(Boolean).join(' · ') || '-'
+  // Spec first, model last: if the value ever truncates, the tail (model)
+  // is the expendable part and remains available via the title tooltip.
+  return [spec, model].filter(Boolean).join(' · ') || '-'
 }
 
 function capacityLine(usedBytes: number, totalBytes: number, percent: number): string {
@@ -180,18 +182,18 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
-        <div className="kv ov-meta-wide" title={cpuLine(overview)}>
-          <span>CPU</span>
-          <b>{cpuLine(overview)}</b>
-        </div>
         <div className="ov-meta-col">
           <div className="kv">
-            <span>RouterOS 版本</span>
+            <span>ROS 版本</span>
             <b>{overview.version ? `v${overview.version}` : '-'}</b>
           </div>
           <div className="kv">
-            <span>平台 / 架构</span>
+            <span>平台架构</span>
             <b title={platformArch}>{platformArch || '-'}</b>
+          </div>
+          <div className="kv">
+            <span>CPU</span>
+            <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
           </div>
           <div className="kv">
             <span>运行时长</span>
