@@ -1,53 +1,66 @@
-# 技术设计：仿 iKuai 4.0 UI 重写
+# Design and migration specification
 
-## 视觉权威来源
+## Authority and implementation boundary
 
-1. `preview-ikuai/` 静态设计稿（用户已评审通过）——布局与观感的最终依据
-2. `research/ikuai-40-design-tokens.md`——iKuai 4.0 实测色值与组件规格
-3. `research/rosboard-feature-inventory.md`——功能零丢失核对基线
+Use [the frozen preview](research/approved-preview/README.md) for visual judgment and the functional baseline for behavior. This supersedes the old 280 px navigation and bright-blue design in this task. Existing root preview files and earlier measured iKuai tokens are not acceptance targets.
 
-## 总体策略
+Continue the current branch selectively. Keep React, ECharts, request/state logic and policy modules. Change existing design tokens, CSS, presentation markup and small reusable patterns where repetition warrants it. Do not create a parallel component framework, copy demo JavaScript into React, or wholesale replace `App.tsx`.
 
-**保 className 契约、换 token、按组件块改样式；结构改动只发生在外壳导航。**
+## Visual contract
 
-- 现有体系：零 UI 依赖，全部手写 CSS（`web/src/index.css` 1907 行，~60 个 CSS 变量 token），TSX 只用语义化 className。这套契约保留。
-- 不引入任何新依赖（无 Tailwind / antd）。构建产物体积基本不变。
+| Element | Target |
+|---|---|
+| Desktop navigation | Primary 112 px + secondary approximately 112 px including divider: total 224 px |
+| Pages without secondary group | 132 px navigation; keep content aligned to actual shell width |
+| Compact single-column mode | 168 px; not an extra user-facing layout selector |
+| Mobile drawer | 188 px, keyboard-operable close/overlay and existing navigation behavior |
+| Navigation text/targets | 13 px, 44 px row targets, approximately 5–6 px horizontal padding, 16 px icons |
+| Topbar / page spacing | 69 px topbar; 22 px vertical / 24 px horizontal content padding; wide viewport 24 / 28 px |
+| Type | System sans/PingFang SC; page title 18, panel title 15, body 13–14, caption 12 px; tabular digits for metrics |
+| Surfaces | Canvas `#f7f9fc`, surface `#ffffff`, soft `#f8fafc`, border `#e9edf2` |
+| Text | Main `#343b46`, secondary `#737e8f`, muted `#8893a3` |
+| Primary | `#5b8fdb`, hover `#467cc9`, active background `#edf5fd` |
+| Status/chart accents | Green `#449979`, purple `#9181cf`, amber `#c79a4d`, red `#cc6366`; upload purple, download green |
+| Metric tints | Blue `#f0f6fd`, purple `#f5f2fc`, amber `#fdf7ec` |
+| Controls | Desktop 34–36 px; mobile interaction targets at least 44 px; control radius 5, panel radius 7 px |
 
-## Token 换血（index.css `:root`）
+Avoid heavy shadows, oversized headings and pervasive monospace. Keep monospace where it improves endpoint/code readability. Never encode status only by color. Keep visible focus, labels and readable disabled/error states; improve token contrast locally if needed rather than hiding low-contrast information.
 
-token 名称不变，值替换为 iKuai 实测值：
+Dark mode uses the preview's root palette: canvas `#151e2a`, surface `#1b2533`, soft `#202b3a`, border `#303b4b`, text `#d9e0eb`, secondary `#a1adbe`, muted `#8c99aa`, primary `#87b1ef`; semantic green/purple/amber/red `#76bd9f`/`#b3a4e6`/`#d9b270`/`#ec9194`. ECharts must read the same semantic tokens and respond to theme changes through the existing mechanism.
 
-- 主强调：`--mint #00d4a4` 系 → 蓝 `#4794EB` 系（`--focus-color`、active、链接、主按钮底）；新增 `--primary-blue: #4794EB`、`--primary-blue-hover: #3A83D4`、`--primary-blue-tint: #F0F9FF`
-- 主按钮：黑底 pill → 实心蓝圆角 6；`--radius-full` 在按钮上的使用改为 6px（token 保留，按钮规则改引用 `--radius-sm`）
-- 表面：`--canvas #fafafa` → `#F5F7FA`；卡片白 + 1px `#EAEEF2` 边 + 极轻阴影（替代现有阴影体系观感）
-- 文字梯度：`#0a0a0a/#1c1c1e/#3a3a3c...` → `#333/#666/#999` 系
-- 表格头底 `#F9F9F9`；分隔线 `#F0F0F0`
-- 淡彩统计卡：新增 `--tint-blue: #F0F6FD`、`--tint-purple: #F5F4FD`、`--tint-orange: #FFF8EC`
-- 图表色（`lib/themeTokens.ts` 同步）：蓝 `#4794EB` / 绿 `#7FD38D` / 紫 `#A5A0F8` / 橙 `#F5A623`
-- 语义色：ok `#22C55E`、warn `#F5A623`、error `#D45656`
-- dark mode（`:root[data-theme="dark"]`）：整组同步换板，主蓝可略提亮保证对比度
+## Shell and responsive behavior
 
-## 外壳重构（App.tsx PanelApp，约 1333-1530 行）
+Device switcher sits above the two columns. Preserve all primary/submenu entries, actual group landing destinations, active selection, device switching and stored preferences. Fleet/overview have no empty secondary rail. Put existing page searches with their respective page toolbars; keep topbar page identity, refresh and existing theme controls. The study's review toolbar and layout selector are not shipped.
 
-- 侧边栏单柱 → 双列：一级列（140px，logo+版本 tag / 搜索框 / 设备切换器 / 五个一级项 icon+文字）+ 二级列（140px，当前组的子菜单，紧贴列上沿）。仪表台、系统概览无子菜单时二级列收起。
-- 菜单结构与文案一字不动（真实结构见 inventory），仅改呈现形态。
-- 顶栏精简：保留页面标题 + 页内 tab（终端地址族等）+ 刷新控制 + 主题 + 搜索入口，按设计稿摆位。
-- 移动端：`<=767px` 退化为单列抽屉（现有 sidebarOpen 逻辑保留），二级项内联展开。
+Proposed production breakpoints adapt the study to the existing mobile contract: above 900 px dual navigation; 768–900 px compact single navigation; at or below 767 px drawer. The study itself switches the mobile drawer at 650 px; this adjustment preserves usable controls on existing mobile widths. Overview identity spans a row below approximately 1250 px; monitoring stacks as width runs out. Tables scroll inside their own container, not the entire page. Dialogs fit the viewport, scroll their body and keep actions reachable.
 
-## 组件级重写（只动 CSS，不动 JSX 结构）
+## Overview: visual structure and real-data mapping
 
-按钮三级（实心蓝/白底描边/蓝色文字链接）、表格（表头 #F9F9F9、行分隔 #f0f0f0、上行蓝下行绿、蓝色操作链接、排序 ↕ 符号）、页内 tab（蓝字+2px 下划线）、分段控件（灰底容器+蓝底激活块）、输入/选择（浅填充 #EEF2F8 或白底细边）、状态徽章（绿/灰/红点+字）、dialog（维持弹窗形态仅换皮，不改成整页表单）、分页条、tooltip、通知条、步骤条（策略向导）。
+1. A single bordered banner groups device identity and three softly tinted metric areas: terminals (blue), connections (purple), resources (amber). Preserve CPU and memory readings, sparklines, composition and average/peak information from existing metrics, even if placed in the resource area or charts below.
+2. Desktop left information rail is approximately 300 px (330 px on wide displays): existing WAN/collection-interface information, device/system information, existing quick links in a compact clearly labelled block.
+3. Flexible right region: real upload/download chart, CPU and memory trends, actual interface-status table, current alerts and remaining system status information. Preserve severity counts and freshness/last-success signals.
+4. The study's illustrative terminal table does not replace the real interface table. It establishes table appearance only; no terminal ranking feature is added. Keep all nine quick-link actions unless the user later approves removal.
+5. Preserve current aggregate WAN semantics and label them accurately. Do not represent aggregated rates as a selected single interface or add a fake selector. Keep actual time ranges, units, series and empty/error states; prototype sample values never enter production.
 
-## 页面级调整（JSX 结构小改）
+## Lists, dialogs and forms
 
-- **登录/初始化页**：渐变背景 + 居中白卡布局（结构调整）
-- **系统概览**：按设计稿终版重排 grid（设备信息条、淡彩统计卡×3、WAN信息+快捷入口左列、速率图+柱状图+内存CPU 右列）。WAN 信息的运营商/延迟/本月数据先核对 dashboard API；不存在则与用户确认替代方案。
-- **终端监控**：列与真实一致（设计稿已对齐）；样式换新
-- **features/**（policy、policy-routing、access-control）：共享组件同步换皮，向导步骤条、变更清单、状态徽章按设计稿
+Tables use a clear toolbar, subtle header, thin separators, aligned numeric columns and restrained tags. Preserve real column sorting/filter menus, offline states and pagination. Do not add demo batch selection, export or disabled fake pagination. Routing and target tags may wrap without hiding values; row actions remain available at narrow widths.
 
-## 兼容与回滚
+Settings retain independent save scopes and every advanced connection/collection field. Group related fields into sections with label/control alignment, local help and footer actions. Existing dialogs keep close/cancel/save, pending, validation and failure handling. Authentication and no-device flows share typography and surfaces, without new login features.
 
-- 分支：`feat/ui-ikuai-restyle`（基于 `feat/policy-access-rebuild`），Draft PR 先以 `feat/policy-access-rebuild` 为 base（父 PR #4 未合并），父合并后 retarget `main`
-- 每个里程碑（token/外壳/组件/页面/图表/dark）单独 commit + 截图验证
-- 回滚 = 分支级；生产回滚走 AGENTS.md NAS 备份
-- 开发期将 `web/vite.config.ts` 的 `/api` 代理从生产 10.0.0.6 改指本地实例，避免误触生产
+## Policy workflow
+
+Retain `RoutingRuleWizard.tsx` state machine and source/target/gateway contracts. Style the four stages as compact numbered steps, an orderly form body and clear footer. Existing editable/locked/jump behavior governs navigation, not the simplified demo.
+
+Preview retains all configuration and plan metadata, grouped operations, family/action badges and expanded details. Blocking errors, warnings, pending-review requirements and required acknowledgements stay visible before application. Busy state and double-submit prevention must remain. Restore equivalent MAC-following versus fixed-IP helper explanation removed by the intervening restyle.
+
+## File ownership and adaptation
+
+- `web/src/index.css`: replace relevant shell/component rules coherently; avoid accumulating a second override stylesheet.
+- `web/src/lib/themeTokens.ts`: synchronize semantic chart colors with CSS, retain theme observation.
+- `web/src/App.tsx`: targeted shell, overview, authentication, monitoring/settings markup only; preserve handlers and effects.
+- `web/src/features/policy/*` and `features/access-control/*`: presentation wrappers, labels and style classes; preserve model/API behavior.
+- `web/vite.config.ts`: no planned change; retain safe local proxy.
+- `internal/ui/dist`: update only as a deliberate verified frontend build checkpoint during later implementation, never during planning.
+
+The preserved study stays immutable. If the user changes the visual direction, record an explicit new revision rather than silently editing the accepted reference.

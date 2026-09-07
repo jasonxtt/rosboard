@@ -1,4 +1,6 @@
-# Rosboard 前端功能盘点基线（重写红线：零丢失）
+> Replanned 2026-09-07. This is a preservation checklist, not a completed runtime test report. The historical inventory below is retained as a baseline; the source audit and additions clarify current implementation. No item is approved for deletion. Locations are repository-relative; symbols are preferred over unstable line numbers.
+
+# Feature preservation inventory
 
 用途：UI 重写前后逐页核对。来源：web/src/App.tsx、web/src/features/**、web/src/lib/types.ts 实际代码（feat/policy-access-rebuild 分支）。重写完成时必须逐项核对仍在。
 
@@ -40,7 +42,47 @@
 
 ## 已确认不存在、不得新增虚构的功能
 
-- 终端新增/导出按钮、表格 checkbox 批量选、在线/离线分段开关（真实实现在表头 ▾ 筛选）、列表页内搜索框（搜索在顶栏）
+- 终端新增/导出按钮、表格 checkbox 批量选、在线/离线分段开关（真实实现在表头 ▾ 筛选）、新增无数据支撑的搜索能力（现有终端搜索可移动到页内，目标库已有独立搜索）
 - 登录页记住密码/忘记密码/用户协议
 - 概览页下联 AP/无线有线拆分、自定义快捷入口
 - 面板设置「列表每页条数」、全局保存按钮、改密码需验证当前密码
+
+
+## Verification ledger for the next implementer
+
+For every ID record the final component/location, exercised scenario and result during implementation. All outcomes are **pending**. A page being present does not verify its conditional controls. The list below scopes the review; enumerate individual fields/handlers when entering each phase rather than treating this document as proof of exhaustive runtime coverage.
+
+| ID | Source anchor | Preserve and exercise | Planned destination |
+|---|---|---|---|
+| AUTH-01 | `web/src/App.tsx`: AdminSetupPage, LoginPage | First admin setup, credentials, password visibility, validation, submitting and auth error | Restyled auth forms |
+| AUTH-02 | App.tsx: RouterOSSetupPage, EmptyDevicePanel | First-device setup, empty-device navigation and existing settings/maintenance routes | Onboarding and consistent empty shell |
+| NAV-01 | App.tsx: PanelApp | All five primary groups and every subview listed above, correct active state and group landing | Compact navigation |
+| NAV-02 | App.tsx: PanelApp | Multi-device switch, device identity, theme persistence, refresh stop/1/3/5/10s, mobile open/close | Switcher/topbar/drawer |
+| FLEET-01 | App.tsx: fleet view | Device summaries, status, query and open-device action | Fleet cards and local toolbar |
+| OVER-01 | App.tsx: OverviewPage | CPU/memory/terminal/connection metrics, sparklines, composition, averages and peaks | Grouped banner and metric charts |
+| OVER-02 | App.tsx: OverviewPage, SystemStatusList | WAN aggregates, interface addresses/link info, uptime/version, last success, active interfaces, storage, freshness | Information rail and status area |
+| OVER-03 | App.tsx: OverviewPage | Upload/download series, interface table, all nine quick links, alerts with severity/source/time/counts | Monitoring area plus compact quick links |
+| MON-01 | App.tsx: interfaces view | Physical/logical/system tabs, all existing table fields, interface details and trend | Styled table/detail |
+| MON-02 | App.tsx: terminals view | IPv4/IPv6/all, query, supported header sorts, online header filter, page size 10/20/50 and previous/next | Terminal toolbar/table/footer |
+| MON-03 | App.tsx: terminal detail/editor | Identity/IP/MAC, connections with sorts/filters, live chart, custom name/note edit, cancel/save/errors | Detail and editor |
+| MON-04 | App.tsx: traffic/services/system views | Protocol analysis switch/statistics, policy statistics, DHCP/routes, resources/load history, real time ranges | Existing views restyled |
+| TARGET-01 | `web/src/features/policy/TargetLibraryPage.tsx` | All/domain/IP tabs, name/ID/URL search, create/edit/delete confirmation, URL-only refresh, usage-based deletion disable | Target toolbar/table |
+| TARGET-02 | TargetLibraryPage.tsx: TargetListModal | Name/kind/manual/URL/upload, file input, schedule, content preview, counts, manual-content load/retry, dirty-preview gating and job completion | Sectioned modal |
+| TARGET-03 | TargetLibraryPage.tsx | Standby/applied/pending/cleanup states, versions/counts, routing/access usage, preset exclusion, preparation/errors/notices | Table and contextual feedback |
+| ROUTE-01 | `web/src/features/policy/RoutingRulesPage.tsx` | Add/edit/enable/disable/delete, priority/source/target/gateway and every enabled/pending/missing/disabled/deleting gateway state | Routing list |
+| ROUTE-02 | `web/src/features/policy/RoutingRuleWizard.tsx` | Four steps, real editable/jump/locked navigation, cancel/back/next, draft and validation state | Restyled existing wizard |
+| ROUTE-03 | `web/src/features/policy/Selectors.tsx` and wizard | All/selected subjects, terminal selection, manual prefixes and binding modes, target selection, inline creation/application preset flows, gateway selection and warnings | Existing selectors; restore binding helper |
+| ROUTE-04 | `web/src/features/policy/PolicyPlanPreview.tsx` | Configuration summary, six metadata fields, grouped operations/details, seq/family/actions, blockers, warnings, pending review, required acknowledgements, return/apply and busy/result states | Preview body; optional metadata disclosure only |
+| ACCESS-01 | `web/src/features/access-control/AccessControlPage.tsx` | Boundary explanation, create/edit/toggle/delete confirmation, job phase, status/issues, disabled-device and busy restrictions | Access list |
+| ACCESS-02 | AccessControlPage.tsx: AccessRuleModal | Name, all/selected/manual subjects, internet versus targets, inline target/preset creation, validation, cancel/save, always-on timing and existing unavailable scheduling explanation | Sectioned access form |
+| SETTINGS-01 | App.tsx: device settings | All connection/authentication/range/advanced fields, password-blank semantics, existing add/edit/enable/archive actions and feedback | Device sections; enumerate fields from current editor before edits |
+| SETTINGS-02 | App.tsx: collection settings | Full/live/terminal intervals, retention, independent save/restart collection and validation | Collection form |
+| SETTINGS-03 | App.tsx: appearance settings | Default refresh/page/terminal range/theme and independent save/persistence | Appearance form |
+| SETTINGS-04 | App.tsx: account settings | Username/password/confirmation, validation, save and logout | Account form |
+| SETTINGS-05 | App.tsx: maintenance | Sanitized export, preference reset, service restart, archived-device cleanup script/restore/permanent purge, full reinitialize and confirmations | Maintenance and visible danger section |
+| RECOG-01 | App.tsx: recognition view and referenced components | Existing recognition fields, actions and feedback; enumerate current controls before styling | Recognition page |
+| STATE-01 | All above | Initial loading, no data, stale data, failed reload with previous data, long values, disabled/pending and error recovery | Shared visual treatment preserving local behavior |
+
+## Demo adaptation rules
+
+The preserved preview illustrates extra controls and simplified forms. Preserve real capabilities instead of copying those literals. Do not invent terminal export/add, batch selection, remembered login, forgotten password, wireless/AP data, custom shortcuts, WAN per-interface selection or test-connection actions solely because a sample resembles them. Keep existing unavailable scheduling copy in access control unless the user approves its removal. Target-library search already exists; moving terminal search into its page is a layout change, not adding a new query capability.

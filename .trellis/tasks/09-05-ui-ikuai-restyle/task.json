@@ -3,7 +3,7 @@
   "name": "ui-ikuai-restyle",
   "title": "仿 iKuai 4.0 风格前端 UI 重写",
   "description": "",
-  "status": "in_progress",
+  "status": "planning",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -12,15 +12,19 @@
   "assignee": "tom",
   "createdAt": "2026-09-05",
   "completedAt": null,
-  "branch": null,
+  "branch": "feat/ui-ikuai-restyle",
   "base_branch": "feat/policy-access-rebuild",
   "worktree_path": null,
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/5",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
-  "meta": {}
+  "notes": "2026-09-07: user dissatisfied with intervening UI implementation. Planning only; implementation explicitly paused. Compact conversation preview is the visual reference. Read README.md before continuing.",
+  "meta": {
+    "audited_head": "1049314",
+    "functional_baseline": "7a7d463da028519661878070a0027cae50b69e0c",
+    "implementation_authorized": false
+  }
 }
