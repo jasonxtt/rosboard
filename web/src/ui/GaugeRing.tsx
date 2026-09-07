@@ -7,13 +7,20 @@ type GaugeRingProps = {
   label?: string
   size?: number
   strokeWidth?: number
-  /** brand gradient endpoints; defaults to the §8 brand pair */
+  /** gradient stops as CSS values; default to the brand line gradient tokens */
   from?: string
   to?: string
 }
 
 /** SVG dual-ring gauge: track --stroke, value arc gradient, round caps (§7 gauge). */
-export function GaugeRing({ percent, label, size = 84, strokeWidth = 8, from = '#818cf8', to = '#22d3ee' }: GaugeRingProps) {
+export function GaugeRing({
+  percent,
+  label,
+  size = 84,
+  strokeWidth = 8,
+  from = 'var(--grad-line-from)',
+  to = 'var(--grad-line-to)',
+}: GaugeRingProps) {
   const gradientId = useId()
   const clamped = Math.min(100, Math.max(0, Number.isFinite(percent) ? percent : 0))
   const radius = (size - strokeWidth) / 2
@@ -23,23 +30,23 @@ export function GaugeRing({ percent, label, size = 84, strokeWidth = 8, from = '
     <span className="gauge-ring">
       <span className="gauge-figure" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label ? `${label} ${formatPercent(clamped)}` : formatPercent(clamped)}>
-          <circle cx={center} cy={center} r={radius} fill="none" stroke="var(--stroke)" strokeWidth={strokeWidth} />
+          <circle cx={center} cy={center} r={radius} fill="none" strokeWidth={strokeWidth} style={{ stroke: 'var(--stroke)' }} />
           <circle
             cx={center}
             cy={center}
             r={radius}
             fill="none"
-            stroke={`url(#${gradientId})`}
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={circumference * (1 - clamped / 100)}
             transform={`rotate(-90 ${center} ${center})`}
+            style={{ stroke: `url(#${gradientId})` }}
           />
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor={from} />
-              <stop offset="1" stopColor={to} />
+              <stop offset="0" style={{ stopColor: from }} />
+              <stop offset="1" style={{ stopColor: to }} />
             </linearGradient>
           </defs>
         </svg>
