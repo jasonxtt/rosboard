@@ -168,9 +168,9 @@ function cpuLine(overview: Overview): string {
   return [spec, model].filter(Boolean).join(' · ') || '-'
 }
 
-function capacityLine(usedBytes: number, totalBytes: number, percent: number): string {
+function capacityLine(usedBytes: number, totalBytes: number): string {
   if (totalBytes <= 0) return '-'
-  return `${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}（${Math.round(percent)}%）`
+  return `${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}`
 }
 
 function SidePanel({ overview }: { overview: Overview }) {
@@ -183,25 +183,25 @@ function SidePanel({ overview }: { overview: Overview }) {
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
-        <div className="kv">
+        <div className="ov-fact">
           <span>ROS 版本</span>
           <b>{overview.version ? `v${overview.version}` : '-'}</b>
         </div>
-        <div className="kv">
+        <div className="ov-fact">
           <span>平台架构</span>
           <b title={platformArch}>{platformArch || '-'}</b>
         </div>
-        <div className="kv">
+        <div className="ov-fact">
           <span>CPU</span>
           <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
         </div>
-        <div className="kv">
+        <div className="ov-fact">
           <span>内存</span>
-          <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes, overview.memoryUsedPercent)}</b>
+          <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes)}</b>
         </div>
-        <div className="kv">
+        <div className="ov-fact">
           <span>存储</span>
-          <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes, overview.storageUsedPercent)}</b>
+          <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes)}</b>
         </div>
       </div>
     </>
