@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
 import { Field, Input } from '../../../ui/inputs'
 import { Modal } from '../../../ui/Modal'
@@ -19,7 +18,7 @@ import {
   type TrafficIngressScope,
 } from '../canonical'
 import { hasTrafficIngress, requiresTrafficIngress, sourceIsValid } from '../source'
-import { EgressFields } from './EgressModal'
+import { EgressFields } from './EgressFields'
 import { defaultEgressDraft, egressDraftErrors, egressDraftFrom } from './egressDraft'
 import { errorMessage } from '../../../lib/api'
 import { Notice } from './Notice'
@@ -39,9 +38,7 @@ export type WizardContext = {
   trafficIngress: TrafficIngressScope
 }
 
-type EgressChoice = 'existing' | 'new'
-
-const STEPS = ['策略与来源', '访问目标', '出口', '审查并应用']
+const STEPS = ['基础信息与源地址', '访问目标', '出口', '审查并应用']
 
 function targetKindLabel(kind: 'domain' | 'ip') {
   return kind === 'ip' ? 'IP' : '域名'
@@ -104,8 +101,8 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
     interfaceLists: [...(rule?.ingress?.interfaceLists ?? context.trafficIngress.interfaceLists)],
     interfaces: [...(rule?.ingress?.interfaces ?? context.trafficIngress.interfaces)],
   }))
-  const [egressChoice, setEgressChoice] = useState<EgressChoice>(initialEgress ? 'existing' : 'new')
-  const [selectedEgressId, setSelectedEgressId] = useState(initialEgress?.id ?? '')
+  // 出口始终按「新配置」维护：编辑规则时预填当前出口配置，保存时后端按执行签名
+  // 自动复用等价出口或安全复制（ResolvePolicyEgress），名称由系统分配。
   const [draft, setDraft] = useState<Egress>(() => (initialEgress ? egressDraftFrom(initialEgress) : defaultEgressDraft()))
   const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
@@ -288,26 +285,6 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
     setActiveStep(index)
   }
 
-  const selectExistingEgress = (egress: Egress) => {
-    markDraftChanged()
-    setSelectedEgressId(egress.id)
-    setDraft(egressDraftFrom(egress))
-  }
-  const switchChoice = (choice: EgressChoice) => {
-    markDraftChanged()
-    setEgressChoice(choice)
-    if (choice === 'new') {
-      setSelectedEgressId('')
-      setDraft(defaultEgressDraft())
-    } else {
-      const fallback = context.egresses.find((egress) => egress.id === selectedEgressId) ?? context.egresses[0]
-      if (fallback) {
-        setSelectedEgressId(fallback.id)
-        setDraft(egressDraftFrom(fallback))
-      }
-    }
-  }
-
   const title = rule ? `编辑分流规则：${rule.name}` : '新建分流规则'
   const primaryDisabled = busy || (activeStep === 0 && strategyErrors.length > 0) || (activeStep === 1 && targetErrors.length > 0) || (activeStep === 2 && egressErrors.length > 0)
   const footer =
@@ -471,45 +448,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
           <div className="pol-wizard-stage">
             <section className="pol-section">
               <h4 className="pol-section-title">出口</h4>
-              <div className="pol-choice-list" role="radiogroup" aria-label="出口方式">
-                <label className={`pol-choice${egressChoice === 'existing' ? ' pol-choice-active' : ''}${context.egresses.length ? '' : ' pol-choice-disabled'}`}>
-                  <input type="radio" checked={egressChoice === 'existing'} disabled={!context.egresses.length || busy} onChange={() => switchChoice('existing')} />
-                  <span>
-                    <strong>使用现有出口</strong>
-                    <small>{context.egresses.length ? '等价出口会被自动复用；编辑共享出口时后台安全复制' : '还没有可用出口，请新建'}</small>
-                  </span>
-                </label>
-                <label className={`pol-choice${egressChoice === 'new' ? ' pol-choice-active' : ''}`}>
-                  <input type="radio" checked={egressChoice === 'new'} disabled={busy} onChange={() => switchChoice('new')} />
-                  <span>
-                    <strong>新建出口</strong>
-                    <small>按协议族配置 WAN / 下一跳、路由与 NAT</small>
-                  </span>
-                </label>
-              </div>
-              {egressChoice === 'existing' && context.egresses.length ? (
-                <div className="pol-egr-pick-list">
-                  {context.egresses.map((egress) => (
-                    <button
-                      key={egress.id}
-                      type="button"
-                      className={`pol-egr-pick${draft.id === egress.id ? ' pol-egr-pick-active' : ''}`}
-                      disabled={busy || egress.pendingDeletion}
-                      onClick={() => selectExistingEgress(egress)}
-                    >
-                      <strong>{egress.name || '未命名出口'}</strong>
-                      <small>{egressFamilySummaryLine(egress)}</small>
-                      <span className="pol-egr-pick-badges">
-                        {!egress.enabled ? <Badge tone="neutral">已停用</Badge> : egress.applied ? <Badge tone="ok">已应用</Badge> : <Badge tone="warn">待应用</Badge>}
-                        {egress.pendingDeletion ? <Badge tone="warn">待删除</Badge> : null}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-            <section className="pol-section">
-              <h4 className="pol-section-title">{egressChoice === 'existing' ? '出口配置（可调整，保存时自动复用或复制）' : '新出口配置'}</h4>
+              <p className="pol-hint">选择 WAN 接口即可，网关自动发现、名称由系统分配；保存时与现有出口配置相同的会自动复用，不会重复创建。</p>
               <EgressFields draft={draft} discovery={discovery} onChange={updateDraft} readOnly={busy} />
             </section>
             {egressErrors.length ? (

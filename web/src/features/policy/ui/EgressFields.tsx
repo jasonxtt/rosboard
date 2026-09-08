@@ -1,26 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Button } from '../../../ui/Button'
+import { useEffect, useState } from 'react'
 import { Field, Input, Select } from '../../../ui/inputs'
-import { Modal } from '../../../ui/Modal'
 import { Toggle } from '../../../ui/Toggle'
-import { fetchPolicyDiscovery, saveEgress, type Egress, type EgressFamily, type PolicyDiscovery } from '../canonical'
+import type { Egress, EgressFamily, PolicyDiscovery } from '../canonical'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from '../gateway'
-import { NEXT_HOP_VALUE, defaultEgressDraft, defaultEgressFamily, egressDraftErrors, egressDraftFrom } from './egressDraft'
-import { errorMessage } from '../../../lib/api'
-import { Notice } from './Notice'
+import { NEXT_HOP_VALUE, defaultEgressFamily } from './egressDraft'
 
-/* ---------- shared form body (also used inline by the rule wizard) ---------- */
+/* ---------- shared form body (used inline by the rule wizard) ---------- */
 
 type EgressFieldsProps = {
   draft: Egress
   discovery: PolicyDiscovery | null
   onChange: (next: Egress) => void
   readOnly?: boolean
-  /** name / priority / listMode editors */
-  showIdentity?: boolean
 }
 
-export function EgressFields({ draft, discovery, onChange, readOnly = false, showIdentity = true }: EgressFieldsProps) {
+export function EgressFields({ draft, discovery, onChange, readOnly = false }: EgressFieldsProps) {
   const patch = (partial: Partial<Egress>) => onChange({ ...draft, ...partial })
   const patchFamily = (family: EgressFamily) =>
     onChange({
@@ -33,13 +27,6 @@ export function EgressFields({ draft, discovery, onChange, readOnly = false, sho
 
   return (
     <div className="pol-egr-fields">
-      {showIdentity ? (
-        <div className="pol-form-grid">
-          <Field label="出口名称" hint={draft.id ? '名称创建后不可修改' : '例如：电信 · PPPoE'}>
-            <Input value={draft.name} onChange={(name) => patch({ name })} placeholder="给这条 WAN 线路起个名字" disabled={readOnly || Boolean(draft.id)} />
-          </Field>
-        </div>
-      ) : null}
       {(['ipv4', 'ipv6'] as const).map((family) => (
         <FamilyEditor
           key={`${draft.id || 'new'}:${family}`}
@@ -48,10 +35,12 @@ export function EgressFields({ draft, discovery, onChange, readOnly = false, sho
           discovery={discovery}
           readOnly={readOnly}
           onChange={(next) => patchFamily(next)}
+          dnsValue={draft.dnsUpstream}
+          onDnsChange={(dnsUpstream) => patch({ dnsUpstream })}
         />
       ))}
       <details className="pol-disclosure">
-        <summary>高级设置（DNS、故障策略、路由表、NAT 与本机流量）</summary>
+        <summary>高级设置（故障策略、路由表、NAT 与本机流量）</summary>
         <div className="pol-disclosure-body">
           <div className="pol-form-grid">
             <Field label="故障策略">
@@ -65,9 +54,6 @@ export function EgressFields({ draft, discovery, onChange, readOnly = false, sho
                   { value: 'existing', label: '沿用现有故障切换' },
                 ]}
               />
-            </Field>
-            <Field label="DNS 上游" hint="协议族必须与启用的出口协议族一致">
-              <Input value={draft.dnsUpstream} onChange={(dnsUpstream) => patch({ dnsUpstream })} placeholder="1.1.1.1" disabled={readOnly} />
             </Field>
             <Field label="Fake DNS 别名" hint="留空自动分配">
               <Input value={draft.fakeAlias} onChange={(fakeAlias) => patch({ fakeAlias })} placeholder="自动分配" disabled={readOnly} />
@@ -126,9 +112,12 @@ type FamilyEditorProps = {
   discovery: PolicyDiscovery | null
   readOnly: boolean
   onChange: (next: EgressFamily) => void
+  /** egress-level DNS upstream, edited inline next to the gateway (shared by both families) */
+  dnsValue: string
+  onDnsChange: (value: string) => void
 }
 
-function FamilyEditor({ family, value, discovery, readOnly, onChange }: FamilyEditorProps) {
+function FamilyEditor({ family, value, discovery, readOnly, onChange, dnsValue, onDnsChange }: FamilyEditorProps) {
   const wans = discovery?.wans ?? []
   const selectedWAN = wans.find((wan) => wan.interface === value.wanInterface)
   const candidates = gatewayCandidatesForWAN(selectedWAN, family)
@@ -183,7 +172,7 @@ function FamilyEditor({ family, value, discovery, readOnly, onChange }: FamilyEd
         {pointToPoint && value.enabled ? <span className="faint">点对点</span> : null}
       </div>
       {value.enabled ? (
-        <div className="pol-form-grid">
+        <div className="pol-form-grid pol-form-grid-3">
           <Field label="策略 WAN 接口">
             <Select value={nextHop ? NEXT_HOP_VALUE : value.wanInterface} onChange={selectInterface} disabled={readOnly} options={wanOptions} ariaLabel={`${family.toUpperCase()} WAN 接口`} />
           </Field>
@@ -218,94 +207,12 @@ function FamilyEditor({ family, value, discovery, readOnly, onChange }: FamilyEd
             ) : null}
             {gatewayRequired && !value.gateway.trim() ? <span className="pol-field-error">{nextHop ? '下一跳模式必须填写网关 IP。' : '未发现唯一网关，请填写下一跳 IP。'}</span> : null}
           </Field>
+          <Field label="DNS 上游" hint="两个协议族共用；留空沿用 RouterOS 现有 DNS">
+            <Input value={dnsValue} onChange={onDnsChange} placeholder="1.1.1.1" disabled={readOnly} />
+          </Field>
         </div>
       ) : null}
     </div>
   )
 }
 
-/* ---------- standalone modal ---------- */
-
-type EgressModalProps = {
-  deviceID: string
-  /** null = 新建出口 */
-  egress: Egress | null
-  onClose: () => void
-  onSaved: (egress: Egress) => void | Promise<void>
-}
-
-export function EgressModal({ deviceID, egress, onClose, onSaved }: EgressModalProps) {
-  const [draft, setDraft] = useState<Egress>(() => (egress ? egressDraftFrom(egress) : defaultEgressDraft()))
-  const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
-  const [discoveryError, setDiscoveryError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetchPolicyDiscovery(deviceID)
-      .then((value) => {
-        if (!cancelled) setDiscovery(value)
-      })
-      .catch((loadError) => {
-        if (!cancelled) setDiscoveryError(errorMessage(loadError, '设备发现读取失败'))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [deviceID])
-
-  const errors = useMemo(() => egressDraftErrors(draft, discovery, true), [draft, discovery])
-  const submit = async () => {
-    if (errors.length || saving) return
-    setSaving(true)
-    setError(null)
-    try {
-      const saved = await saveEgress(deviceID, { ...draft, name: draft.name.trim() })
-      await onSaved(saved)
-    } catch (saveError) {
-      setError(errorMessage(saveError, '出口保存失败'))
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal
-      open
-      persistent
-      onClose={() => {
-        if (!saving) onClose()
-      }}
-      title={egress ? `编辑出口：${egress.name}` : '添加出口'}
-      maxWidth={720}
-      footer={
-        <>
-          <Button disabled={saving} onClick={onClose}>
-            取消
-          </Button>
-          <Button variant="primary" loading={saving} disabled={errors.length > 0} onClick={() => void submit()}>
-            保存出口
-          </Button>
-        </>
-      }
-    >
-      {discoveryError ? (
-        <Notice tone="warn" title="设备发现不可用">
-          {discoveryError}；仍可手动填写接口与网关。
-        </Notice>
-      ) : null}
-      {discovery && !discovery.available ? (
-        <Notice tone="warn" title="设备发现不可用">
-          {discovery.reason || '无法读取 RouterOS WAN 候选。'}仍可手动填写接口与网关。
-        </Notice>
-      ) : null}
-      {error ? <Notice tone="err">{error}</Notice> : null}
-      {errors.length ? (
-        <Notice tone="warn" title="完成后才能保存">
-          {errors.join('；')}
-        </Notice>
-      ) : null}
-      <EgressFields draft={draft} discovery={discovery} onChange={setDraft} readOnly={saving} />
-    </Modal>
-  )
-}

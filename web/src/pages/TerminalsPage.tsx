@@ -30,8 +30,8 @@ const FAMILY_OPTIONS: Array<{ value: TerminalFamily; label: string }> = [
 ]
 
 const VISIBILITY_OPTIONS: Array<{ value: VisibilityFilter; label: string }> = [
-  { value: 'online', label: '在线' },
   { value: 'all', label: '全部' },
+  { value: 'online', label: '在线' },
   { value: 'offline', label: '离线' },
 ]
 

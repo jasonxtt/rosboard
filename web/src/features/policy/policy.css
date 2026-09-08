@@ -185,6 +185,16 @@
   margin-bottom: var(--space-3);
 }
 
+/* 出口协议族行：WAN 接口 / 下一跳网关 / DNS 上游 三等宽（用户指定） */
+.pol-form-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 767px) {
+  .pol-form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pol-field-error { color: var(--err); font-size: var(--text-xs); display: block; margin-top: var(--space-1); }
 .pol-hint { color: var(--ink-3); font-size: var(--text-sm); line-height: 1.5; }
 .pol-toggle-row { display: flex; align-items: center; gap: var(--space-3); min-height: 36px; }
@@ -237,6 +247,13 @@
 
 .pol-choice-list { display: flex; flex-direction: column; gap: var(--space-2); }
 
+/* 来源范围三选项横向排一行（用户指定）；窄屏回落纵向 */
+.pol-choice-row { flex-direction: row; }
+.pol-choice-row .pol-choice { flex: 1; min-width: 0; }
+@media (max-width: 560px) {
+  .pol-choice-row { flex-direction: column; }
+}
+
 .pol-choice {
   display: flex;
   align-items: flex-start;
@@ -256,12 +273,14 @@
 .pol-choice-disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ---------- subject selector ---------- */
+/* 可选终端按网格排列，一行放 2–3 个（名称 / 地址 / MAC 各占一行） */
 .pol-terminal-list {
   max-height: 280px;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
   gap: var(--space-2);
+  align-items: start;
 }
 
 .pol-terminal-option {
