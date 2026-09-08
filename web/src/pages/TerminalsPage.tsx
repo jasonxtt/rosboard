@@ -134,7 +134,7 @@ export default function TerminalsPage() {
     {
       key: 'device',
       title: sortHeader('名称', 'device'),
-      width: '21%',
+      width: '19%',
       render: (terminal) => (
         <span className="terminal-name-cell">
           <StatusDot tone={terminalStateTone(terminal.state)} />
@@ -158,7 +158,7 @@ export default function TerminalsPage() {
     {
       key: 'address',
       title: sortHeader('IP 地址', 'address'),
-      width: '15%',
+      width: '16%',
       render: (terminal) => {
         const primary = terminalPrimaryAddress(terminal, family) || '-'
         return (
@@ -185,7 +185,7 @@ export default function TerminalsPage() {
         </span>
       ),
       numeric: true,
-      width: '11%',
+      width: '14%',
       render: (terminal) => {
         const metrics = terminalMetrics(terminal, family)
         return (
@@ -205,7 +205,7 @@ export default function TerminalsPage() {
         </span>
       ),
       numeric: true,
-      width: '11%',
+      width: '15%',
       render: (terminal) => {
         const metrics = terminalMetrics(terminal, family)
         return (
@@ -219,7 +219,7 @@ export default function TerminalsPage() {
     {
       key: 'state',
       title: '状态',
-      width: '7%',
+      width: '9%',
       render: (terminal) => (
         <Badge tone={terminalStateTone(terminal.state)} dot>
           {terminalStateText(terminal.state)}
@@ -230,13 +230,13 @@ export default function TerminalsPage() {
       key: 'online',
       title: sortHeader('在线时长', 'online'),
       numeric: true,
-      width: '8%',
+      width: '12%',
       render: (terminal) => <span className="num">{terminal.state === 'online' ? formatDuration(onlineDurationSeconds(terminal.onlineSince)) : '-'}</span>,
     },
     {
       key: 'remark',
       title: sortHeader('备注', 'remark'),
-      width: '20%',
+      width: '8%',
       render: (terminal) => (
         <span className="terminal-remark-cell">
           <span className="terminal-remark" title={terminal.remark || undefined}>
