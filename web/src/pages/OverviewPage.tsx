@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { TrafficChart } from '../charts/TrafficChart'
-import { formatBytes, formatCount, formatUptime, splitBitRate } from '../lib/format'
+import { formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
 import type { ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, GaugeRing, Glass, SegTabs, Skeleton, StatusDot, type TableColumn } from '../ui'
 import {
   useInterfaceList,
   useRealtimeOverview,
+  useSettingsSummary,
   useTerminalList,
   useTrafficHistory,
 } from '../features/monitoring/hooks'
@@ -173,8 +174,12 @@ function capacityLine(usedBytes: number, totalBytes: number): string {
   return `${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}`
 }
 
-function SidePanel({ overview }: { overview: Overview }) {
-  const platformArch = [overview.platform.trim(), overview.system.architectureName.trim()].filter(Boolean).join(' · ')
+function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overview; issueCount: number; collectSeconds: number | null }) {
+  // Dedupe identical platform/architecture (CHR reports the same string twice).
+  const archParts = [overview.platform.trim(), overview.system.architectureName.trim()].filter(Boolean)
+  const platformArch = archParts.filter((part, index) => index === 0 || part !== archParts[index - 1]).join(' · ')
+  const trafficIf = overview.trafficInterfaces.join('、')
+  const collectShort = `${collectSeconds ? `${collectSeconds}s` : '定时'} · ${formatRelativeTime(overview.updatedAt)}`
   return (
     <>
       <div className="ov-gauges">
@@ -183,25 +188,49 @@ function SidePanel({ overview }: { overview: Overview }) {
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
-        <div className="ov-fact">
-          <span>ROS 版本</span>
-          <b>{overview.version ? `v${overview.version}` : '-'}</b>
+        <div className="ov-meta-col">
+          <div className="kv">
+            <span>ROS 版本</span>
+            <b>{overview.version ? `v${overview.version}` : '-'}</b>
+          </div>
+          <div className="kv">
+            <span>平台架构</span>
+            <b title={platformArch}>{platformArch || '-'}</b>
+          </div>
+          <div className="kv">
+            <span>CPU</span>
+            <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
+          </div>
+          <div className="kv">
+            <span>运行时长</span>
+            <b>{formatUptime(overview.uptime)}</b>
+          </div>
+          <div className="kv">
+            <span>健康监测</span>
+            <b className={overview.healthEnabled ? undefined : 'ov-warn-text'}>{overview.healthEnabled ? '已开启' : '未开启'}</b>
+          </div>
         </div>
-        <div className="ov-fact">
-          <span>平台架构</span>
-          <b title={platformArch}>{platformArch || '-'}</b>
-        </div>
-        <div className="ov-fact">
-          <span>CPU</span>
-          <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
-        </div>
-        <div className="ov-fact">
-          <span>内存</span>
-          <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes)}</b>
-        </div>
-        <div className="ov-fact">
-          <span>存储</span>
-          <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes)}</b>
+        <div className="ov-meta-col">
+          <div className="kv">
+            <span>内存</span>
+            <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes)}</b>
+          </div>
+          <div className="kv">
+            <span>存储</span>
+            <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes)}</b>
+          </div>
+          <div className="kv">
+            <span>统计接口</span>
+            <b title={trafficIf}>{trafficIf || '-'}</b>
+          </div>
+          <div className="kv">
+            <span>告警数</span>
+            <b className={issueCount > 0 ? 'ov-warn-text' : undefined}>{issueCount > 0 ? `${issueCount} 条` : '无'}</b>
+          </div>
+          <div className="kv">
+            <span>采集</span>
+            <b title={collectShort}>{collectShort}</b>
+          </div>
         </div>
       </div>
     </>
@@ -322,6 +351,7 @@ export default function OverviewPage() {
   const interfaces = useInterfaceList(deviceId, refreshMs, reloadNonce)
   const [trafficWindow, setTrafficWindow] = useState<ChartWindow>(readWindow)
   const traffic = useTrafficHistory(deviceId, trafficWindow, refreshMs, reloadNonce)
+  const { summary } = useSettingsSummary()
 
   const issueCount = alerts.length + warnings.length
   const deviceName = devices.find((device) => device.id === deviceId)?.name ?? ''
@@ -425,7 +455,7 @@ export default function OverviewPage() {
             </div>
           </Glass>
           <Glass className="ov-side">
-            <SidePanel overview={overview} />
+            <SidePanel overview={overview} issueCount={issueCount} collectSeconds={summary?.realtimePollIntervalSeconds ?? null} />
           </Glass>
         </div>
       )}
