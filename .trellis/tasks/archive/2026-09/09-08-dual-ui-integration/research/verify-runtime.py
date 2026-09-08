@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 base = sys.argv[1].rstrip('/')
-dist = Path(__file__).resolve().parents[4] / 'internal/ui/dist'
+dist = next(parent for parent in Path(__file__).resolve().parents if (parent / 'go.mod').is_file()) / 'internal/ui/dist'
 
 def get(path):
     try:
