@@ -16,3 +16,6 @@ config.yaml
 !.env.example
 *.pem
 *.key
+
+# Reproducible Vite verification metadata (not embedded or delivered)
+/internal/ui/dist/.vite/

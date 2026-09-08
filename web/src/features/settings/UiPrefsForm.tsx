@@ -1,3 +1,5 @@
+import { VIEW_TITLES, type View } from '../../shell/views'
+import { UI_OPTIONS, isUiVariant, switchUi, savePanelRecord, type UiVariant } from '../../uiPreference'
 import { useState } from 'react'
 import { Button, Field, SegTabs, Select, toast } from '../../ui'
 import { useShell } from '../../shell/useShell'
@@ -18,6 +20,7 @@ import {
  * Nothing here touches RouterOS credentials or server state.
  */
 export function UiPrefsForm() {
+  const [uiDraft, setUiDraft] = useState<UiVariant>('aurora')
   const { theme, refreshMs, setRefreshMs } = useShell()
   const [prefs, setPrefs] = useState(loadPanelPreferences)
   const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() => readThemeChoice())
@@ -27,7 +30,11 @@ export function UiPrefsForm() {
     applyThemeChoice(themeChoice)
     setRefreshMs(refreshChoice)
     savePanelPreferences(prefs)
-    toast('界面设置已保存')
+    if (uiDraft !== 'aurora') {
+      const effective = document.documentElement.dataset.theme
+      savePanelRecord({ theme: effective === 'dark' ? 'dark' : 'light' })
+      switchUi(uiDraft)
+    } else toast('界面设置已保存')
   }
 
   return (
@@ -38,6 +45,9 @@ export function UiPrefsForm() {
         save()
       }}
     >
+      <Field label="UI 风格" hint="切换将重新加载完整界面，请先保存其他编辑。选择仅对当前浏览器生效，设备与业务数据保持共享。">
+        <Select value={uiDraft} onChange={(value) => { if (isUiVariant(value)) setUiDraft(value) }} options={[...UI_OPTIONS]} ariaLabel="UI 风格" />
+      </Field>
       <div className="form-grid form-grid-three">
         <Field label="主题" hint={`当前生效：${theme === 'dark' ? '深色' : '浅色'}`}>
           <SegTabs<ThemeChoice>
@@ -71,10 +81,7 @@ export function UiPrefsForm() {
           <Select
             value={prefs.landingView}
             onChange={(value) => setPrefs((current) => ({ ...current, landingView: value as LandingView }))}
-            options={[
-              { value: 'overview', label: '系统概览' },
-              { value: 'fleet', label: '仪表台' },
-            ]}
+            options={(Object.keys(VIEW_TITLES) as View[]).map((value) => ({ value, label: VIEW_TITLES[value] }))}
             ariaLabel="默认打开页面"
           />
         </Field>
@@ -94,7 +101,7 @@ export function UiPrefsForm() {
       <p className="form-hint">主题与刷新间隔即时生效；默认打开页面与终端范围将在下次进入对应页面时生效。</p>
       <div className="form-actions">
         <Button type="submit" variant="primary">
-          保存界面设置
+          {uiDraft === 'aurora' ? '保存界面设置' : '保存并切换 UI'}
         </Button>
       </div>
     </form>

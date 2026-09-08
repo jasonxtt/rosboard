@@ -110,7 +110,7 @@ export default function TerminalsPage() {
       if (family === 'ipv4' && terminal.ipv4.length === 0) return false
       if (family === 'ipv6' && terminal.ipv6.length === 0) return false
       if (!keyword) return true
-      return [terminal.displayName, terminal.customName, terminal.remark, terminal.macAddress, terminal.primaryInterface, ...terminal.ipv4, ...terminal.ipv6]
+      return [terminal.displayName, terminal.customName, terminal.macAddress, terminal.primaryInterface, ...terminal.ipv4, ...terminal.ipv6]
         .join(' ')
         .toLowerCase()
         .includes(keyword)
@@ -145,9 +145,7 @@ export default function TerminalsPage() {
           <QuickEdit
             scopedPath={scopedPath}
             terminalId={terminal.id}
-            field="customName"
             currentCustomName={terminal.customName}
-            currentRemark={terminal.remark}
             placeholder={terminal.autoName || '自定义名称'}
             hint={terminal.customName ? `自动识别为 ${terminal.autoName || '未知'}` : undefined}
             onSaved={() => void reload()}
@@ -233,27 +231,7 @@ export default function TerminalsPage() {
       width: '11%',
       render: (terminal) => <span className="num">{terminal.state === 'online' ? formatDuration(onlineDurationSeconds(terminal.onlineSince)) : '-'}</span>,
     },
-    {
-      key: 'remark',
-      title: sortHeader('备注', 'remark'),
-      width: '10%',
-      render: (terminal) => (
-        <span className="terminal-remark-cell">
-          <span className="terminal-remark" title={terminal.remark || undefined}>
-            {terminal.remark || '-'}
-          </span>
-          <QuickEdit
-            scopedPath={scopedPath}
-            terminalId={terminal.id}
-            field="remark"
-            currentCustomName={terminal.customName}
-            currentRemark={terminal.remark}
-            placeholder="添加备注"
-            onSaved={() => void reload()}
-          />
-        </span>
-      ),
-    },
+
   ]
 
   if (selectedId) {

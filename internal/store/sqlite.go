@@ -38,7 +38,6 @@ type TerminalTotal struct {
 	UploadBytes   int64
 	DownloadBytes int64
 	TrackingSince time.Time
-	Remark        string
 	AutoName      string
 	CustomName    string
 	State         string
@@ -1382,7 +1381,7 @@ func (s *Store) terminalTotalsTx(ctx context.Context, tx *sql.Tx, ids []string) 
 		return result, nil
 	}
 	query := fmt.Sprintf(`SELECT tt.terminal_id, tt.upload_bytes, tt.download_bytes, tt.tracking_since,
-		COALESCE(t.remark, ''), COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
+		COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
 		COALESCE(t.state, 'offline'), COALESCE(t.online_since, 0), COALESCE(t.last_seen, 0)
 		FROM terminal_totals tt
 		LEFT JOIN terminals t ON t.device_id = tt.device_id AND t.id = tt.terminal_id
@@ -1401,7 +1400,7 @@ func (s *Store) terminalTotalsTx(ctx context.Context, tx *sql.Tx, ids []string) 
 		var id string
 		var total TerminalTotal
 		var trackingSince, onlineSince, lastSeen int64
-		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.Remark, &total.AutoName, &total.CustomName, &total.State, &onlineSince, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.AutoName, &total.CustomName, &total.State, &onlineSince, &lastSeen); err != nil {
 			return nil, fmt.Errorf("scan terminal totals in batch: %w", err)
 		}
 		total.TrackingSince = time.Unix(trackingSince, 0).UTC()
@@ -1427,7 +1426,7 @@ func (s *Store) TerminalTotals(ctx context.Context, ids []string) (map[string]Te
 
 	query := fmt.Sprintf(
 		`SELECT tt.terminal_id, tt.upload_bytes, tt.download_bytes, tt.tracking_since,
-		        COALESCE(t.remark, ''), COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
+		        COALESCE(t.display_name, ''), COALESCE(t.custom_name, ''),
 		        COALESCE(t.state, 'offline'), COALESCE(t.online_since, 0), COALESCE(t.last_seen, 0)
 		 FROM terminal_totals tt
 		 LEFT JOIN terminals t ON t.device_id = tt.device_id AND t.id = tt.terminal_id
@@ -1450,7 +1449,7 @@ func (s *Store) TerminalTotals(ctx context.Context, ids []string) (map[string]Te
 		var id string
 		var total TerminalTotal
 		var trackingSince, onlineSince, lastSeen int64
-		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.Remark, &total.AutoName, &total.CustomName, &total.State, &onlineSince, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &total.UploadBytes, &total.DownloadBytes, &trackingSince, &total.AutoName, &total.CustomName, &total.State, &onlineSince, &lastSeen); err != nil {
 			return nil, fmt.Errorf("scan terminal totals: %w", err)
 		}
 		total.TrackingSince = time.Unix(trackingSince, 0).UTC()
@@ -1574,8 +1573,8 @@ func (s *Store) TerminalHistories(ctx context.Context, terminalIDs []string, lim
 	return result, nil
 }
 
-func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customName, remark string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ?, remark = ? WHERE device_id = ? AND id = ?`, customName, remark, s.deviceID, terminalID)
+func (s *Store) UpdateTerminalMetadata(ctx context.Context, terminalID, customName string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE terminals SET custom_name = ? WHERE device_id = ? AND id = ?`, customName, s.deviceID, terminalID)
 	if err != nil {
 		return fmt.Errorf("update terminal metadata: %w", err)
 	}

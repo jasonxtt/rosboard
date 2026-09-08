@@ -260,11 +260,7 @@ export default function TerminalDetailPage({ terminalId, onBack }: TerminalDetai
           </Tooltip>
           <span className="faint">统计始于 {formatDateTime(terminal.trackingSince)}</span>
         </span>
-        {terminal.remark ? (
-          <span className="detail-remark faint" title={terminal.remark}>
-            {terminal.remark}
-          </span>
-        ) : null}
+
       </header>
 
       {isRouterSelf ? (

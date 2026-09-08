@@ -112,7 +112,6 @@ export type Terminal = {
   displayName: string
   autoName: string
   customName: string
-  remark: string
   macAddress: string
   primaryInterface: string
   ipv4: string[]
@@ -377,7 +376,6 @@ export function parseTerminal(value: unknown): Terminal {
     displayName: safeString(o.displayName),
     autoName: safeString(o.autoName),
     customName: safeString(o.customName),
-    remark: safeString(o.remark),
     macAddress: safeString(o.macAddress),
     primaryInterface: safeString(o.primaryInterface),
     ipv4: safeStringArray(o.ipv4),
