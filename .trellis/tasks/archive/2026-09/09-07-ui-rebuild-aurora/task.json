@@ -3,7 +3,7 @@
   "name": "ui-rebuild-aurora",
   "title": "前端全面重做 · Aurora 玻璃拟态",
   "description": "以用户选定的 05 Aurora 风格重写全部前端；UX 标准见 design/UX-STANDARD.md（分支专属）。",
-  "status": "in-progress",
+  "status": "completed",
   "dev_type": null,
   "scope": "frontend-ui-rebuild",
   "package": null,
@@ -11,16 +11,19 @@
   "creator": "tom",
   "assignee": "kimi",
   "createdAt": "2026-09-07",
-  "completedAt": null,
+  "completedAt": "2026-09-08",
   "branch": "feat/ui-rebuild",
   "base_branch": "feat/policy-access-rebuild",
   "worktree_path": null,
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/7",
   "subtasks": [],
   "children": [],
   "parent": null,
-  "relatedFiles": ["design/UX-STANDARD.md", "design/mocks/05-aurora.html"],
-  "notes": "UX 规范仅在本分支内生效，不写入项目级 AGENTS.md。",
+  "relatedFiles": [
+    "design/UX-STANDARD.md",
+    "design/mocks/05-aurora.html"
+  ],
+  "notes": "用户 2026-09-08 本地预览验收通过；PR #7 保持 Draft 未合并，合并/部署时机由用户决定。",
   "meta": {}
 }
