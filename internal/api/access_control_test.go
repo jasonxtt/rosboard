@@ -366,3 +366,90 @@ func TestAccessControlOverviewNeverMarshalsNullArrays(t *testing.T) {
 		}
 	}
 }
+
+// P1-1: 互联网出口阻断时，规则保存不得提前进入 desired state；
+// 用户确认出口后，携带 internetEgresses 的原样重试必须成功。
+func TestAccessRuleSaveBlockedThenRetriedWithInternetEgress(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return accessTestTerminals() }
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{
+		"name":"夜间断网","targetScope":"internet","enabled":true,
+		"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["10.0.0.20"]}]}
+	}`
+	blocked := accessControlRequest(server, http.MethodPost, "/rules", body)
+	if blocked.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("blocked save status=%d body=%s", blocked.Code, blocked.Body.String())
+	}
+	if !bytes.Contains(blocked.Body.Bytes(), []byte("internetEgressCandidates")) {
+		t.Fatalf("blocked save must carry internetEgressCandidates: %s", blocked.Body.String())
+	}
+	rules, err := deviceStore.AccessRepository().ListRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("blocked save must NOT commit the rule to desired state, got %d rules", len(rules))
+	}
+
+	retryBody := `{
+		"name":"夜间断网","targetScope":"internet","enabled":true,
+		"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["10.0.0.20"]}]},
+		"internetEgresses":{"ipv4":["lan"]}
+	}`
+	retry := accessControlRequest(server, http.MethodPost, "/rules", retryBody)
+	if retry.Code != http.StatusAccepted {
+		t.Fatalf("retry with internetEgresses status=%d body=%s", retry.Code, retry.Body.String())
+	}
+	rules, err = deviceStore.AccessRepository().ListRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].Name != "夜间断网" {
+		t.Fatalf("retried save should commit exactly one rule, got %#v", rules)
+	}
+}
+
+// P1-1: 删除路径先写 desired 再 apply——apply 失败时响应必须保留
+// deleted/desiredSaved 部分成功包络，UI 才不会让用户重复删除。
+func TestAccessRuleDeleteApplyFailureKeepsPartialSuccessEnvelope(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return accessTestTerminals() }
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(id, name string) {
+		if _, err := deviceStore.AccessRepository().SaveRule(context.Background(), accesscontrol.AccessRule{
+			ID: id, Name: name, TargetScope: accesscontrol.TargetScopeInternet, Enabled: true,
+		}, []accesscontrol.RuleMember{{
+			RuleID: id, TerminalID: "mac:aa", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.21"},
+		}}, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("internet-rule-a", "断网 A")
+	seed("internet-rule-b", "断网 B")
+
+	// 剩余规则 B 仍然阻断 apply（无可解析互联网出口），删除 A 必须以部分成功包络失败。
+	response := accessControlRequest(server, http.MethodDelete, "/rules/internet-rule-a?revision=1", "")
+	if response.Code == http.StatusOK || response.Code == http.StatusAccepted {
+		t.Fatalf("delete should fail at apply stage while rule B keeps the plan blocked: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"deleted":true`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"desiredSaved":true`)) {
+		t.Fatalf("apply-failure envelope must keep deleted/desiredSaved markers: %s", response.Body.String())
+	}
+	rules, err := deviceStore.AccessRepository().ListRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != "internet-rule-b" {
+		t.Fatalf("rule A should already be gone from desired state, got %#v", rules)
+	}
+}
