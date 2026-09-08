@@ -298,8 +298,29 @@
 .pol-terminal-option label span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pol-terminal-option small { color: var(--ink-3); font-size: var(--text-xs); word-break: break-all; }
 .pol-terminal-selected { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.pol-terminal-binding { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.pol-terminal-binding .select { max-width: 180px; }
+
+/* binding select sits inline at the right of the chip (no extra row, so
+   selecting a device never grows the card) */
+.pol-terminal-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pol-terminal-main > label {
+  flex: 1;
+  min-width: 0;
+}
+
+.pol-binding-select {
+  flex: none;
+  width: 108px;
+  min-width: 0;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--text-xs);
+}
 
 .pol-prefix-field { display: flex; flex-direction: column; gap: var(--space-2); }
 

@@ -40,10 +40,12 @@ type CopyButtonProps = {
   text: string
   label?: string
   className?: string
+  /** render the label next to the icon (for prominent, text-labeled buttons) */
+  showText?: boolean
 }
 
 /** Copy-to-clipboard icon button with toast feedback. */
-export function CopyButton({ text, label = '复制', className = '' }: CopyButtonProps) {
+export function CopyButton({ text, label = '复制', className = '', showText = false }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -62,7 +64,7 @@ export function CopyButton({ text, label = '复制', className = '' }: CopyButto
         }
       }}
     >
-      {copied ? '✓' : '⧉'}
+      {copied ? (showText ? '✓ 已复制' : '✓') : showText ? `⧉ ${label}` : '⧉'}
     </button>
   )
 }

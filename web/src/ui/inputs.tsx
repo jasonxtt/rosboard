@@ -83,11 +83,12 @@ type SelectProps = {
   options: SelectOption[]
   disabled?: boolean
   ariaLabel?: string
+  className?: string
 }
 
-export function Select({ value, onChange, options, disabled = false, ariaLabel }: SelectProps) {
+export function Select({ value, onChange, options, disabled = false, ariaLabel, className = '' }: SelectProps) {
   return (
-    <select className="select" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} aria-label={ariaLabel}>
+    <select className={`select ${className}`.trim()} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} aria-label={ariaLabel}>
       {options.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}

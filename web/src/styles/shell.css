@@ -57,11 +57,17 @@
 .pill-nav {
   display: flex;
   gap: 2px;
-  margin: 0 auto;
+  margin: 0 0 0 var(--space-2);
   background: var(--glass);
   border-radius: var(--r-pill);
   padding: 3px;
   align-items: center;
+}
+
+/* pushes device pill / refresh / bell / theme / settings to the right edge
+   while the nav stays left next to the brand */
+.topnav-spacer {
+  flex: 1;
 }
 
 .pill-nav > button,

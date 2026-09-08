@@ -136,8 +136,11 @@ export function ManualAddWizard({ device, onSaved, onCancelEdit, onArchive, busy
   }
 
   const verify = async () => {
-    if (!form.name.trim() || !form.host.trim() || !form.username.trim() || (!editing && !form.password)) {
-      setProbe({ tone: 'error', message: '请填写设备名称、IP 地址或主机名、REST 用户名和密码。' })
+    // 编辑模式凭据不可见：用户名来自已存配置，密码留空时后端回退使用已存密码
+    // （resolveTestConnection 的 deviceId fallback）。
+    const missing = editing ? !form.name.trim() || !form.host.trim() : !form.name.trim() || !form.host.trim() || !form.username.trim() || !form.password
+    if (missing) {
+      setProbe({ tone: 'error', message: editing ? '请填写设备名称与 IP 地址或主机名。' : '请填写设备名称、IP 地址或主机名、REST 用户名和密码。' })
       return
     }
     setTesting(true)
@@ -217,14 +220,11 @@ export function ManualAddWizard({ device, onSaved, onCancelEdit, onArchive, busy
           void verify()
         }}
       >
-        <div className="form-grid form-grid-three">
+        <div className="form-grid form-grid-four">
           <Field label="设备名称">
             <Input value={form.name} onChange={(value) => setField('name', value)} placeholder="例如：主路由" required maxLength={64} />
           </Field>
-          <Field label="IP 地址或主机名">
-            <Input value={form.host} onChange={(value) => setField('host', value)} placeholder="10.0.0.1" required />
-          </Field>
-          <Field label="协议">
+          <Field label="连接协议">
             <Select
               value={form.scheme}
               onChange={(value) => changeScheme(value === 'https' ? 'https' : 'http')}
@@ -232,38 +232,44 @@ export function ManualAddWizard({ device, onSaved, onCancelEdit, onArchive, busy
                 { value: 'http', label: 'HTTP' },
                 { value: 'https', label: 'HTTPS' },
               ]}
-              ariaLabel="协议"
+              ariaLabel="连接协议"
             />
+          </Field>
+          <Field label="IP 地址或主机名">
+            <Input value={form.host} onChange={(value) => setField('host', value)} placeholder="10.0.0.1" required />
           </Field>
           <Field label="REST 端口">
             <Input type="number" min={1} max={65535} value={String(form.port)} onChange={(value) => setField('port', Number(value) || 0)} required />
           </Field>
-          <Field label="REST 用户名">
-            <Input value={form.username} onChange={(value) => setField('username', value)} autoComplete="username" required />
-          </Field>
-          <Field label={editing ? 'REST 密码（留空保持不变）' : 'REST 密码'} hint={editing && device?.passwordSet ? '已保存密码；输入新密码才会替换。' : undefined}>
-            <span className="password-field">
-              <Input
-                type={passwordVisible ? 'text' : 'password'}
-                value={form.password}
-                onChange={(value) => setField('password', value)}
-                autoComplete={editing ? 'off' : 'current-password'}
-                required={!editing && !device?.passwordSet}
-                placeholder={editing && device?.passwordSet ? '留空则保持现有密码' : ''}
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                aria-label={passwordVisible ? '隐藏 RouterOS 密码' : '显示 RouterOS 密码'}
-                aria-pressed={passwordVisible}
-                title={passwordVisible ? '隐藏密码' : '显示密码'}
-                onClick={() => setPasswordVisible((visible) => !visible)}
-              >
-                {passwordVisible ? '🙈' : '👁'}
-              </button>
-            </span>
-          </Field>
         </div>
+        {!editing ? (
+          <div className="form-grid">
+            <Field label="REST 用户名">
+              <Input value={form.username} onChange={(value) => setField('username', value)} autoComplete="username" required />
+            </Field>
+            <Field label="REST 密码" hint="仅首次接入需要；保存后可在「接入账号设置」中更换。">
+              <span className="password-field">
+                <Input
+                  type={passwordVisible ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(value) => setField('password', value)}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={passwordVisible ? '隐藏 RouterOS 密码' : '显示 RouterOS 密码'}
+                  aria-pressed={passwordVisible}
+                  title={passwordVisible ? '隐藏密码' : '显示密码'}
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                >
+                  {passwordVisible ? '🙈' : '👁'}
+                </button>
+              </span>
+            </Field>
+          </div>
+        ) : null}
 
         {editing && device ? (
           <>
