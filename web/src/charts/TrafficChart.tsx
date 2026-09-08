@@ -17,6 +17,20 @@ type AlignedTriple = [number[], number[], number[]]
 
 type Readout = { download: number; upload: number }
 
+/** Shared 2d context for measuring axis label widths. */
+let measureCtx: CanvasRenderingContext2D | null = null
+
+/** Adaptive y-axis width: never clips labels like "100.0 Mbps" (uPlot calls
+   this on each redraw with the formatted tick labels). */
+function measureAxisSize(_self: uPlot, values: string[] | null): number {
+  if (!values || values.length === 0) return 48
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return 72
+  measureCtx.font = chartFont
+  const widest = Math.max(...values.map((label) => measureCtx!.measureText(label).width))
+  return Math.ceil(widest) + 18
+}
+
 function alignSamples(samples: RateSample[]): AlignedTriple {
   const sorted = samples
     .map((sample) => ({ ts: Date.parse(sample.timestamp) / 1000, down: sample.downloadBps, up: sample.uploadBps }))
@@ -52,7 +66,7 @@ function buildOptions(
       {
         stroke: palette.ink3,
         font: chartFont,
-        size: 64,
+        size: measureAxisSize,
         grid: { show: true, stroke: palette.grid, width: 1, dash: [4, 4] },
         ticks: { stroke: palette.grid, width: 1 },
         values: (_self, splits) => splits.map((value) => formatBitRate(value)),
