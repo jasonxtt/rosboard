@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Skeleton } from '../ui'
 import {
   AccountSecurityForm,
@@ -22,15 +22,39 @@ const SECTIONS: Array<{ key: SettingsSectionKey; label: string; icon: string }> 
   { key: 'maintenance', label: '维护设置', icon: '🧰' },
 ]
 
+const SETTINGS_HASH_RE = /^#\/settings(?:\/([a-z-]+))?$/
+
+/** Hash-routed section (`#/settings/<key>`); unknown or missing key → devices. */
+function sectionFromHash(): SettingsSectionKey {
+  const key = SETTINGS_HASH_RE.exec(window.location.hash)?.[1]
+  return SECTIONS.some((item) => item.key === key) ? (key as SettingsSectionKey) : 'devices'
+}
+
 /**
  * 面板设置 (§9.4): left glass sub-nav + right content; the sub-nav becomes
  * horizontal scroll pills below 768px. Device mutations flow through the
  * shared restart gate (saved → 等待面板重启 → reload).
  */
 export default function SettingsPage() {
-  const [section, setSection] = useState<SettingsSectionKey>('devices')
+  const [section, setSection] = useState<SettingsSectionKey>(() => sectionFromHash())
   const { settings, loading, error, reload } = useSettings()
   const restartGate = useRestartingAction()
+
+  // Browser back/forward and shell-written hashes drive the section too.
+  useEffect(() => {
+    const sync = () => setSection(sectionFromHash())
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+
+  const selectSection = (next: SettingsSectionKey) => {
+    setSection(next)
+    window.history.pushState(null, '', `#/settings/${next}`)
+  }
 
   const activeLabel = SECTIONS.find((item) => item.key === section)?.label ?? ''
 
@@ -49,7 +73,7 @@ export default function SettingsPage() {
               type="button"
               className={`settings-nav-item${section === item.key ? ' settings-nav-active' : ''}`}
               aria-current={section === item.key ? 'page' : undefined}
-              onClick={() => setSection(item.key)}
+              onClick={() => selectSection(item.key)}
             >
               <span className="settings-nav-icon" aria-hidden="true">
                 {item.icon}
