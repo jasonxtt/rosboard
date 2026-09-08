@@ -100,9 +100,15 @@ func TestTargetListAPICanonicalCRUDReusesPreviewAndRules(t *testing.T) {
 	if visiblePreset.Code != http.StatusOK || !strings.Contains(visiblePreset.Body.String(), "preset-youtube-domain") {
 		t.Fatalf("includePreset collection did not expose backing row: status=%d body=%s", visiblePreset.Code, visiblePreset.Body.String())
 	}
-	protected := targetListAPIRequest(t, server, http.MethodDelete, "/preset-youtube-domain?revision=1", "")
-	if protected.Code != http.StatusConflict || !strings.Contains(protected.Body.String(), `"code":"preset_target_list_protected"`) {
-		t.Fatalf("preset target list was not protected from deletion: status=%d body=%s", protected.Code, protected.Body.String())
+	// Unreferenced preset lists are deletable (they re-materialize on demand);
+	// protection only applies while referenced — covered at the store layer.
+	deletedPreset := targetListAPIRequest(t, server, http.MethodDelete, "/preset-youtube-domain?revision=1", "")
+	if deletedPreset.Code != http.StatusOK || !strings.Contains(deletedPreset.Body.String(), `"deleted":true`) {
+		t.Fatalf("unreferenced preset target list should delete: status=%d body=%s", deletedPreset.Code, deletedPreset.Body.String())
+	}
+	deletedPresetAgain := targetListAPIRequest(t, server, http.MethodDelete, "/preset-youtube-domain?revision=1", "")
+	if deletedPresetAgain.Code != http.StatusNotFound {
+		t.Fatalf("deleted preset target list should be gone: status=%d body=%s", deletedPresetAgain.Code, deletedPresetAgain.Body.String())
 	}
 
 	rules := targetListAPIRequest(t, server, http.MethodGet, "/"+target.ID+"/rules", "")
