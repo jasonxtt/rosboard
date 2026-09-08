@@ -610,10 +610,16 @@ time,
   background: var(--glass-2);
 }
 
-.table .num,
+/* Right-align numeric CELLS only. A bare `.table .num` selector would leak
+   into spans inside text cells (e.g. the terminals name/IP stacks) and
+   right-align their content against the left-aligned column header. */
 .table th.num,
 .table td.num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table .num {
   font-variant-numeric: tabular-nums;
 }
 
