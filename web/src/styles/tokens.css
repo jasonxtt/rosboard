@@ -34,6 +34,9 @@
   --glass-bar: #0d1026;
   --glass-bar-blur: 20px;
 
+  /* off-state toggle track border (kept visible on both themes) */
+  --toggle-off-stroke: rgba(255, 255, 255, 0.22);
+
   /* semantic */
   --ok: #6ee7b7;
   --ok-soft: rgba(110, 231, 183, 0.14);
@@ -90,6 +93,9 @@
   --glass-float-stroke: rgba(23, 26, 43, 0.14);
   --glass-bar: #ffffff;
   --glass-bar-blur: 10px;
+
+  /* off-state toggle on white cards needs a real outline to be visible */
+  --toggle-off-stroke: rgba(23, 26, 43, 0.38);
 
   /* text tones one step darker for light surfaces */
   --ok: #047857;

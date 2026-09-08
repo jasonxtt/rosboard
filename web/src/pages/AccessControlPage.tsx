@@ -351,23 +351,8 @@ export default function AccessControlPage() {
               exit={{ label: rule.targetScope === 'internet' ? '禁止互联网' : '阻断访问' }}
               exitTone="err"
               footer={
-                rule.members.length || rule.issues.length ? (
+                rule.issues.length ? (
                   <>
-                    {rule.members.map((member) => {
-                      const terminal = terminalByID.get(member.terminalId)
-                      const resolved = member.state === 'resolved'
-                      return (
-                        <div className="pol-member-row" key={member.terminalId}>
-                          <strong>{terminal?.displayName || member.terminalId}</strong>
-                          <Badge tone="neutral">{member.binding === 'fixed' ? '固定地址' : '自动跟随'}</Badge>
-                          {resolved ? (
-                            <span className="faint">{[...member.ipv4, ...member.ipv6].join('、') || '暂无地址'}</span>
-                          ) : (
-                            <Badge tone="warn">未解析{member.reason ? `：${member.reason}` : ''}</Badge>
-                          )}
-                        </div>
-                      )
-                    })}
                     {rule.issues.map((issue, index) => (
                       <div className="pol-member-row" key={`issue-${index}`}>
                         <Badge tone="warn">问题</Badge>

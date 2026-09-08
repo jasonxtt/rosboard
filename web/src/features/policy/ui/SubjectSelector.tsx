@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { Badge } from '../../../ui/Badge'
 import { SearchInput } from '../../../ui/SearchInput'
 import { Select } from '../../../ui/inputs'
 import { Textarea } from '../../../ui/inputs'
@@ -103,17 +102,18 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
               const addresses = terminalAddresses(terminal, requireObservedAddress)
               return (
                 <div key={terminal.id} className={`pol-terminal-option${member ? ' pol-terminal-selected' : ''}`}>
-                  <label>
-                    <input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} />
-                    <span>
-                      <strong>{terminal.displayName || terminal.id}</strong>
-                      <small>{addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'}</small>
-                      <small>{terminal.macAddress || '无 MAC'}</small>
-                    </span>
-                  </label>
-                  {member ? (
-                    <span className="pol-terminal-binding">
+                  <div className="pol-terminal-main">
+                    <label>
+                      <input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} />
+                      <span>
+                        <strong>{terminal.displayName || terminal.id}</strong>
+                        <small>{addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'}</small>
+                        <small>{terminal.macAddress || '无 MAC'}</small>
+                      </span>
+                    </label>
+                    {member ? (
                       <Select
+                        className="pol-binding-select"
                         value={member.binding}
                         onChange={(binding) => changeBinding(terminal, binding as SubjectBinding)}
                         options={[
@@ -122,9 +122,8 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
                         ]}
                         ariaLabel="地址绑定方式"
                       />
-                      {member.binding === 'fixed' ? <Badge tone="neutral">固定 {member.pinnedIpv4.length + member.pinnedIpv6.length} 个地址</Badge> : <Badge tone="accent">自动跟随</Badge>}
-                    </span>
-                  ) : null}
+                    ) : null}
+                  </div>
                   {member && requireObservedAddress && !terminal.autoEligible ? <small className="pol-hint">未获取到可靠 MAC，无法自动跟随 IP 变化，已固定使用当前地址。</small> : null}
                 </div>
               )

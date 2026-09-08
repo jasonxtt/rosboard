@@ -85,15 +85,13 @@ function AlertsBell() {
 }
 
 function RefreshControl() {
-  const { refreshMs, setRefreshMs, requestReload } = useShell()
+  const { refreshMs, setRefreshMs } = useShell()
   return (
     <span className="refresh-control">
-      <button type="button" className="icon-btn" aria-label="立即刷新" title="立即刷新" onClick={requestReload}>
-        ⟳
-      </button>
       <select
         className="select refresh-select"
         aria-label="自动刷新间隔"
+        title="自动刷新间隔"
         value={String(refreshMs)}
         onChange={(event) => setRefreshMs(Number(event.target.value))}
       >
@@ -154,9 +152,10 @@ export function TopNav() {
           )
         })}
       </nav>
+      <span className="topnav-spacer" aria-hidden="true" />
       <DevicePill />
-      <AlertsBell />
       <RefreshControl />
+      <AlertsBell />
       <button type="button" className="icon-btn" aria-label="切换主题" title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'} onClick={() => toggleTheme()}>
         {theme === 'dark' ? '☀️' : '🌙'}
       </button>

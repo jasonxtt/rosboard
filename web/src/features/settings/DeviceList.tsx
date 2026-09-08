@@ -136,6 +136,9 @@ export function DeviceList({ devices, statuses, busy, onEdit, onToggle, onArchiv
               >
                 🗄
               </button>
+              <span className="device-archive-hint" title="归档后保留数据，可在维护设置中恢复或彻底删除">
+                归档保留数据，可恢复
+              </span>
             </div>
           </div>
         )

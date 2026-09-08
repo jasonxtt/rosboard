@@ -342,6 +342,7 @@ time,
 
 .toggle-off {
   background: var(--glass-2);
+  border: 1px solid var(--toggle-off-stroke);
 }
 
 .toggle-off::after {
