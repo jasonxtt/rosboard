@@ -254,84 +254,8 @@
   font-size: var(--text-xs);
 }
 
-/* ---------- bottom: events + interfaces ---------- */
-.ov-bottom {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-  align-items: start;
-}
-
-.ov-events {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.ov-event {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--r-md);
-  background: var(--glass);
-}
-
-.ov-event-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-sm);
-  display: grid;
-  place-items: center;
-  font-size: 14px;
-  flex: none;
-}
-
-.ov-event-warn {
-  background: var(--warn-soft);
-}
-
-.ov-event-err {
-  background: var(--err-soft);
-}
-
-.ov-event p {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--text-sm);
-  color: var(--ink);
-}
-
-.ov-event p b {
-  font-weight: 600;
-}
-
-.ov-event small {
-  font-size: var(--text-xs);
-  color: var(--ink-3);
-  white-space: nowrap;
-  flex: none;
-}
-
-.ov-allclear {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-6) var(--space-4);
-  text-align: center;
-  color: var(--ink-2);
-}
-
-.ov-allclear-icon {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.ov-allclear strong {
-  font-size: var(--text-card-title);
-  color: var(--ink);
-}
+/* ---------- bottom: interfaces (full width; events card removed — the
+   bell, hero status line and warning bar already cover alerting) ---------- */
 
 .ov-rate-down {
   color: var(--accent);
@@ -358,8 +282,7 @@
 
 /* ---------- responsive ---------- */
 @media (max-width: 1199px) {
-  .ov-hero-grid,
-  .ov-bottom {
+  .ov-hero-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { TrafficChart } from '../charts/TrafficChart'
 import { formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
-import type { AlertEvent, ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
+import type { ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, GaugeRing, Glass, SegTabs, Skeleton, StatusDot, type TableColumn } from '../ui'
 import {
@@ -267,49 +267,6 @@ function TerminalCard({ terminal, onOpen }: { terminal: Terminal; onOpen: () => 
   )
 }
 
-function EventsCard({ alerts, warnings }: { alerts: AlertEvent[]; warnings: string[] }) {
-  const events = useMemo(
-    () => [...alerts].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)).slice(0, 6),
-    [alerts],
-  )
-  if (warnings.length === 0 && events.length === 0) {
-    return (
-      <div className="ov-allclear">
-        <span className="ov-allclear-icon" aria-hidden="true">
-          ✅
-        </span>
-        <strong>一切正常</strong>
-        <p className="faint">当前没有需要关注的告警与事件。</p>
-      </div>
-    )
-  }
-  return (
-    <div className="ov-events">
-      {warnings.map((warning) => (
-        <div className="ov-event" key={`warn-${warning}`}>
-          <span className="ov-event-icon ov-event-warn" aria-hidden="true">
-            ⚠️
-          </span>
-          <p>{warning}</p>
-          <small>系统提示</small>
-        </div>
-      ))}
-      {events.map((alert) => (
-        <div className="ov-event" key={alert.id}>
-          <span className={`ov-event-icon ${alert.level === 'error' ? 'ov-event-err' : 'ov-event-warn'}`} aria-hidden="true">
-            {alert.level === 'error' ? '⛔' : '⚠️'}
-          </span>
-          <p>
-            {alert.source ? <b>{alert.source} · </b> : null}
-            {alert.message}
-          </p>
-          <small>{formatRelativeTime(alert.timestamp)}</small>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 const INTERFACE_STATE: Array<{ match: (row: InterfaceStatus) => boolean; tone: 'ok' | 'warn' | 'neutral'; label: string }> = [
   { match: (row) => row.running && !row.disabled, tone: 'ok', label: '在线' },
   { match: (row) => row.disabled, tone: 'neutral', label: '已禁用' },
@@ -329,17 +286,26 @@ const interfaceColumns: Array<TableColumn<InterfaceStatus>> = [
   {
     key: 'name',
     title: '接口',
+    width: '18%',
     render: (row) => <strong>{row.name}</strong>,
+  },
+  {
+    key: 'type',
+    title: '类型',
+    width: '12%',
+    render: (row) => <span className="faint">{row.type || '—'}</span>,
   },
   {
     key: 'address',
     title: '地址',
+    width: '22%',
     render: (row) => <span className="num faint">{row.addresses[0] ?? '—'}</span>,
   },
   {
     key: 'down',
     title: '↓ 下载',
     numeric: true,
+    width: '16%',
     render: (row) => {
       const down = splitBitRate(row.currentRxBps)
       return (
@@ -353,6 +319,7 @@ const interfaceColumns: Array<TableColumn<InterfaceStatus>> = [
     key: 'up',
     title: '↑ 上传',
     numeric: true,
+    width: '16%',
     render: (row) => {
       const up = splitBitRate(row.currentTxBps)
       return (
@@ -365,6 +332,7 @@ const interfaceColumns: Array<TableColumn<InterfaceStatus>> = [
   {
     key: 'state',
     title: '状态',
+    width: '12%',
     render: (row) => interfaceBadge(row),
   },
 ]
@@ -515,31 +483,26 @@ export default function OverviewPage() {
         </div>
       )}
 
-      <div className="ov-bottom">
-        <Card title="正在发生" sub={issueCount > 0 ? `${issueCount} 条需要关注` : '实时事件'}>
-          <EventsCard alerts={alerts} warnings={warnings} />
-        </Card>
-        <Card
-          title="接口状态"
-          sub={interfaces.data ? `${interfaces.data.length} 个接口 · 按速率排序` : '按速率排序'}
-          actions={
-            <button type="button" className="link-button" onClick={() => navigate('interfaces')}>
-              查看全部 →
-            </button>
-          }
-        >
-          <DataTable
-            columns={interfaceColumns}
-            rows={topInterfaces}
-            rowKey={(row) => row.name}
-            loading={interfaces.loading && !interfaces.data}
-            emptyTitle="暂无接口数据"
-            emptyDescription="等待首次采集完成后展示接口状态。"
-            onRowClick={() => navigate('interfaces')}
-            ariaLabel="接口状态表"
-          />
-        </Card>
-      </div>
+      <Card
+        title="接口状态"
+        sub={interfaces.data ? `${interfaces.data.length} 个接口 · 按速率排序` : '按速率排序'}
+        actions={
+          <button type="button" className="link-button" onClick={() => navigate('interfaces')}>
+            查看全部 →
+          </button>
+        }
+      >
+        <DataTable
+          columns={interfaceColumns}
+          rows={topInterfaces}
+          rowKey={(row) => row.name}
+          loading={interfaces.loading && !interfaces.data}
+          emptyTitle="暂无接口数据"
+          emptyDescription="等待首次采集完成后展示接口状态。"
+          onRowClick={() => navigate('interfaces')}
+          ariaLabel="接口状态表"
+        />
+      </Card>
     </div>
   )
 }
