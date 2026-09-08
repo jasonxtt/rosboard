@@ -160,7 +160,11 @@ export type PolicyPlan = {
 }
 export type PlanEnvelope = { plan: PolicyPlan; planId: string; planHash: string; readOnly: boolean }
 export type PolicyPlanProposal = { egress?: Egress; trafficIngress?: TrafficIngressScope; routingRule?: RoutingRule; presetSelections?: ApplicationPresetSelection[] }
-export type AccessRuleDraft = Omit<AccessRule, 'members' | 'status' | 'issues'> & { presetSelections?: ApplicationPresetSelection[] }
+export type AccessRuleDraft = Omit<AccessRule, 'members' | 'status' | 'issues'> & {
+  presetSelections?: ApplicationPresetSelection[]
+  /** Manual internet-egress pick when retrying a save blocked by access_internet_egress_unavailable. */
+  internetEgresses?: Record<string, string[]>
+}
 
 export type ApplyResult = { jobId?: string; job?: { id: string } }
 export type TargetListMutation = { targetList?: TargetList; jobId?: string; job?: { id: string } }
@@ -179,11 +183,14 @@ export function applicationPresetTargetListPlan(preview: PresetPreview, requeste
 export class CanonicalPolicyError extends Error {
   status: number
   code?: string
-  constructor(message: string, status: number, code?: string) {
+  /** Raw backend error envelope (code/error/internetEgressCandidates/desiredSaved/deleted…), when available. */
+  details?: unknown
+  constructor(message: string, status: number, code?: string, details?: unknown) {
     super(message)
     this.name = 'CanonicalPolicyError'
     this.status = status
     this.code = code
+    this.details = details
   }
 }
 
@@ -356,7 +363,7 @@ async function requestJSON<T>(path: string, deviceID: string, init: RequestInit 
   }
   if (!response.ok) {
     const failure = objectValue(payload)
-    throw new CanonicalPolicyError(stringValue(failure.error) || `HTTP ${response.status}`, response.status, stringValue(failure.code) || undefined)
+    throw new CanonicalPolicyError(stringValue(failure.error) || `HTTP ${response.status}`, response.status, stringValue(failure.code) || undefined, payload)
   }
   return parse(payload)
 }

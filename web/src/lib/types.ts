@@ -4,7 +4,7 @@
  * pages keep their own contracts beside the feature.
  */
 
-import { safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray } from './api'
+import { safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray } from './api.ts'
 
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'

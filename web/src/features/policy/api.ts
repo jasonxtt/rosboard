@@ -14,9 +14,9 @@ import {
   type Subject,
   type TargetList,
   type TargetListRule,
-} from './canonical'
-import { apiGet, safeArray, safeObject, scoped } from '../../lib/api'
-import { parseInterfaceStatus } from '../../lib/types'
+} from './canonical.ts'
+import { apiGet, safeArray, safeObject, scoped } from '../../lib/api.ts'
+import { parseInterfaceStatus } from '../../lib/types.ts'
 
 export type PolicyJob = { id: string; state: string; phase: string; progress: number; error?: string }
 
@@ -291,9 +291,9 @@ export function syncAccessControl(deviceID: string, internetEgresses?: Record<st
   })
 }
 
-/** Extract internetEgressCandidates from a PolicyApiError thrown by an access apply/sync. */
+/** Extract internetEgressCandidates from any policy-layer error (canonical or api). */
 export function internetEgressCandidatesOf(error: unknown): InternetEgressCandidates | null {
-  if (!(error instanceof PolicyApiError)) return null
+  if (!(error instanceof CanonicalPolicyError)) return null
   const details = objectValue(error.details)
   const raw = objectValue(details.internetEgressCandidates)
   const result: InternetEgressCandidates = {}
@@ -312,6 +312,19 @@ export function internetEgressCandidatesOf(error: unknown): InternetEgressCandid
     if (candidates.length) result[family] = candidates
   }
   return Object.keys(result).length ? result : null
+}
+
+/**
+ * Partial-success markers on a failed mutation envelope. The backend commits
+ * desired state before applying (routing rules; access deletes), so an apply
+ * failure can still mean "the change is saved — only RouterOS sync failed".
+ * `deleted` additionally means the object is already gone from desired state:
+ * the UI must not offer a second delete, only a sync recovery.
+ */
+export function mutationPartialStateOf(error: unknown): { desiredSaved: boolean; deleted: boolean } {
+  if (!(error instanceof CanonicalPolicyError)) return { desiredSaved: false, deleted: false }
+  const details = objectValue(error.details)
+  return { desiredSaved: details.desiredSaved === true, deleted: details.deleted === true }
 }
 
 /* ---------- target lists (entries incl. nextRunAt + rules pages) ---------- */
