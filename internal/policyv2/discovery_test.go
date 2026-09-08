@@ -42,7 +42,7 @@ func TestDiscoveryBuildsWANAndTrafficIngressCandidates(t *testing.T) {
 		routeros.ReadMenuInterfaceList:       {{"name": "all"}, {"name": "static"}, {"name": "WAN"}, {"name": "LAN"}, {"name": "VPN-LAN"}},
 		routeros.ReadMenuInterfaceListMember: {{"list": "LAN", "interface": "bridge"}, {"list": "VPN-LAN", "interface": "wireguard1"}},
 		routeros.ReadMenuBridgePort:          {{"bridge": "bridge", "interface": "ether2"}},
-		routeros.ReadMenuIPAddress:           {{"interface": "bridge", "address": "10.0.0.1/24"}, {"interface": "vlan10", "address": "10.10.0.1/24"}, {"interface": "wireguard1", "address": "10.20.0.1/24"}},
+		routeros.ReadMenuIPAddress:           {{"interface": "bridge", "address": "10.0.0.1/24"}, {"interface": "bridge", "address": "fe80::20c:29ff:fe78:c128/64"}, {"interface": "bridge", "address": "::1/128"}, {"interface": "bridge", "address": "169.254.1.1/16"}, {"interface": "vlan10", "address": "10.10.0.1/24"}, {"interface": "wireguard1", "address": "10.20.0.1/24"}},
 	}
 	discovery, err := NewScanner(reader).Scan(context.Background(), "edge")
 	if err != nil {
