@@ -163,7 +163,6 @@ export type Terminal = {
   displayName: string
   autoName: string
   customName: string
-  remark: string
   macAddress: string
   primaryInterface: string
   ipv4: string[]
@@ -396,4 +395,4 @@ export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'lo
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'
-export type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'device' | 'remark'
+export type TerminalSortKey = 'address' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'device'

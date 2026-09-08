@@ -537,7 +537,7 @@ func TestUpdateTerminalMetadataUpdatesSnapshotAndDetailsWithoutRefresh(t *testin
 		err    error
 	}, 1)
 	go func() {
-		detail, err := monitor.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机")
+		detail, err := monitor.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM")
 		resultCh <- struct {
 			detail model.TerminalDetail
 			err    error
@@ -558,17 +558,24 @@ func TestUpdateTerminalMetadataUpdatesSnapshotAndDetailsWithoutRefresh(t *testin
 		t.Fatalf("update metadata: %v", result.err)
 	}
 	detail := result.detail
-	if detail.Terminal.DisplayName != "iPhone 13 PM" || detail.Terminal.Remark != "Tom 的手机" || detail.FamilySummaries["ipv4"].CustomName != "iPhone 13 PM" {
+	if detail.Terminal.DisplayName != "iPhone 13 PM" || detail.FamilySummaries["ipv4"].CustomName != "iPhone 13 PM" {
 		t.Fatalf("detail not updated: %#v", detail)
 	}
+	if detail.Terminal.ID != id || detail.Terminal.PrimaryIPv4 != terminal.PrimaryIPv4 || detail.Terminal.AutoName != "iphone" {
+		t.Fatalf("renaming changed terminal identity: %#v", detail.Terminal)
+	}
 	snapshot := monitor.Snapshot()
-	if snapshot.Terminals[0].DisplayName != "iPhone 13 PM" || snapshot.Terminals[0].Remark != "Tom 的手机" {
+	if snapshot.Terminals[0].DisplayName != "iPhone 13 PM" {
 		t.Fatalf("snapshot not updated: %#v", snapshot.Terminals[0])
+	}
+	reset, err := monitor.UpdateTerminalMetadata(ctx, id, "")
+	if err != nil || reset.Terminal.DisplayName != "iphone" || reset.Terminal.ID != id {
+		t.Fatalf("reset automatic name: %#v, %v", reset.Terminal, err)
 	}
 }
 
 func TestMergeLatestTerminalMetadataKeepsSavedValuesAcrossRefreshCommit(t *testing.T) {
-	terminals := []model.Terminal{{ID: "mac:test", AutoName: "iphone", DisplayName: "旧名称", CustomName: "旧名称", Remark: "旧备注"}}
+	terminals := []model.Terminal{{ID: "mac:test", AutoName: "iphone", DisplayName: "旧名称", CustomName: "旧名称"}}
 	details := map[string]model.TerminalDetail{
 		"mac:test": {
 			Terminal: terminals[0],
@@ -579,16 +586,16 @@ func TestMergeLatestTerminalMetadataKeepsSavedValuesAcrossRefreshCommit(t *testi
 	}
 	currentDetails := map[string]model.TerminalDetail{
 		"mac:test": {
-			Terminal: model.Terminal{ID: "mac:test", AutoName: "iphone", CustomName: "新名称", Remark: "新备注"},
+			Terminal: model.Terminal{ID: "mac:test", AutoName: "iphone", CustomName: "新名称"},
 		},
 	}
 
 	mergeLatestTerminalMetadata(terminals, details, currentDetails)
 
-	if terminals[0].DisplayName != "新名称" || terminals[0].CustomName != "新名称" || terminals[0].Remark != "新备注" {
+	if terminals[0].DisplayName != "新名称" || terminals[0].CustomName != "新名称" {
 		t.Fatalf("terminal metadata was not preserved: %#v", terminals[0])
 	}
-	if got := details["mac:test"].FamilySummaries["ipv4"]; got.DisplayName != "新名称" || got.Remark != "新备注" {
+	if got := details["mac:test"].FamilySummaries["ipv4"]; got.DisplayName != "新名称" {
 		t.Fatalf("family metadata was not preserved: %#v", got)
 	}
 }

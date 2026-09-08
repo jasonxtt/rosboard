@@ -124,7 +124,6 @@ export function compareTerminal(left: Terminal, right: Terminal, key: TerminalSo
     case 'totalDownload': return leftMetrics.totalDownloadBytes - rightMetrics.totalDownloadBytes
     case 'online': return new Date(left.onlineSince || 0).getTime() - new Date(right.onlineSince || 0).getTime()
     case 'device': return text(left.displayName, right.displayName)
-    case 'remark': return text(left.remark, right.remark)
   }
 }
 
