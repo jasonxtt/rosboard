@@ -1,9 +1,11 @@
 /* 终端监控 + 终端详情 (tokens only, design/UX-STANDARD.md §9.3). */
 
 /* Fixed layout: header and value column boundaries line up exactly; widths
-   come from the column defs (19/16/7/14/15/9/12/8%). */
+   come from the column defs (18/17/7/14/14/9/11/10%). A min-width keeps the
+   proportions meaningful on narrower containers (the card scrolls). */
 .terminals-page .table {
   table-layout: fixed;
+  min-width: 1000px;
 }
 
 .terminals-page .table td {
@@ -46,6 +48,7 @@
   flex-direction: column;
   gap: 1px;
   font-variant-numeric: tabular-nums;
+  text-align: left;
 }
 
 .terminal-address-stack span,
