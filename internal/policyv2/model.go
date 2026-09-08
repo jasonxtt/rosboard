@@ -130,7 +130,7 @@ func (j ApplyJob) Terminal() bool {
 }
 
 func (s DeviceState) Applied() bool {
-	return s.DesiredRevision > 0 && s.DesiredRevision == s.AppliedRevision
+	return s.DesiredRevision == s.AppliedRevision
 }
 
 // NormalizeSourceKind maps a requested source content kind to the stored

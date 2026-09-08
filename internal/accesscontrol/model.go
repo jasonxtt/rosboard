@@ -222,7 +222,7 @@ func NormalizeMemberResolution(resolution MemberResolution) (MemberResolution, e
 }
 
 func (state State) Applied() bool {
-	return state.DesiredRevision > 0 && state.DesiredRevision == state.AppliedRevision
+	return state.DesiredRevision == state.AppliedRevision
 }
 
 type Repository interface {
