@@ -122,20 +122,19 @@ export function TopNav() {
         ))}
         {NAV_GROUPS.map((group) => {
           const active = navGroupOf(view) === group.key
-          const wide = group.items.length > 4
           return (
             <Popover
               key={group.key}
               align="left"
               ariaLabel={group.label}
-              width={wide ? 470 : 240}
+              width={470}
               trigger={(open, toggle) => (
                 <button type="button" className={active || open ? 'on' : undefined} onClick={toggle} aria-expanded={open} aria-haspopup="menu">
                   {group.label} <span aria-hidden="true" className="nav-chevron">▾</span>
                 </button>
               )}
             >
-              <div className={wide ? 'nav-mega nav-mega-2col' : 'nav-mega'}>
+              <div className="nav-mega nav-mega-2col">
                 {group.items.map((item) => {
                   const meta = NAV_ITEM_META[item]
                   const current = view === item
@@ -144,7 +143,7 @@ export function TopNav() {
                       <span className="mega-item-ic" aria-hidden="true">{meta?.icon ?? '·'}</span>
                       <span className="mega-item-text">
                         <b>{VIEW_TITLES[item]}</b>
-                        {wide && meta ? <small>{meta.desc}</small> : null}
+                        {meta ? <small>{meta.desc}</small> : null}
                       </span>
                       {current ? <Badge tone="accent">当前</Badge> : null}
                     </button>

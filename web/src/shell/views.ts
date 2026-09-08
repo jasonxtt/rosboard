@@ -62,10 +62,10 @@ export const NAV_ITEM_META: Partial<Record<View, { icon: string; desc: string }>
   routes: { icon: '⤢', desc: '路由表与分流命中情况' },
   resource: { icon: '✚', desc: 'CPU、内存、硬件与 IRQ' },
   load: { icon: '⧗', desc: '多时间窗的系统负载曲线' },
-  'target-library': { icon: '◎', desc: '域名 / IP 目标列表与订阅' },
-  'policy-routing': { icon: '⑂', desc: '谁 → 访问什么 → 走哪条线路' },
-  'access-control': { icon: '⊘', desc: '断网与目标屏蔽规则' },
-  recognition: { icon: '✦', desc: '协议分析与 MosDNS 接入' },
+  'target-library': { icon: '◎', desc: '域名 / IP 列表，供规则引用' },
+  'policy-routing': { icon: '⑂', desc: '让指定流量走指定出口线路' },
+  'access-control': { icon: '⊘', desc: '断网时段与目标屏蔽' },
+  recognition: { icon: '✦', desc: '应用识别与 MosDNS 数据源' },
 }
 
 /** Group that contains a view, if any (drives parent-pill active state). */
