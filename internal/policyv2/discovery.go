@@ -334,6 +334,19 @@ func isTrafficIngressInterfaceList(list routeros.RouterOSObject) bool {
 	return isManagedComment(comment) && (strings.Contains(comment, "策略流量入口") || strings.HasSuffix(strings.ToLower(name), "_ingress"))
 }
 
+// ingressUsableAddress reports whether a RouterOS address helps identify a
+// traffic ingress candidate. Link-local and loopback addresses are
+// auto-assigned on every interface and carry no selection value, so they are
+// hidden from the candidate display. Unparseable values are kept as-is.
+func ingressUsableAddress(value string) bool {
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+	if err != nil {
+		return true
+	}
+	address := prefix.Addr()
+	return !address.IsLinkLocalUnicast() && !address.IsLoopback()
+}
+
 func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool) []TrafficIngressCandidate {
 	membersByList := make(map[string][]string)
 	dynamicByList := make(map[string]bool)
@@ -347,9 +360,10 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	}
 	addressesByInterface := make(map[string][]string)
 	for _, address := range addresses {
-		if !routerBool(address["disabled"], false) {
-			addressesByInterface[address["interface"]] = append(addressesByInterface[address["interface"]], address["address"])
+		if routerBool(address["disabled"], false) || !ingressUsableAddress(address["address"]) {
+			continue
 		}
+		addressesByInterface[address["interface"]] = append(addressesByInterface[address["interface"]], address["address"])
 	}
 	interfaceByName := make(map[string]routeros.RouterOSObject, len(interfaces))
 	for _, object := range interfaces {

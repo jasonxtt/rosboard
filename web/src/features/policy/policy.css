@@ -268,7 +268,7 @@
 
 .pol-choice input { accent-color: var(--accent); width: 16px; height: 16px; margin-top: 2px; flex: none; }
 .pol-choice span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pol-choice small { color: var(--ink-3); font-size: var(--text-xs); line-height: 1.5; }
+.pol-choice small { color: var(--ink-3); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
 .pol-choice-active { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
 .pol-choice-disabled { opacity: 0.55; cursor: not-allowed; }
 
