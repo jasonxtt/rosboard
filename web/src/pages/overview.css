@@ -41,10 +41,6 @@
   color: var(--ink-2);
 }
 
-.ov-hero-statustext {
-  flex: none;
-}
-
 /* Device identity is capped at half the hero width (user requirement) so the
    window picker always keeps its space; full text stays available via title. */
 .ov-hero-device {
@@ -130,19 +126,22 @@
   flex-direction: column;
 }
 
+/* Rings spread across the full card width so no dead margins remain beside
+   them (user feedback: centered+tight felt cramped with big side gaps). */
 .ov-gauges {
   display: flex;
-  justify-content: center;
-  gap: var(--space-4);
+  justify-content: space-evenly;
   padding: var(--space-4) 0 var(--space-3);
 }
 
 /* Meta rows: single column of five device facts (ROS 版本 / 平台架构 / CPU /
-   内存 / 存储), spread evenly through the remaining card height. */
+   内存 / 存储). The block is width-capped and horizontally centered so the
+   card's left and right breathing space stays symmetric. */
 .ov-meta {
   display: flex;
   flex-direction: column;
   justify-content: space-evenly;
+  align-items: center;
   flex: 1;
   border-top: 1px solid var(--stroke);
   margin-top: var(--space-2);
@@ -154,7 +153,7 @@
   grid-template-columns: 58px 1fr;
   gap: var(--space-2);
   align-items: baseline;
-  min-width: 0;
+  width: min(100%, 320px);
 }
 
 .ov-meta .kv span {

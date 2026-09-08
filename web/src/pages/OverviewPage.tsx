@@ -115,7 +115,6 @@ function Hero({
     <>
       <div className="ov-hero-status">
         <StatusDot tone={issueCount > 0 ? 'warn' : 'ok'} pulse={issueCount === 0} />
-        <span className="ov-hero-statustext">{issueCount > 0 ? `存在 ${issueCount} 条告警` : '网络状态极佳'}</span>
         <span className="ov-hero-device" title={identity}>
           {identity}
         </span>
