@@ -6,6 +6,7 @@ import { useShell } from '../shell/useShell'
 import { Badge, Card, DataTable, EmptyState, Pagination, SearchInput, SegTabs, Select, Skeleton, StatusDot, type TableColumn } from '../ui'
 import { usePolling } from '../shell/usePolling'
 import { fetchTerminals, postTerminalViewerHeartbeat } from '../features/monitor-detail/api'
+import { QuickEdit } from '../features/monitor-detail/QuickEdit'
 import { useMonitorResource, useSortState } from '../features/monitor-detail/hooks'
 import { SortHeader } from '../features/monitor-detail/SortHeader'
 import {
@@ -133,34 +134,37 @@ export default function TerminalsPage() {
     {
       key: 'device',
       title: sortHeader('名称', 'device'),
+      width: '21%',
       render: (terminal) => (
         <span className="terminal-name-cell">
           <StatusDot tone={terminalStateTone(terminal.state)} />
           <span className="terminal-name-stack">
-            <span className="terminal-display-name">
-              {terminal.displayName || terminal.id}
-              {terminal.customName ? (
-                <span className="terminal-custom-flag" title={`自定义名称，自动识别为 ${terminal.autoName || '未知'}`}>
-                  ✎
-                </span>
-              ) : null}
-            </span>
+            <span className="terminal-display-name">{terminal.displayName || terminal.id}</span>
             <small className="faint num">{terminal.macAddress || 'MAC 未知'}</small>
           </span>
+          <QuickEdit
+            scopedPath={scopedPath}
+            terminalId={terminal.id}
+            field="customName"
+            currentCustomName={terminal.customName}
+            currentRemark={terminal.remark}
+            placeholder={terminal.autoName || '自定义名称'}
+            hint={terminal.customName ? `自动识别为 ${terminal.autoName || '未知'}` : undefined}
+            onSaved={() => void reload()}
+          />
         </span>
       ),
     },
     {
       key: 'address',
       title: sortHeader('IP 地址', 'address'),
+      width: '15%',
       render: (terminal) => {
         const primary = terminalPrimaryAddress(terminal, family) || '-'
-        const addressCount = family === 'ipv4' ? terminal.ipv4.length : family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
         return (
           <span className="terminal-address-stack">
             <span className="num">{primary}</span>
             {family === 'all' && terminal.primaryIpv4 && terminal.primaryIpv6 ? <small className="faint num">{terminal.primaryIpv6}</small> : null}
-            {addressCount > 1 ? <small className="faint">+{addressCount - 1} 个地址</small> : null}
           </span>
         )
       },
@@ -169,6 +173,7 @@ export default function TerminalsPage() {
       key: 'connections',
       title: sortHeader('连接数', 'connections'),
       numeric: true,
+      width: '7%',
       render: (terminal) => <span className="num">{terminalMetrics(terminal, family).connectionCount}</span>,
     },
     {
@@ -180,6 +185,7 @@ export default function TerminalsPage() {
         </span>
       ),
       numeric: true,
+      width: '11%',
       render: (terminal) => {
         const metrics = terminalMetrics(terminal, family)
         return (
@@ -199,6 +205,7 @@ export default function TerminalsPage() {
         </span>
       ),
       numeric: true,
+      width: '11%',
       render: (terminal) => {
         const metrics = terminalMetrics(terminal, family)
         return (
@@ -212,6 +219,7 @@ export default function TerminalsPage() {
     {
       key: 'state',
       title: '状态',
+      width: '7%',
       render: (terminal) => (
         <Badge tone={terminalStateTone(terminal.state)} dot>
           {terminalStateText(terminal.state)}
@@ -222,29 +230,34 @@ export default function TerminalsPage() {
       key: 'online',
       title: sortHeader('在线时长', 'online'),
       numeric: true,
+      width: '8%',
       render: (terminal) => <span className="num">{terminal.state === 'online' ? formatDuration(onlineDurationSeconds(terminal.onlineSince)) : '-'}</span>,
     },
     {
       key: 'remark',
       title: sortHeader('备注', 'remark'),
+      width: '20%',
       render: (terminal) => (
-        <span className="terminal-remark" title={terminal.remark || undefined}>
-          {terminal.remark || '-'}
+        <span className="terminal-remark-cell">
+          <span className="terminal-remark" title={terminal.remark || undefined}>
+            {terminal.remark || '-'}
+          </span>
+          <QuickEdit
+            scopedPath={scopedPath}
+            terminalId={terminal.id}
+            field="remark"
+            currentCustomName={terminal.customName}
+            currentRemark={terminal.remark}
+            placeholder="添加备注"
+            onSaved={() => void reload()}
+          />
         </span>
       ),
     },
   ]
 
   if (selectedId) {
-    return (
-      <TerminalDetailPage
-        terminalId={selectedId}
-        onBack={closeTerminal}
-        onMetadataSaved={() => {
-          reload()
-        }}
-      />
-    )
+    return <TerminalDetailPage terminalId={selectedId} onBack={closeTerminal} />
   }
 
   return (
