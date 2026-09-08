@@ -134,13 +134,14 @@
   padding: var(--space-4) 0 var(--space-3);
 }
 
-/* Meta facts: two columns of five rows each (设备身份 left, 实时负载 right).
-   Short 52px label column keeps values close; every value is single-line
-   ellipsis with the full text on hover (the fixed display-length rule). */
+/* Meta facts: two content-width columns pushed to opposite edges
+   (space-between). Each column hugs its widest row, so the right column's
+   values end exactly at the card's right padding — the right gap always
+   equals the left gap (user alignment requirement). */
 .ov-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 var(--space-4);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
   flex: 1;
   border-top: 1px solid var(--stroke);
   margin-top: var(--space-2);
@@ -156,7 +157,7 @@
 
 .ov-meta .kv {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 52px auto;
   gap: var(--space-2);
   align-items: baseline;
   min-width: 0;
@@ -169,6 +170,7 @@
 }
 
 .ov-meta .kv b {
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -262,6 +264,17 @@
 
 /* ---------- bottom: interfaces (full width; events card removed — the
    bell, hero status line and warning bar already cover alerting) ---------- */
+
+/* Full interfaces table (same columns as 接口监控): cap the card height and
+   let it scroll internally with the sticky header; min-width keeps the nine
+   columns readable — the card scrolls horizontally on narrow screens. */
+.ov-if-card .table-scroll {
+  max-height: 480px;
+}
+
+.ov-if-card .table {
+  min-width: 1000px;
+}
 
 .ov-rate-down {
   color: var(--accent);

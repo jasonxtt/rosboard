@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { TrafficChart } from '../charts/TrafficChart'
-import { formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
+import { formatBitRate, formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
 import type { ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, GaugeRing, Glass, SegTabs, Skeleton, StatusDot, type TableColumn } from '../ui'
@@ -11,6 +11,7 @@ import {
   useTerminalList,
   useTrafficHistory,
 } from '../features/monitoring/hooks'
+import './interfaces.css'
 import './overview.css'
 
 const WINDOW_KEY = 'rosboard:ov-window'
@@ -279,6 +280,15 @@ const INTERFACE_STATE: Array<{ match: (row: InterfaceStatus) => boolean; tone: '
   { match: () => true, tone: 'warn', label: 'Down' },
 ]
 
+const RELATION_LABELS: Record<string, string> = {
+  carrier: '承载',
+  parent: '父接口',
+  bridge: 'Bridge',
+  member: '成员',
+}
+
+const CATEGORY_RANK: Record<string, number> = { physical: 0, logical: 1, system: 2 }
+
 function interfaceBadge(row: InterfaceStatus) {
   const state = INTERFACE_STATE.find((candidate) => candidate.match(row)) ?? INTERFACE_STATE[INTERFACE_STATE.length - 1]
   return (
@@ -288,58 +298,81 @@ function interfaceBadge(row: InterfaceStatus) {
   )
 }
 
+/* Full interfaces table — same column set as 接口监控 (InterfacesPage), all
+   rows; row click jumps to the page for inline detail + history chart. */
 const interfaceColumns: Array<TableColumn<InterfaceStatus>> = [
   {
     key: 'name',
-    title: '接口',
-    width: '18%',
-    render: (row) => <strong>{row.name}</strong>,
+    title: '名称',
+    width: '16%',
+    render: (row) => (
+      <span className="interface-name-cell">
+        <strong>{row.name}</strong>
+        {row.relations.length ? (
+          <span className="relation-chips">
+            {row.relations.map((relation) => (
+              <span key={`${relation.kind}-${relation.interface}`} className="relation-chip" title={`${RELATION_LABELS[relation.kind] ?? relation.kind}：${relation.interface}`}>
+                {RELATION_LABELS[relation.kind] ?? relation.kind} · {relation.interface}
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    ),
   },
-  {
-    key: 'type',
-    title: '类型',
-    width: '12%',
-    render: (row) => <span className="faint">{row.type || '—'}</span>,
-  },
+  { key: 'type', title: '类型', width: '8%', render: (row) => row.type || '-' },
   {
     key: 'address',
-    title: '地址',
-    width: '22%',
-    render: (row) => <span className="num faint">{row.addresses[0] ?? '—'}</span>,
+    title: '地址 / MAC',
+    width: '18%',
+    render: (row) => (
+      <span className="interface-address-cell">
+        <span className="num">{row.addresses.join(' / ') || '-'}</span>
+        <small className="faint num">{row.macAddress || '-'}</small>
+      </span>
+    ),
+  },
+  { key: 'state', title: '状态', width: '8%', render: (row) => interfaceBadge(row) },
+  {
+    key: 'rates',
+    title: '实时 ↓ / ↑',
+    numeric: true,
+    width: '14%',
+    render: (row) => (
+      <span className="interface-rates num">
+        <span className="interface-rate-down">↓ {formatBitRate(row.currentRxBps)}</span>
+        <span className="interface-rate-up">↑ {formatBitRate(row.currentTxBps)}</span>
+      </span>
+    ),
   },
   {
-    key: 'down',
-    title: '↓ 下载',
+    key: 'totals',
+    title: '累计 ↓ / ↑',
     numeric: true,
-    width: '16%',
+    width: '14%',
+    render: (row) => (
+      <span className="interface-rates num">
+        <span>↓ {formatBytes(row.rxBytes)}</span>
+        <span>↑ {formatBytes(row.txBytes)}</span>
+      </span>
+    ),
+  },
+  { key: 'mtu', title: 'MTU', numeric: true, width: '7%', render: (row) => <span className="num">{row.actualMtu || '-'}</span> },
+  { key: 'linkDowns', title: '断链次数', numeric: true, width: '7%', render: (row) => <span className="num">{row.linkDowns}</span> },
+  {
+    key: 'errors',
+    title: '错误 / 丢包',
+    numeric: true,
+    width: '8%',
     render: (row) => {
-      const down = splitBitRate(row.currentRxBps)
+      const errors = row.rxErrors + row.txErrors
+      const drops = row.rxDrops + row.txDrops
       return (
-        <span className="num ov-rate-down">
-          {down.value} <small>{down.unit}</small>
+        <span className={`num ${errors + drops > 0 ? 'interface-errors-hot' : ''}`} title={`错误 ${errors} · 丢包 ${drops}`}>
+          {errors} / {drops}
         </span>
       )
     },
-  },
-  {
-    key: 'up',
-    title: '↑ 上传',
-    numeric: true,
-    width: '16%',
-    render: (row) => {
-      const up = splitBitRate(row.currentTxBps)
-      return (
-        <span className="num faint">
-          {up.value} <small>{up.unit}</small>
-        </span>
-      )
-    },
-  },
-  {
-    key: 'state',
-    title: '状态',
-    width: '12%',
-    render: (row) => interfaceBadge(row),
   },
 ]
 
@@ -368,11 +401,15 @@ export default function OverviewPage() {
   )
   const terminalTotal = terminals.data?.length ?? 0
 
-  const topInterfaces = useMemo(
+  // Full interface list: physical → logical → system, busiest first inside
+  // each group (mirrors 接口监控's grouping, minus its sortable headers).
+  const allInterfaces = useMemo(
     () =>
-      [...(interfaces.data ?? [])]
-        .sort((left, right) => right.currentRxBps + right.currentTxBps - (left.currentRxBps + left.currentTxBps))
-        .slice(0, 6),
+      [...(interfaces.data ?? [])].sort((left, right) => {
+        const rankDelta = (CATEGORY_RANK[left.category] ?? 9) - (CATEGORY_RANK[right.category] ?? 9)
+        if (rankDelta !== 0) return rankDelta
+        return right.currentRxBps + right.currentTxBps - (left.currentRxBps + left.currentTxBps)
+      }),
     [interfaces.data],
   )
 
@@ -492,16 +529,17 @@ export default function OverviewPage() {
 
       <Card
         title="接口状态"
-        sub={interfaces.data ? `${interfaces.data.length} 个接口 · 按速率排序` : '按速率排序'}
+        className="ov-if-card"
+        sub={interfaces.data ? `全部 ${interfaces.data.length} 个接口 · 与接口监控一致` : '与接口监控一致'}
         actions={
           <button type="button" className="link-button" onClick={() => navigate('interfaces')}>
-            查看全部 →
+            展开详情 →
           </button>
         }
       >
         <DataTable
           columns={interfaceColumns}
-          rows={topInterfaces}
+          rows={allInterfaces}
           rowKey={(row) => row.name}
           loading={interfaces.loading && !interfaces.data}
           emptyTitle="暂无接口数据"
