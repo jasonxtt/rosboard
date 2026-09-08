@@ -184,9 +184,9 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
   return (
     <>
       <div className="ov-gauges">
-        <GaugeRing percent={overview.cpuLoadPercent} label="CPU" {...gaugeTone(overview.cpuLoadPercent)} />
-        <GaugeRing percent={overview.memoryUsedPercent} label="内存" {...gaugeTone(overview.memoryUsedPercent)} />
-        <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
+        <GaugeRing percent={overview.cpuLoadPercent} label="CPU" from="#23D3EE" to="#6F9AF6" {...gaugeTone(overview.cpuLoadPercent)} />
+        <GaugeRing percent={overview.memoryUsedPercent} label="内存" from="#24D3EE" to="#65E5BE" {...gaugeTone(overview.memoryUsedPercent)} />
+        <GaugeRing percent={overview.storageUsedPercent} label="存储" from="#818CF8" to="#C0B3FC" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
         <div className="ov-meta-col">
