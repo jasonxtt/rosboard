@@ -21,14 +21,10 @@ import {
   type TrafficIngressScope,
 } from '../features/policy/canonical'
 import {
-  deleteEgress,
   fetchPolicyOverviewMeta,
   jobIdOf,
-  setEgressEnabled,
   type PolicyOverviewMeta,
 } from '../features/policy/api'
-import { EgressCard } from '../features/policy/ui/EgressCard'
-import { EgressModal } from '../features/policy/ui/EgressModal'
 import { FlowCard } from '../features/policy/ui/FlowCard'
 import type { FlowCardStatus } from '../features/policy/ui/FlowCard'
 import { JobProgress, JobProgressLine } from '../features/policy/ui/JobProgress'
@@ -96,9 +92,6 @@ export default function PolicyRoutingPage() {
   const [trackedJob, setTrackedJob] = useState<TrackedJob | null>(null)
   const [jobError, setJobError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState('')
-  const [egressEditor, setEgressEditor] = useState<Egress | null | undefined>(undefined)
-  const [egressDeleting, setEgressDeleting] = useState<Egress | null>(null)
-  const [deleteEgressError, setDeleteEgressError] = useState<string | null>(null)
   const [wizard, setWizard] = useState<RoutingRule | null | undefined>(undefined)
   const [ruleDeleting, setRuleDeleting] = useState<RoutingRule | null>(null)
   const [deleteRuleError, setDeleteRuleError] = useState<string | null>(null)
@@ -186,46 +179,6 @@ export default function PolicyRoutingPage() {
       setRuleDeleting(null)
     } catch (error) {
       setDeleteRuleError(errorMessage(error, '规则删除失败'))
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  const toggleEgress = async (egress: Egress) => {
-    if (busyId) return
-    setBusyId(egress.id)
-    try {
-      const result = await setEgressEnabled(selectedDeviceId, egress.id, egress.revision, !egress.enabled)
-      if (!trackJob(result, egress.enabled ? `正在停用出口「${egress.name}」` : `正在启用出口「${egress.name}」`, egress.enabled ? '出口已停用' : '出口已启用')) {
-        toast(egress.enabled ? '出口已停用' : '出口已启用')
-        await load(true)
-      }
-    } catch (error) {
-      toast(errorMessage(error, '出口状态更新失败'), { tone: 'err' })
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  const confirmDeleteEgress = async () => {
-    const egress = egressDeleting
-    if (!egress || busyId) return
-    setBusyId(egress.id)
-    setDeleteEgressError(null)
-    try {
-      const result = await deleteEgress(selectedDeviceId, egress.id, egress.revision)
-      if (result.pendingDeletion) {
-        if (!trackJob(result, `正在清理出口「${egress.name}」`, '出口已删除')) {
-          toast('出口已标记删除，待应用后清理')
-          await load(true)
-        }
-      } else {
-        toast('出口已删除')
-        await load(true)
-      }
-      setEgressDeleting(null)
-    } catch (error) {
-      setDeleteEgressError(errorMessage(error, '出口删除失败'))
     } finally {
       setBusyId('')
     }
@@ -334,51 +287,19 @@ export default function PolicyRoutingPage() {
         </Notice>
       ) : null}
 
-      <div className="section-head">
-        <h2>出口线路</h2>
-        <span className="section-sub">
-          {context.egresses.length ? `${context.egresses.length} 条出口${dirtyEgresses.length ? ` · ${dirtyEgresses.length} 条待应用` : ''}` : '还没有出口'}
-        </span>
-        {dirtyEgresses.length ? (
-          <button type="button" className="section-link" disabled={reviewGenerating || writeBlocked} onClick={() => void openReview()}>
+      {dirtyEgresses.length ? (
+        <Notice tone="warn" title="有变更待应用" action={
+          <button type="button" className="link-button" disabled={reviewGenerating || writeBlocked} onClick={() => void openReview()}>
             {reviewGenerating ? '正在生成计划…' : '审查并应用 →'}
           </button>
-        ) : null}
-        <button type="button" className="section-link" disabled={writeBlocked} onClick={() => setEgressEditor(null)}>
-          ＋ 添加出口
-        </button>
-      </div>
-      {context.egresses.length ? (
-        <div className="pol-egr-grid">
-          {context.egresses.map((egress) => (
-            <EgressCard
-              key={egress.id}
-              egress={egress}
-              busy={busyId === egress.id}
-              onEdit={() => setEgressEditor(egress)}
-              onDelete={() => {
-                setDeleteEgressError(null)
-                setEgressDeleting(egress)
-              }}
-              onToggle={() => void toggleEgress(egress)}
-            />
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <EmptyState
-            icon="🌐"
-            title="还没有出口"
-            description="出口是一条 WAN 线路加它的路由 / NAT / 故障策略，分流规则会把流量指向出口。"
-            actionLabel={writeBlocked ? undefined : '＋ 添加出口'}
-            onAction={writeBlocked ? undefined : () => setEgressEditor(null)}
-          />
-        </Card>
-      )}
+        }>
+          有 {dirtyEgresses.length} 项出口变更尚未应用到 RouterOS，分流规则会在变更应用后生效。
+        </Notice>
+      ) : null}
 
       <div className="section-head">
         <h2>分流规则</h2>
-        <span className="section-sub">{context.rules.length ? `${context.rules.length} 条规则` : '流量从「谁」经过「什么目标」流向「哪条线路」'}</span>
+        <span className="section-sub">{context.rules.length ? `${context.rules.length} 条规则 · 按优先级排列` : '流量从「谁」经过「什么目标」流向「哪条线路」'}</span>
         <button type="button" className="section-link" disabled={writeBlocked} onClick={() => setWizard(null)}>
           ＋ 新建规则
         </button>
@@ -426,19 +347,6 @@ export default function PolicyRoutingPage() {
         </Card>
       )}
 
-      {egressEditor !== undefined ? (
-        <EgressModal
-          deviceID={selectedDeviceId}
-          egress={egressEditor}
-          onClose={() => setEgressEditor(undefined)}
-          onSaved={async () => {
-            setEgressEditor(undefined)
-            toast('出口已保存，变更待应用', { tone: 'ok' })
-            await load(true)
-          }}
-        />
-      ) : null}
-
       {wizard !== undefined ? (
         <RoutingRuleWizard
           deviceID={selectedDeviceId}
@@ -471,33 +379,6 @@ export default function PolicyRoutingPage() {
           <p className="muted">
             确定删除「{ruleDeleting.name}」？删除后会生成变更计划并清理对应的 RouterOS 规则。
           </p>
-        </Modal>
-      ) : null}
-
-      {egressDeleting ? (
-        <Modal
-          open
-          onClose={() => setEgressDeleting(null)}
-          title="删除出口"
-          footer={
-            <>
-              <Button onClick={() => setEgressDeleting(null)}>取消</Button>
-              <Button variant="danger" loading={busyId === egressDeleting.id} onClick={() => void confirmDeleteEgress()}>
-                删除
-              </Button>
-            </>
-          }
-        >
-          {deleteEgressError ? <Notice tone="err">{deleteEgressError}</Notice> : null}
-          <p className="muted">
-            确定删除出口「{egressDeleting.name}」？
-            {egressDeleting.applied ? '该出口已应用到 RouterOS，删除会先标记为待删除，并在应用后清理路由、地址列表与 NAT。' : '该出口尚未应用，删除立即生效。'}
-          </p>
-          {context.rules.some((rule) => rule.egressId === egressDeleting.id) ? (
-            <Notice tone="warn" title="出口仍被引用">
-              有分流规则正在使用此出口，删除后这些规则会显示「出口缺失」。
-            </Notice>
-          ) : null}
         </Modal>
       ) : null}
 

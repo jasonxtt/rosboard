@@ -28,6 +28,8 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
   const selected = new Map(value.members.map((member) => [member.terminalId, member]))
   const visibleTerminals = useMemo(() => {
     const candidates = terminals.filter((terminal) => {
+      // RouterOS 自身的 conntrack 追踪项（routeros:self）不参与规则来源选择
+      if (terminal.id === 'routeros:self') return false
       const addresses = terminalAddresses(terminal, requireObservedAddress)
       return !requireObservedAddress || addresses.ipv4.length + addresses.ipv6.length > 0
     })
@@ -62,7 +64,7 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
   }
 
   const modeOptions = (
-    <div className="pol-choice-list" role="radiogroup" aria-label="来源范围">
+    <div className="pol-choice-list pol-choice-row" role="radiogroup" aria-label="来源范围">
       <label className={`pol-choice${value.mode === 'all' ? ' pol-choice-active' : ''}`}>
         <input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} />
         <span>
@@ -105,9 +107,8 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
                     <input type="checkbox" checked={Boolean(member)} onChange={() => toggleTerminal(terminal)} />
                     <span>
                       <strong>{terminal.displayName || terminal.id}</strong>
-                      <small>
-                        {addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'} · {terminal.macAddress || '无 MAC'}
-                      </small>
+                      <small>{addresses.ipv4.join(', ') || '无 IPv4'} · {addresses.ipv6.join(', ') || '无 IPv6'}</small>
+                      <small>{terminal.macAddress || '无 MAC'}</small>
                     </span>
                   </label>
                   {member ? (

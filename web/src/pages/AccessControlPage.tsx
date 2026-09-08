@@ -254,22 +254,47 @@ export default function AccessControlPage() {
         <h1>访问控制</h1>
         <span className="page-sub">断网与屏蔽类规则：谁 → 什么目标 → 阻断</span>
         <span className="pol-page-actions">
-          <Button onClick={() => void sync()} loading={syncing} disabled={!overview.device.enabled}>
-            同步到 RouterOS
-          </Button>
           <Button variant="primary" disabled={!overview.device.enabled} onClick={() => { setSaveError(null); setEditing(null) }}>
             ＋ 新建规则
           </Button>
         </span>
       </header>
 
-      <details className="glass card pol-boundary">
-        <summary>
-          访问控制能力边界说明
-          <span className="faint">（展开查看）</span>
-        </summary>
-        <p className="pol-boundary-text">{overview.boundary}</p>
-      </details>
+      <div className="pol-fold-row">
+        <details className="glass card pol-boundary">
+          <summary>
+            访问控制能力边界说明
+            <span className="faint">（展开查看）</span>
+          </summary>
+          <p className="pol-boundary-text">{overview.boundary}</p>
+        </details>
+        <details className="glass card pol-boundary">
+          <summary>
+            规则同步状态
+            <Badge tone={inSync ? 'ok' : 'warn'}>{inSync ? '已同步' : '待同步'}</Badge>
+            <span className="faint">（展开查看）</span>
+          </summary>
+          <div className="pol-kv-list">
+            <div className="pol-kv">
+              <span>期望修订</span>
+              <b>{overview.state.desiredRevision}</b>
+            </div>
+            <div className="pol-kv">
+              <span>已应用修订</span>
+              <b>{overview.state.appliedRevision}</b>
+            </div>
+            <div className="pol-kv">
+              <span>最近应用</span>
+              <b>{overview.state.appliedAt ? formatRelativeTime(overview.state.appliedAt) : '—'}</b>
+            </div>
+          </div>
+          <div className="pol-fold-actions">
+            <Button size="sm" onClick={() => void sync()} loading={syncing} disabled={!overview.device.enabled}>
+              同步到 RouterOS
+            </Button>
+          </div>
+        </details>
+      </div>
 
       {trackedJob ? (
         <Card>
@@ -303,27 +328,6 @@ export default function AccessControlPage() {
           {jobError}
         </Notice>
       ) : null}
-
-      <Card
-        title="同步状态"
-        sub={`设备：${overview.device.name}`}
-        actions={<Badge tone={inSync ? 'ok' : 'warn'}>{inSync ? '已同步' : '待同步'}</Badge>}
-      >
-        <div className="pol-kv-list">
-          <div className="pol-kv">
-            <span>期望修订</span>
-            <b>{overview.state.desiredRevision}</b>
-          </div>
-          <div className="pol-kv">
-            <span>已应用修订</span>
-            <b>{overview.state.appliedRevision}</b>
-          </div>
-          <div className="pol-kv">
-            <span>最近应用</span>
-            <b>{overview.state.appliedAt ? formatRelativeTime(overview.state.appliedAt) : '—'}</b>
-          </div>
-        </div>
-      </Card>
 
       <div className="section-head">
         <h2>访问规则</h2>

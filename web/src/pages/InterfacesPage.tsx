@@ -12,11 +12,17 @@ import './interfaces.css'
 
 type InterfaceSortKey = 'name' | 'type' | 'state' | 'rx' | 'tx' | 'rxBytes' | 'txBytes' | 'mtu' | 'linkDowns' | 'errors'
 
-const CATEGORY_OPTIONS: Array<{ value: InterfaceCategory; label: string }> = [
+type CategoryFilter = 'all' | InterfaceCategory
+
+const CATEGORY_OPTIONS: Array<{ value: CategoryFilter; label: string }> = [
+  { value: 'all', label: '全部接口' },
   { value: 'physical', label: '物理接口' },
   { value: 'logical', label: '逻辑接口' },
   { value: 'system', label: '系统接口' },
 ]
+
+/** 全部 tab 的分组顺序：物理 → 逻辑 → 系统。 */
+const CATEGORY_RANK: Record<InterfaceCategory, number> = { physical: 0, logical: 1, system: 2 }
 
 const RELATION_LABELS: Record<string, string> = {
   carrier: '承载',
@@ -125,7 +131,7 @@ function InterfaceDetailPanel({ name, onClose }: { name: string; onClose: () => 
 export default function InterfacesPage() {
   const { scopedPath, selectedDeviceId, refreshMs, reloadNonce } = useShell()
   const { data: interfaces, loading, error, reload } = useMonitorResource(() => fetchInterfaces(scopedPath), refreshMs, [selectedDeviceId, reloadNonce])
-  const [category, setCategory] = useState<InterfaceCategory>('physical')
+  const [category, setCategory] = useState<CategoryFilter>('all')
   // physical 默认 Down 优先；逻辑/系统按名称。
   const sort = useSortState<InterfaceSortKey>('state')
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -133,14 +139,20 @@ export default function InterfacesPage() {
   useEffect(() => {
     setExpanded(null)
     // 物理接口默认 Down 优先，其余按名称（component-guidelines）。
-    sort.reset(category === 'physical' ? 'state' : 'name')
+    sort.reset(category === 'physical' || category === 'all' ? 'state' : 'name')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 切换分类时重置排序与展开态
   }, [category])
 
   const items = useMemo(() => {
-    const scoped = (interfaces ?? []).filter((item) => item.category === category)
+    const scoped = (interfaces ?? []).filter((item) => category === 'all' || item.category === category)
     const direction = sort.direction === 'asc' ? 1 : -1
-    return [...scoped].sort((left, right) => compareInterface(left, right, sort.key) * direction)
+    return [...scoped].sort((left, right) => {
+      if (category === 'all') {
+        const rankDelta = (CATEGORY_RANK[left.category] ?? 9) - (CATEGORY_RANK[right.category] ?? 9)
+        if (rankDelta !== 0) return rankDelta
+      }
+      return compareInterface(left, right, sort.key) * direction
+    })
   }, [interfaces, category, sort.key, sort.direction])
 
   const sortHeader = (label: string, key: InterfaceSortKey) => (
@@ -263,8 +275,8 @@ export default function InterfacesPage() {
             rowClassName={(item) =>
               item.disabled ? 'interface-row-disabled' : !item.running && item.category === 'physical' ? 'interface-row-down' : undefined
             }
-            emptyTitle={`当前分类下没有${CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? '接口'}`}
-            emptyDescription="RouterOS 未报告该分类的接口，切换分类查看其他接口。"
+            emptyTitle={category === 'all' ? '设备暂无接口数据' : `当前分类下没有${CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? '接口'}`}
+            emptyDescription={category === 'all' ? '等待首次采集完成后展示接口状态。' : 'RouterOS 未报告该分类的接口，切换分类查看其他接口。'}
           />
         </Card>
       )}
