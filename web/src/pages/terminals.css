@@ -1,5 +1,15 @@
 /* 终端监控 + 终端详情 (tokens only, design/UX-STANDARD.md §9.3). */
 
+/* Fixed layout: header and value column boundaries line up exactly; widths
+   come from the column defs (19/16/7/14/15/9/12/8%). */
+.terminals-page .table {
+  table-layout: fixed;
+}
+
+.terminals-page .table td {
+  overflow: hidden;
+}
+
 .terminals-toolbar {
   margin: 0 var(--space-1);
 }
@@ -8,16 +18,21 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  max-width: 100%;
 }
 
 .terminal-name-stack {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
 }
 
 .terminal-display-name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-custom-flag {
@@ -33,12 +48,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.terminal-address-stack span,
+.terminal-address-stack small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .terminal-rates {
   display: inline-flex;
   flex-direction: column;
   gap: 1px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
 }
 
 .terminal-rate-down {
@@ -53,15 +76,16 @@
   display: inline-flex;
   gap: var(--space-3);
   justify-content: flex-end;
+  white-space: nowrap;
 }
 
+/* 备注: capped narrow column — wraps to the next line beyond ~6 chars */
 .terminal-remark {
-  display: inline-block;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
   color: var(--ink-2);
 }
 
@@ -302,10 +326,6 @@
 
   .history-family-grid {
     grid-template-columns: 1fr;
-  }
-
-  .terminal-remark {
-    max-width: 120px;
   }
 }
 
