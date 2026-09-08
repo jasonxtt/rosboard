@@ -432,16 +432,15 @@ func (r *PolicyRepository) SaveTargetList(ctx context.Context, target policyv2.T
 }
 
 func (r *PolicyRepository) DeleteTargetList(ctx context.Context, id string, revision int64) error {
-	source, err := r.GetSource(ctx, id)
+	_, err := r.GetSource(ctx, id)
 	if err != nil {
 		if errors.Is(err, policyv2.ErrSourceNotFound) {
 			return policyv2.ErrTargetListNotFound
 		}
 		return err
 	}
-	if source.Type == policyv2.TargetSourceTypePreset {
-		return policyv2.ErrPresetTargetListProtected
-	}
+	// Preset lists are protected only while still referenced; DeleteSource
+	// enforces that against the live reference counts.
 	err = r.DeleteSource(ctx, id, revision)
 	if errors.Is(err, policyv2.ErrSourceNotFound) {
 		return policyv2.ErrTargetListNotFound
@@ -743,13 +742,11 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	var applied int
 	var activeVersion string
 	var sourceType string
-	if err := tx.QueryRowContext(ctx, `SELECT revision, applied, active_version_id, type FROM policy_v2_sources WHERE id = ?`, id).Scan(&currentRevision, &applied, &activeVersion, &sourceType); errors.Is(err, sql.ErrNoRows) {
+	var egressID string
+	if err := tx.QueryRowContext(ctx, `SELECT revision, applied, active_version_id, type, egress_id FROM policy_v2_sources WHERE id = ?`, id).Scan(&currentRevision, &applied, &activeVersion, &sourceType, &egressID); errors.Is(err, sql.ErrNoRows) {
 		return policyv2.ErrSourceNotFound
 	} else if err != nil {
 		return err
-	}
-	if sourceType == policyv2.TargetSourceTypePreset {
-		return policyv2.ErrPresetTargetListProtected
 	}
 	if revision != currentRevision {
 		return policyv2.ErrRevisionStale
@@ -758,15 +755,24 @@ func (r *PolicyRepository) DeleteSource(ctx context.Context, id string, revision
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM access_rule_sources WHERE device_id = ? AND source_id = ?`, r.store.deviceID, id).Scan(&accessReferences); err != nil {
 		return fmt.Errorf("check access-control source references: %w", err)
 	}
-	if accessReferences > 0 {
-		return policyv2.ErrSourceInUse
-	}
 	var routingReferences int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM policy_v2_routing_rule_targets WHERE target_id = ?`, id).Scan(&routingReferences); err != nil {
 		return fmt.Errorf("check routing rule target references: %w", err)
 	}
-	if routingReferences > 0 {
-		return policyv2.ErrTargetListInUse
+	if sourceType == policyv2.TargetSourceTypePreset {
+		// Preset lists are disposable cache materialized from the application
+		// catalog: protected only while referenced; deletable once nothing
+		// points at them (they can be re-materialized at any time).
+		if accessReferences > 0 || routingReferences > 0 || strings.TrimSpace(egressID) != "" {
+			return policyv2.ErrPresetTargetListProtected
+		}
+	} else {
+		if accessReferences > 0 {
+			return policyv2.ErrSourceInUse
+		}
+		if routingReferences > 0 {
+			return policyv2.ErrTargetListInUse
+		}
 	}
 	domains, err := targetConsumerDomainsTx(ctx, tx, r.store.deviceID, id)
 	if err != nil {

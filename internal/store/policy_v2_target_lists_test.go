@@ -652,22 +652,71 @@ func boolToInt64(value bool) int64 {
 	return 0
 }
 
-func TestPolicyV2PresetTargetListCannotBeDeletedThroughLegacySourcePath(t *testing.T) {
+func TestPolicyV2PresetTargetListDeletionFollowsReferences(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
 	repository := storage.PolicyRepository()
-	target, err := repository.SaveTargetList(context.Background(), policyv2.TargetList{
+	ctx := context.Background()
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{
 		ID: "preset-youtube-domain", Name: "YouTube · Domain", Kind: policyv2.KindDomain,
 		SourceType: policyv2.TargetSourceTypePreset, PresetID: "youtube", Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.DeleteSource(context.Background(), target.ID, target.Revision); !errors.Is(err, policyv2.ErrPresetTargetListProtected) {
-		t.Fatalf("legacy source delete error=%v, want preset protection", err)
+
+	// Unreferenced preset lists are disposable cache and must delete cleanly.
+	if err := repository.DeleteSource(ctx, target.ID, target.Revision); err != nil {
+		t.Fatalf("unreferenced preset delete error=%v, want success", err)
+	}
+	var rows int
+	if err := storage.db.QueryRow(`SELECT count(*) FROM policy_v2_sources WHERE id = ?`, target.ID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("unreferenced preset should be hard-deleted, %d rows remain", rows)
+	}
+
+	// Referenced presets stay protected until the last reference is removed.
+	target, err = repository.SaveTargetList(ctx, policyv2.TargetList{
+		ID: "preset-youtube-domain", Name: "YouTube · Domain", Kind: policyv2.KindDomain,
+		SourceType: policyv2.TargetSourceTypePreset, PresetID: "youtube", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{ID: "preset-ref-egress", Name: "Preset ref", Enabled: true, Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "wan1", Gateway: "192.0.2.1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	rule, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "preset-ref-rule", Name: "Preset ref", Enabled: true,
+		Subject:       policyv2.Subject{Mode: policyv2.SubjectModeSelected, Prefixes: []string{"10.0.0.20/32"}},
+		TargetListIDs: []string{target.ID},
+		EgressID:      "preset-ref-egress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DeleteSource(ctx, target.ID, target.Revision); !errors.Is(err, policyv2.ErrPresetTargetListProtected) {
+		t.Fatalf("referenced preset delete error=%v, want preset protection", err)
+	}
+	if err := repository.DeleteTargetList(ctx, target.ID, target.Revision); !errors.Is(err, policyv2.ErrPresetTargetListProtected) {
+		t.Fatalf("referenced preset target-list delete error=%v, want preset protection", err)
+	}
+
+	// Once the referencing rule is gone, the preset becomes deletable again.
+	if err := repository.DeleteRoutingRule(ctx, rule.ID, rule.Revision); err != nil {
+		t.Fatal(err)
+	}
+	target, err = repository.GetTargetList(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DeleteTargetList(ctx, target.ID, target.Revision); err != nil {
+		t.Fatalf("released preset delete error=%v, want success", err)
 	}
 }
 
