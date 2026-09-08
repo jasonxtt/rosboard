@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react'
 import { TrafficChart } from '../charts/TrafficChart'
-import { formatBytes, formatCount, formatRelativeTime, formatUptime, splitBitRate } from '../lib/format'
+import { formatBytes, formatCount, formatUptime, splitBitRate } from '../lib/format'
 import type { ChartWindow, InterfaceStatus, Overview, Terminal, TerminalState } from '../lib/types'
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, GaugeRing, Glass, SegTabs, Skeleton, StatusDot, type TableColumn } from '../ui'
 import {
   useInterfaceList,
   useRealtimeOverview,
-  useSettingsSummary,
   useTerminalList,
   useTrafficHistory,
 } from '../features/monitoring/hooks'
@@ -88,11 +87,14 @@ function HeroSkeleton() {
 function Hero({
   overview,
   issueCount,
+  deviceName,
   trafficWindow,
   onWindowChange,
 }: {
   overview: Overview
   issueCount: number
+  /** User-configured device name (面板设置 → 设备管理), preferred over RouterOS identity. */
+  deviceName: string
   trafficWindow: ChartWindow
   onWindowChange: (next: ChartWindow) => void
 }) {
@@ -101,13 +103,14 @@ function Hero({
   const states = overview.terminalStateCounts
   const terminalTotal = Math.max(0, states.online + states.inactive + states.offline)
   const protocols = overview.connectionProtocolCounts
-  // CHR boards report identical routerName/boardName — dedupe, then CSS caps
-  // the identity at half the hero width so the window picker keeps its space.
+  // The hero shows the name the user gave the device; RouterOS identity is
+  // only a fallback. CSS caps it at half the hero width for the window picker.
   const identity = useMemo(() => {
+    if (deviceName.trim()) return deviceName.trim()
     const parts = [overview.routerName.trim(), overview.boardName.trim()].filter(Boolean)
     const unique = parts.filter((part, index) => index === 0 || part !== parts[index - 1])
     return unique.join(' · ') || 'RouterOS 设备'
-  }, [overview.routerName, overview.boardName])
+  }, [deviceName, overview.routerName, overview.boardName])
   return (
     <>
       <div className="ov-hero-status">
@@ -171,9 +174,8 @@ function capacityLine(usedBytes: number, totalBytes: number, percent: number): s
   return `${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}（${Math.round(percent)}%）`
 }
 
-function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overview; issueCount: number; collectSeconds: number | null }) {
+function SidePanel({ overview }: { overview: Overview }) {
   const platformArch = [overview.platform.trim(), overview.system.architectureName.trim()].filter(Boolean).join(' · ')
-  const collectLine = [`${collectSeconds ? `${collectSeconds} 秒实时` : '定时采集'}`, `更新于 ${formatRelativeTime(overview.updatedAt)}`].join(' · ')
   return (
     <>
       <div className="ov-gauges">
@@ -182,49 +184,25 @@ function SidePanel({ overview, issueCount, collectSeconds }: { overview: Overvie
         <GaugeRing percent={overview.storageUsedPercent} label="存储" {...gaugeTone(overview.storageUsedPercent)} />
       </div>
       <div className="ov-meta">
-        <div className="ov-meta-col">
-          <div className="kv">
-            <span>ROS 版本</span>
-            <b>{overview.version ? `v${overview.version}` : '-'}</b>
-          </div>
-          <div className="kv">
-            <span>平台架构</span>
-            <b title={platformArch}>{platformArch || '-'}</b>
-          </div>
-          <div className="kv">
-            <span>CPU</span>
-            <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
-          </div>
-          <div className="kv">
-            <span>运行时长</span>
-            <b>{formatUptime(overview.uptime)}</b>
-          </div>
-          <div className="kv">
-            <span>健康监测</span>
-            <b className={overview.healthEnabled ? undefined : 'ov-warn-text'}>{overview.healthEnabled ? '已开启' : '未开启'}</b>
-          </div>
+        <div className="kv">
+          <span>ROS 版本</span>
+          <b>{overview.version ? `v${overview.version}` : '-'}</b>
         </div>
-        <div className="ov-meta-col">
-          <div className="kv">
-            <span>内存</span>
-            <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes, overview.memoryUsedPercent)}</b>
-          </div>
-          <div className="kv">
-            <span>存储</span>
-            <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes, overview.storageUsedPercent)}</b>
-          </div>
-          <div className="kv">
-            <span>统计接口</span>
-            <b title={overview.trafficInterfaces.join('、')}>{overview.trafficInterfaces.length ? overview.trafficInterfaces.join('、') : '-'}</b>
-          </div>
-          <div className="kv">
-            <span>告警数</span>
-            <b className={issueCount > 0 ? 'ov-warn-text' : undefined}>{issueCount > 0 ? `${issueCount} 条` : '无'}</b>
-          </div>
-          <div className="kv">
-            <span>采集</span>
-            <b>{collectLine}</b>
-          </div>
+        <div className="kv">
+          <span>平台架构</span>
+          <b title={platformArch}>{platformArch || '-'}</b>
+        </div>
+        <div className="kv">
+          <span>CPU</span>
+          <b title={cpuLine(overview)}>{cpuLine(overview)}</b>
+        </div>
+        <div className="kv">
+          <span>内存</span>
+          <b>{capacityLine(overview.memoryUsedBytes, overview.memoryTotalBytes, overview.memoryUsedPercent)}</b>
+        </div>
+        <div className="kv">
+          <span>存储</span>
+          <b>{capacityLine(overview.storageUsedBytes, overview.storageTotalBytes, overview.storageUsedPercent)}</b>
         </div>
       </div>
     </>
@@ -338,16 +316,16 @@ const interfaceColumns: Array<TableColumn<InterfaceStatus>> = [
 ]
 
 export default function OverviewPage() {
-  const { selectedDeviceId, refreshMs, reloadNonce, alerts, warnings, navigate } = useShell()
+  const { selectedDeviceId, refreshMs, reloadNonce, alerts, warnings, devices, navigate } = useShell()
   const deviceId = selectedDeviceId
   const realtime = useRealtimeOverview(deviceId, refreshMs, reloadNonce)
   const terminals = useTerminalList(deviceId, refreshMs, reloadNonce)
   const interfaces = useInterfaceList(deviceId, refreshMs, reloadNonce)
   const [trafficWindow, setTrafficWindow] = useState<ChartWindow>(readWindow)
   const traffic = useTrafficHistory(deviceId, trafficWindow, refreshMs, reloadNonce)
-  const { summary } = useSettingsSummary()
 
   const issueCount = alerts.length + warnings.length
+  const deviceName = devices.find((device) => device.id === deviceId)?.name ?? ''
   const overview = realtime.data
   const firstLoad = realtime.loading && !overview
   const pageError = realtime.error ?? terminals.error ?? interfaces.error ?? traffic.error
@@ -436,7 +414,7 @@ export default function OverviewPage() {
       ) : (
         <div className="ov-hero-grid">
           <Glass className="ov-hero">
-            <Hero overview={overview} issueCount={issueCount} trafficWindow={trafficWindow} onWindowChange={changeWindow} />
+            <Hero overview={overview} issueCount={issueCount} deviceName={deviceName} trafficWindow={trafficWindow} onWindowChange={changeWindow} />
             <div className="ov-chart">
               <TrafficChart
                 samples={traffic.data?.samples ?? []}
@@ -448,7 +426,7 @@ export default function OverviewPage() {
             </div>
           </Glass>
           <Glass className="ov-side">
-            <SidePanel overview={overview} issueCount={issueCount} collectSeconds={summary?.realtimePollIntervalSeconds ?? null} />
+            <SidePanel overview={overview} />
           </Glass>
         </div>
       )}

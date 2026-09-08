@@ -14,9 +14,11 @@
 }
 
 /* ---------- hero grid ---------- */
+/* 5:3 split — the divider lands at 5/8 of the page, visually aligning with
+   the middle of the third terminal card in the 4-column grid below. */
 .ov-hero-grid {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
+  grid-template-columns: 5fr 3fr;
   gap: var(--space-4);
   align-items: stretch;
 }
@@ -102,7 +104,8 @@
 
 /* chart bottom-bleed: canvas runs edge to edge (§9.1 hero). The hero big
    numbers already carry the live rates, so the chart's own legend readout is
-   hidden in this context. */
+   hidden in this context. The frame keeps generous side insets so y-axis
+   labels and the last x tick never touch the card edge. */
 .ov-chart {
   margin: var(--space-3) calc(-1 * var(--space-6)) 0;
   display: flex;
@@ -115,6 +118,10 @@
   display: none;
 }
 
+.ov-chart-bleed .chart-frame {
+  padding: 0 var(--space-4);
+}
+
 /* ---------- side gauges card ---------- */
 .ov-side {
   border-radius: var(--r-xl);
@@ -125,34 +132,26 @@
 
 .ov-gauges {
   display: flex;
-  justify-content: space-around;
-  gap: var(--space-2);
+  justify-content: center;
+  gap: var(--space-4);
   padding: var(--space-4) 0 var(--space-3);
 }
 
-/* Meta rows: two content-width columns centered as a group, so the card's
-   left and right breathing space stays symmetric (user feedback: the
-   full-width 1fr columns made the block feel off-center). */
+/* Meta rows: single column of five device facts (ROS 版本 / 平台架构 / CPU /
+   内存 / 存储), spread evenly through the remaining card height. */
 .ov-meta {
   display: flex;
-  justify-content: center;
-  gap: var(--space-6);
+  flex-direction: column;
+  justify-content: space-evenly;
   flex: 1;
   border-top: 1px solid var(--stroke);
   margin-top: var(--space-2);
   padding-top: var(--space-2);
 }
 
-.ov-meta-col {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-evenly;
-  min-width: 0;
-}
-
 .ov-meta .kv {
   display: grid;
-  grid-template-columns: 58px auto;
+  grid-template-columns: 58px 1fr;
   gap: var(--space-2);
   align-items: baseline;
   min-width: 0;
