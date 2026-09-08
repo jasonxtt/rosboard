@@ -41,7 +41,7 @@ const PAGE_SIZE_OPTIONS = [
   { value: '50', label: '50 条/页' },
 ]
 
-const TERMINAL_HASH_RE = /^#\/terminals\/(.+)$/
+const TERMINAL_HASH_RE = /^#\/terminals\/([^/]+)/
 
 function terminalIdFromHash(): string | null {
   const match = TERMINAL_HASH_RE.exec(window.location.hash)
@@ -82,10 +82,11 @@ export default function TerminalsPage() {
   }, [])
 
   const closeTerminal = useCallback(() => {
+    // Direct write: tab changes push history entries, so history.back() could
+    // land on another tab of the same terminal instead of the list.
+    setSelectedId(null)
     if (TERMINAL_HASH_RE.test(window.location.hash)) {
-      window.history.back()
-    } else {
-      setSelectedId(null)
+      window.history.pushState(null, '', '#/terminals')
     }
   }, [])
 
