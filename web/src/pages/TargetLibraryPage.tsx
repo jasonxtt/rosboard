@@ -73,14 +73,23 @@ export default function TargetLibraryPage() {
 
   usePolling(() => void load(true), 5000, [load, reloadNonce])
 
-  const visible = useMemo(() => {
+  const partition = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    return (entries ?? []).filter(
+    const filtered = (entries ?? []).filter(
       (entry) =>
         (filter === 'all' || entry.kind === filter) &&
         (!keyword || `${entry.name} ${entry.id} ${entry.url ?? ''} ${entry.presetId ?? ''}`.toLowerCase().includes(keyword)),
     )
+    // Unreferenced preset lists are disposable cache — hidden by default
+    // behind a toggle; referenced presets and user lists stay visible.
+    const unusedPreset = (entry: TargetListEntry) => entry.sourceType === 'preset' && entry.usage.routingRuleCount + entry.usage.accessRuleCount === 0
+    return {
+      rows: filtered.filter((entry) => !unusedPreset(entry)),
+      hiddenPresets: filtered.filter(unusedPreset),
+    }
   }, [entries, filter, query])
+  const [showUnusedPresets, setShowUnusedPresets] = useState(false)
+  const tableRows = showUnusedPresets ? [...partition.rows, ...partition.hiddenPresets] : partition.rows
 
   const trackJob = (result: { jobId?: string; job?: { id: string } }, label: string, successMessage: string): boolean => {
     const id = jobIdOf(result)
@@ -211,7 +220,7 @@ export default function TargetLibraryPage() {
           <button
             type="button"
             className="link-button link-danger"
-            disabled={busyId === entry.id || preset || inUse || entry.pendingDeletion}
+            disabled={busyId === entry.id || inUse || entry.pendingDeletion}
             onClick={() => {
               setDeleteError(null)
               setDeleting(entry)
@@ -235,10 +244,10 @@ export default function TargetLibraryPage() {
                 {busyId === entry.id ? '刷新中…' : '刷新'}
               </button>
             ) : null}
-            {preset ? (
-              <Tooltip tip="预设目标库由应用预设管理，不能删除">{deleteButton}</Tooltip>
-            ) : inUse ? (
+            {inUse ? (
               <Tooltip tip={`仍被 ${entry.usage.routingRuleCount + entry.usage.accessRuleCount} 条规则引用，先解除引用再删除`}>{deleteButton}</Tooltip>
+            ) : preset ? (
+              <Tooltip tip="未引用的预设缓存，删除后可在应用预设中随时重新生成">{deleteButton}</Tooltip>
             ) : (
               deleteButton
             )}
@@ -335,10 +344,15 @@ export default function TargetLibraryPage() {
             ariaLabel="目标库类型筛选"
           />
           <SearchInput value={query} onChange={setQuery} placeholder="搜索名称、ID 或 URL" ariaLabel="搜索目标库" width={240} />
+          {partition.hiddenPresets.length > 0 ? (
+            <button type="button" className="link-button pol-tl-presets-toggle" onClick={() => setShowUnusedPresets((value) => !value)}>
+              {showUnusedPresets ? `收起未引用的预设（${partition.hiddenPresets.length}）` : `显示未引用的预设（${partition.hiddenPresets.length}）`}
+            </button>
+          ) : null}
         </div>
         <DataTable
           columns={columns}
-          rows={visible}
+          rows={tableRows}
           rowKey={(entry) => entry.id}
           emptyTitle={query || filter !== 'all' ? '没有匹配的目标库' : '还没有目标库'}
           emptyDescription={query || filter !== 'all' ? '换个关键词或筛选条件试试。' : '从手动内容、URL 订阅或上传文件创建可复用的目标库。'}
