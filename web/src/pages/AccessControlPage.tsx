@@ -16,6 +16,7 @@ import {
   internetEgressCandidatesOf,
   jobIdOf,
   jobIsTerminal,
+  mutationPartialStateOf,
   syncAccessControl,
   type AccessOverviewDetail,
   type AccessRuleDetail,
@@ -91,7 +92,14 @@ export default function AccessControlPage() {
   const [deleting, setDeleting] = useState<AccessRuleDetail | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
-  const [egressPick, setEgressPick] = useState<InternetEgressCandidates | null>(null)
+  // Internet-egress recovery context: which mutation to retry once the user
+  // picks an egress. 'save'/'toggle' resend the ORIGINAL draft (nothing was
+  // committed to desired state on the blocker); 'sync' replays /sync (used
+  // after a delete whose desired state was already committed).
+  const [egressRecovery, setEgressRecovery] = useState<{
+    candidates: InternetEgressCandidates
+    recovery: { action: 'sync' } | { action: 'save'; draft: AccessRuleDraft } | { action: 'toggle'; rule: AccessRuleDetail }
+  } | null>(null)
   const [egressPickBusy, setEgressPickBusy] = useState(false)
 
   const load = useCallback(
@@ -133,7 +141,7 @@ export default function AccessControlPage() {
       }
     } catch (error) {
       const candidates = internetEgressCandidatesOf(error)
-      if (candidates) setEgressPick(candidates)
+      if (candidates) setEgressRecovery({ candidates, recovery: { action: 'sync' } })
       else toast(errorMessage(error, '访问控制同步失败'), { tone: 'err' })
     } finally {
       setSyncing(false)
@@ -155,10 +163,9 @@ export default function AccessControlPage() {
     } catch (error) {
       const candidates = internetEgressCandidatesOf(error)
       if (candidates) {
-        // Desired state was saved; only the apply step needs an explicit internet egress.
-        setEditing(undefined)
-        toast('规则已保存，需要确认互联网出口后完成同步', { tone: 'err' })
-        setEgressPick(candidates)
+        // 规则还【没有】进入目标状态（提案在生成计划阶段被出口阻断拦截）——
+        // 保留草稿，用户确认出口后用原草稿重试，而不是误认为规则已保存。
+        setEgressRecovery({ candidates, recovery: { action: 'save', draft } })
       } else {
         setSaveError(errorMessage(error, '访问规则保存失败'))
       }
@@ -186,7 +193,7 @@ export default function AccessControlPage() {
       }
     } catch (error) {
       const candidates = internetEgressCandidatesOf(error)
-      if (candidates) setEgressPick(candidates)
+      if (candidates) setEgressRecovery({ candidates, recovery: { action: 'toggle', rule } })
       else toast(errorMessage(error, '规则状态更新失败'), { tone: 'err' })
     } finally {
       setBusyId('')
@@ -206,7 +213,21 @@ export default function AccessControlPage() {
       }
       setDeleting(null)
     } catch (error) {
-      setDeleteError(errorMessage(error, '访问规则删除失败'))
+      const partial = mutationPartialStateOf(error)
+      if (partial.deleted && partial.desiredSaved) {
+        // 规则已经从目标配置中删除，只是同步到 RouterOS 失败——不要再让用户
+        // 重复删除，改为提供同步恢复（需要时先确认出口）。
+        setDeleting(null)
+        const candidates = internetEgressCandidatesOf(error)
+        if (candidates) {
+          setEgressRecovery({ candidates, recovery: { action: 'sync' } })
+        } else {
+          setJobError('规则已从配置中删除，但同步到 RouterOS 失败，请点击「同步到 RouterOS」重试')
+        }
+        await load(true)
+      } else {
+        setDeleteError(errorMessage(error, '访问规则删除失败'))
+      }
     } finally {
       setBusyId('')
     }
@@ -409,23 +430,57 @@ export default function AccessControlPage() {
         </Modal>
       ) : null}
 
-      {egressPick ? (
+      {egressRecovery ? (
         <InternetEgressModal
-          candidates={egressPick}
+          candidates={egressRecovery.candidates}
           busy={egressPickBusy}
-          onClose={() => setEgressPick(null)}
+          onClose={() => setEgressRecovery(null)}
           onSubmit={(selection) => {
+            const current = egressRecovery
+            if (!current) return
             setEgressPickBusy(true)
             void (async () => {
               try {
-                const result = await syncAccessControl(selectedDeviceId, selection)
-                setEgressPick(null)
-                if (!trackJob(result, '正在按指定出口同步访问控制', '访问控制已同步')) {
-                  toast('访问控制已同步')
-                  await load(true)
+                if (current.recovery.action === 'save') {
+                  // 原计划被阻断时规则并未保存——用原草稿 + 选定出口重发。
+                  const draft = current.recovery.draft
+                  const result = await saveAccessRule(selectedDeviceId, { ...draft, internetEgresses: selection })
+                  const creating = !draft.id
+                  setEgressRecovery(null)
+                  setEditing(undefined)
+                  if (!trackJob(result, '正在应用访问规则', creating ? '访问规则已创建并应用' : '访问规则已更新并应用')) {
+                    toast(creating ? '访问规则已创建并应用' : '访问规则已更新并应用')
+                    await load(true)
+                  }
+                } else if (current.recovery.action === 'toggle') {
+                  const rule = current.recovery.rule
+                  const result = await saveAccessRule(selectedDeviceId, {
+                    id: rule.id,
+                    name: rule.name,
+                    subject: rule.subject,
+                    targetScope: rule.targetScope,
+                    targetListIds: rule.targetListIds,
+                    enabled: !rule.enabled,
+                    revision: rule.revision,
+                    internetEgresses: selection,
+                  })
+                  setEgressRecovery(null)
+                  if (!trackJob(result, rule.enabled ? `正在停用「${rule.name}」` : `正在启用「${rule.name}」`, rule.enabled ? '规则已停用' : '规则已启用')) {
+                    toast(rule.enabled ? '规则已停用' : '规则已启用')
+                    await load(true)
+                  }
+                } else {
+                  const result = await syncAccessControl(selectedDeviceId, selection)
+                  setEgressRecovery(null)
+                  if (!trackJob(result, '正在按指定出口同步访问控制', '访问控制已同步')) {
+                    toast('访问控制已同步')
+                    await load(true)
+                  }
                 }
               } catch (error) {
-                toast(errorMessage(error, '访问控制同步失败'), { tone: 'err' })
+                const candidates = internetEgressCandidatesOf(error)
+                if (candidates) setEgressRecovery({ candidates, recovery: current.recovery })
+                else toast(errorMessage(error, '按指定出口应用失败'), { tone: 'err' })
               } finally {
                 setEgressPickBusy(false)
               }

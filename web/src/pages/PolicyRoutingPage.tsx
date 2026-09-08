@@ -23,14 +23,15 @@ import {
 import {
   fetchPolicyOverviewMeta,
   jobIdOf,
+  mutationPartialStateOf,
   type PolicyOverviewMeta,
 } from '../features/policy/api'
 import { FlowCard } from '../features/policy/ui/FlowCard'
-import type { FlowCardStatus } from '../features/policy/ui/FlowCard'
 import { JobProgress, JobProgressLine } from '../features/policy/ui/JobProgress'
 import { Notice } from '../features/policy/ui/Notice'
 import { PlanReviewModal } from '../features/policy/ui/PlanReview'
 import { RoutingRuleWizard } from '../features/policy/ui/RoutingRuleWizard'
+import { routingRuleStatus } from '../features/policy/ui/ruleStatus'
 import { targetCountCap } from '../features/policy/ui/labels'
 import type { FlowNode } from '../ui/FlowNodes'
 import '../features/policy/policy.css'
@@ -45,15 +46,6 @@ type RoutingContext = {
 }
 
 type TrackedJob = { id: string; label: string; successMessage: string }
-
-function ruleStatus(rule: RoutingRule, egress: Egress | undefined): FlowCardStatus {
-  if (!rule.enabled) return { tone: 'neutral', label: '已停用' }
-  if (!egress) return { tone: 'err', label: '出口缺失' }
-  if (egress.pendingDeletion) return { tone: 'warn', label: '出口待删除' }
-  if (!egress.enabled) return { tone: 'warn', label: '出口已停用' }
-  if (!egress.applied) return { tone: 'warn', label: '待应用' }
-  return { tone: 'ok', label: '已应用' }
-}
 
 function ruleSourceNodes(rule: RoutingRule, terminalByID: Map<string, PolicyTerminal>): FlowNode[] {
   const { subject } = rule
@@ -123,6 +115,10 @@ export default function PolicyRoutingPage() {
 
   const writeBlocked = Boolean(meta && !meta.account.writeAccess)
   const dirtyEgresses = useMemo(() => (context?.egresses ?? []).filter((egress) => egress.pendingDeletion || !egress.applied), [context])
+  // 全局 desired revision 未落到 RouterOS（overview.applied === false）——
+  // 典型来源：快捷启停/删除已写 desired 但自动 apply 失败。此时任何规则
+  // 都不能显示「已应用」，且必须提供审查并应用恢复入口（P1-2）。
+  const desiredMismatch = meta != null && !meta.applied
 
   const openReview = useCallback(async () => {
     if (!selectedDeviceId || !context || reviewGenerating) return
@@ -159,7 +155,14 @@ export default function PolicyRoutingPage() {
         await load(true)
       }
     } catch (error) {
-      toast(errorMessage(error, '规则状态更新失败'), { tone: 'err' })
+      // desiredSaved=true：规则已写入目标配置但自动 apply 失败——不是保存失败，
+      // 引导用户走「审查并应用」恢复，而不是以为操作没生效。
+      if (mutationPartialStateOf(error).desiredSaved) {
+        toast('规则已保存，但应用失败；请在「审查并应用」中恢复', { tone: 'err' })
+        await load(true)
+      } else {
+        toast(errorMessage(error, '规则状态更新失败'), { tone: 'err' })
+      }
     } finally {
       setBusyId('')
     }
@@ -178,7 +181,15 @@ export default function PolicyRoutingPage() {
       }
       setRuleDeleting(null)
     } catch (error) {
-      setDeleteRuleError(errorMessage(error, '规则删除失败'))
+      const partial = mutationPartialStateOf(error)
+      if (partial.deleted && partial.desiredSaved) {
+        // 规则已从目标配置删除，只是应用失败——不能让用户以为删除没生效再点一次。
+        setRuleDeleting(null)
+        setJobError('规则已从配置中删除，但应用失败；请在「审查并应用」中恢复')
+        await load(true)
+      } else {
+        setDeleteRuleError(errorMessage(error, '规则删除失败'))
+      }
     } finally {
       setBusyId('')
     }
@@ -287,13 +298,15 @@ export default function PolicyRoutingPage() {
         </Notice>
       ) : null}
 
-      {dirtyEgresses.length ? (
+      {dirtyEgresses.length > 0 || desiredMismatch ? (
         <Notice tone="warn" title="有变更待应用" action={
           <button type="button" className="link-button" disabled={reviewGenerating || writeBlocked} onClick={() => void openReview()}>
             {reviewGenerating ? '正在生成计划…' : '审查并应用 →'}
           </button>
         }>
-          有 {dirtyEgresses.length} 项出口变更尚未应用到 RouterOS，分流规则会在变更应用后生效。
+          {dirtyEgresses.length > 0
+            ? `有 ${dirtyEgresses.length} 项出口变更尚未应用到 RouterOS，分流规则会在变更应用后生效。`
+            : '有规则变更已保存但尚未应用到 RouterOS，实际分流仍以旧配置运行。'}
         </Notice>
       ) : null}
 
@@ -310,7 +323,7 @@ export default function PolicyRoutingPage() {
             .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'zh-Hans-CN'))
             .map((rule) => {
             const egress = egressByID.get(rule.egressId)
-            const status = ruleStatus(rule, egress)
+            const status = routingRuleStatus(rule, egress, desiredMismatch)
             const pending = status.label === '待应用'
             return (
               <FlowCard
