@@ -199,7 +199,9 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 		job, applyErr := s.policy.GenerateAndApply(request.Context(), device.device.ID, "routing-rule-save")
 		if applyErr != nil {
 			status, code := policyPlanApplyError(applyErr)
-			writePolicyJson(writer, status, map[string]any{"code": code, "error": applyErr.Error(), "rule": rule})
+			// Desired state was already committed; the UI must distinguish
+			// this from a rejected save and offer a plan/apply recovery path.
+			writePolicyJson(writer, status, map[string]any{"code": code, "error": applyErr.Error(), "rule": rule, "desiredSaved": true})
 			return
 		}
 		writePolicyJson(writer, http.StatusAccepted, map[string]any{"rule": rule, "job": job, "jobId": job.ID})
@@ -237,7 +239,9 @@ func (s *Server) deletePolicyRoutingRule(writer http.ResponseWriter, request *ht
 		job, err := s.policy.GenerateAndApply(request.Context(), device.device.ID, "routing-rule-delete")
 		if err != nil {
 			status, code := policyPlanApplyError(err)
-			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error()})
+			// The rule is already gone from desired state; tell the UI so it
+			// does not offer a second delete, only a sync recovery.
+			writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "deleted": true, "desiredSaved": true})
 			return
 		}
 		writePolicyJson(writer, http.StatusAccepted, map[string]any{"deleted": true, "job": job, "jobId": job.ID})

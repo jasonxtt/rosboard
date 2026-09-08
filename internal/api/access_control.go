@@ -41,6 +41,11 @@ type accessRuleRequest struct {
 	Enabled          bool                        `json:"enabled"`
 	Revision         int64                       `json:"revision"`
 	PresetSelections []policyPlanPresetSelection `json:"presetSelections"`
+	// InternetEgresses carries the user's manual egress pick when retrying a
+	// save that was blocked by access_internet_egress_unavailable. The rule is
+	// only committed to desired state on a successful plan/apply, so the retry
+	// must resend the whole rule together with the selection.
+	InternetEgresses map[string][]string `json:"internetEgresses,omitempty"`
 }
 
 type accessInternetEgressRequest struct {
@@ -461,7 +466,7 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 			}
 		}
 	}
-	plan, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, "access-rule-save", policyv2.PlanOptions{AccessProposal: &proposal})
+	plan, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, "access-rule-save", policyv2.PlanOptions{AccessProposal: &proposal, InternetEgresses: payload.InternetEgresses})
 	if err != nil {
 		status, code := accessRulePlanApplyError(err)
 		writeJSON(writer, status, accessPlanErrorPayload(err, map[string]any{"code": code, "error": err.Error()}))
