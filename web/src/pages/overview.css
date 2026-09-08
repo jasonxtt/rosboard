@@ -134,45 +134,45 @@
   padding: var(--space-4) 0 var(--space-3);
 }
 
-/* Meta facts: centered stat tiles (label above, value below) in a wrapping
-   3+2 arrangement — symmetric by construction, fills the card width, and
-   breaks the monotone row-list look. */
+/* Meta facts: two columns of five rows each (设备身份 left, 实时负载 right).
+   Short 52px label column keeps values close; every value is single-line
+   ellipsis with the full text on hover (the fixed display-length rule). */
 .ov-meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-content: space-evenly;
-  gap: var(--space-3) var(--space-4);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--space-4);
   flex: 1;
   border-top: 1px solid var(--stroke);
   margin-top: var(--space-2);
-  padding: var(--space-3) 0 0;
+  padding-top: var(--space-2);
 }
 
-.ov-fact {
+.ov-meta-col {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-width: 104px;
-  flex: 0 1 auto;
+  justify-content: space-evenly;
+  min-width: 0;
 }
 
-.ov-fact span {
+.ov-meta .kv {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.ov-meta .kv span {
   font-size: var(--text-xs);
   color: var(--ink-3);
   white-space: nowrap;
 }
 
-.ov-fact b {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+.ov-meta .kv b {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .ov-warn-text {
