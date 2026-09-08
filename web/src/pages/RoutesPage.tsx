@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatCount } from '../lib/format'
 import type { RouteStat } from '../lib/types'
 import { useShell } from '../shell/useShell'
@@ -9,6 +9,13 @@ import './monitor-common.css'
 import './routes.css'
 
 type RouteTab = 'rules' | 'routes'
+
+const ROUTES_HASH_RE = /^#\/routes(?:\/([a-z-]+))?$/
+
+/** Hash-routed tab: `#/routes` = 路由规则（默认）, `#/routes/tables` = 路由表. */
+function routesTabFromHash(): RouteTab {
+  return ROUTES_HASH_RE.exec(window.location.hash)?.[1] === 'tables' ? 'routes' : 'rules'
+}
 
 const TAB_OPTIONS: Array<{ value: RouteTab; label: string }> = [
   { value: 'rules', label: '路由规则' },
@@ -91,9 +98,25 @@ const ROUTE_COLUMNS: Array<TableColumn<RouteStat>> = [
 export default function RoutesPage() {
   const { scopedPath, selectedDeviceId, refreshMs, reloadNonce } = useShell()
   const { data: routes, loading, error, reload } = useMonitorResource(() => fetchRoutes(scopedPath), refreshMs, [selectedDeviceId, reloadNonce])
-  const [tab, setTab] = useState<RouteTab>('rules')
+  const [tab, setTab] = useState<RouteTab>(() => routesTabFromHash())
   const [hideDisabled, setHideDisabled] = useState(true)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
+
+  // Browser back/forward and direct hash edits drive the tab too.
+  useEffect(() => {
+    const sync = () => setTab(routesTabFromHash())
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+
+  const selectTab = (next: RouteTab) => {
+    setTab(next)
+    window.history.pushState(null, '', next === 'routes' ? '#/routes/tables' : '#/routes')
+  }
 
   const all = routes ?? []
   const disabledCount = all.filter((item) => item.disabled).length
@@ -133,7 +156,7 @@ export default function RoutesPage() {
       </header>
 
       <div className="mon-toolbar routes-toolbar">
-        <SegTabs options={TAB_OPTIONS} value={tab} onChange={setTab} ariaLabel="路由视图" />
+        <SegTabs options={TAB_OPTIONS} value={tab} onChange={selectTab} ariaLabel="路由视图" />
         <label className="routes-hide-disabled">
           <Toggle checked={hideDisabled} onChange={setHideDisabled} label="隐藏已禁用" />
           <span>隐藏已禁用</span>

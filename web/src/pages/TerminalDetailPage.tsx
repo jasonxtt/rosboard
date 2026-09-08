@@ -16,6 +16,14 @@ const DETAIL_TABS: Array<{ value: DetailTab; label: string }> = [
   { value: 'history', label: '历史记录' },
 ]
 
+const DETAIL_TAB_RE = /^#\/terminals\/[^/]+\/([a-z-]+)$/
+
+/** Hash-routed tab (`#/terminals/<id>/<tab>`); missing/unknown → connections. */
+function detailTabFromHash(): DetailTab {
+  const seg = DETAIL_TAB_RE.exec(window.location.hash)?.[1]
+  return seg === 'flows' || seg === 'history' ? seg : 'connections'
+}
+
 function FlowBars({ flows }: { flows: TerminalFlowCategory[] }) {
   const maxPercent = Math.max(1, ...flows.map((flow) => Math.max(flow.uploadPercent, flow.downloadPercent)))
   return (
@@ -155,10 +163,26 @@ export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved
     terminalId,
     reloadNonce,
   ])
-  const [tab, setTab] = useState<DetailTab>('connections')
+  const [tab, setTab] = useState<DetailTab>(() => detailTabFromHash())
   const [editing, setEditing] = useState(false)
   const [protocolsEnabled, setProtocolsEnabled] = useState<boolean | null>(null)
   const isRouterSelf = terminalId === 'routeros:self'
+
+  // Browser back/forward and direct hash edits drive the detail tab too.
+  useEffect(() => {
+    const sync = () => setTab(detailTabFromHash())
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+
+  const selectTab = (next: DetailTab) => {
+    setTab(next)
+    window.history.pushState(null, '', next === 'connections' ? `#/terminals/${encodeURIComponent(terminalId)}` : `#/terminals/${encodeURIComponent(terminalId)}/${next}`)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -267,7 +291,7 @@ export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved
 
       {error ? <p className="mon-error-note">{error}（展示的是最近一次成功数据）</p> : null}
 
-      <SegTabs options={DETAIL_TABS} value={tab} onChange={setTab} ariaLabel="终端详情页签" />
+      <SegTabs options={DETAIL_TABS} value={tab} onChange={selectTab} ariaLabel="终端详情页签" />
 
       {tab === 'connections' ? (
         <Card className="detail-connections-card">
