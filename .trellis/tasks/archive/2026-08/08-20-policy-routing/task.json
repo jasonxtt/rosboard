@@ -1,0 +1,29 @@
+{
+  "id": "policy-routing",
+  "name": "policy-routing",
+  "title": "RouterOS 域名策略路由管理",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-08-20",
+  "completedAt": "2026-08-30",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-27-policy-routing-backend-v2",
+    "08-29-policy-routing-ip-lists"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "行政归档：原始大范围规划由已完成的策略路由后端 V2 与 IP 列表子任务承接；未继续实现的原始规划项保留为历史记录。",
+  "meta": {}
+}

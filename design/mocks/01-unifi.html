@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard · 风格 01 · UniFi 启发</title>
+<style>
+  :root{
+    --bg:#eef1f6; --card:#ffffff; --line:#e3e8f0; --line-soft:#edf1f7;
+    --ink:#1b2434; --ink-2:#5b6579; --ink-3:#8b95ab;
+    --blue:#0069e0; --blue-soft:#e8f1fe; --blue-ink:#0052b4;
+    --green:#0fa958; --green-soft:#e5f7ee;
+    --amber:#e8930c; --amber-soft:#fdf3e0;
+    --red:#e5484d; --red-soft:#fdecec;
+    --cyan:#0891b2;
+    --r-lg:16px; --r-md:12px; --r-sm:8px;
+    --shadow:0 1px 2px rgba(20,30,55,.05),0 4px 16px rgba(20,30,55,.06);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:14px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+
+  /* ---------- sidebar ---------- */
+  .side{background:var(--card);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;overflow:auto}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 10px 16px}
+  .brand .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#1a7dff,#004fc0);display:grid;place-items:center;color:#fff;font-weight:800;font-size:15px;letter-spacing:.5px}
+  .brand b{font-size:15.5px;letter-spacing:.2px}
+  .brand span{display:block;font-size:11px;color:var(--ink-3);font-weight:500}
+  .devswitch{margin:0 4px 14px;border:1px solid var(--line);border-radius:var(--r-md);padding:9px 11px;display:flex;align-items:center;gap:9px;cursor:pointer;background:#fbfcfe}
+  .devswitch:hover{border-color:#c9d5e8}
+  .devswitch .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
+  .devswitch b{font-size:13px}
+  .devswitch small{display:block;color:var(--ink-3);font-size:11px;margin-top:1px}
+  .devswitch .chev{margin-left:auto;color:var(--ink-3);font-size:11px}
+  .nav-sec{font-size:10.5px;color:var(--ink-3);letter-spacing:.12em;font-weight:600;padding:14px 12px 6px}
+  .nav a{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:9px;color:var(--ink-2);text-decoration:none;font-size:13.5px;font-weight:500;position:relative}
+  .nav a:hover{background:#f4f7fb;color:var(--ink)}
+  .nav a.on{background:var(--blue-soft);color:var(--blue-ink);font-weight:600}
+  .nav a .ic{width:17px;text-align:center;opacity:.85}
+  .nav a .n{margin-left:auto;font-size:11px;background:var(--red);color:#fff;border-radius:99px;padding:1px 7px;font-weight:700}
+
+  /* ---------- main ---------- */
+  .main{padding:22px 28px 60px;min-width:0}
+  .topbar{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+  .topbar h1{font-size:20px;font-weight:700;letter-spacing:.2px}
+  .topbar .sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
+  .tabs{margin-left:auto;display:flex;background:#e2e8f2;border-radius:10px;padding:3px}
+  .tabs button{border:0;background:transparent;padding:6px 16px;border-radius:8px;font-size:13px;color:var(--ink-2);cursor:pointer;font-weight:500}
+  .tabs button.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(20,30,55,.15)}
+  .topbtn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 13px;font-size:12.5px;color:var(--ink-2);cursor:pointer;display:flex;gap:7px;align-items:center}
+  .topbtn:hover{border-color:#c9d5e8;color:var(--ink)}
+  .topbtn .bell-n{background:var(--red);color:#fff;font-size:10.5px;border-radius:99px;padding:0 6px;font-weight:700}
+
+  .grid{display:grid;gap:16px}
+  .g-stats{grid-template-columns:repeat(6,1fr)}
+  .g-main{grid-template-columns:2fr 1fr;margin-top:16px}
+  .g-3{grid-template-columns:1fr 1fr 1fr;margin-top:16px}
+  .card{background:var(--card);border-radius:var(--r-lg);box-shadow:var(--shadow);border:1px solid rgba(255,255,255,.6);overflow:hidden}
+  .card-h{display:flex;align-items:center;padding:15px 18px 0}
+  .card-h h3{font-size:14px;font-weight:650}
+  .card-h .more{margin-left:auto;font-size:12px;color:var(--blue);cursor:pointer;font-weight:500}
+  .card-b{padding:14px 18px 18px}
+
+  .stat{padding:15px 16px 13px;position:relative}
+  .stat .lbl{font-size:12px;color:var(--ink-2);display:flex;align-items:center;gap:6px;font-weight:500}
+  .stat .val{font-size:24px;font-weight:700;margin-top:6px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .stat .val small{font-size:12px;color:var(--ink-3);font-weight:500;margin-left:3px}
+  .stat .foot{font-size:11px;color:var(--ink-3);margin-top:4px}
+  .ring{position:absolute;right:12px;top:14px}
+  .bar{height:5px;border-radius:99px;background:var(--line-soft);margin-top:9px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:var(--blue)}
+  .bar i.g{background:var(--green)} .bar i.a{background:var(--amber)}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:2.5px 9px;border-radius:99px;font-weight:600}
+  .badge.g{background:var(--green-soft);color:var(--green)}
+  .badge.a{background:var(--amber-soft);color:var(--amber)}
+  .badge.r{background:var(--red-soft);color:var(--red)}
+  .badge.b{background:var(--blue-soft);color:var(--blue-ink)}
+  .badge.n{background:#eef1f6;color:var(--ink-2)}
+  .badge .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11.5px;color:var(--ink-3);text-align:left;font-weight:600;padding:9px 18px;border-bottom:1px solid var(--line);letter-spacing:.04em}
+  td{padding:11px 18px;border-bottom:1px solid var(--line-soft);font-size:13px}
+  tr:last-child td{border-bottom:0}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:#f7faff}
+  td .sub{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+  .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .tname{display:flex;align-items:center;gap:10px;font-weight:550}
+  .avatar{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:13px;background:#f0f4fa;flex:none}
+
+  .alert-row{display:flex;gap:11px;padding:11px 18px;border-bottom:1px solid var(--line-soft);font-size:12.5px;align-items:flex-start}
+  .alert-row:last-child{border-bottom:0}
+  .alert-row .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:none;font-size:13px}
+  .alert-row time{margin-left:auto;color:var(--ink-3);font-size:11px;flex:none;padding-top:4px}
+
+  .egress{border:1px solid var(--line);border-radius:var(--r-md);padding:14px 15px;display:flex;flex-direction:column;gap:8px;background:linear-gradient(180deg,#fff,#fbfcfe)}
+  .egress .top{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13.5px}
+  .egress .kv{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+  .egress .kv b{color:var(--ink);font-weight:550}
+  .chip{display:inline-block;font-size:11.5px;background:#f0f4fa;border:1px solid var(--line-soft);border-radius:7px;padding:2px 8px;color:var(--ink-2);margin:2px 3px 2px 0}
+  .chip b{color:var(--blue-ink);font-weight:650}
+  .legend{display:flex;gap:16px;font-size:11.5px;color:var(--ink-2);align-items:center}
+  .legend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:5px 12px;font-size:12px;color:var(--ink-2);cursor:pointer;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--blue);color:#fff;font-weight:600}
+  .mock-note{position:fixed;left:12px;bottom:12px;background:#1b2434;color:#fff;font-size:11.5px;padding:8px 13px;border-radius:10px;opacity:.92;z-index:9;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+  .mock-note b{color:#7db4ff}
+  .view{display:none}.view.on{display:block}
+  .chart-tip{font-size:11px;color:var(--ink-3)}
+  .upt{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div><b>rosboard</b><span>RouterOS 监控面板</span></div>
+    </div>
+    <div class="devswitch">
+      <span class="dot"></span>
+      <div><b>主路由 · RB5009</b><small>192.168.88.1 · 在线</small></div>
+      <span class="chev">▾</span>
+    </div>
+    <nav class="nav">
+      <div class="nav-sec">仪表台</div>
+      <a href="#"><span class="ic">▦</span>设备总览</a>
+      <a href="#" class="on"><span class="ic">◔</span>系统概览</a>
+      <div class="nav-sec">状态监控</div>
+      <a href="#"><span class="ic">⇄</span>接口监控</a>
+      <a href="#"><span class="ic">⛁</span>终端监控</a>
+      <a href="#"><span class="ic">∿</span>流量监控</a>
+      <a href="#"><span class="ic">⌗</span>网络服务</a>
+      <a href="#"><span class="ic">✚</span>系统运行</a>
+      <div class="nav-sec">主机设置</div>
+      <a href="#"><span class="ic">◎</span>目标库</a>
+      <a href="#" id="navPolicy"><span class="ic">⑂</span>策略路由</a>
+      <a href="#"><span class="ic">⊘</span>访问控制</a>
+      <a href="#"><span class="ic">✦</span>识别设置</a>
+      <div class="nav-sec">面板设置</div>
+      <a href="#"><span class="ic">⚙</span>设置</a>
+      <a href="#"><span class="ic">⚠</span>告警中心<span class="n">2</span></a>
+    </nav>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">系统概览</h1>
+        <div class="sub" id="pageSub">主路由 · RB5009UG+S+ · RouterOS v7.22.3 · 数据更新于 2 秒前</div>
+      </div>
+      <div class="tabs">
+        <button class="on" data-view="dash">仪表盘</button>
+        <button data-view="policy">策略路由</button>
+      </div>
+      <button class="topbtn">🔔 告警 <span class="bell-n">2</span></button>
+      <button class="topbtn">⟳ 自动刷新 3s</button>
+    </div>
+
+    <!-- ======== VIEW: DASHBOARD ======== -->
+    <section class="view on" id="view-dash">
+      <div class="grid g-stats">
+        <div class="card stat">
+          <div class="lbl">CPU 负载</div>
+          <svg class="ring" width="46" height="46" viewBox="0 0 46 46"><circle cx="23" cy="23" r="19" fill="none" stroke="#edf1f7" stroke-width="5"/><circle cx="23" cy="23" r="19" fill="none" stroke="#0069e0" stroke-width="5" stroke-linecap="round" stroke-dasharray="119.4" stroke-dashoffset="78.8" transform="rotate(-90 23 23)"/></svg>
+          <div class="val">34<small>%</small></div>
+          <div class="foot">8 核 @ 1.4 GHz</div>
+        </div>
+        <div class="card stat">
+          <div class="lbl">内存</div>
+          <svg class="ring" width="46" height="46" viewBox="0 0 46 46"><circle cx="23" cy="23" r="19" fill="none" stroke="#edf1f7" stroke-width="5"/><circle cx="23" cy="23" r="19" fill="none" stroke="#0fa958" stroke-width="5" stroke-linecap="round" stroke-dasharray="119.4" stroke-dashoffset="46.6" transform="rotate(-90 23 23)"/></svg>
+          <div class="val">61<small>%</small></div>
+          <div class="foot">623 / 1024 MB</div>
+        </div>
+        <div class="card stat">
+          <div class="lbl">存储</div>
+          <div class="val">42<small>%</small></div>
+          <div class="bar"><i class="g" style="width:42%"></i></div>
+          <div class="foot">剩余 58 MB</div>
+        </div>
+        <div class="card stat">
+          <div class="lbl">在线终端</div>
+          <div class="val">23<small>/ 41</small></div>
+          <div class="foot">4 台空闲 · 14 台离线</div>
+        </div>
+        <div class="card stat">
+          <div class="lbl">活动连接</div>
+          <div class="val mono">1,482</div>
+          <div class="foot">TCP 1,204 · UDP 261</div>
+        </div>
+        <div class="card stat">
+          <div class="lbl">运行时长</div>
+          <div class="val" style="font-size:21px;padding-top:3px">23<small>天</small> 4<small>时</small></div>
+          <div class="foot">上次重启 8/15</div>
+        </div>
+      </div>
+
+      <div class="grid g-main">
+        <div class="card">
+          <div class="card-h">
+            <h3>实时流量</h3>
+            <div class="legend" style="margin-left:18px">
+              <span><i style="background:#0069e0"></i>下载 186.4 Mbps</span>
+              <span><i style="background:#7cc4ff"></i>上传 42.7 Mbps</span>
+            </div>
+            <div style="margin-left:auto"><span class="seg"><button class="on">5 分钟</button><button>1 小时</button><button>6 小时</button><button>24 小时</button></span></div>
+          </div>
+          <div class="card-b">
+            <svg id="chartMain" width="100%" height="220" viewBox="0 0 720 220" preserveAspectRatio="none"></svg>
+            <div class="chart-tip">统计接口：pppoe-out1（电信）、ether2（联通）· 采样间隔 1s</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>当前告警</h3><span class="more">全部 →</span></div>
+          <div style="padding-top:8px">
+            <div class="alert-row">
+              <span class="ic" style="background:var(--amber-soft)">⚠️</span>
+              <div><b style="font-size:12.5px">接口 ether4 频繁闪断</b><div style="color:var(--ink-3);font-size:11.5px;margin-top:2px">10 分钟内链路抖动 6 次 · 建议检查网线/光模块</div></div>
+              <time>12 分钟前</time>
+            </div>
+            <div class="alert-row">
+              <span class="ic" style="background:var(--blue-soft)">ℹ️</span>
+              <div><b style="font-size:12.5px">DNS 特征库 3 天未更新</b><div style="color:var(--ink-3);font-size:11.5px;margin-top:2px">MosDNS 同步正常，特征学习仍在继续</div></div>
+              <time>3 天前</time>
+            </div>
+            <div class="alert-row">
+              <span class="ic" style="background:var(--green-soft)">✓</span>
+              <div><b style="font-size:12.5px">策略「苹果服务加速」应用成功</b><div style="color:var(--ink-3);font-size:11.5px;margin-top:2px">计划 42 项变更已提交并通过回读校验</div></div>
+              <time>昨天 21:04</time>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g-main" style="grid-template-columns:3fr 2fr">
+        <div class="card">
+          <div class="card-h"><h3>终端 · 按实时速率排序</h3><span class="more">全部 41 台 →</span></div>
+          <table style="margin-top:8px">
+            <thead><tr><th>终端</th><th>IP 地址</th><th class="num">连接</th><th class="num">下载</th><th class="num">上传</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td><div class="tname"><span class="avatar">📱</span>iPhone 15 Pro<span class="sub">Apple · f2:3c:91:…</span></div></td><td class="mono">192.168.88.42</td><td class="num mono">86</td><td class="num mono"><b>12.4</b> Mbps</td><td class="num mono">1.2 Mbps</td><td><span class="badge g"><span class="d"></span>在线</span></td></tr>
+              <tr><td><div class="tname"><span class="avatar">💻</span>MacBook Pro 14<span class="sub">Tom · 88:e9:fe:…</span></div></td><td class="mono">192.168.88.31</td><td class="num mono">214</td><td class="num mono"><b>8.7</b> Mbps</td><td class="num mono">3.9 Mbps</td><td><span class="badge g"><span class="d"></span>在线</span></td></tr>
+              <tr><td><div class="tname"><span class="avatar">🗄️</span>NAS · 群晖<span class="sub">DS923+ · 00:11:32:…</span></div></td><td class="mono">192.168.88.10</td><td class="num mono">178</td><td class="num mono"><b>6.2</b> Mbps</td><td class="num mono">22.8 Mbps</td><td><span class="badge g"><span class="d"></span>在线</span></td></tr>
+              <tr><td><div class="tname"><span class="avatar">📺</span>小米电视 · 客厅<span class="sub">Xiaomi · 64:cc:2e:…</span></div></td><td class="mono">192.168.88.57</td><td class="num mono">23</td><td class="num mono"><b>31.5</b> Mbps</td><td class="num mono">0.4 Mbps</td><td><span class="badge g"><span class="d"></span>在线</span></td></tr>
+              <tr><td><div class="tname"><span class="avatar">🖥️</span>台式机 · 书房<span class="sub">自组装 · 74:56:3c:…</span></div></td><td class="mono">192.168.88.22</td><td class="num mono">341</td><td class="num mono"><b>52.1</b> Mbps</td><td class="num mono">6.3 Mbps</td><td><span class="badge g"><span class="d"></span>在线</span></td></tr>
+              <tr><td><div class="tname"><span class="avatar">🤖</span>扫地机器人<span class="sub">Roborock · vlan20-iot</span></div></td><td class="mono">192.168.90.15</td><td class="num mono">3</td><td class="num mono">—</td><td class="num mono">—</td><td><span class="badge a"><span class="d"></span>空闲</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>接口状态</h3><span class="more">全部 14 个 →</span></div>
+          <table style="margin-top:8px">
+            <thead><tr><th>接口</th><th class="num">速率</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td><b>pppoe-out1</b><span class="sub">电信 · WAN</span></td><td class="num mono" style="color:var(--green)">↓152M ↑38M</td><td><span class="badge g"><span class="d"></span>运行</span></td></tr>
+              <tr><td><b>ether2</b><span class="sub">联通 · WAN</span></td><td class="num mono" style="color:var(--green)">↓34M ↑4.7M</td><td><span class="badge g"><span class="d"></span>运行</span></td></tr>
+              <tr><td><b>sfp-sfpplus1</b><span class="sub">万兆内网 → 交换机</span></td><td class="num mono" style="color:var(--green)">↓61M ↑48M</td><td><span class="badge g"><span class="d"></span>运行</span></td></tr>
+              <tr><td><b>bridge</b><span class="sub">LAN 网桥 · 9 端口</span></td><td class="num mono">—</td><td><span class="badge g"><span class="d"></span>运行</span></td></tr>
+              <tr><td><b>ether4</b><span class="sub">未接线</span></td><td class="num mono">—</td><td><span class="badge a"><span class="d"></span>抖动</span></td></tr>
+              <tr><td><b>vlan20-iot</b><span class="sub">IoT 隔离网段</span></td><td class="num mono">↓0.2M</td><td><span class="badge n">虚拟</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== VIEW: POLICY ======== -->
+    <section class="view" id="view-policy">
+      <div class="grid g-3" style="margin-top:0">
+        <div class="card egress">
+          <div class="top"><span style="font-size:17px">🌐</span>电信 · PPPoE<span class="badge g" style="margin-left:auto"><span class="d"></span>已应用</span></div>
+          <div class="kv"><span>出口接口</span><b class="mono">pppoe-out1</b></div>
+          <div class="kv"><span>协议族</span><b>IPv4 + IPv6</b></div>
+          <div class="kv"><span>NAT / 故障策略</span><b>masquerade · 严格</b></div>
+          <div class="kv"><span>当前速率</span><b class="mono" style="color:var(--green)">↓152M ↑38M</b></div>
+        </div>
+        <div class="card egress">
+          <div class="top"><span style="font-size:17px">🌐</span>联通 · DHCP<span class="badge g" style="margin-left:auto"><span class="d"></span>已应用</span></div>
+          <div class="kv"><span>出口接口</span><b class="mono">ether2</b></div>
+          <div class="kv"><span>协议族</span><b>IPv4</b></div>
+          <div class="kv"><span>NAT / 故障策略</span><b>masquerade · 回退主线路</b></div>
+          <div class="kv"><span>当前速率</span><b class="mono" style="color:var(--green)">↓34M ↑4.7M</b></div>
+        </div>
+        <div class="card egress" style="opacity:.72">
+          <div class="top"><span style="font-size:17px">🌐</span>移动 · 备用<span class="badge n" style="margin-left:auto">已停用</span></div>
+          <div class="kv"><span>出口接口</span><b class="mono">ether3</b></div>
+          <div class="kv"><span>协议族</span><b>IPv4</b></div>
+          <div class="kv"><span>NAT / 故障策略</span><b>masquerade · 严格</b></div>
+          <div class="kv"><span>当前速率</span><b class="mono">—</b></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-h">
+          <h3>分流规则</h3>
+          <span class="badge b" style="margin-left:12px">写入权限正常</span>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="topbtn" style="border-color:var(--blue);color:var(--blue);background:var(--blue-soft)">＋ 新建规则</button>
+          </div>
+        </div>
+        <table style="margin-top:8px">
+          <thead><tr><th style="width:34px"><input type="checkbox"></th><th>规则</th><th>来源</th><th>访问目标</th><th>出口</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><input type="checkbox" checked></td>
+              <td><b>苹果服务加速</b><span class="sub">优先级 10 · 修订 7</span></td>
+              <td>全部终端</td>
+              <td><span class="chip">Apple 域名 <b>12,204</b></span><span class="chip">Apple IP <b>2,140</b></span></td>
+              <td>电信 · PPPoE</td>
+              <td><span class="badge g"><span class="d"></span>已应用</span></td>
+              <td class="num"><a style="color:var(--blue);cursor:pointer">编辑</a> · <a style="color:var(--ink-3);cursor:pointer">停用</a></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" checked></td>
+              <td><b>流媒体走联通</b><span class="sub">优先级 20 · 修订 3</span></td>
+              <td><span class="chip">小米电视</span><span class="chip">Switch</span></td>
+              <td><span class="chip">Netflix <b>142</b></span><span class="chip">YouTube <b>389</b></span></td>
+              <td>联通 · DHCP</td>
+              <td><span class="badge g"><span class="d"></span>已应用</span></td>
+              <td class="num"><a style="color:var(--blue);cursor:pointer">编辑</a> · <a style="color:var(--ink-3);cursor:pointer">停用</a></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" checked></td>
+              <td><b>办公优先</b><span class="sub">优先级 30 · 修订 1</span></td>
+              <td><span class="chip">MacBook Pro</span><span class="chip">台式机 · 书房</span></td>
+              <td>整个互联网</td>
+              <td>自动选路</td>
+              <td><span class="badge a"><span class="d"></span>待应用 2 项变更</span></td>
+              <td class="num"><a style="color:var(--blue);cursor:pointer;font-weight:600">审查并应用</a></td>
+            </tr>
+            <tr style="opacity:.6">
+              <td><input type="checkbox"></td>
+              <td><b>默认分流</b><span class="sub">优先级 90 · 修订 12</span></td>
+              <td>全部终端</td>
+              <td><span class="chip">gfwlist <b>12,480</b></span></td>
+              <td>移动 · 备用</td>
+              <td><span class="badge n">已停用</span></td>
+              <td class="num"><a style="color:var(--blue);cursor:pointer">启用</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid" style="grid-template-columns:3fr 2fr;margin-top:16px">
+        <div class="card">
+          <div class="card-h"><h3>目标库</h3><span class="more">管理 →</span></div>
+          <table style="margin-top:8px">
+            <thead><tr><th>名称</th><th>类型</th><th class="num">规则数</th><th>更新</th><th>被引用</th></tr></thead>
+            <tbody>
+              <tr><td><b>gfwlist</b><span class="sub">URL 订阅</span></td><td><span class="badge b">域名</span></td><td class="num mono">12,480</td><td>每天 · 3 小时前</td><td>1 条规则</td></tr>
+              <tr><td><b>Netflix</b><span class="sub">应用预设</span></td><td><span class="badge b">域名+IP</span></td><td class="num mono">142 / 86</td><td>手动</td><td>1 条规则</td></tr>
+              <tr><td><b>广告域名</b><span class="sub">手动维护</span></td><td><span class="badge b">域名</span></td><td class="num mono">320</td><td>手动</td><td>1 条访问控制</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>访问控制</h3><span class="more">管理 →</span></div>
+          <div style="padding:6px 0">
+            <div class="alert-row"><span class="ic" style="background:var(--red-soft)">⊘</span><div><b style="font-size:12.5px">儿童平板 · 断网时段</b><div style="color:var(--ink-3);font-size:11.5px;margin-top:2px">22:00 – 07:00 禁止访问互联网</div></div><span class="badge g">生效中</span></div>
+            <div class="alert-row"><span class="ic" style="background:var(--red-soft)">⊘</span><div><b style="font-size:12.5px">屏蔽广告域名</b><div style="color:var(--ink-3);font-size:11.5px;margin-top:2px">全部终端 · 目标：广告域名（320）</div></div><span class="badge g">生效中</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="mock-note">风格 <b>01 · UniFi 启发</b>：浅色卡片 · 环形仪表 · 蓝色主调 · 信息密度适中（静态 mock，数据为演示）</div>
+
+<script>
+// --- view tabs ---
+const tabs=document.querySelectorAll('.tabs button');
+const titles={dash:['系统概览','主路由 · RB5009UG+S+ · RouterOS v7.22.3 · 数据更新于 2 秒前'],policy:['策略路由','分流规则、出口与目标库 · 设备：主路由']};
+tabs.forEach(b=>b.onclick=()=>{
+  tabs.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById('view-'+b.dataset.view).classList.add('on');
+  document.getElementById('pageTitle').textContent=titles[b.dataset.view][0];
+  document.getElementById('pageSub').textContent=titles[b.dataset.view][1];
+});
+// --- deterministic pseudo-random series ---
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function series(seed,n,base,amp){const r=rng(seed);let v=base;const out=[];for(let i=0;i<n;i++){v+=(r()-.5)*amp;v=Math.max(base*.4,Math.min(base*1.8,v));out.push(v)}return out}
+function path(pts,w,h,pad){const max=Math.max(...pts)*1.15,min=Math.min(...pts)*.6;const step=(w-pad*2)/(pts.length-1);return pts.map((p,i)=>{const x=pad+i*step,y=h-pad-((p-min)/(max-min))*(h-pad*2);return(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1)}).join(' ')}
+(function(){
+  const svg=document.getElementById('chartMain'),W=720,H=220;
+  const dn=series(7,90,150,26),up=series(21,90,42,10);
+  const gd='M0,'+H+' '+path(dn,W,H,6).slice(1).replace(/^/,'L0,') ; // not used; build area properly
+  const dPath=path(dn,W,H,6),uPath=path(up,W,H,6);
+  const area=dPath+` L${W-6},${H-6} L6,${H-6} Z`;
+  svg.innerHTML=`
+    <defs><linearGradient id="gf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0069e0" stop-opacity=".22"/><stop offset="1" stop-color="#0069e0" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${[0.25,0.5,0.75].map(f=>`<line x1="6" x2="${W-6}" y1="${H*f}" y2="${H*f}" stroke="#edf1f7" stroke-width="1"/>`).join('')}
+    <path d="${area}" fill="url(#gf)"/>
+    <path d="${dPath}" fill="none" stroke="#0069e0" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="${uPath}" fill="none" stroke="#7cc4ff" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="${W-6-12*(720-12)/89}" cy="60" r="3.5" fill="#0069e0" stroke="#fff" stroke-width="1.5"/>`;
+})();
+</script>
+</body>
+</html>

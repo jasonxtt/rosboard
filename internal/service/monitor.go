@@ -618,15 +618,14 @@ func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, a
 		RouteMatchBasis: attribution.Basis, RouteAttribution: attribution.State,
 	}
 	if protocolAnalysis {
-		row.Application = classifyApplication(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
-		row.ApplicationSource = "port"
+		row.Service = classifyService(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
 		row.Estimated = true
-		if application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
+		if applicationID, application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
 			row.MatchedDomain = domain
 			if ok {
+				row.ApplicationID = applicationID
 				row.Application = application
-				row.ApplicationSource = "dns"
-				row.Estimated = false
+				row.ApplicationSource = "mosdns"
 			}
 		}
 	}
@@ -724,14 +723,14 @@ func (m *Monitor) TerminalDetail(id string) (model.TerminalDetail, bool) {
 	return detail, true
 }
 
-func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, remark string) (model.TerminalDetail, error) {
+func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName string) (model.TerminalDetail, error) {
 	m.metadataMu.Lock()
 	defer m.metadataMu.Unlock()
 
 	if _, ok := m.TerminalDetail(id); !ok {
 		return model.TerminalDetail{}, store.ErrTerminalNotFound
 	}
-	if err := m.store.UpdateTerminalMetadata(ctx, id, customName, remark); err != nil {
+	if err := m.store.UpdateTerminalMetadata(ctx, id, customName); err != nil {
 		return model.TerminalDetail{}, err
 	}
 
@@ -739,16 +738,16 @@ func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, re
 	defer m.mu.Unlock()
 	for index := range m.snapshot.Terminals {
 		if m.snapshot.Terminals[index].ID == id {
-			applyTerminalMetadata(&m.snapshot.Terminals[index], customName, remark)
+			applyTerminalMetadata(&m.snapshot.Terminals[index], customName)
 		}
 	}
 	detail, ok := m.terminalDetails[id]
 	if !ok {
 		return model.TerminalDetail{}, store.ErrTerminalNotFound
 	}
-	applyTerminalMetadata(&detail.Terminal, customName, remark)
+	applyTerminalMetadata(&detail.Terminal, customName)
 	for family, summary := range detail.FamilySummaries {
-		applyTerminalMetadata(&summary, customName, remark)
+		applyTerminalMetadata(&summary, customName)
 		detail.FamilySummaries[family] = summary
 	}
 	m.terminalDetails[id] = detail
@@ -761,24 +760,23 @@ func mergeLatestTerminalMetadata(terminals []model.Terminal, details map[string]
 		if !ok {
 			continue
 		}
-		applyTerminalMetadata(&detail.Terminal, current.Terminal.CustomName, current.Terminal.Remark)
+		applyTerminalMetadata(&detail.Terminal, current.Terminal.CustomName)
 		for family, summary := range detail.FamilySummaries {
-			applyTerminalMetadata(&summary, current.Terminal.CustomName, current.Terminal.Remark)
+			applyTerminalMetadata(&summary, current.Terminal.CustomName)
 			detail.FamilySummaries[family] = summary
 		}
 		details[id] = detail
 		for index := range terminals {
 			if terminals[index].ID == id {
-				applyTerminalMetadata(&terminals[index], current.Terminal.CustomName, current.Terminal.Remark)
+				applyTerminalMetadata(&terminals[index], current.Terminal.CustomName)
 				break
 			}
 		}
 	}
 }
 
-func applyTerminalMetadata(terminal *model.Terminal, customName, remark string) {
+func applyTerminalMetadata(terminal *model.Terminal, customName string) {
 	terminal.CustomName = customName
-	terminal.Remark = remark
 	terminal.DisplayName = effectiveTerminalName(*terminal)
 }
 
@@ -1467,18 +1465,29 @@ func fillRateSampleGaps(samples []model.RateSample) []model.RateSample {
 }
 
 func aggregateProtocols(details map[string]model.TerminalDetail) []model.ProtocolStat {
-	byName := map[string]*model.ProtocolStat{}
+	byKey := map[string]*model.ProtocolStat{}
 	for _, detail := range details {
 		for _, connection := range detail.Connections {
-			name := connection.Application
-			stat := byName[name]
+			applicationID := strings.TrimSpace(connection.ApplicationID)
+			name := strings.TrimSpace(connection.Service)
+			key := "service:"
+			if applicationID != "" {
+				name = strings.TrimSpace(connection.Application)
+				key = "application:" + applicationID
+			} else {
+				if name == "" {
+					name = "未知服务"
+				}
+				key += name
+			}
+			stat := byKey[key]
 			if stat == nil {
 				source := connection.ApplicationSource
-				if source == "" {
-					source = "port"
+				stat = &model.ProtocolStat{Name: name, Kind: connection.Protocol, ApplicationID: applicationID, Estimated: connection.Estimated, Source: source}
+				if applicationID == "" {
+					stat.Service = name
 				}
-				stat = &model.ProtocolStat{Name: name, Kind: connection.Protocol, Estimated: connection.Estimated, Source: source}
-				byName[name] = stat
+				byKey[key] = stat
 			} else if stat.Source != connection.ApplicationSource && connection.ApplicationSource != "" {
 				stat.Source = "mixed"
 			}
@@ -1489,14 +1498,24 @@ func aggregateProtocols(details map[string]model.TerminalDetail) []model.Protoco
 			stat.DownloadBytes += connection.DownloadBytes
 		}
 	}
-	result := make([]model.ProtocolStat, 0, len(byName))
-	for _, stat := range byName {
+	result := make([]model.ProtocolStat, 0, len(byKey))
+	for _, stat := range byKey {
 		result = append(result, *stat)
 	}
 	sort.Slice(result, func(left, right int) bool {
 		return result[left].UploadBps+result[left].DownloadBps > result[right].UploadBps+result[right].DownloadBps
 	})
 	return result
+}
+
+func connectionDisplayName(connection model.TerminalConnection) string {
+	if application := strings.TrimSpace(connection.Application); application != "" {
+		return application
+	}
+	if service := strings.TrimSpace(connection.Service); service != "" {
+		return service
+	}
+	return "未知服务"
 }
 
 func buildPolicies(simple []routeros.SimpleQueue, trees []routeros.QueueTree, mangle []routeros.FirewallRule) []model.PolicyStat {
@@ -1791,13 +1810,14 @@ func (m *Monitor) buildTerminals(
 				if flowMap[builder.ID] == nil {
 					flowMap[builder.ID] = map[string]*model.TerminalFlowCategory{}
 				}
-				flow := flowMap[builder.ID][row.Application]
+				name := connectionDisplayName(row)
+				flow := flowMap[builder.ID][name]
 				if flow == nil {
 					flow = &model.TerminalFlowCategory{
-						Name:      row.Application,
+						Name:      name,
 						Estimated: row.Estimated,
 					}
-					flowMap[builder.ID][row.Application] = flow
+					flowMap[builder.ID][name] = flow
 				}
 				flow.CurrentUploadBps += view.UploadBps
 				flow.CurrentDownloadBps += view.DownloadBps
@@ -1874,7 +1894,6 @@ func (m *Monitor) buildTerminals(
 			ID:                 builder.ID,
 			AutoName:           recognizedAutoName(total.AutoName, builder.MACAddress, mapKeys(builder.IPv4), mapKeys(builder.IPv6)),
 			CustomName:         total.CustomName,
-			Remark:             total.Remark,
 			MACAddress:         builder.MACAddress,
 			PrimaryInterface:   builder.PrimaryInterface,
 			IPv4:               sortedAddresses(builder.IPv4),
@@ -1912,7 +1931,6 @@ func (m *Monitor) buildTerminals(
 			DisplayName:        terminal.DisplayName,
 			AutoName:           terminal.AutoName,
 			CustomName:         terminal.CustomName,
-			Remark:             terminal.Remark,
 			MACAddress:         terminal.MACAddress,
 			PrimaryInterface:   terminal.PrimaryInterface,
 			IPv4:               terminal.IPv4,
@@ -2004,10 +2022,11 @@ func terminalFlowCategories(connections []model.TerminalConnection, family strin
 		if family != "" && connection.Family != family {
 			continue
 		}
-		flow := flows[connection.Application]
+		name := connectionDisplayName(connection)
+		flow := flows[name]
 		if flow == nil {
-			flow = &model.TerminalFlowCategory{Name: connection.Application, Estimated: connection.Estimated}
-			flows[connection.Application] = flow
+			flow = &model.TerminalFlowCategory{Name: name, Estimated: connection.Estimated}
+			flows[name] = flow
 		} else if !connection.Estimated {
 			flow.Estimated = false
 		}
@@ -2579,7 +2598,7 @@ func memoryUsedPercent(total, free int64) float64 {
 	return float64(total-free) * 100 / float64(total)
 }
 
-func classifyApplication(protocol string, ports ...string) string {
+func classifyService(protocol string, ports ...string) string {
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
 	port := ""
 	for _, candidate := range ports {
@@ -2609,9 +2628,9 @@ func classifyApplication(protocol string, ports ...string) string {
 	case "udp":
 		return "常用协议"
 	case "tcp":
-		return "未知应用"
+		return "未知服务"
 	default:
-		return "其它应用"
+		return "其它服务"
 	}
 }
 

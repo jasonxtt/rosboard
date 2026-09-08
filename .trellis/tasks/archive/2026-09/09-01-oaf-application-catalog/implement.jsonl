@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Existing policy-v2 desired/reconcile and Access Control integration contract."}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Monitoring, protocol statistics, and observability compatibility contract."}
+{"file": ".trellis/spec/backend/runtime-configuration.md", "reason": "Configuration migration and runtime ownership rules."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Settings, table, filter, and responsive UI conventions."}
+{"file": ".trellis/tasks/09-01-oaf-application-catalog/research/local-architecture.md", "reason": "Audited current recognition, Access Control, storage, API, and dirty-worktree baseline."}
+{"file": ".trellis/tasks/09-01-oaf-application-catalog/research/oaf-format-license.md", "reason": "OAF format, provenance, license, and redistribution boundary."}
+{"file": ".trellis/tasks/09-01-oaf-application-catalog/research/routeros-matchers.md", "reason": "RouterOS matcher capability and first-slice enforcement boundary."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Additive SQLite schema and migration constraints for app relations and history fields."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit unavailable/blocker behavior for invalid catalog and unsupported device capabilities."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend testing and surgical-change quality constraints."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Typed API/UI model changes for application attribution and targets."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Local settings and access-control form state conventions."}

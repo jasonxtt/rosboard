@@ -1,0 +1,130 @@
+/* monitor-detail feature styles — sortable headers + connection table.
+   Tokens only (design/UX-STANDARD.md §2). `mon-` prefix avoids collisions
+   with page CSS written by parallel slices. */
+
+/* ---------- sortable column header ---------- */
+.mon-sort-header {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mon-sort-header:hover {
+  color: var(--ink);
+}
+
+.mon-sort-active {
+  color: var(--accent);
+}
+
+.mon-sort-indicator {
+  font-size: 10px;
+}
+
+th.num .mon-sort-header {
+  margin-left: auto;
+}
+
+/* ---------- connection table ---------- */
+.connection-table-scroll {
+  border-radius: var(--r-md);
+}
+
+.connection-table td {
+  vertical-align: top;
+}
+
+.connection-filter-row th {
+  padding-top: 0;
+  font-weight: 400;
+}
+
+.connection-filter-input {
+  width: 100%;
+  min-width: 88px;
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  padding: 4px 8px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.connection-filter-input::placeholder {
+  color: var(--ink-3);
+}
+
+.connection-filter-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+.connection-filter-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connection-app {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connection-app .connection-estimated {
+  margin-left: 6px;
+}
+
+.connection-app small {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-endpoint {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-arrow {
+  color: var(--ink-3);
+  padding: 0 6px;
+}
+
+.connection-route {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connection-route small {
+  font-size: var(--text-xs);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-empty {
+  text-align: center;
+  color: var(--ink-3);
+  padding: var(--space-6) var(--space-4) !important;
+}
+
+@media (max-width: 767px) {
+  .connection-table {
+    min-width: 860px;
+  }
+}

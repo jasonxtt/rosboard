@@ -12,6 +12,50 @@
 
 ---
 
+## GitHub Development Lifecycle
+
+The repository is public, and `main` is the stable, accepted baseline. Long-lived work in progress must use a task branch and a Draft PR targeting `main`.
+
+A Trellis task is a planning and execution unit; it is not automatically a Git branch boundary. The branch/PR boundary belongs to the user-approved GitHub workstream (the umbrella task). Several tightly coupled Trellis tasks may share one work branch and one Draft PR.
+
+### Branch and PR boundaries
+
+- One independent GitHub workstream normally has one work branch and one corresponding Draft PR.
+- A Slice is a planning or implementation boundary, not a default Git branch boundary.
+- Slices, reviewer findings, P0/P1 fixes, UI polish, regression fixes, and test-machine feedback for the same task continue on the same branch and PR.
+- A genuinely independent hotfix or unrelated task gets its own branch and PR.
+
+### Checkpoint flow
+
+For each meaningful checkpoint:
+
+1. Complete the planned change.
+2. Run the required validation.
+3. Inspect `git status`, the exact staged paths, and the staged diff for secrets and unrelated files.
+4. Create a focused commit and push the same task branch.
+
+Do not push every micro-edit, do not default to `git add -A`, and do not force-push or rewrite shared history without explicit task-specific authorization. Never push directly to the remote `main` branch.
+
+Work-branch checkpoint commits and pushes may occur before final production acceptance; they do not authorize a `main` merge, release, or Trellis task completion/archive.
+
+### Review and merge states
+
+`WIP` → `Awaiting root review` → `Changes required` → `Awaiting root review` → `Approved` → `Completed`
+
+- **WIP** — the task branch and Draft PR are open; implementation may continue, but merging is not allowed.
+- **Awaiting root review** — a meaningful checkpoint is committed and pushed; review the GitHub PR's current HEAD and diff, not only the agent summary.
+- **Changes required** — the root reviewer has blocking findings; the implementation agent fixes them on the same branch, then validates, commits, and pushes the same PR.
+- **Approved** — the root reviewer / acceptance gate has explicitly reported `APPROVED`; only then may the PR be merged into `main`.
+- **Completed** — the PR is merged, `main` is the new stable baseline, and the completed task branch may be deleted.
+
+Keep the PR Draft while the task is unfinished. Do not mark it ready, merge it, or declare the task complete without the explicit acceptance decision.
+
+### Public-repository push safety
+
+Before pushing, exclude `.env` files, real secrets or tokens, private keys, RouterOS credentials, private local databases, sensitive production backups/exports, and other local private artifacts. The GitHub PR current HEAD and diff are the review source of truth; agent reports provide context but do not replace the actual diff.
+
+---
+
 ## Trellis System
 
 ### Developer Identity

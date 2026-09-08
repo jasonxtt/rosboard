@@ -240,3 +240,11 @@ rosboard admin reset-password -config /opt/rosboard/config.yaml
 - 以 Linux 和 systemd 部署为主，暂未提供 Docker 镜像
 - RouterOS 硬件能力与版本差异可能导致部分健康、IPv6 或策略数据不可用
 - 项目尚未提供开源许可证；公开仓库仅用于当前阶段的代码归档与协作
+
+## 双 UI 面板
+
+当前提供 Compact 紧凑版和 Aurora 玻璃版，完整保留各自页面、导航和图表，共用后端、账号与设备数据。原 main 界面已被这两套 UI 替代。
+
+在任一界面的「面板设置 → 界面设置 → UI 风格」选择另一套 UI，点击「保存并切换 UI」。切换会重新加载页面，请先保存其他编辑；浏览器会记住选择，首次访问默认 Aurora。明暗主题、刷新间隔和设备选择兼容共享。也可通过 `/?ui=compact` 或 `/?ui=aurora` 指定入口。
+
+前端开发使用 `npm --prefix web install`，执行 `npm --prefix web test`、`npm --prefix web run lint`、`npm --prefix web run build` 和 `npm --prefix web run check:ui-build`。开发 API 默认代理本地 `127.0.0.1:8090`；可用 `ROSBOARD_DEV_PROXY` 指定隔离后端。

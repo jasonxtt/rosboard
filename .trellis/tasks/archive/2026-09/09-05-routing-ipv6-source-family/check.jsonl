@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"审核后端实现是否完成规定的质量检查。"}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"审核 selected/excluded/all 和 IPv6 desired-state 语义是否符合项目规范。"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"审核测试覆盖、差异范围和验证结果。"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"审核改动是否落在允许的后端文件边界。"}

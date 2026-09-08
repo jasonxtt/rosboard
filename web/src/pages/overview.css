@@ -1,0 +1,355 @@
+/* OverviewPage 系统概览 — hero signature layout (UX standard §9.1).
+   Token-only values; glass material and chart chrome come from base/shell. */
+
+.ov-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--err-soft);
+  color: var(--err);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: var(--text-sm);
+}
+
+/* ---------- hero grid ---------- */
+/* 5:3 split — the divider lands at 5/8 of the page, visually aligning with
+   the middle of the third terminal card in the 4-column grid below. */
+.ov-hero-grid {
+  display: grid;
+  grid-template-columns: 5fr 3fr;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.ov-hero {
+  border-radius: var(--r-xl);
+  padding: var(--space-6) var(--space-6) 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ov-hero-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  min-width: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+/* Device identity is capped at half the hero width (user requirement) so the
+   window picker always keeps its space; full text stays available via title. */
+.ov-hero-device {
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-hero-uptime {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-hero-window {
+  margin-left: auto;
+  flex: none;
+}
+
+.ov-big {
+  font-size: var(--text-hero);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.ov-big small {
+  font-size: var(--text-section);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.ov-metrics {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.ov-metrics b {
+  display: block;
+  font-size: var(--text-page-title);
+  font-weight: 700;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+/* chart bottom-bleed: canvas runs edge to edge (§9.1 hero). The hero big
+   numbers already carry the live rates, so the chart's own legend readout is
+   hidden in this context. The frame keeps generous side insets so y-axis
+   labels and the last x tick never touch the card edge. */
+.ov-chart {
+  margin: var(--space-3) calc(-1 * var(--space-6)) 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.ov-chart-bleed .chart-legend {
+  display: none;
+}
+
+.ov-chart-bleed .chart-frame {
+  padding: 0 var(--space-4);
+}
+
+/* ---------- side gauges card ---------- */
+.ov-side {
+  border-radius: var(--r-xl);
+  padding: var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rings spread across the full card width so no dead margins remain beside
+   them (user feedback: centered+tight felt cramped with big side gaps). */
+.ov-gauges {
+  display: flex;
+  justify-content: space-evenly;
+  padding: var(--space-4) 0 var(--space-3);
+}
+
+/* Meta facts: two content-width columns pushed to opposite edges
+   (space-between). Each column hugs its widest row, so the right column's
+   values end exactly at the card's right padding — the right gap always
+   equals the left gap (user alignment requirement). */
+.ov-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex: 1;
+  border-top: 1px solid var(--stroke);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.ov-meta-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  min-width: 0;
+}
+
+.ov-meta .kv {
+  display: grid;
+  grid-template-columns: 52px auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.ov-meta .kv span {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.ov-meta .kv b {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.ov-warn-text {
+  color: var(--warn);
+}
+
+/* ---------- active terminals ---------- */
+.ov-terms {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+}
+
+.ov-term {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 15px 17px;
+}
+
+/* reinforce over .card padding for the clickable Card terminals */
+.card.ov-term {
+  padding: 15px 17px;
+}
+
+.ov-term-av {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: var(--glass-2);
+  flex: none;
+}
+
+.ov-term-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ov-term-id b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-card-title);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-term-id small {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-term-rate {
+  margin-left: auto;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+
+.ov-term-rate b {
+  color: var(--ok);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.ov-term-rate small {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.ov-term-idle {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ---------- bottom: interfaces (full width; events card removed — the
+   bell, hero status line and warning bar already cover alerting) ---------- */
+
+/* Full interfaces table (same columns as 接口监控): cap the card height and
+   let it scroll internally with the sticky header; min-width keeps the nine
+   columns readable — the card scrolls horizontally on narrow screens. */
+.ov-if-card .table-scroll {
+  max-height: 480px;
+}
+
+.ov-if-card .table {
+  min-width: 1000px;
+}
+
+.ov-rate-down {
+  color: var(--accent);
+}
+
+.ov-rate-down small,
+.ov-term-rate b small {
+  color: inherit;
+}
+
+/* ---------- skeletons ---------- */
+.ov-skel-big {
+  margin: var(--space-3) 0;
+}
+
+.ov-skel-chart {
+  margin-top: auto;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+
+.ov-skel-ring {
+  border-radius: 50%;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1199px) {
+  .ov-hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ov-terms {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .ov-meta {
+    flex-direction: column;
+    gap: 0;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 767px) {
+  .ov-hero {
+    padding: var(--space-5) var(--space-5) 0;
+  }
+
+  .ov-hero-status {
+    flex-wrap: wrap;
+  }
+
+  .ov-hero-device {
+    max-width: 100%;
+  }
+
+  .ov-hero-window {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ov-big {
+    font-size: 32px;
+  }
+
+  .ov-metrics {
+    gap: var(--space-4);
+  }
+
+  .ov-chart {
+    margin: var(--space-3) calc(-1 * var(--space-5)) 0;
+  }
+
+  .ov-terms {
+    grid-template-columns: 1fr;
+  }
+}

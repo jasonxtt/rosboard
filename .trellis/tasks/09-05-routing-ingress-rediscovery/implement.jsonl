@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend package and test boundaries."}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"Policy discovery, ingress ownership, and RouterOS lifecycle contracts."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Focused regression tests and validation requirements."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Keep discovery logic and tests in internal/policyv2."}

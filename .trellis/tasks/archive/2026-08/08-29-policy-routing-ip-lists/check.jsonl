@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Verify ownership/reconcile contracts hold for IP source deletion and shared/dedicated lists"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gate expectations"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend verification checklist"}
+{"file": ".trellis/tasks/08-29-policy-routing-ip-lists/prd.md", "reason": "Acceptance criteria to check against"}

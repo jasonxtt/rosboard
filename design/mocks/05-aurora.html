@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard · 风格 05 · Aurora 玻璃拟态</title>
+<style>
+  :root{
+    --ink:#eef2ff; --ink2:rgba(226,232,255,.62); --ink3:rgba(226,232,255,.38);
+    --glass:rgba(255,255,255,.055); --glass2:rgba(255,255,255,.09);
+    --stroke:rgba(255,255,255,.11);
+    --cyan:#67e8f9; --violet:#c4b5fd; --mint:#6ee7b7; --amber:#fcd34d; --rose:#fda4af;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:14px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Rounded","PingFang SC","Hiragino Sans GB",sans-serif;
+    color:var(--ink);min-height:100vh;-webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(900px 500px at 12% -8%, rgba(99,102,241,.34), transparent 60%),
+      radial-gradient(800px 480px at 88% 4%, rgba(34,211,238,.22), transparent 60%),
+      radial-gradient(1000px 700px at 55% 110%, rgba(168,85,247,.2), transparent 60%),
+      #0a0c1c;
+    background-attachment:fixed;
+  }
+  .app{max-width:1320px;margin:0 auto;padding:22px 26px 70px}
+
+  /* top nav */
+  .topnav{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:20px;background:var(--glass);border:1px solid var(--stroke);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);margin-bottom:22px}
+  .logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,#818cf8,#22d3ee);display:grid;place-items:center;font-weight:800;color:#0b0d20;font-size:15px}
+  .topnav b{font-size:15.5px;letter-spacing:.02em}
+  .pill-nav{display:flex;gap:2px;margin:0 auto;background:rgba(0,0,0,.22);border-radius:99px;padding:3px}
+  .pill-nav button{border:0;background:transparent;color:var(--ink2);font-size:12.5px;padding:6px 15px;border-radius:99px;cursor:pointer;transition:.15s}
+  .pill-nav button:hover{color:var(--ink)}
+  .pill-nav button.on{background:var(--glass2);color:var(--ink);box-shadow:0 2px 12px rgba(0,0,0,.25)}
+  .devpill{display:flex;align-items:center;gap:8px;background:rgba(110,231,183,.1);border:1px solid rgba(110,231,183,.25);border-radius:99px;padding:6px 13px;font-size:12.5px;color:var(--mint)}
+  .devpill .d{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 10px var(--mint)}
+  .iconbtn{width:36px;height:36px;border-radius:12px;border:1px solid var(--stroke);background:var(--glass);color:var(--ink2);cursor:pointer;font-size:15px;position:relative}
+  .iconbtn .n{position:absolute;top:-4px;right:-4px;background:linear-gradient(135deg,#fb7185,#f43f5e);color:#fff;font-size:9.5px;font-weight:700;border-radius:99px;padding:1px 5px}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px}
+  .glass{background:var(--glass);border:1px solid var(--stroke);border-radius:24px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 8px 40px rgba(0,0,0,.25);overflow:hidden;position:relative}
+  .hero-main{padding:26px 28px 20px;display:flex;flex-direction:column}
+  .hero-main .hello{font-size:13px;color:var(--ink2)}
+  .hero-main .big{font-size:44px;font-weight:750;letter-spacing:-.02em;margin:8px 0 2px;display:flex;align-items:baseline;gap:10px}
+  .hero-main .big small{font-size:15px;color:var(--ink2);font-weight:500}
+  .hero-main .flow{display:flex;gap:26px;margin-top:10px;font-size:12.5px;color:var(--ink2)}
+  .hero-main .flow b{font-size:19px;font-weight:700;display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+  .hero-main svg{margin:14px -28px -20px;width:calc(100% + 56px)}
+  .status-orb{width:10px;height:10px;border-radius:50%;background:var(--mint);box-shadow:0 0 16px var(--mint);display:inline-block;margin-right:8px;animation:pulse 2.6s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 8px var(--mint)}50%{box-shadow:0 0 22px var(--mint)}}
+  .hero-side{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+  .gauges{display:flex;justify-content:space-around;text-align:center}
+  .gauge .gv{font-size:19px;font-weight:700;margin-top:-46px;position:relative;font-variant-numeric:tabular-nums}
+  .gauge .gl{font-size:11px;color:var(--ink2);margin-top:26px}
+  .hero-side .meta{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);border-top:1px solid var(--stroke);padding-top:13px}
+  .hero-side .meta b{display:block;color:var(--ink);font-size:13.5px;margin-top:3px;font-weight:600}
+
+  /* cards row */
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+  .mini{padding:18px 20px}
+  .mini .l{font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:8px}
+  .mini .ic{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;font-size:14px}
+  .mini .v{font-size:26px;font-weight:700;margin-top:10px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .mini .s{font-size:11.5px;color:var(--ink3);margin-top:3px}
+  .mini .spark{position:absolute;right:0;bottom:0;left:0;height:34px;opacity:.55}
+
+  .sec-t{display:flex;align-items:baseline;gap:12px;margin:26px 4px 12px}
+  .sec-t h2{font-size:16px;font-weight:650}
+  .sec-t span{font-size:12px;color:var(--ink3)}
+  .sec-t .r{margin-left:auto;font-size:12.5px;color:var(--cyan);cursor:pointer}
+
+  .term-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .term{padding:15px 17px;display:flex;gap:12px;align-items:center;cursor:pointer;transition:transform .15s, background .15s}
+  .term:hover{transform:translateY(-2px);background:var(--glass2)}
+  .term .av{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;font-size:18px;background:rgba(255,255,255,.07);flex:none}
+  .term b{font-size:13.5px;display:block;font-weight:600}
+  .term small{font-size:11px;color:var(--ink3);display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+  .term .rate{margin-left:auto;text-align:right;font-size:11.5px;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .term .rate b{color:var(--mint);font-size:12.5px}
+  .st{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+
+  .pol-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .pol{padding:18px 20px}
+  .pol .t{display:flex;align-items:center;gap:10px;font-weight:650;font-size:14px}
+  .pol .flow-line{display:flex;align-items:center;gap:8px;margin:14px 0;font-size:12px;color:var(--ink2);flex-wrap:wrap}
+  .node{background:rgba(255,255,255,.07);border:1px solid var(--stroke);border-radius:10px;padding:5px 11px;font-size:12px}
+  .node.hl{border-color:rgba(103,232,249,.4);color:var(--cyan);background:rgba(103,232,249,.08)}
+  .arrow{color:var(--ink3)}
+  .toggle{width:38px;height:22px;border-radius:99px;background:linear-gradient(90deg,#34d399,#22d3ee);position:relative;cursor:pointer;flex:none}
+  .toggle::after{content:"";position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff}
+  .toggle.off{background:rgba(255,255,255,.15)}
+  .toggle.off::after{right:auto;left:2px}
+  .badge{font-size:10.5px;border-radius:99px;padding:2.5px 9px;font-weight:600}
+  .badge.g{background:rgba(110,231,183,.14);color:var(--mint)}
+  .badge.a{background:rgba(252,211,77,.13);color:var(--amber)}
+  .badge.n{background:rgba(255,255,255,.08);color:var(--ink2)}
+  .egr-card{padding:18px 20px;background:linear-gradient(160deg,rgba(255,255,255,.08),rgba(255,255,255,.02))}
+  .egr-card .wan{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;font-size:17px}
+  .kv{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);padding:3px 0}
+  .kv b{color:var(--ink);font-weight:550;font-variant-numeric:tabular-nums}
+  .cap{display:inline-block;font-size:11px;background:rgba(255,255,255,.07);border:1px solid var(--stroke);border-radius:8px;padding:2px 9px;color:var(--ink2);margin:2px 3px 0 0}
+  .mock-note{position:fixed;left:12px;bottom:12px;background:rgba(10,12,28,.8);border:1px solid var(--stroke);backdrop-filter:blur(10px);color:var(--ink2);font-size:11.5px;padding:8px 13px;border-radius:12px;z-index:9}
+  .mock-note b{color:var(--cyan)}
+  .view{display:none}.view.on{display:block}
+  @media(max-width:1000px){.hero,.cards,.pol-grid{grid-template-columns:1fr 1fr}.term-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="topnav">
+    <span class="logo">R</span><b>rosboard</b>
+    <div class="pill-nav">
+      <button class="on" data-view="dash">概览</button>
+      <button>接口</button>
+      <button>终端</button>
+      <button data-view="policy">策略</button>
+      <button>访问控制</button>
+      <button>设置</button>
+    </div>
+    <span class="devpill"><span class="d"></span>主路由 · 在线</span>
+    <button class="iconbtn">🔔<span class="n">2</span></button>
+    <button class="iconbtn">⚙</button>
+  </nav>
+
+  <!-- ======== DASH ======== -->
+  <section class="view on" id="view-dash">
+    <div class="hero">
+      <div class="glass hero-main">
+        <div class="hello"><span class="status-orb"></span>网络状态极佳 · RB5009UG+S+ · 已运行 23 天 4 小时</div>
+        <div class="big">186.4 <small>Mbps 下载</small></div>
+        <div class="flow">
+          <span>上传<b>42.7 Mbps</b></span>
+          <span>在线终端<b>23 台</b></span>
+          <span>活动连接<b>1,482</b></span>
+          <span>今日流量<b>↓ 84.2 GB</b></span>
+        </div>
+        <svg id="chartMain" height="120" viewBox="0 0 640 120" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="glass hero-side">
+        <div class="gauges">
+          <div class="gauge"><svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/><circle cx="42" cy="42" r="34" fill="none" stroke="url(#g1)" stroke-width="8" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="141" transform="rotate(-90 42 42)"/><defs><linearGradient id="g1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg><div class="gv">34%</div><div class="gl">CPU</div></div>
+          <div class="gauge"><svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/><circle cx="42" cy="42" r="34" fill="none" stroke="url(#g2)" stroke-width="8" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="83" transform="rotate(-90 42 42)"/><defs><linearGradient id="g2"><stop offset="0" stop-color="#6ee7b7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg><div class="gv">61%</div><div class="gl">内存</div></div>
+          <div class="gauge"><svg width="84" height="84" viewBox="0 0 84 84"><circle cx="42" cy="42" r="34" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/><circle cx="42" cy="42" r="34" fill="none" stroke="url(#g3)" stroke-width="8" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="124" transform="rotate(-90 42 42)"/><defs><linearGradient id="g3"><stop offset="0" stop-color="#c4b5fd"/><stop offset="1" stop-color="#818cf8"/></linearGradient></defs></svg><div class="gv">42%</div><div class="gl">存储</div></div>
+        </div>
+        <div class="meta"><span>RouterOS<b>v7.22.3</b></span><span>平台<b>ARM64</b></span><span>采集<b>1s 实时</b></span><span>告警<b style="color:var(--amber)">2 条</b></span></div>
+      </div>
+    </div>
+
+    <div class="sec-t"><h2>活跃终端</h2><span>按实时速率排序</span><span class="r">查看全部 41 台 →</span></div>
+    <div class="term-grid">
+      <div class="glass term"><span class="av">🖥️</span><div><b><span class="st" style="background:var(--mint)"></span>台式机 · 书房</b><small>192.168.88.22 · 341 连接</small></div><div class="rate"><b>↓ 52.1</b><br>↑ 6.3 Mbps</div></div>
+      <div class="glass term"><span class="av">📺</span><div><b><span class="st" style="background:var(--mint)"></span>小米电视 · 客厅</b><small>192.168.88.57 · 23 连接</small></div><div class="rate"><b>↓ 31.5</b><br>↑ 0.4 Mbps</div></div>
+      <div class="glass term"><span class="av">📱</span><div><b><span class="st" style="background:var(--mint)"></span>iPhone 15 Pro</b><small>192.168.88.42 · 86 连接</small></div><div class="rate"><b>↓ 12.4</b><br>↑ 1.2 Mbps</div></div>
+      <div class="glass term"><span class="av">💻</span><div><b><span class="st" style="background:var(--mint)"></span>MacBook Pro 14</b><small>192.168.88.31 · 214 连接</small></div><div class="rate"><b>↓ 8.7</b><br>↑ 3.9 Mbps</div></div>
+      <div class="glass term"><span class="av">🗄️</span><div><b><span class="st" style="background:var(--mint)"></span>NAS · 群晖</b><small>192.168.88.10 · 178 连接</small></div><div class="rate"><b>↓ 6.2</b><br>↑ 22.8 Mbps</div></div>
+      <div class="glass term"><span class="av">🎮</span><div><b><span class="st" style="background:var(--mint)"></span>Switch · 游戏机</b><small>192.168.88.63 · 12 连接</small></div><div class="rate"><b>↓ 4.1</b><br>↑ 0.8 Mbps</div></div>
+      <div class="glass term"><span class="av">🔊</span><div><b><span class="st" style="background:var(--amber)"></span>HomePod mini</b><small>192.168.88.71 · 2 连接</small></div><div class="rate" style="color:var(--ink3)">空闲<br>&nbsp;</div></div>
+      <div class="glass term"><span class="av">🤖</span><div><b><span class="st" style="background:var(--amber)"></span>扫地机器人</b><small>vlan20-iot · 3 连接</small></div><div class="rate" style="color:var(--ink3)">空闲<br>&nbsp;</div></div>
+    </div>
+
+    <div class="sec-t"><h2>正在发生</h2><span class="r">全部动态 →</span></div>
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      <div class="glass mini"><div class="l"><span class="ic" style="background:rgba(252,211,77,.14)">⚠️</span>接口 ether4 频繁闪断</div><div class="s" style="margin-top:10px">10 分钟内链路抖动 6 次 · 12 分钟前</div></div>
+      <div class="glass mini"><div class="l"><span class="ic" style="background:rgba(110,231,183,.13)">✅</span>策略「苹果服务加速」已生效</div><div class="s" style="margin-top:10px">42 项变更通过回读校验 · 昨天 21:04</div></div>
+      <div class="glass mini"><div class="l"><span class="ic" style="background:rgba(103,232,249,.12)">🔄</span>gfwlist 目标库已更新</div><div class="s" style="margin-top:10px">12,480 条规则 · 3 小时前</div></div>
+    </div>
+  </section>
+
+  <!-- ======== POLICY ======== -->
+  <section class="view" id="view-policy">
+    <div class="sec-t" style="margin-top:4px"><h2>出口线路</h2><span>3 条 WAN</span><span class="r">＋ 添加出口</span></div>
+    <div class="pol-grid">
+      <div class="glass egr-card"><div class="pol t"><span class="wan" style="background:rgba(103,232,249,.14)">🌐</span>电信 · PPPoE<span class="badge g" style="margin-left:auto">已应用</span></div>
+        <div class="kv" style="margin-top:12px"><span>接口</span><b>pppoe-out1</b></div><div class="kv"><span>协议族</span><b>IPv4 + IPv6</b></div><div class="kv"><span>故障策略</span><b>严格</b></div><div class="kv"><span>当前负载</span><b style="color:var(--mint)">↓152M ↑38M</b></div></div>
+      <div class="glass egr-card"><div class="pol t"><span class="wan" style="background:rgba(196,181,253,.14)">🌐</span>联通 · DHCP<span class="badge g" style="margin-left:auto">已应用</span></div>
+        <div class="kv" style="margin-top:12px"><span>接口</span><b>ether2</b></div><div class="kv"><span>协议族</span><b>IPv4</b></div><div class="kv"><span>故障策略</span><b>回退电信</b></div><div class="kv"><span>当前负载</span><b style="color:var(--mint)">↓34M ↑4.7M</b></div></div>
+      <div class="glass egr-card" style="opacity:.6"><div class="pol t"><span class="wan" style="background:rgba(255,255,255,.07)">🌐</span>移动 · 备用<span class="badge n" style="margin-left:auto">停用</span></div>
+        <div class="kv" style="margin-top:12px"><span>接口</span><b>ether3</b></div><div class="kv"><span>协议族</span><b>IPv4</b></div><div class="kv"><span>故障策略</span><b>严格</b></div><div class="kv"><span>当前负载</span><b>—</b></div></div>
+    </div>
+
+    <div class="sec-t"><h2>分流规则</h2><span>流量从「谁」经过「什么目标」流向「哪条线路」</span><span class="r">＋ 新建规则</span></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="glass pol">
+        <div class="pol t">苹果服务加速<span class="badge g" style="margin-left:auto">已应用 · 修订 7</span><span class="toggle"></span></div>
+        <div class="flow-line"><span class="node">全部终端</span><span class="arrow">→</span><span class="node">🍎 Apple 服务 <span class="cap">14,344 条</span></span><span class="arrow">→</span><span class="node hl">电信 · PPPoE</span></div>
+      </div>
+      <div class="glass pol">
+        <div class="pol t">流媒体走联通<span class="badge g" style="margin-left:auto">已应用 · 修订 3</span><span class="toggle"></span></div>
+        <div class="flow-line"><span class="node">小米电视</span><span class="node">Switch</span><span class="arrow">→</span><span class="node">Netflix <span class="cap">142</span></span><span class="node">YouTube <span class="cap">389</span></span><span class="arrow">→</span><span class="node hl">联通 · DHCP</span></div>
+      </div>
+      <div class="glass pol" style="border-color:rgba(252,211,77,.3)">
+        <div class="pol t">办公优先<span class="badge a" style="margin-left:auto">2 项变更待应用</span><span class="toggle"></span></div>
+        <div class="flow-line"><span class="node">MacBook Pro</span><span class="node">台式机</span><span class="arrow">→</span><span class="node">整个互联网</span><span class="arrow">→</span><span class="node hl">自动选路</span>
+        <span class="r" style="margin-left:auto;color:var(--amber);cursor:pointer;font-size:12.5px">审查并应用 →</span></div>
+      </div>
+      <div class="glass pol" style="opacity:.55">
+        <div class="pol t">默认分流<span class="badge n" style="margin-left:auto">已停用</span><span class="toggle off"></span></div>
+        <div class="flow-line"><span class="node">全部终端</span><span class="arrow">→</span><span class="node">gfwlist <span class="cap">12,480</span></span><span class="arrow">→</span><span class="node hl">移动 · 备用</span></div>
+      </div>
+    </div>
+
+    <div class="sec-t"><h2>访问控制</h2><span class="r">管理 →</span></div>
+    <div class="pol-grid" style="grid-template-columns:1fr 1fr">
+      <div class="glass pol"><div class="pol t"><span class="wan" style="width:32px;height:32px;border-radius:11px;background:rgba(253,164,175,.13);display:grid;place-items:center">🚫</span>儿童平板 · 断网时段<span class="badge g" style="margin-left:auto">生效中</span></div>
+        <div class="flow-line"><span class="node">iPad · 儿童房</span><span class="arrow">→</span><span class="node">22:00 – 07:00</span><span class="arrow">→</span><span class="node" style="color:var(--rose);border-color:rgba(253,164,175,.35)">禁止互联网</span></div></div>
+      <div class="glass pol"><div class="pol t"><span class="wan" style="width:32px;height:32px;border-radius:11px;background:rgba(253,164,175,.13);display:grid;place-items:center">🚫</span>屏蔽广告域名<span class="badge g" style="margin-left:auto">生效中</span></div>
+        <div class="flow-line"><span class="node">全部终端</span><span class="arrow">→</span><span class="node">广告域名 <span class="cap">320</span></span><span class="arrow">→</span><span class="node" style="color:var(--rose);border-color:rgba(253,164,175,.35)">拒绝连接</span></div></div>
+    </div>
+  </section>
+</div>
+
+<div class="mock-note">风格 <b>05 · Aurora 玻璃拟态</b>：深色极光渐变 · 毛玻璃卡片 · 消费级亲和力 · 流向可视化</div>
+
+<script>
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function series(seed,n,base,amp){const r=rng(seed);let v=base;const out=[];for(let i=0;i<n;i++){v+=(r()-.5)*amp;v=Math.max(base*.3,v);out.push(v)}return out}
+function path(pts,w,h){const max=Math.max(...pts)*1.15,min=Math.min(...pts)*.5;const step=w/(pts.length-1);return pts.map((p,i)=>{const x=i*step,y=h-((p-min)/(max-min))*(h-8)-4;return(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1)}).join(' ')}
+(function(){
+  const svg=document.getElementById('chartMain'),W=640,H=120;
+  const dn=series(7,90,150,30),up=series(21,90,42,10);
+  const d=path(dn,W,H),u=path(up,W,H);
+  svg.innerHTML=`
+    <defs>
+      <linearGradient id="af" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#67e8f9" stop-opacity=".3"/><stop offset="1" stop-color="#67e8f9" stop-opacity="0"/></linearGradient>
+      <linearGradient id="ln" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#67e8f9"/></linearGradient>
+    </defs>
+    <path d="${d} L${W},${H} L0,${H} Z" fill="url(#af)"/>
+    <path d="${d}" fill="none" stroke="url(#ln)" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="${u}" fill="none" stroke="#c4b5fd" stroke-width="1.4" opacity=".7" stroke-dasharray="1 3" stroke-linecap="round"/>`;
+})();
+const tabs=document.querySelectorAll('.pill-nav button[data-view]');
+tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById('view-'+b.dataset.view).classList.add('on');});
+</script>
+</body>
+</html>

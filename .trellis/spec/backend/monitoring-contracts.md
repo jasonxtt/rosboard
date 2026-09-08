@@ -424,79 +424,24 @@ counts := connectionProtocolCounts(connectionsV4, connectionsV6)
 states := terminalStateCounts(terminals, trafficInterfaces)
 ```
 
-## Scenario: Editable terminal metadata
+## Scenario: Editable terminal display name
 
-### 1. Scope / Trigger
+### Scope and signatures
 
-- Trigger: changes to terminal display names, remarks, metadata API handlers, or polling behavior while an edit dialog is open.
-- User names and remarks are panel-local state; they never write RouterOS configuration.
+Terminal names are panel-local state and never write RouterOS configuration. `POST /api/terminals/{id}/metadata?device=...` accepts only `{customName}` and returns `TerminalDetail`. Both store and monitor expose `UpdateTerminalMetadata(ctx, id, customName string)`. The terminal payload contains `autoName`, `customName` and effective `displayName`; terminal remarks are no longer exposed or editable.
 
-### 2. Signatures
+### Contracts
 
-- Database: `terminals.custom_name TEXT NOT NULL DEFAULT ''`; `display_name` remains the automatically discovered name.
-- Store: `UpdateTerminalMetadata(ctx, terminalID, customName, remark string) error`.
-- Service: `UpdateTerminalMetadata(ctx, id, customName, remark string) (model.TerminalDetail, error)`.
-- API: `POST /api/terminals/{id}/metadata` with `{customName, remark}` and a `TerminalDetail` response.
-- Payload: `Terminal.autoName`, `Terminal.customName`, and effective `Terminal.displayName`.
+- Persist only `custom_name`, scoped by device ID and terminal ID. Never use a display name as an identity key or alter MAC/IP attribution, policy membership, or discovered `display_name`.
+- Effective precedence remains `customName > autoName > primary IPv4 > primary IPv6 > MAC > 未命名设备`. An empty name restores automatic naming.
+- Require the `customName` JSON field, trim whitespace, allow up to 100 Unicode code points, and reject removed/unknown fields. Invalid input returns 400; unknown terminal returns 404; storage failure returns 500.
+- `metadataMu` serializes metadata updates with snapshot commit. Update SQLite and current dashboard/detail/family projections without acquiring the full refresh lock or contacting RouterOS.
+- The inline editor owns its draft; polling cannot overwrite it. Abort the view's request on unmount/device change and ignore aborted responses. Failed saves retain the draft and error in the popover.
+- The old SQLite `remark` column remains inert solely for existing database/import compatibility. It is not read into application projections, written by name editing, or migrated into names. Removing the user-visible feature must not rewrite identity/history tables.
 
-### 3. Contracts
+### Required verification
 
-- Effective name precedence is `customName > autoName > primary IPv4 > primary IPv6 > MAC > 未命名设备`.
-- DHCP comment/hostname is automatic evidence; IP and MAC are display fallbacks, not recognized model names.
-- Empty `customName` restores automatic/fallback naming without changing `remark`.
-- Metadata save is serialized with full collection by `Monitor.refreshMu`, then updates SQLite and the current dashboard/detail/family-summary projections under the monitor snapshot lock. It must not call full RouterOS `refresh()`.
-- Frontend edit draft state is keyed by a separate editing terminal ID. Dashboard/detail polling must never overwrite an open draft.
-
-### 4. Validation & Error Matrix
-
-- Invalid JSON -> HTTP 400.
-- `customName` over 100 Unicode code points or `remark` over 500 -> HTTP 400.
-- Unknown terminal ID -> HTTP 404 / `store.ErrTerminalNotFound`.
-- SQLite failure -> HTTP 500; keep the frontend dialog and draft open.
-- Successful local update -> HTTP 200, close the dialog, update list and detail without waiting for a poll.
-
-### 5. Good/Base/Bad Cases
-
-- Good: DHCP reports `iPhone`, user saves `iPhone 13 PM`; list shows the custom name and the dialog still shows `iPhone` as automatic.
-- Base: no automatic or custom name; list uses the primary IP and labels automatic detection as unavailable.
-- Good: clearing custom name preserves the remark and restores the automatic name.
-- Bad: saving a remark calls full RouterOS refresh and returns HTTP 500 after SQLite already committed.
-- Bad: a 3-second detail poll calls a draft setter and erases text being entered.
-
-### 6. Tests Required
-
-- Store: metadata persists, survives reload, and an unknown ID returns `ErrTerminalNotFound`.
-- Service: one update changes dashboard, terminal detail, and family summaries consistently without a RouterOS client.
-- Unit: effective-name precedence and MAC/IP auto-name rejection.
-- Browser: type for longer than two poll intervals, assert both drafts remain unchanged, save, assert dialog closes and refresh preserves values.
-
-### 7. Wrong vs Correct
-
-#### Wrong
-
-```go
-store.UpdateTerminalRemark(ctx, id, remark)
-return monitor.refresh(ctx)
-```
-
-```tsx
-// A background poll must not own an active form draft.
-setRemarkDraft(payload.terminal.remark)
-```
-
-#### Correct
-
-```go
-store.UpdateTerminalMetadata(ctx, id, customName, remark)
-// Patch the current snapshot/detail projections under Monitor.mu.
-```
-
-```tsx
-// Initialize once when opening; polling updates server state only.
-setEditingTerminalID(terminal.id)
-setCustomNameDraft(terminal.customName)
-setRemarkDraft(terminal.remark)
-```
+Store persistence and cross-device isolation, monitor snapshot/family consistency without a RouterOS client, unchanged IDs/addresses, reset to automatic name, merge of latest names during polling, API input validation, and frontend draft/cancel/error/submit behavior.
 
 ## Scenario: RouterOS terminal topology scope
 

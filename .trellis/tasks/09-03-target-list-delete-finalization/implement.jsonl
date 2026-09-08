@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "P0 cross-manager RouterOS ownership, conservative legacy migration, and domain-scoped reconciliation contract."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Focused regression, race, vet, build, and surgical-change verification requirements."}
+{"file": ".trellis/spec/backend/runtime-configuration.md", "reason": "Installation and device identity persistence used to scope managed RouterOS objects."}
+{"file": ".trellis/tasks/09-03-target-list-delete-finalization/design.md", "reason": "Current task design records the observed delete/recreate loop and the exact ownership/adoption boundary."}

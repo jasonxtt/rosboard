@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"rosboard/internal/applicationpreset"
 	"rosboard/internal/config"
 	"rosboard/internal/routeros"
 	"rosboard/internal/store"
@@ -21,15 +22,17 @@ var (
 )
 
 type DeviceStatus struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Enabled    bool      `json:"enabled"`
-	Archived   bool      `json:"archived"`
-	Healthy    bool      `json:"healthy"`
-	Error      string    `json:"error,omitempty"`
-	RouterName string    `json:"routerName"`
-	Version    string    `json:"version"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Enabled    bool          `json:"enabled"`
+	Archived   bool          `json:"archived"`
+	Healthy    bool          `json:"healthy"`
+	Error      string        `json:"error,omitempty"`
+	RouterName string        `json:"routerName"`
+	Version    string        `json:"version"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
+	SortOrder  int           `json:"-"`
+	MosDNS     *MosDNSStatus `json:"mosdns,omitempty"`
 }
 
 const fleetSnapshotStaleAfter = 90 * time.Second
@@ -72,58 +75,28 @@ type FleetDevice struct {
 	ConnectionOther   int       `json:"connectionOther"`
 	Uptime            string    `json:"uptime"`
 	UpdatedAt         time.Time `json:"updatedAt"`
+	SortOrder         int       `json:"-"`
 }
 
 type managedMonitor struct {
-	device  config.DeviceConfig
-	monitor *Monitor
-	started bool
-	err     string
+	device        config.DeviceConfig
+	monitor       *Monitor
+	mosdns        *MosDNSSynchronizer
+	mosdnsInitErr string
+	started       bool
+	err           string
 }
 
 type MonitorManager struct {
-	mu               sync.RWMutex
-	items            map[string]*managedMonitor
-	order            []string
-	logger           *log.Logger
-	storage          *store.Store
-	mosdns           *MosDNSSynchronizer
-	mosdnsConfig     config.MosDNSConfig
-	mosdnsInitErr    string
-	feature          *FeatureLibrarySynchronizer
-	featureConfig    config.FeatureLibraryConfig
-	featureInitErr   string
-	resolver         *ApplicationResolver
-	protocolAnalysis bool
+	mu      sync.RWMutex
+	items   map[string]*managedMonitor
+	order   []string
+	logger  *log.Logger
+	storage *store.Store
 }
 
 func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logger) (*MonitorManager, error) {
-	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage, mosdnsConfig: cfg.MosDNS, featureConfig: cfg.FeatureLibrary, protocolAnalysis: cfg.ProtocolAnalysis.Enabled}
-	if manager.protocolAnalysis && cfg.MosDNS.Configured() {
-		mosdns, err := NewMosDNSSynchronizer(cfg.MosDNS, storage, logger, cfg.SampleRetentionHours)
-		if err != nil {
-			manager.mosdnsInitErr = err.Error()
-			if logger != nil {
-				logger.Printf("MosDNS sync disabled: %v", err)
-			}
-		} else {
-			manager.mosdns = mosdns
-		}
-	}
-	if manager.protocolAnalysis && cfg.FeatureLibrary.Configured() {
-		feature, err := NewFeatureLibrarySynchronizer(cfg.FeatureLibrary, cfg.DataDir, logger)
-		if err != nil {
-			manager.featureInitErr = err.Error()
-			if logger != nil {
-				logger.Printf("feature library disabled: %v", err)
-			}
-		} else {
-			manager.feature = feature
-		}
-	}
-	if manager.protocolAnalysis {
-		manager.resolver = NewApplicationResolver(storage, manager.feature, cfg.MosDNS.Configured(), cfg.FeatureLibrary.MatchWindowMinutes)
-	}
+	manager := &MonitorManager{items: make(map[string]*managedMonitor), logger: logger, storage: storage}
 	for _, device := range cfg.Devices {
 		if device.Archived {
 			continue
@@ -132,13 +105,27 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 		if device.Enabled && device.RouterOS.Configured() {
 			deviceConfig := cfg
 			deviceConfig.RouterOS = device.RouterOS
+			deviceConfig.ProtocolAnalysis = config.ProtocolAnalysisConfig{Enabled: device.ProtocolAnalysis}
 			client := routeros.NewClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password)
 			deviceStore, err := storage.OpenDevice(device.ID)
 			if err != nil {
 				return nil, fmt.Errorf("open store for device %s: %w", device.ID, err)
 			}
 			item.monitor = NewMonitor(deviceConfig, client, deviceStore, logger)
-			item.monitor.SetApplicationResolver(manager.resolver)
+			if device.ProtocolAnalysis && device.MosDNS.Configured() {
+				item.monitor.SetApplicationResolver(NewApplicationResolverWithRegistry(deviceStore, applicationpreset.Default(), true, device.MosDNS.MatchWindowMinutes))
+			}
+			if device.MosDNS.Configured() {
+				mosdns, err := NewMosDNSSynchronizer(device.MosDNS, deviceStore, logger, cfg.SampleRetentionHours)
+				if err != nil {
+					item.mosdnsInitErr = err.Error()
+					if logger != nil {
+						logger.Printf("device %s MosDNS sync disabled: %v", device.ID, err)
+					}
+				} else {
+					item.mosdns = mosdns
+				}
+			}
 		}
 		manager.items[device.ID] = item
 		manager.order = append(manager.order, device.ID)
@@ -147,22 +134,24 @@ func NewMonitorManager(cfg config.Config, storage *store.Store, logger *log.Logg
 }
 
 func (m *MonitorManager) Start(ctx context.Context) {
-	if m.mosdns != nil {
-		go m.mosdns.Start(ctx)
-	}
-	if m.feature != nil {
-		go m.feature.Start(ctx)
-	}
-	var wait sync.WaitGroup
 	m.mu.RLock()
 	items := make([]*managedMonitor, 0, len(m.items))
 	for _, id := range m.order {
-		if item := m.items[id]; item != nil && item.monitor != nil {
+		if item := m.items[id]; item != nil {
 			items = append(items, item)
 		}
 	}
 	m.mu.RUnlock()
 	for _, item := range items {
+		if item.mosdns != nil {
+			go item.mosdns.Start(ctx)
+		}
+	}
+	var wait sync.WaitGroup
+	for _, item := range items {
+		if item.monitor == nil {
+			continue
+		}
 		wait.Add(1)
 		go func(item *managedMonitor) {
 			defer wait.Done()
@@ -174,45 +163,60 @@ func (m *MonitorManager) Start(ctx context.Context) {
 	wait.Wait()
 }
 
-func (m *MonitorManager) MosDNSStatus() MosDNSStatus {
-	if m == nil || !m.protocolAnalysis {
+// MosDNSStatus reports the per-device MosDNS recognition status. Devices
+// without their own MosDNS configuration report an empty status.
+func (m *MonitorManager) MosDNSStatus(deviceID string) MosDNSStatus {
+	if m == nil {
 		return MosDNSStatus{}
 	}
-	if m.mosdns != nil {
-		return m.mosdns.Status()
+	m.mu.RLock()
+	item := m.items[deviceID]
+	m.mu.RUnlock()
+	if item == nil {
+		return MosDNSStatus{}
 	}
-	status := MosDNSStatus{
-		Enabled:             m.mosdnsConfig.Configured(),
-		BaseURL:             m.mosdnsConfig.BaseURL,
-		SyncIntervalMinutes: m.mosdnsConfig.SyncIntervalMinutes,
-		LastError:           m.mosdnsInitErr,
+	if item.mosdns != nil {
+		return item.mosdns.Status()
 	}
-	return status
+	return MosDNSStatus{
+		Enabled:             item.device.MosDNS.Configured(),
+		BaseURL:             item.device.MosDNS.BaseURL,
+		SyncIntervalMinutes: item.device.MosDNS.SyncIntervalMinutes,
+		MatchWindowMinutes:  item.device.MosDNS.MatchWindowMinutes,
+		LastError:           item.mosdnsInitErr,
+	}
 }
 
 type RecognitionStatus struct {
-	MosDNS         MosDNSStatus         `json:"mosdns"`
-	FeatureLibrary FeatureLibraryStatus `json:"featureLibrary"`
+	ProtocolAnalysis bool         `json:"protocolAnalysis"`
+	MosDNS           MosDNSStatus `json:"mosdns"`
 }
 
-func (m *MonitorManager) RecognitionStatus() RecognitionStatus {
-	if m == nil || !m.protocolAnalysis {
+// RecognitionStatus reports the per-device protocol analysis and MosDNS state.
+// Devices without configured monitors report the stored configuration only.
+func (m *MonitorManager) RecognitionStatus(deviceID string) RecognitionStatus {
+	if m == nil {
 		return RecognitionStatus{}
 	}
-	mosStatus := m.MosDNSStatus()
-	if m.feature != nil {
-		return RecognitionStatus{MosDNS: mosStatus, FeatureLibrary: m.feature.Status()}
+	m.mu.RLock()
+	item := m.items[deviceID]
+	m.mu.RUnlock()
+	if item == nil {
+		return RecognitionStatus{}
 	}
-	return RecognitionStatus{
-		MosDNS: mosStatus,
-		FeatureLibrary: FeatureLibraryStatus{
-			Enabled:              m.featureConfig.Configured(),
-			SourceURL:            m.featureConfig.SourceURL,
-			RefreshIntervalHours: m.featureConfig.RefreshIntervalHours,
-			MatchWindowMinutes:   m.featureConfig.MatchWindowMinutes,
-			LastError:            m.featureInitErr,
-		},
+	status := RecognitionStatus{ProtocolAnalysis: item.device.ProtocolAnalysis}
+	if item.mosdns != nil {
+		status.MosDNS = item.mosdns.Status()
+	} else {
+		status.MosDNS = MosDNSStatus{
+			Enabled:             item.device.MosDNS.Configured(),
+			BaseURL:             item.device.MosDNS.BaseURL,
+			SyncIntervalMinutes: item.device.MosDNS.SyncIntervalMinutes,
+			MatchWindowMinutes:  item.device.MosDNS.MatchWindowMinutes,
+			LastError:           item.mosdnsInitErr,
+		}
 	}
+	return status
 }
 
 func (m *MonitorManager) startMonitor(ctx context.Context, item *managedMonitor, waitPhase bool) error {
@@ -301,6 +305,27 @@ func (m *MonitorManager) Monitor(deviceID string) (*Monitor, error) {
 	return item.monitor, nil
 }
 
+// MonitorForDevices resolves the monitor for deviceID, falling back to the
+// first enabled device in the caller's current configuration order when no
+// device is requested. This keeps the "first device" default consistent with
+// a reordered config without restarting the manager.
+func (m *MonitorManager) MonitorForDevices(deviceID string, configured []config.DeviceConfig) (*Monitor, error) {
+	if deviceID == "" {
+		m.mu.RLock()
+		for _, device := range configured {
+			if device.Archived {
+				continue
+			}
+			if item := m.items[device.ID]; item != nil && item.device.Enabled && item.monitor != nil {
+				deviceID = device.ID
+				break
+			}
+		}
+		m.mu.RUnlock()
+	}
+	return m.Monitor(deviceID)
+}
+
 func (m *MonitorManager) DefaultDeviceID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -339,7 +364,7 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 		if device.Archived && !includeArchived {
 			continue
 		}
-		status := DeviceStatus{ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived}
+		status := DeviceStatus{ID: device.ID, Name: device.Name, Enabled: device.Enabled, Archived: device.Archived, SortOrder: device.SortOrder}
 		if item := m.items[device.ID]; item != nil {
 			status.Healthy = item.started
 			status.Error = item.err
@@ -349,24 +374,43 @@ func (m *MonitorManager) Statuses(includeArchived bool, configured []config.Devi
 				status.Version = overview.Version
 				status.UpdatedAt = overview.UpdatedAt
 			}
+			mosStatus := MosDNSStatus{
+				Enabled:             device.MosDNS.Configured(),
+				BaseURL:             device.MosDNS.BaseURL,
+				SyncIntervalMinutes: device.MosDNS.SyncIntervalMinutes,
+				MatchWindowMinutes:  device.MosDNS.MatchWindowMinutes,
+				LastError:           item.mosdnsInitErr,
+			}
+			if item.mosdns != nil {
+				mosStatus = item.mosdns.Status()
+			}
+			status.MosDNS = &mosStatus
 		}
 		result = append(result, status)
 	}
-	sort.SliceStable(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	sort.SliceStable(result, func(i, j int) bool {
+		return config.DisplayOrderLess(result[i].SortOrder, result[i].Name, result[j].SortOrder, result[j].Name)
+	})
 	return result
 }
 
-func (m *MonitorManager) FleetOverview(now time.Time) FleetOverview {
+// FleetOverview builds the fleet grid from the caller's current device
+// configuration so a reordered config is reflected without restarting the
+// manager; per-device state still comes from the cached monitors.
+func (m *MonitorManager) FleetOverview(now time.Time, configured []config.DeviceConfig) FleetOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := FleetOverview{Devices: make([]FleetDevice, 0, len(m.order))}
-	for _, id := range m.order {
-		item := m.items[id]
-		if item == nil || !item.device.Enabled || item.device.Archived {
+	result := FleetOverview{Devices: make([]FleetDevice, 0, len(configured))}
+	for _, deviceConfig := range configured {
+		if deviceConfig.Archived {
 			continue
 		}
-		device := FleetDevice{ID: item.device.ID, Name: item.device.Name, State: "offline", Error: item.err}
+		item := m.items[deviceConfig.ID]
+		if item == nil || !item.device.Enabled {
+			continue
+		}
+		device := FleetDevice{ID: deviceConfig.ID, Name: deviceConfig.Name, State: "offline", Error: item.err, SortOrder: deviceConfig.SortOrder}
 		if endpoint, err := url.Parse(item.device.RouterOS.BaseURL); err == nil {
 			device.Address = endpoint.Hostname()
 		}
@@ -415,6 +459,8 @@ func (m *MonitorManager) FleetOverview(now time.Time) FleetOverview {
 		result.Devices = append(result.Devices, device)
 	}
 	result.TotalDevices = len(result.Devices)
-	sort.SliceStable(result.Devices, func(i, j int) bool { return result.Devices[i].Name < result.Devices[j].Name })
+	sort.SliceStable(result.Devices, func(i, j int) bool {
+		return config.DisplayOrderLess(result.Devices[i].SortOrder, result.Devices[i].Name, result.Devices[j].SortOrder, result.Devices[j].Name)
+	})
 	return result
 }

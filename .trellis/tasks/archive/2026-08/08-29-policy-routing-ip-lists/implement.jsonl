@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Desired-state lifecycle, ownership comment identity, and reconcile contracts that IP address-list materialization must preserve"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite schema increment conventions for adding policy_v2_sources.kind"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index and quality expectations"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Frontend design language and verification conventions for the IP sources page"}
+{"file": ".trellis/tasks/08-29-policy-routing-ip-lists/research/routeros-ip-list-routing.md", "reason": "RouterOS research: IP lists materialize into existing mangle/routing-table path without routing rules"}

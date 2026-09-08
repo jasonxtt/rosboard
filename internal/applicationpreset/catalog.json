@@ -1,0 +1,4017 @@
+[
+  {
+    "id": "115",
+    "name": "115",
+    "category": "服务",
+    "rulePath": "rule/Clash/115/115.yaml"
+  },
+  {
+    "id": "12306",
+    "name": "12306",
+    "category": "服务",
+    "rulePath": "rule/Clash/12306/12306.yaml"
+  },
+  {
+    "id": "1337x",
+    "name": "1337x",
+    "category": "下载",
+    "rulePath": "rule/Clash/1337x/1337x.yaml"
+  },
+  {
+    "id": "17173",
+    "name": "17173",
+    "category": "其他",
+    "rulePath": "rule/Clash/17173/17173.yaml"
+  },
+  {
+    "id": "178",
+    "name": "178",
+    "category": "其他",
+    "rulePath": "rule/Clash/178/178.yaml"
+  },
+  {
+    "id": "17zuoye",
+    "name": "17zuoye",
+    "category": "其他",
+    "rulePath": "rule/Clash/17zuoye/17zuoye.yaml"
+  },
+  {
+    "id": "2kgames",
+    "name": "2KGames",
+    "category": "其他",
+    "rulePath": "rule/Clash/2KGames/2KGames.yaml"
+  },
+  {
+    "id": "360",
+    "name": "360",
+    "category": "服务",
+    "rulePath": "rule/Clash/360/360.yaml"
+  },
+  {
+    "id": "36kr",
+    "name": "36kr",
+    "category": "其他",
+    "rulePath": "rule/Clash/36kr/36kr.yaml"
+  },
+  {
+    "id": "3type",
+    "name": "3Type",
+    "category": "其他",
+    "rulePath": "rule/Clash/3Type/3Type.yaml"
+  },
+  {
+    "id": "3dm",
+    "name": "3dm",
+    "category": "其他",
+    "rulePath": "rule/Clash/3dm/3dm.yaml"
+  },
+  {
+    "id": "4399",
+    "name": "4399",
+    "category": "其他",
+    "rulePath": "rule/Clash/4399/4399.yaml"
+  },
+  {
+    "id": "4paradigm",
+    "name": "4Paradigm",
+    "category": "其他",
+    "rulePath": "rule/Clash/4Paradigm/4Paradigm.yaml"
+  },
+  {
+    "id": "4chan",
+    "name": "4chan",
+    "category": "其他",
+    "rulePath": "rule/Clash/4chan/4chan.yaml"
+  },
+  {
+    "id": "51job",
+    "name": "51Job",
+    "category": "其他",
+    "rulePath": "rule/Clash/51Job/51Job.yaml"
+  },
+  {
+    "id": "51nod",
+    "name": "51nod",
+    "category": "其他",
+    "rulePath": "rule/Clash/51nod/51nod.yaml"
+  },
+  {
+    "id": "56",
+    "name": "56",
+    "category": "其他",
+    "rulePath": "rule/Clash/56/56.yaml"
+  },
+  {
+    "id": "58tongcheng",
+    "name": "58TongCheng",
+    "category": "其他",
+    "rulePath": "rule/Clash/58TongCheng/58TongCheng.yaml"
+  },
+  {
+    "id": "6jianfang",
+    "name": "6JianFang",
+    "category": "其他",
+    "rulePath": "rule/Clash/6JianFang/6JianFang.yaml"
+  },
+  {
+    "id": "6park",
+    "name": "6park",
+    "category": "其他",
+    "rulePath": "rule/Clash/6park/6park.yaml"
+  },
+  {
+    "id": "8btc",
+    "name": "8btc",
+    "category": "其他",
+    "rulePath": "rule/Clash/8btc/8btc.yaml"
+  },
+  {
+    "id": "9news",
+    "name": "9News",
+    "category": "其他",
+    "rulePath": "rule/Clash/9News/9News.yaml"
+  },
+  {
+    "id": "9to5",
+    "name": "9to5",
+    "category": "其他",
+    "rulePath": "rule/Clash/9to5/9to5.yaml"
+  },
+  {
+    "id": "abc",
+    "name": "ABC",
+    "category": "其他",
+    "rulePath": "rule/Clash/ABC/ABC.yaml"
+  },
+  {
+    "id": "afp",
+    "name": "AFP",
+    "category": "其他",
+    "rulePath": "rule/Clash/AFP/AFP.yaml"
+  },
+  {
+    "id": "aljazeera",
+    "name": "ALJazeera",
+    "category": "其他",
+    "rulePath": "rule/Clash/ALJazeera/ALJazeera.yaml"
+  },
+  {
+    "id": "amd",
+    "name": "AMD",
+    "category": "其他",
+    "rulePath": "rule/Clash/AMD/AMD.yaml"
+  },
+  {
+    "id": "amp",
+    "name": "AMP",
+    "category": "其他",
+    "rulePath": "rule/Clash/AMP/AMP.yaml"
+  },
+  {
+    "id": "aol",
+    "name": "AOL",
+    "category": "其他",
+    "rulePath": "rule/Clash/AOL/AOL.yaml"
+  },
+  {
+    "id": "apkcombo",
+    "name": "APKCombo",
+    "category": "其他",
+    "rulePath": "rule/Clash/APKCombo/APKCombo.yaml"
+  },
+  {
+    "id": "attwatchtv",
+    "name": "ATTWatchTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/ATTWatchTV/ATTWatchTV.yaml"
+  },
+  {
+    "id": "abema",
+    "name": "Abema",
+    "category": "其他",
+    "rulePath": "rule/Clash/Abema/Abema.yaml"
+  },
+  {
+    "id": "abematv",
+    "name": "AbemaTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/AbemaTV/AbemaTV.yaml"
+  },
+  {
+    "id": "acfun",
+    "name": "AcFun",
+    "category": "其他",
+    "rulePath": "rule/Clash/AcFun/AcFun.yaml"
+  },
+  {
+    "id": "accuweather",
+    "name": "Accuweather",
+    "category": "其他",
+    "rulePath": "rule/Clash/Accuweather/Accuweather.yaml"
+  },
+  {
+    "id": "acer",
+    "name": "Acer",
+    "category": "其他",
+    "rulePath": "rule/Clash/Acer/Acer.yaml"
+  },
+  {
+    "id": "acplay",
+    "name": "Acplay",
+    "category": "其他",
+    "rulePath": "rule/Clash/Acplay/Acplay.yaml"
+  },
+  {
+    "id": "actalis",
+    "name": "Actalis",
+    "category": "其他",
+    "rulePath": "rule/Clash/Actalis/Actalis.yaml"
+  },
+  {
+    "id": "adcolony",
+    "name": "AdColony",
+    "category": "其他",
+    "rulePath": "rule/Clash/AdColony/AdColony.yaml"
+  },
+  {
+    "id": "adguardsdnsfilter",
+    "name": "AdGuardSDNSFilter",
+    "category": "广告与隐私",
+    "rulePath": "rule/Clash/AdGuardSDNSFilter/AdGuardSDNSFilter_Domain.yaml"
+  },
+  {
+    "id": "addtoany",
+    "name": "AddToAny",
+    "category": "其他",
+    "rulePath": "rule/Clash/AddToAny/AddToAny.yaml"
+  },
+  {
+    "id": "addthis",
+    "name": "Addthis",
+    "category": "其他",
+    "rulePath": "rule/Clash/Addthis/Addthis.yaml"
+  },
+  {
+    "id": "adidas",
+    "name": "Adidas",
+    "category": "其他",
+    "rulePath": "rule/Clash/Adidas/Adidas.yaml"
+  },
+  {
+    "id": "adobe",
+    "name": "Adobe",
+    "category": "其他",
+    "rulePath": "rule/Clash/Adobe/Adobe.yaml"
+  },
+  {
+    "id": "adobeactivation",
+    "name": "AdobeActivation",
+    "category": "其他",
+    "rulePath": "rule/Clash/AdobeActivation/AdobeActivation.yaml"
+  },
+  {
+    "id": "advertising",
+    "name": "Advertising",
+    "category": "广告与隐私",
+    "rulePath": "rule/Clash/Advertising/Advertising.yaml"
+  },
+  {
+    "id": "advertisinglite",
+    "name": "AdvertisingLite",
+    "category": "广告与隐私",
+    "rulePath": "rule/Clash/AdvertisingLite/AdvertisingLite.yaml"
+  },
+  {
+    "id": "advertisingmitv",
+    "name": "AdvertisingMiTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/AdvertisingMiTV/AdvertisingMiTV.yaml"
+  },
+  {
+    "id": "advertisingtest",
+    "name": "AdvertisingTest",
+    "category": "其他",
+    "rulePath": "rule/Clash/AdvertisingTest/AdvertisingTest.yaml"
+  },
+  {
+    "id": "aerogard",
+    "name": "Aerogard",
+    "category": "其他",
+    "rulePath": "rule/Clash/Aerogard/Aerogard.yaml"
+  },
+  {
+    "id": "afdian",
+    "name": "Afdian",
+    "category": "其他",
+    "rulePath": "rule/Clash/Afdian/Afdian.yaml"
+  },
+  {
+    "id": "agora",
+    "name": "Agora",
+    "category": "其他",
+    "rulePath": "rule/Clash/Agora/Agora.yaml"
+  },
+  {
+    "id": "aiqicha",
+    "name": "AiQiCha",
+    "category": "其他",
+    "rulePath": "rule/Clash/AiQiCha/AiQiCha.yaml"
+  },
+  {
+    "id": "airchina",
+    "name": "AirChina",
+    "category": "其他",
+    "rulePath": "rule/Clash/AirChina/AirChina.yaml"
+  },
+  {
+    "id": "airwick",
+    "name": "AirWick",
+    "category": "其他",
+    "rulePath": "rule/Clash/AirWick/AirWick.yaml"
+  },
+  {
+    "id": "akamai",
+    "name": "Akamai",
+    "category": "其他",
+    "rulePath": "rule/Clash/Akamai/Akamai.yaml"
+  },
+  {
+    "id": "ali213",
+    "name": "Ali213",
+    "category": "其他",
+    "rulePath": "rule/Clash/Ali213/Ali213.yaml"
+  },
+  {
+    "id": "alipay",
+    "name": "AliPay",
+    "category": "支付",
+    "rulePath": "rule/Clash/AliPay/AliPay.yaml"
+  },
+  {
+    "id": "alibaba",
+    "name": "Alibaba",
+    "category": "开发与服务",
+    "rulePath": "rule/Clash/Alibaba/Alibaba.yaml"
+  },
+  {
+    "id": "all4",
+    "name": "All4",
+    "category": "其他",
+    "rulePath": "rule/Clash/All4/All4.yaml"
+  },
+  {
+    "id": "amazon",
+    "name": "Amazon",
+    "category": "购物与服务",
+    "rulePath": "rule/Clash/Amazon/Amazon.yaml"
+  },
+  {
+    "id": "amazoncn",
+    "name": "AmazonCN",
+    "category": "其他",
+    "rulePath": "rule/Clash/AmazonCN/AmazonCN.yaml"
+  },
+  {
+    "id": "amazonip",
+    "name": "AmazonIP",
+    "category": "其他",
+    "rulePath": "rule/Clash/AmazonIP/AmazonIP_IP.yaml"
+  },
+  {
+    "id": "amazonprimevideo",
+    "name": "AmazonPrimeVideo",
+    "category": "其他",
+    "rulePath": "rule/Clash/AmazonPrimeVideo/AmazonPrimeVideo.yaml"
+  },
+  {
+    "id": "amazontrust",
+    "name": "AmazonTrust",
+    "category": "其他",
+    "rulePath": "rule/Clash/AmazonTrust/AmazonTrust.yaml"
+  },
+  {
+    "id": "americasvoice",
+    "name": "Americasvoice",
+    "category": "其他",
+    "rulePath": "rule/Clash/Americasvoice/Americasvoice.yaml"
+  },
+  {
+    "id": "antiankeji",
+    "name": "AnTianKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/AnTianKeJi/AnTianKeJi.yaml"
+  },
+  {
+    "id": "anaconda",
+    "name": "Anaconda",
+    "category": "其他",
+    "rulePath": "rule/Clash/Anaconda/Anaconda.yaml"
+  },
+  {
+    "id": "anandtech",
+    "name": "AnandTech",
+    "category": "其他",
+    "rulePath": "rule/Clash/AnandTech/AnandTech.yaml"
+  },
+  {
+    "id": "android",
+    "name": "Android",
+    "category": "其他",
+    "rulePath": "rule/Clash/Android/Android.yaml"
+  },
+  {
+    "id": "anime",
+    "name": "Anime",
+    "category": "其他",
+    "rulePath": "rule/Clash/Anime/Anime.yaml"
+  },
+  {
+    "id": "anjuke",
+    "name": "Anjuke",
+    "category": "其他",
+    "rulePath": "rule/Clash/Anjuke/Anjuke.yaml"
+  },
+  {
+    "id": "anonv",
+    "name": "Anonv",
+    "category": "其他",
+    "rulePath": "rule/Clash/Anonv/Anonv.yaml"
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "category": "AI",
+    "rulePath": "rule/Clash/Anthropic/Anthropic.yaml"
+  },
+  {
+    "id": "antutu",
+    "name": "Antutu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Antutu/Antutu.yaml"
+  },
+  {
+    "id": "apifox",
+    "name": "Apifox",
+    "category": "其他",
+    "rulePath": "rule/Clash/Apifox/Apifox.yaml"
+  },
+  {
+    "id": "apkpure",
+    "name": "Apkpure",
+    "category": "其他",
+    "rulePath": "rule/Clash/Apkpure/Apkpure.yaml"
+  },
+  {
+    "id": "applovin",
+    "name": "AppLovin",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppLovin/AppLovin.yaml"
+  },
+  {
+    "id": "appstore",
+    "name": "AppStore",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppStore/AppStore.yaml"
+  },
+  {
+    "id": "apple",
+    "name": "Apple",
+    "category": "系统服务",
+    "rulePath": "rule/Clash/Apple/Apple.yaml"
+  },
+  {
+    "id": "appledaily",
+    "name": "AppleDaily",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleDaily/AppleDaily.yaml"
+  },
+  {
+    "id": "appledev",
+    "name": "AppleDev",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleDev/AppleDev.yaml"
+  },
+  {
+    "id": "applefirmware",
+    "name": "AppleFirmware",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleFirmware/AppleFirmware.yaml"
+  },
+  {
+    "id": "applehardware",
+    "name": "AppleHardware",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleHardware/AppleHardware.yaml"
+  },
+  {
+    "id": "appleid",
+    "name": "AppleID",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleID/AppleID.yaml"
+  },
+  {
+    "id": "applemail",
+    "name": "AppleMail",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleMail/AppleMail.yaml"
+  },
+  {
+    "id": "applemedia",
+    "name": "AppleMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleMedia/AppleMedia.yaml"
+  },
+  {
+    "id": "applemusic",
+    "name": "AppleMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleMusic/AppleMusic.yaml"
+  },
+  {
+    "id": "applenews",
+    "name": "AppleNews",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleNews/AppleNews.yaml"
+  },
+  {
+    "id": "appleproxy",
+    "name": "AppleProxy",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleProxy/AppleProxy.yaml"
+  },
+  {
+    "id": "appletv",
+    "name": "AppleTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/AppleTV/AppleTV.yaml"
+  },
+  {
+    "id": "arphic",
+    "name": "Arphic",
+    "category": "其他",
+    "rulePath": "rule/Clash/Arphic/Arphic.yaml"
+  },
+  {
+    "id": "asahi",
+    "name": "Asahi",
+    "category": "其他",
+    "rulePath": "rule/Clash/Asahi/Asahi.yaml"
+  },
+  {
+    "id": "asianmedia",
+    "name": "AsianMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/AsianMedia/AsianMedia.yaml"
+  },
+  {
+    "id": "atlassian",
+    "name": "Atlassian",
+    "category": "其他",
+    "rulePath": "rule/Clash/Atlassian/Atlassian.yaml"
+  },
+  {
+    "id": "atomdata",
+    "name": "Atomdata",
+    "category": "其他",
+    "rulePath": "rule/Clash/Atomdata/Atomdata.yaml"
+  },
+  {
+    "id": "bbc",
+    "name": "BBC",
+    "category": "其他",
+    "rulePath": "rule/Clash/BBC/BBC.yaml"
+  },
+  {
+    "id": "bmw",
+    "name": "BMW",
+    "category": "其他",
+    "rulePath": "rule/Clash/BMW/BMW.yaml"
+  },
+  {
+    "id": "boc",
+    "name": "BOC",
+    "category": "其他",
+    "rulePath": "rule/Clash/BOC/BOC.yaml"
+  },
+  {
+    "id": "bocom",
+    "name": "BOCOM",
+    "category": "其他",
+    "rulePath": "rule/Clash/BOCOM/BOCOM.yaml"
+  },
+  {
+    "id": "bahamut",
+    "name": "Bahamut",
+    "category": "其他",
+    "rulePath": "rule/Clash/Bahamut/Bahamut.yaml"
+  },
+  {
+    "id": "baidutieba",
+    "name": "BaiDuTieBa",
+    "category": "其他",
+    "rulePath": "rule/Clash/BaiDuTieBa/BaiDuTieBa.yaml"
+  },
+  {
+    "id": "baifendian",
+    "name": "BaiFenDian",
+    "category": "其他",
+    "rulePath": "rule/Clash/BaiFenDian/BaiFenDian.yaml"
+  },
+  {
+    "id": "baishanyunkeji",
+    "name": "BaiShanYunKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/BaiShanYunKeJi/BaiShanYunKeJi.yaml"
+  },
+  {
+    "id": "baidu",
+    "name": "Baidu",
+    "category": "系统服务",
+    "rulePath": "rule/Clash/Baidu/Baidu.yaml"
+  },
+  {
+    "id": "baofengyingyin",
+    "name": "BaoFengYingYin",
+    "category": "其他",
+    "rulePath": "rule/Clash/BaoFengYingYin/BaoFengYingYin.yaml"
+  },
+  {
+    "id": "bardai",
+    "name": "BardAI",
+    "category": "其他",
+    "rulePath": "rule/Clash/BardAI/BardAI.yaml"
+  },
+  {
+    "id": "battle",
+    "name": "Battle",
+    "category": "其他",
+    "rulePath": "rule/Clash/Battle/Battle.yaml"
+  },
+  {
+    "id": "bestore",
+    "name": "BeStore",
+    "category": "其他",
+    "rulePath": "rule/Clash/BeStore/BeStore.yaml"
+  },
+  {
+    "id": "beats",
+    "name": "Beats",
+    "category": "其他",
+    "rulePath": "rule/Clash/Beats/Beats.yaml"
+  },
+  {
+    "id": "bestv",
+    "name": "BesTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/BesTV/BesTV.yaml"
+  },
+  {
+    "id": "bestbuy",
+    "name": "Bestbuy",
+    "category": "其他",
+    "rulePath": "rule/Clash/Bestbuy/Bestbuy.yaml"
+  },
+  {
+    "id": "bianfeng",
+    "name": "BianFeng",
+    "category": "其他",
+    "rulePath": "rule/Clash/BianFeng/BianFeng.yaml"
+  },
+  {
+    "id": "bilibili",
+    "name": "BiliBili",
+    "category": "其他",
+    "rulePath": "rule/Clash/BiliBili/BiliBili.yaml"
+  },
+  {
+    "id": "bilibiliintl",
+    "name": "BiliBiliIntl",
+    "category": "其他",
+    "rulePath": "rule/Clash/BiliBiliIntl/BiliBiliIntl.yaml"
+  },
+  {
+    "id": "binance",
+    "name": "Binance",
+    "category": "其他",
+    "rulePath": "rule/Clash/Binance/Binance.yaml"
+  },
+  {
+    "id": "bing",
+    "name": "Bing",
+    "category": "其他",
+    "rulePath": "rule/Clash/Bing/Bing.yaml"
+  },
+  {
+    "id": "blizzard",
+    "name": "Blizzard",
+    "category": "其他",
+    "rulePath": "rule/Clash/Blizzard/Blizzard.yaml"
+  },
+  {
+    "id": "blockhttpdns",
+    "name": "BlockHttpDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/BlockHttpDNS/BlockHttpDNS.yaml"
+  },
+  {
+    "id": "bloomberg",
+    "name": "Bloomberg",
+    "category": "其他",
+    "rulePath": "rule/Clash/Bloomberg/Bloomberg.yaml"
+  },
+  {
+    "id": "blued",
+    "name": "Blued",
+    "category": "其他",
+    "rulePath": "rule/Clash/Blued/Blued.yaml"
+  },
+  {
+    "id": "boxun",
+    "name": "BoXun",
+    "category": "其他",
+    "rulePath": "rule/Clash/BoXun/BoXun.yaml"
+  },
+  {
+    "id": "bootcss",
+    "name": "Bootcss",
+    "category": "其他",
+    "rulePath": "rule/Clash/Bootcss/Bootcss.yaml"
+  },
+  {
+    "id": "brightcove",
+    "name": "BrightCove",
+    "category": "其他",
+    "rulePath": "rule/Clash/BrightCove/BrightCove.yaml"
+  },
+  {
+    "id": "britboxuk",
+    "name": "BritboxUK",
+    "category": "其他",
+    "rulePath": "rule/Clash/BritboxUK/BritboxUK.yaml"
+  },
+  {
+    "id": "buypass",
+    "name": "Buypass",
+    "category": "其他",
+    "rulePath": "rule/Clash/Buypass/Buypass.yaml"
+  },
+  {
+    "id": "bytedance",
+    "name": "ByteDance",
+    "category": "其他",
+    "rulePath": "rule/Clash/ByteDance/ByteDance.yaml"
+  },
+  {
+    "id": "cas",
+    "name": "CAS",
+    "category": "其他",
+    "rulePath": "rule/Clash/CAS/CAS.yaml"
+  },
+  {
+    "id": "cbs",
+    "name": "CBS",
+    "category": "其他",
+    "rulePath": "rule/Clash/CBS/CBS.yaml"
+  },
+  {
+    "id": "ccb",
+    "name": "CCB",
+    "category": "其他",
+    "rulePath": "rule/Clash/CCB/CCB.yaml"
+  },
+  {
+    "id": "cctv",
+    "name": "CCTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/CCTV/CCTV.yaml"
+  },
+  {
+    "id": "ceb",
+    "name": "CEB",
+    "category": "其他",
+    "rulePath": "rule/Clash/CEB/CEB.yaml"
+  },
+  {
+    "id": "cetv",
+    "name": "CETV",
+    "category": "其他",
+    "rulePath": "rule/Clash/CETV/CETV.yaml"
+  },
+  {
+    "id": "cgb",
+    "name": "CGB",
+    "category": "其他",
+    "rulePath": "rule/Clash/CGB/CGB.yaml"
+  },
+  {
+    "id": "cht",
+    "name": "CHT",
+    "category": "其他",
+    "rulePath": "rule/Clash/CHT/CHT.yaml"
+  },
+  {
+    "id": "cibn",
+    "name": "CIBN",
+    "category": "其他",
+    "rulePath": "rule/Clash/CIBN/CIBN.yaml"
+  },
+  {
+    "id": "ckjr",
+    "name": "CKJR",
+    "category": "其他",
+    "rulePath": "rule/Clash/CKJR/CKJR.yaml"
+  },
+  {
+    "id": "cmb",
+    "name": "CMB",
+    "category": "其他",
+    "rulePath": "rule/Clash/CMB/CMB.yaml"
+  },
+  {
+    "id": "cnki",
+    "name": "CNKI",
+    "category": "其他",
+    "rulePath": "rule/Clash/CNKI/CNKI.yaml"
+  },
+  {
+    "id": "cnn",
+    "name": "CNN",
+    "category": "其他",
+    "rulePath": "rule/Clash/CNN/CNN.yaml"
+  },
+  {
+    "id": "cnnic",
+    "name": "CNNIC",
+    "category": "其他",
+    "rulePath": "rule/Clash/CNNIC/CNNIC.yaml"
+  },
+  {
+    "id": "csdn",
+    "name": "CSDN",
+    "category": "其他",
+    "rulePath": "rule/Clash/CSDN/CSDN.yaml"
+  },
+  {
+    "id": "cwseed",
+    "name": "CWSeed",
+    "category": "其他",
+    "rulePath": "rule/Clash/CWSeed/CWSeed.yaml"
+  },
+  {
+    "id": "cabletv",
+    "name": "CableTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/CableTV/CableTV.yaml"
+  },
+  {
+    "id": "cainiao",
+    "name": "CaiNiao",
+    "category": "其他",
+    "rulePath": "rule/Clash/CaiNiao/CaiNiao.yaml"
+  },
+  {
+    "id": "caixinchuanmei",
+    "name": "CaiXinChuanMei",
+    "category": "其他",
+    "rulePath": "rule/Clash/CaiXinChuanMei/CaiXinChuanMei.yaml"
+  },
+  {
+    "id": "cake",
+    "name": "Cake",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cake/Cake.yaml"
+  },
+  {
+    "id": "camera360",
+    "name": "Camera360",
+    "category": "其他",
+    "rulePath": "rule/Clash/Camera360/Camera360.yaml"
+  },
+  {
+    "id": "canon",
+    "name": "Canon",
+    "category": "其他",
+    "rulePath": "rule/Clash/Canon/Canon.yaml"
+  },
+  {
+    "id": "chengtongwangpan",
+    "name": "ChengTongWangPan",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChengTongWangPan/ChengTongWangPan.yaml"
+  },
+  {
+    "id": "china",
+    "name": "China",
+    "category": "其他",
+    "rulePath": "rule/Clash/China/China.yaml"
+  },
+  {
+    "id": "chinadns",
+    "name": "ChinaDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaDNS/ChinaDNS.yaml"
+  },
+  {
+    "id": "chinaips",
+    "name": "ChinaIPs",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaIPs/ChinaIPs_IP.yaml"
+  },
+  {
+    "id": "chinaipsbgp",
+    "name": "ChinaIPsBGP",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaIPsBGP/ChinaIPsBGP_IP.yaml"
+  },
+  {
+    "id": "chinamax",
+    "name": "ChinaMax",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaMax/ChinaMax.yaml"
+  },
+  {
+    "id": "chinamaxnoip",
+    "name": "ChinaMaxNoIP",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaMaxNoIP/ChinaMaxNoIP.yaml"
+  },
+  {
+    "id": "chinamaxnomedia",
+    "name": "ChinaMaxNoMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaMaxNoMedia/ChinaMaxNoMedia.yaml"
+  },
+  {
+    "id": "chinamedia",
+    "name": "ChinaMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaMedia/ChinaMedia.yaml"
+  },
+  {
+    "id": "chinamobile",
+    "name": "ChinaMobile",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaMobile/ChinaMobile.yaml"
+  },
+  {
+    "id": "chinanews",
+    "name": "ChinaNews",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaNews/ChinaNews.yaml"
+  },
+  {
+    "id": "chinanomedia",
+    "name": "ChinaNoMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaNoMedia/ChinaNoMedia.yaml"
+  },
+  {
+    "id": "chinatelecom",
+    "name": "ChinaTelecom",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaTelecom/ChinaTelecom.yaml"
+  },
+  {
+    "id": "chinatest",
+    "name": "ChinaTest",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaTest/ChinaTest.yaml"
+  },
+  {
+    "id": "chinaunicom",
+    "name": "ChinaUnicom",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChinaUnicom/ChinaUnicom.yaml"
+  },
+  {
+    "id": "chromecast",
+    "name": "Chromecast",
+    "category": "其他",
+    "rulePath": "rule/Clash/Chromecast/Chromecast.yaml"
+  },
+  {
+    "id": "chuangketie",
+    "name": "ChuangKeTie",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChuangKeTie/ChuangKeTie.yaml"
+  },
+  {
+    "id": "chunyou",
+    "name": "ChunYou",
+    "category": "其他",
+    "rulePath": "rule/Clash/ChunYou/ChunYou.yaml"
+  },
+  {
+    "id": "cisco",
+    "name": "Cisco",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cisco/Cisco.yaml"
+  },
+  {
+    "id": "civitai",
+    "name": "Civitai",
+    "category": "其他",
+    "rulePath": "rule/Clash/Civitai/Civitai.yaml"
+  },
+  {
+    "id": "classic",
+    "name": "Classic",
+    "category": "其他",
+    "rulePath": "rule/Clash/Classic/Classic.yaml"
+  },
+  {
+    "id": "claude",
+    "name": "Claude",
+    "category": "AI",
+    "rulePath": "rule/Clash/Claude/Claude.yaml"
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cloudflare/Cloudflare.yaml"
+  },
+  {
+    "id": "cloudflarecn",
+    "name": "Cloudflarecn",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cloudflarecn/Cloudflarecn.yaml"
+  },
+  {
+    "id": "clubhouse",
+    "name": "Clubhouse",
+    "category": "其他",
+    "rulePath": "rule/Clash/Clubhouse/Clubhouse.yaml"
+  },
+  {
+    "id": "clubhouseip",
+    "name": "ClubhouseIP",
+    "category": "其他",
+    "rulePath": "rule/Clash/ClubhouseIP/ClubhouseIP.yaml"
+  },
+  {
+    "id": "cnet",
+    "name": "Cnet",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cnet/Cnet.yaml"
+  },
+  {
+    "id": "collabora",
+    "name": "Collabora",
+    "category": "其他",
+    "rulePath": "rule/Clash/Collabora/Collabora.yaml"
+  },
+  {
+    "id": "comodo",
+    "name": "Comodo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Comodo/Comodo.yaml"
+  },
+  {
+    "id": "contentful",
+    "name": "Contentful",
+    "category": "其他",
+    "rulePath": "rule/Clash/Contentful/Contentful.yaml"
+  },
+  {
+    "id": "coolapk",
+    "name": "Coolapk",
+    "category": "其他",
+    "rulePath": "rule/Clash/Coolapk/Coolapk.yaml"
+  },
+  {
+    "id": "copilot",
+    "name": "Copilot",
+    "category": "其他",
+    "rulePath": "rule/Clash/Copilot/Copilot.yaml"
+  },
+  {
+    "id": "crypto",
+    "name": "Crypto",
+    "category": "其他",
+    "rulePath": "rule/Clash/Crypto/Crypto.yaml"
+  },
+  {
+    "id": "cryptocurrency",
+    "name": "Cryptocurrency",
+    "category": "其他",
+    "rulePath": "rule/Clash/Cryptocurrency/Cryptocurrency.yaml"
+  },
+  {
+    "id": "cybertrust",
+    "name": "CyberTrust",
+    "category": "其他",
+    "rulePath": "rule/Clash/CyberTrust/CyberTrust.yaml"
+  },
+  {
+    "id": "dazn",
+    "name": "DAZN",
+    "category": "其他",
+    "rulePath": "rule/Clash/DAZN/DAZN.yaml"
+  },
+  {
+    "id": "dmm",
+    "name": "DMM",
+    "category": "其他",
+    "rulePath": "rule/Clash/DMM/DMM.yaml"
+  },
+  {
+    "id": "dns",
+    "name": "DNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/DNS/DNS.yaml"
+  },
+  {
+    "id": "damai",
+    "name": "DaMai",
+    "category": "其他",
+    "rulePath": "rule/Clash/DaMai/DaMai.yaml"
+  },
+  {
+    "id": "dailymail",
+    "name": "Dailymail",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dailymail/Dailymail.yaml"
+  },
+  {
+    "id": "dailymotion",
+    "name": "Dailymotion",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dailymotion/Dailymotion.yaml"
+  },
+  {
+    "id": "dandanzan",
+    "name": "DanDanZan",
+    "category": "其他",
+    "rulePath": "rule/Clash/DanDanZan/DanDanZan.yaml"
+  },
+  {
+    "id": "dandanplay",
+    "name": "Dandanplay",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dandanplay/Dandanplay.yaml"
+  },
+  {
+    "id": "dangdang",
+    "name": "DangDang",
+    "category": "其他",
+    "rulePath": "rule/Clash/DangDang/DangDang.yaml"
+  },
+  {
+    "id": "dedao",
+    "name": "Dedao",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dedao/Dedao.yaml"
+  },
+  {
+    "id": "deepin",
+    "name": "Deepin",
+    "category": "其他",
+    "rulePath": "rule/Clash/Deepin/Deepin.yaml"
+  },
+  {
+    "id": "deezer",
+    "name": "Deezer",
+    "category": "其他",
+    "rulePath": "rule/Clash/Deezer/Deezer.yaml"
+  },
+  {
+    "id": "dell",
+    "name": "Dell",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dell/Dell.yaml"
+  },
+  {
+    "id": "developer",
+    "name": "Developer",
+    "category": "其他",
+    "rulePath": "rule/Clash/Developer/Developer.yaml"
+  },
+  {
+    "id": "didi",
+    "name": "DiDi",
+    "category": "其他",
+    "rulePath": "rule/Clash/DiDi/DiDi.yaml"
+  },
+  {
+    "id": "dilianwangluo",
+    "name": "DiLianWangLuo",
+    "category": "其他",
+    "rulePath": "rule/Clash/DiLianWangLuo/DiLianWangLuo.yaml"
+  },
+  {
+    "id": "disifanshi",
+    "name": "DiSiFanShi",
+    "category": "其他",
+    "rulePath": "rule/Clash/DiSiFanShi/DiSiFanShi.yaml"
+  },
+  {
+    "id": "diabloiii",
+    "name": "DiabloIII",
+    "category": "其他",
+    "rulePath": "rule/Clash/DiabloIII/DiabloIII.yaml"
+  },
+  {
+    "id": "diancewangke",
+    "name": "DianCeWangKe",
+    "category": "其他",
+    "rulePath": "rule/Clash/DianCeWangKe/DianCeWangKe.yaml"
+  },
+  {
+    "id": "digicert",
+    "name": "DigiCert",
+    "category": "其他",
+    "rulePath": "rule/Clash/DigiCert/DigiCert.yaml"
+  },
+  {
+    "id": "digitalocean",
+    "name": "DigitalOcean",
+    "category": "其他",
+    "rulePath": "rule/Clash/DigitalOcean/DigitalOcean.yaml"
+  },
+  {
+    "id": "dingtalk",
+    "name": "DingTalk",
+    "category": "其他",
+    "rulePath": "rule/Clash/DingTalk/DingTalk.yaml"
+  },
+  {
+    "id": "dingxiangyuan",
+    "name": "DingXiangYuan",
+    "category": "其他",
+    "rulePath": "rule/Clash/DingXiangYuan/DingXiangYuan.yaml"
+  },
+  {
+    "id": "direct",
+    "name": "Direct",
+    "category": "其他",
+    "rulePath": "rule/Clash/Direct/Direct.yaml"
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "category": "即时通讯",
+    "rulePath": "rule/Clash/Discord/Discord.yaml"
+  },
+  {
+    "id": "discoveryplus",
+    "name": "DiscoveryPlus",
+    "category": "其他",
+    "rulePath": "rule/Clash/DiscoveryPlus/DiscoveryPlus.yaml"
+  },
+  {
+    "id": "disney",
+    "name": "Disney",
+    "category": "其他",
+    "rulePath": "rule/Clash/Disney/Disney.yaml"
+  },
+  {
+    "id": "disqus",
+    "name": "Disqus",
+    "category": "其他",
+    "rulePath": "rule/Clash/Disqus/Disqus.yaml"
+  },
+  {
+    "id": "docker",
+    "name": "Docker",
+    "category": "开发与服务",
+    "rulePath": "rule/Clash/Docker/Docker.yaml"
+  },
+  {
+    "id": "domob",
+    "name": "Domob",
+    "category": "其他",
+    "rulePath": "rule/Clash/Domob/Domob.yaml"
+  },
+  {
+    "id": "dood",
+    "name": "Dood",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dood/Dood.yaml"
+  },
+  {
+    "id": "douban",
+    "name": "DouBan",
+    "category": "其他",
+    "rulePath": "rule/Clash/DouBan/DouBan.yaml"
+  },
+  {
+    "id": "douyin",
+    "name": "DouYin",
+    "category": "其他",
+    "rulePath": "rule/Clash/DouYin/DouYin.yaml"
+  },
+  {
+    "id": "douyu",
+    "name": "Douyu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Douyu/Douyu.yaml"
+  },
+  {
+    "id": "download",
+    "name": "Download",
+    "category": "其他",
+    "rulePath": "rule/Clash/Download/Download.yaml"
+  },
+  {
+    "id": "dropbox",
+    "name": "Dropbox",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dropbox/Dropbox.yaml"
+  },
+  {
+    "id": "dtdns",
+    "name": "DtDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/DtDNS/DtDNS.yaml"
+  },
+  {
+    "id": "dubox",
+    "name": "Dubox",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dubox/Dubox.yaml"
+  },
+  {
+    "id": "duckduckgo",
+    "name": "Duckduckgo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Duckduckgo/Duckduckgo.yaml"
+  },
+  {
+    "id": "duowan",
+    "name": "DuoWan",
+    "category": "其他",
+    "rulePath": "rule/Clash/DuoWan/DuoWan.yaml"
+  },
+  {
+    "id": "duolingo",
+    "name": "Duolingo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Duolingo/Duolingo.yaml"
+  },
+  {
+    "id": "dyndns",
+    "name": "DynDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/DynDNS/DynDNS.yaml"
+  },
+  {
+    "id": "dynu",
+    "name": "Dynu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Dynu/Dynu.yaml"
+  },
+  {
+    "id": "ea",
+    "name": "EA",
+    "category": "其他",
+    "rulePath": "rule/Clash/EA/EA.yaml"
+  },
+  {
+    "id": "ehgallery",
+    "name": "EHGallery",
+    "category": "其他",
+    "rulePath": "rule/Clash/EHGallery/EHGallery.yaml"
+  },
+  {
+    "id": "eastmoney",
+    "name": "EastMoney",
+    "category": "其他",
+    "rulePath": "rule/Clash/EastMoney/EastMoney.yaml"
+  },
+  {
+    "id": "easyprivacy",
+    "name": "EasyPrivacy",
+    "category": "其他",
+    "rulePath": "rule/Clash/EasyPrivacy/EasyPrivacy_Domain.yaml"
+  },
+  {
+    "id": "electron",
+    "name": "Electron",
+    "category": "其他",
+    "rulePath": "rule/Clash/Electron/Electron.yaml"
+  },
+  {
+    "id": "eleme",
+    "name": "Eleme",
+    "category": "其他",
+    "rulePath": "rule/Clash/Eleme/Eleme.yaml"
+  },
+  {
+    "id": "embl",
+    "name": "Embl",
+    "category": "其他",
+    "rulePath": "rule/Clash/Embl/Embl.yaml"
+  },
+  {
+    "id": "emby",
+    "name": "Emby",
+    "category": "其他",
+    "rulePath": "rule/Clash/Emby/Emby.yaml"
+  },
+  {
+    "id": "emojipedia",
+    "name": "Emojipedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/Emojipedia/Emojipedia.yaml"
+  },
+  {
+    "id": "encoretvb",
+    "name": "EncoreTVB",
+    "category": "其他",
+    "rulePath": "rule/Clash/EncoreTVB/EncoreTVB.yaml"
+  },
+  {
+    "id": "entrust",
+    "name": "Entrust",
+    "category": "其他",
+    "rulePath": "rule/Clash/Entrust/Entrust.yaml"
+  },
+  {
+    "id": "epic",
+    "name": "Epic",
+    "category": "其他",
+    "rulePath": "rule/Clash/Epic/Epic.yaml"
+  },
+  {
+    "id": "espn",
+    "name": "Espn",
+    "category": "其他",
+    "rulePath": "rule/Clash/Espn/Espn.yaml"
+  },
+  {
+    "id": "foxnow",
+    "name": "FOXNOW",
+    "category": "其他",
+    "rulePath": "rule/Clash/FOXNOW/FOXNOW.yaml"
+  },
+  {
+    "id": "foxplus",
+    "name": "FOXPlus",
+    "category": "其他",
+    "rulePath": "rule/Clash/FOXPlus/FOXPlus.yaml"
+  },
+  {
+    "id": "facebook",
+    "name": "Facebook",
+    "category": "社交",
+    "rulePath": "rule/Clash/Facebook/Facebook.yaml"
+  },
+  {
+    "id": "fanfou",
+    "name": "FanFou",
+    "category": "其他",
+    "rulePath": "rule/Clash/FanFou/FanFou.yaml"
+  },
+  {
+    "id": "fangzhengdianzi",
+    "name": "FangZhengDianZi",
+    "category": "其他",
+    "rulePath": "rule/Clash/FangZhengDianZi/FangZhengDianZi.yaml"
+  },
+  {
+    "id": "faronics",
+    "name": "Faronics",
+    "category": "其他",
+    "rulePath": "rule/Clash/Faronics/Faronics.yaml"
+  },
+  {
+    "id": "feizhu",
+    "name": "FeiZhu",
+    "category": "其他",
+    "rulePath": "rule/Clash/FeiZhu/FeiZhu.yaml"
+  },
+  {
+    "id": "fenghuangwang",
+    "name": "FengHuangWang",
+    "category": "其他",
+    "rulePath": "rule/Clash/FengHuangWang/FengHuangWang.yaml"
+  },
+  {
+    "id": "fengxiawangluo",
+    "name": "FengXiaWangLuo",
+    "category": "其他",
+    "rulePath": "rule/Clash/FengXiaWangLuo/FengXiaWangLuo.yaml"
+  },
+  {
+    "id": "figma",
+    "name": "Figma",
+    "category": "其他",
+    "rulePath": "rule/Clash/Figma/Figma.yaml"
+  },
+  {
+    "id": "fiio",
+    "name": "Fiio",
+    "category": "其他",
+    "rulePath": "rule/Clash/Fiio/Fiio.yaml"
+  },
+  {
+    "id": "findmy",
+    "name": "FindMy",
+    "category": "其他",
+    "rulePath": "rule/Clash/FindMy/FindMy.yaml"
+  },
+  {
+    "id": "fitnessplus",
+    "name": "FitnessPlus",
+    "category": "其他",
+    "rulePath": "rule/Clash/FitnessPlus/FitnessPlus.yaml"
+  },
+  {
+    "id": "flipboard",
+    "name": "FlipBoard",
+    "category": "其他",
+    "rulePath": "rule/Clash/FlipBoard/FlipBoard.yaml"
+  },
+  {
+    "id": "flurry",
+    "name": "Flurry",
+    "category": "其他",
+    "rulePath": "rule/Clash/Flurry/Flurry.yaml"
+  },
+  {
+    "id": "fox",
+    "name": "Fox",
+    "category": "其他",
+    "rulePath": "rule/Clash/Fox/Fox.yaml"
+  },
+  {
+    "id": "freecodecamp",
+    "name": "FreeCodeCamp",
+    "category": "其他",
+    "rulePath": "rule/Clash/FreeCodeCamp/FreeCodeCamp.yaml"
+  },
+  {
+    "id": "fubotv",
+    "name": "FuboTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/FuboTV/FuboTV.yaml"
+  },
+  {
+    "id": "funshion",
+    "name": "Funshion",
+    "category": "其他",
+    "rulePath": "rule/Clash/Funshion/Funshion.yaml"
+  },
+  {
+    "id": "game",
+    "name": "Game",
+    "category": "其他",
+    "rulePath": "rule/Clash/Game/Game.yaml"
+  },
+  {
+    "id": "gaode",
+    "name": "GaoDe",
+    "category": "其他",
+    "rulePath": "rule/Clash/GaoDe/GaoDe.yaml"
+  },
+  {
+    "id": "garena",
+    "name": "Garena",
+    "category": "其他",
+    "rulePath": "rule/Clash/Garena/Garena.yaml"
+  },
+  {
+    "id": "geely",
+    "name": "Geely",
+    "category": "其他",
+    "rulePath": "rule/Clash/Geely/Geely.yaml"
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gemini/Gemini.yaml"
+  },
+  {
+    "id": "gettyimages",
+    "name": "Gettyimages",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gettyimages/Gettyimages.yaml"
+  },
+  {
+    "id": "gigabyte",
+    "name": "Gigabyte",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gigabyte/Gigabyte.yaml"
+  },
+  {
+    "id": "gitbook",
+    "name": "GitBook",
+    "category": "其他",
+    "rulePath": "rule/Clash/GitBook/GitBook.yaml"
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "category": "其他",
+    "rulePath": "rule/Clash/GitHub/GitHub.yaml"
+  },
+  {
+    "id": "gitlab",
+    "name": "GitLab",
+    "category": "其他",
+    "rulePath": "rule/Clash/GitLab/GitLab.yaml"
+  },
+  {
+    "id": "gitee",
+    "name": "Gitee",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gitee/Gitee.yaml"
+  },
+  {
+    "id": "global",
+    "name": "Global",
+    "category": "其他",
+    "rulePath": "rule/Clash/Global/Global.yaml"
+  },
+  {
+    "id": "globalmedia",
+    "name": "GlobalMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/GlobalMedia/GlobalMedia.yaml"
+  },
+  {
+    "id": "globalscholar",
+    "name": "GlobalScholar",
+    "category": "其他",
+    "rulePath": "rule/Clash/GlobalScholar/GlobalScholar.yaml"
+  },
+  {
+    "id": "globalsign",
+    "name": "GlobalSign",
+    "category": "其他",
+    "rulePath": "rule/Clash/GlobalSign/GlobalSign.yaml"
+  },
+  {
+    "id": "gog",
+    "name": "Gog",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gog/Gog.yaml"
+  },
+  {
+    "id": "google",
+    "name": "Google",
+    "category": "系统服务",
+    "rulePath": "rule/Clash/Google/Google.yaml"
+  },
+  {
+    "id": "googledrive",
+    "name": "GoogleDrive",
+    "category": "其他",
+    "rulePath": "rule/Clash/GoogleDrive/GoogleDrive.yaml"
+  },
+  {
+    "id": "googleearth",
+    "name": "GoogleEarth",
+    "category": "其他",
+    "rulePath": "rule/Clash/GoogleEarth/GoogleEarth.yaml"
+  },
+  {
+    "id": "googlefcm",
+    "name": "GoogleFCM",
+    "category": "其他",
+    "rulePath": "rule/Clash/GoogleFCM/GoogleFCM.yaml"
+  },
+  {
+    "id": "googlesearch",
+    "name": "GoogleSearch",
+    "category": "其他",
+    "rulePath": "rule/Clash/GoogleSearch/GoogleSearch.yaml"
+  },
+  {
+    "id": "googlevoice",
+    "name": "GoogleVoice",
+    "category": "其他",
+    "rulePath": "rule/Clash/GoogleVoice/GoogleVoice.yaml"
+  },
+  {
+    "id": "govcn",
+    "name": "GovCN",
+    "category": "其他",
+    "rulePath": "rule/Clash/GovCN/GovCN.yaml"
+  },
+  {
+    "id": "gucci",
+    "name": "Gucci",
+    "category": "其他",
+    "rulePath": "rule/Clash/Gucci/Gucci.yaml"
+  },
+  {
+    "id": "guigudongli",
+    "name": "GuiGuDongLi",
+    "category": "其他",
+    "rulePath": "rule/Clash/GuiGuDongLi/GuiGuDongLi.yaml"
+  },
+  {
+    "id": "hbo",
+    "name": "HBO",
+    "category": "其他",
+    "rulePath": "rule/Clash/HBO/HBO.yaml"
+  },
+  {
+    "id": "hboasia",
+    "name": "HBOAsia",
+    "category": "其他",
+    "rulePath": "rule/Clash/HBOAsia/HBOAsia.yaml"
+  },
+  {
+    "id": "hbohk",
+    "name": "HBOHK",
+    "category": "其他",
+    "rulePath": "rule/Clash/HBOHK/HBOHK.yaml"
+  },
+  {
+    "id": "hbousa",
+    "name": "HBOUSA",
+    "category": "其他",
+    "rulePath": "rule/Clash/HBOUSA/HBOUSA.yaml"
+  },
+  {
+    "id": "hkbn",
+    "name": "HKBN",
+    "category": "其他",
+    "rulePath": "rule/Clash/HKBN/HKBN.yaml"
+  },
+  {
+    "id": "hkopentv",
+    "name": "HKOpenTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/HKOpenTV/HKOpenTV.yaml"
+  },
+  {
+    "id": "hkedcity",
+    "name": "HKedcity",
+    "category": "其他",
+    "rulePath": "rule/Clash/HKedcity/HKedcity.yaml"
+  },
+  {
+    "id": "hp",
+    "name": "HP",
+    "category": "其他",
+    "rulePath": "rule/Clash/HP/HP.yaml"
+  },
+  {
+    "id": "hwtv",
+    "name": "HWTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/HWTV/HWTV.yaml"
+  },
+  {
+    "id": "hainanhangkong",
+    "name": "HaiNanHangKong",
+    "category": "其他",
+    "rulePath": "rule/Clash/HaiNanHangKong/HaiNanHangKong.yaml"
+  },
+  {
+    "id": "hamivideo",
+    "name": "HamiVideo",
+    "category": "其他",
+    "rulePath": "rule/Clash/HamiVideo/HamiVideo.yaml"
+  },
+  {
+    "id": "hanyi",
+    "name": "HanYi",
+    "category": "其他",
+    "rulePath": "rule/Clash/HanYi/HanYi.yaml"
+  },
+  {
+    "id": "hashicorp",
+    "name": "HashiCorp",
+    "category": "其他",
+    "rulePath": "rule/Clash/HashiCorp/HashiCorp.yaml"
+  },
+  {
+    "id": "haveibeenpwned",
+    "name": "Haveibeenpwned",
+    "category": "其他",
+    "rulePath": "rule/Clash/Haveibeenpwned/Haveibeenpwned.yaml"
+  },
+  {
+    "id": "hema",
+    "name": "HeMa",
+    "category": "其他",
+    "rulePath": "rule/Clash/HeMa/HeMa.yaml"
+  },
+  {
+    "id": "hearthstone",
+    "name": "Hearthstone",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hearthstone/Hearthstone.yaml"
+  },
+  {
+    "id": "heroesofthestorm",
+    "name": "HeroesoftheStorm",
+    "category": "其他",
+    "rulePath": "rule/Clash/HeroesoftheStorm/HeroesoftheStorm.yaml"
+  },
+  {
+    "id": "heroku",
+    "name": "Heroku",
+    "category": "其他",
+    "rulePath": "rule/Clash/Heroku/Heroku.yaml"
+  },
+  {
+    "id": "hibymusic",
+    "name": "HibyMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/HibyMusic/HibyMusic.yaml"
+  },
+  {
+    "id": "hijacking",
+    "name": "Hijacking",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hijacking/Hijacking.yaml"
+  },
+  {
+    "id": "himalaya",
+    "name": "Himalaya",
+    "category": "其他",
+    "rulePath": "rule/Clash/Himalaya/Himalaya.yaml"
+  },
+  {
+    "id": "hkgolden",
+    "name": "Hkgolden",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hkgolden/Hkgolden.yaml"
+  },
+  {
+    "id": "hoyoverse",
+    "name": "HoYoverse",
+    "category": "其他",
+    "rulePath": "rule/Clash/HoYoverse/HoYoverse.yaml"
+  },
+  {
+    "id": "hpplay",
+    "name": "Hpplay",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hpplay/Hpplay.yaml"
+  },
+  {
+    "id": "huya",
+    "name": "HuYa",
+    "category": "其他",
+    "rulePath": "rule/Clash/HuYa/HuYa.yaml"
+  },
+  {
+    "id": "huashutv",
+    "name": "HuaShuTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/HuaShuTV/HuaShuTV.yaml"
+  },
+  {
+    "id": "huanju",
+    "name": "HuanJu",
+    "category": "其他",
+    "rulePath": "rule/Clash/HuanJu/HuanJu.yaml"
+  },
+  {
+    "id": "huawei",
+    "name": "Huawei",
+    "category": "其他",
+    "rulePath": "rule/Clash/Huawei/Huawei.yaml"
+  },
+  {
+    "id": "huffpost",
+    "name": "Huffpost",
+    "category": "其他",
+    "rulePath": "rule/Clash/Huffpost/Huffpost.yaml"
+  },
+  {
+    "id": "hulu",
+    "name": "Hulu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hulu/Hulu.yaml"
+  },
+  {
+    "id": "hulujp",
+    "name": "HuluJP",
+    "category": "其他",
+    "rulePath": "rule/Clash/HuluJP/HuluJP.yaml"
+  },
+  {
+    "id": "huluusa",
+    "name": "HuluUSA",
+    "category": "其他",
+    "rulePath": "rule/Clash/HuluUSA/HuluUSA.yaml"
+  },
+  {
+    "id": "hunantv",
+    "name": "HunanTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/HunanTV/HunanTV.yaml"
+  },
+  {
+    "id": "hupu",
+    "name": "Hupu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Hupu/Hupu.yaml"
+  },
+  {
+    "id": "ibm",
+    "name": "IBM",
+    "category": "其他",
+    "rulePath": "rule/Clash/IBM/IBM.yaml"
+  },
+  {
+    "id": "icbc",
+    "name": "ICBC",
+    "category": "其他",
+    "rulePath": "rule/Clash/ICBC/ICBC.yaml"
+  },
+  {
+    "id": "ikea",
+    "name": "IKEA",
+    "category": "其他",
+    "rulePath": "rule/Clash/IKEA/IKEA.yaml"
+  },
+  {
+    "id": "imdb",
+    "name": "IMDB",
+    "category": "其他",
+    "rulePath": "rule/Clash/IMDB/IMDB.yaml"
+  },
+  {
+    "id": "iptvmainland",
+    "name": "IPTVMainland",
+    "category": "其他",
+    "rulePath": "rule/Clash/IPTVMainland/IPTVMainland.yaml"
+  },
+  {
+    "id": "iptvother",
+    "name": "IPTVOther",
+    "category": "其他",
+    "rulePath": "rule/Clash/IPTVOther/IPTVOther.yaml"
+  },
+  {
+    "id": "itv",
+    "name": "ITV",
+    "category": "其他",
+    "rulePath": "rule/Clash/ITV/ITV.yaml"
+  },
+  {
+    "id": "identrust",
+    "name": "Identrust",
+    "category": "其他",
+    "rulePath": "rule/Clash/Identrust/Identrust.yaml"
+  },
+  {
+    "id": "imgur",
+    "name": "Imgur",
+    "category": "其他",
+    "rulePath": "rule/Clash/Imgur/Imgur.yaml"
+  },
+  {
+    "id": "instagram",
+    "name": "Instagram",
+    "category": "社交",
+    "rulePath": "rule/Clash/Instagram/Instagram.yaml"
+  },
+  {
+    "id": "intel",
+    "name": "Intel",
+    "category": "其他",
+    "rulePath": "rule/Clash/Intel/Intel.yaml"
+  },
+  {
+    "id": "intercom",
+    "name": "Intercom",
+    "category": "其他",
+    "rulePath": "rule/Clash/Intercom/Intercom.yaml"
+  },
+  {
+    "id": "joox",
+    "name": "JOOX",
+    "category": "其他",
+    "rulePath": "rule/Clash/JOOX/JOOX.yaml"
+  },
+  {
+    "id": "japonx",
+    "name": "Japonx",
+    "category": "其他",
+    "rulePath": "rule/Clash/Japonx/Japonx.yaml"
+  },
+  {
+    "id": "jetbrains",
+    "name": "Jetbrains",
+    "category": "其他",
+    "rulePath": "rule/Clash/Jetbrains/Jetbrains.yaml"
+  },
+  {
+    "id": "jfrog",
+    "name": "Jfrog",
+    "category": "其他",
+    "rulePath": "rule/Clash/Jfrog/Jfrog.yaml"
+  },
+  {
+    "id": "jiguangtuisong",
+    "name": "JiGuangTuiSong",
+    "category": "其他",
+    "rulePath": "rule/Clash/JiGuangTuiSong/JiGuangTuiSong.yaml"
+  },
+  {
+    "id": "jianguoyun",
+    "name": "JianGuoYun",
+    "category": "其他",
+    "rulePath": "rule/Clash/JianGuoYun/JianGuoYun.yaml"
+  },
+  {
+    "id": "jianshu",
+    "name": "JianShu",
+    "category": "其他",
+    "rulePath": "rule/Clash/JianShu/JianShu.yaml"
+  },
+  {
+    "id": "jinjiangwenxue",
+    "name": "JinJiangWenXue",
+    "category": "其他",
+    "rulePath": "rule/Clash/JinJiangWenXue/JinJiangWenXue.yaml"
+  },
+  {
+    "id": "jingdong",
+    "name": "JingDong",
+    "category": "其他",
+    "rulePath": "rule/Clash/JingDong/JingDong.yaml"
+  },
+  {
+    "id": "jquery",
+    "name": "Jquery",
+    "category": "其他",
+    "rulePath": "rule/Clash/Jquery/Jquery.yaml"
+  },
+  {
+    "id": "jsdelivr",
+    "name": "Jsdelivr",
+    "category": "其他",
+    "rulePath": "rule/Clash/Jsdelivr/Jsdelivr.yaml"
+  },
+  {
+    "id": "juejin",
+    "name": "JueJin",
+    "category": "其他",
+    "rulePath": "rule/Clash/JueJin/JueJin.yaml"
+  },
+  {
+    "id": "jwplayer",
+    "name": "Jwplayer",
+    "category": "其他",
+    "rulePath": "rule/Clash/Jwplayer/Jwplayer.yaml"
+  },
+  {
+    "id": "kkbox",
+    "name": "KKBOX",
+    "category": "其他",
+    "rulePath": "rule/Clash/KKBOX/KKBOX.yaml"
+  },
+  {
+    "id": "kktv",
+    "name": "KKTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/KKTV/KKTV.yaml"
+  },
+  {
+    "id": "kakaotalk",
+    "name": "KakaoTalk",
+    "category": "其他",
+    "rulePath": "rule/Clash/KakaoTalk/KakaoTalk.yaml"
+  },
+  {
+    "id": "kantv",
+    "name": "Kantv",
+    "category": "其他",
+    "rulePath": "rule/Clash/Kantv/Kantv.yaml"
+  },
+  {
+    "id": "keep",
+    "name": "Keep",
+    "category": "其他",
+    "rulePath": "rule/Clash/Keep/Keep.yaml"
+  },
+  {
+    "id": "kingsmith",
+    "name": "KingSmith",
+    "category": "其他",
+    "rulePath": "rule/Clash/KingSmith/KingSmith.yaml"
+  },
+  {
+    "id": "kingsoft",
+    "name": "Kingsoft",
+    "category": "其他",
+    "rulePath": "rule/Clash/Kingsoft/Kingsoft.yaml"
+  },
+  {
+    "id": "koudaishishang",
+    "name": "KouDaiShiShang",
+    "category": "其他",
+    "rulePath": "rule/Clash/KouDaiShiShang/KouDaiShiShang.yaml"
+  },
+  {
+    "id": "ku6",
+    "name": "Ku6",
+    "category": "其他",
+    "rulePath": "rule/Clash/Ku6/Ku6.yaml"
+  },
+  {
+    "id": "kukemusic",
+    "name": "KuKeMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/KuKeMusic/KuKeMusic.yaml"
+  },
+  {
+    "id": "kuaidi100",
+    "name": "KuaiDi100",
+    "category": "其他",
+    "rulePath": "rule/Clash/KuaiDi100/KuaiDi100.yaml"
+  },
+  {
+    "id": "kuaishou",
+    "name": "KuaiShou",
+    "category": "其他",
+    "rulePath": "rule/Clash/KuaiShou/KuaiShou.yaml"
+  },
+  {
+    "id": "kuangshi",
+    "name": "KuangShi",
+    "category": "其他",
+    "rulePath": "rule/Clash/KuangShi/KuangShi.yaml"
+  },
+  {
+    "id": "kugoukuwo",
+    "name": "KugouKuwo",
+    "category": "其他",
+    "rulePath": "rule/Clash/KugouKuwo/KugouKuwo.yaml"
+  },
+  {
+    "id": "lg",
+    "name": "LG",
+    "category": "其他",
+    "rulePath": "rule/Clash/LG/LG.yaml"
+  },
+  {
+    "id": "lan",
+    "name": "Lan",
+    "category": "其他",
+    "rulePath": "rule/Clash/Lan/Lan.yaml"
+  },
+  {
+    "id": "lanzouyun",
+    "name": "LanZouYun",
+    "category": "其他",
+    "rulePath": "rule/Clash/LanZouYun/LanZouYun.yaml"
+  },
+  {
+    "id": "lastfm",
+    "name": "LastFM",
+    "category": "其他",
+    "rulePath": "rule/Clash/LastFM/LastFM.yaml"
+  },
+  {
+    "id": "lastpass",
+    "name": "LastPass",
+    "category": "其他",
+    "rulePath": "rule/Clash/LastPass/LastPass.yaml"
+  },
+  {
+    "id": "leju",
+    "name": "LeJu",
+    "category": "其他",
+    "rulePath": "rule/Clash/LeJu/LeJu.yaml"
+  },
+  {
+    "id": "letv",
+    "name": "LeTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/LeTV/LeTV.yaml"
+  },
+  {
+    "id": "lenovo",
+    "name": "Lenovo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Lenovo/Lenovo.yaml"
+  },
+  {
+    "id": "litv",
+    "name": "LiTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/LiTV/LiTV.yaml"
+  },
+  {
+    "id": "lianmeng",
+    "name": "LianMeng",
+    "category": "其他",
+    "rulePath": "rule/Clash/LianMeng/LianMeng.yaml"
+  },
+  {
+    "id": "limelight",
+    "name": "Limelight",
+    "category": "其他",
+    "rulePath": "rule/Clash/Limelight/Limelight.yaml"
+  },
+  {
+    "id": "line",
+    "name": "Line",
+    "category": "其他",
+    "rulePath": "rule/Clash/Line/Line.yaml"
+  },
+  {
+    "id": "linetv",
+    "name": "LineTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/LineTV/LineTV.yaml"
+  },
+  {
+    "id": "linguee",
+    "name": "Linguee",
+    "category": "其他",
+    "rulePath": "rule/Clash/Linguee/Linguee.yaml"
+  },
+  {
+    "id": "linkedin",
+    "name": "LinkedIn",
+    "category": "其他",
+    "rulePath": "rule/Clash/LinkedIn/LinkedIn.yaml"
+  },
+  {
+    "id": "linux",
+    "name": "Linux",
+    "category": "其他",
+    "rulePath": "rule/Clash/Linux/Linux.yaml"
+  },
+  {
+    "id": "liveperson",
+    "name": "LivePerson",
+    "category": "其他",
+    "rulePath": "rule/Clash/LivePerson/LivePerson.yaml"
+  },
+  {
+    "id": "logitech",
+    "name": "Logitech",
+    "category": "其他",
+    "rulePath": "rule/Clash/Logitech/Logitech.yaml"
+  },
+  {
+    "id": "londonreal",
+    "name": "LondonReal",
+    "category": "其他",
+    "rulePath": "rule/Clash/LondonReal/LondonReal.yaml"
+  },
+  {
+    "id": "ludashi",
+    "name": "LuDaShi",
+    "category": "其他",
+    "rulePath": "rule/Clash/LuDaShi/LuDaShi.yaml"
+  },
+  {
+    "id": "lvmilianchuang",
+    "name": "LvMiLianChuang",
+    "category": "其他",
+    "rulePath": "rule/Clash/LvMiLianChuang/LvMiLianChuang.yaml"
+  },
+  {
+    "id": "mega",
+    "name": "MEGA",
+    "category": "其他",
+    "rulePath": "rule/Clash/MEGA/MEGA.yaml"
+  },
+  {
+    "id": "miuiprivacy",
+    "name": "MIUIPrivacy",
+    "category": "其他",
+    "rulePath": "rule/Clash/MIUIPrivacy/MIUIPrivacy.yaml"
+  },
+  {
+    "id": "momoshop",
+    "name": "MOMOShop",
+    "category": "其他",
+    "rulePath": "rule/Clash/MOMOShop/MOMOShop.yaml"
+  },
+  {
+    "id": "moov",
+    "name": "MOOV",
+    "category": "其他",
+    "rulePath": "rule/Clash/MOOV/MOOV.yaml"
+  },
+  {
+    "id": "mail",
+    "name": "Mail",
+    "category": "其他",
+    "rulePath": "rule/Clash/Mail/Mail.yaml"
+  },
+  {
+    "id": "mailru",
+    "name": "Mailru",
+    "category": "其他",
+    "rulePath": "rule/Clash/Mailru/Mailru.yaml"
+  },
+  {
+    "id": "majsoul",
+    "name": "Majsoul",
+    "category": "其他",
+    "rulePath": "rule/Clash/Majsoul/Majsoul.yaml"
+  },
+  {
+    "id": "manorama",
+    "name": "Manorama",
+    "category": "其他",
+    "rulePath": "rule/Clash/Manorama/Manorama.yaml"
+  },
+  {
+    "id": "maocloud",
+    "name": "Maocloud",
+    "category": "其他",
+    "rulePath": "rule/Clash/Maocloud/Maocloud.yaml"
+  },
+  {
+    "id": "marketing",
+    "name": "Marketing",
+    "category": "其他",
+    "rulePath": "rule/Clash/Marketing/Marketing.yaml"
+  },
+  {
+    "id": "mcdonalds",
+    "name": "McDonalds",
+    "category": "其他",
+    "rulePath": "rule/Clash/McDonalds/McDonalds.yaml"
+  },
+  {
+    "id": "mewatch",
+    "name": "MeWatch",
+    "category": "其他",
+    "rulePath": "rule/Clash/MeWatch/MeWatch.yaml"
+  },
+  {
+    "id": "meitu",
+    "name": "MeiTu",
+    "category": "其他",
+    "rulePath": "rule/Clash/MeiTu/MeiTu.yaml"
+  },
+  {
+    "id": "meituan",
+    "name": "MeiTuan",
+    "category": "其他",
+    "rulePath": "rule/Clash/MeiTuan/MeiTuan.yaml"
+  },
+  {
+    "id": "meizu",
+    "name": "MeiZu",
+    "category": "其他",
+    "rulePath": "rule/Clash/MeiZu/MeiZu.yaml"
+  },
+  {
+    "id": "miwu",
+    "name": "MiWu",
+    "category": "其他",
+    "rulePath": "rule/Clash/MiWu/MiWu.yaml"
+  },
+  {
+    "id": "microsoft",
+    "name": "Microsoft",
+    "category": "系统服务",
+    "rulePath": "rule/Clash/Microsoft/Microsoft.yaml"
+  },
+  {
+    "id": "microsoftedge",
+    "name": "MicrosoftEdge",
+    "category": "其他",
+    "rulePath": "rule/Clash/MicrosoftEdge/MicrosoftEdge.yaml"
+  },
+  {
+    "id": "migu",
+    "name": "Migu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Migu/Migu.yaml"
+  },
+  {
+    "id": "mingluezhaohui",
+    "name": "MingLueZhaoHui",
+    "category": "其他",
+    "rulePath": "rule/Clash/MingLueZhaoHui/MingLueZhaoHui.yaml"
+  },
+  {
+    "id": "mogujie",
+    "name": "Mogujie",
+    "category": "其他",
+    "rulePath": "rule/Clash/Mogujie/Mogujie.yaml"
+  },
+  {
+    "id": "mojitianqi",
+    "name": "Mojitianqi",
+    "category": "其他",
+    "rulePath": "rule/Clash/Mojitianqi/Mojitianqi.yaml"
+  },
+  {
+    "id": "movefree",
+    "name": "Movefree",
+    "category": "其他",
+    "rulePath": "rule/Clash/Movefree/Movefree.yaml"
+  },
+  {
+    "id": "mozilla",
+    "name": "Mozilla",
+    "category": "其他",
+    "rulePath": "rule/Clash/Mozilla/Mozilla.yaml"
+  },
+  {
+    "id": "my5",
+    "name": "My5",
+    "category": "其他",
+    "rulePath": "rule/Clash/My5/My5.yaml"
+  },
+  {
+    "id": "nbc",
+    "name": "NBC",
+    "category": "其他",
+    "rulePath": "rule/Clash/NBC/NBC.yaml"
+  },
+  {
+    "id": "nga",
+    "name": "NGA",
+    "category": "其他",
+    "rulePath": "rule/Clash/NGA/NGA.yaml"
+  },
+  {
+    "id": "ngaa",
+    "name": "NGAA",
+    "category": "其他",
+    "rulePath": "rule/Clash/NGAA/NGAA.yaml"
+  },
+  {
+    "id": "ntpservice",
+    "name": "NTPService",
+    "category": "其他",
+    "rulePath": "rule/Clash/NTPService/NTPService.yaml"
+  },
+  {
+    "id": "nypost",
+    "name": "NYPost",
+    "category": "其他",
+    "rulePath": "rule/Clash/NYPost/NYPost.yaml"
+  },
+  {
+    "id": "nytimes",
+    "name": "NYTimes",
+    "category": "其他",
+    "rulePath": "rule/Clash/NYTimes/NYTimes.yaml"
+  },
+  {
+    "id": "nasddns",
+    "name": "NaSDDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/NaSDDNS/NaSDDNS.yaml"
+  },
+  {
+    "id": "naver",
+    "name": "Naver",
+    "category": "其他",
+    "rulePath": "rule/Clash/Naver/Naver.yaml"
+  },
+  {
+    "id": "navertv",
+    "name": "NaverTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/NaverTV/NaverTV.yaml"
+  },
+  {
+    "id": "netease",
+    "name": "NetEase",
+    "category": "其他",
+    "rulePath": "rule/Clash/NetEase/NetEase.yaml"
+  },
+  {
+    "id": "neteasemusic",
+    "name": "NetEaseMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/NetEaseMusic/NetEaseMusic.yaml"
+  },
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "category": "视频",
+    "rulePath": "rule/Clash/Netflix/Netflix.yaml"
+  },
+  {
+    "id": "niconico",
+    "name": "Niconico",
+    "category": "其他",
+    "rulePath": "rule/Clash/Niconico/Niconico.yaml"
+  },
+  {
+    "id": "nike",
+    "name": "Nike",
+    "category": "其他",
+    "rulePath": "rule/Clash/Nike/Nike.yaml"
+  },
+  {
+    "id": "nikkei",
+    "name": "Nikkei",
+    "category": "其他",
+    "rulePath": "rule/Clash/Nikkei/Nikkei.yaml"
+  },
+  {
+    "id": "nintendo",
+    "name": "Nintendo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Nintendo/Nintendo.yaml"
+  },
+  {
+    "id": "nivodtv",
+    "name": "NivodTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/NivodTV/NivodTV.yaml"
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "category": "其他",
+    "rulePath": "rule/Clash/Notion/Notion.yaml"
+  },
+  {
+    "id": "nowe",
+    "name": "NowE",
+    "category": "其他",
+    "rulePath": "rule/Clash/NowE/NowE.yaml"
+  },
+  {
+    "id": "npmjs",
+    "name": "Npmjs",
+    "category": "其他",
+    "rulePath": "rule/Clash/Npmjs/Npmjs.yaml"
+  },
+  {
+    "id": "nvidia",
+    "name": "Nvidia",
+    "category": "其他",
+    "rulePath": "rule/Clash/Nvidia/Nvidia.yaml"
+  },
+  {
+    "id": "okx",
+    "name": "OKX",
+    "category": "其他",
+    "rulePath": "rule/Clash/OKX/OKX.yaml"
+  },
+  {
+    "id": "op",
+    "name": "OP",
+    "category": "其他",
+    "rulePath": "rule/Clash/OP/OP.yaml"
+  },
+  {
+    "id": "oppo",
+    "name": "OPPO",
+    "category": "其他",
+    "rulePath": "rule/Clash/OPPO/OPPO.yaml"
+  },
+  {
+    "id": "olevod",
+    "name": "Olevod",
+    "category": "其他",
+    "rulePath": "rule/Clash/Olevod/Olevod.yaml"
+  },
+  {
+    "id": "onedrive",
+    "name": "OneDrive",
+    "category": "其他",
+    "rulePath": "rule/Clash/OneDrive/OneDrive.yaml"
+  },
+  {
+    "id": "oneplus",
+    "name": "OnePlus",
+    "category": "其他",
+    "rulePath": "rule/Clash/OnePlus/OnePlus.yaml"
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "category": "AI",
+    "aliases": [
+      "ChatGPT",
+      "GPT",
+      "OpenAI ChatGPT"
+    ],
+    "rulePath": "rule/Clash/OpenAI/OpenAI.yaml"
+  },
+  {
+    "id": "opera",
+    "name": "Opera",
+    "category": "其他",
+    "rulePath": "rule/Clash/Opera/Opera.yaml"
+  },
+  {
+    "id": "oracle",
+    "name": "Oracle",
+    "category": "其他",
+    "rulePath": "rule/Clash/Oracle/Oracle.yaml"
+  },
+  {
+    "id": "oreilly",
+    "name": "Oreilly",
+    "category": "其他",
+    "rulePath": "rule/Clash/Oreilly/Oreilly.yaml"
+  },
+  {
+    "id": "origin",
+    "name": "Origin",
+    "category": "其他",
+    "rulePath": "rule/Clash/Origin/Origin.yaml"
+  },
+  {
+    "id": "oupeng",
+    "name": "OuPeng",
+    "category": "其他",
+    "rulePath": "rule/Clash/OuPeng/OuPeng.yaml"
+  },
+  {
+    "id": "overcast",
+    "name": "Overcast",
+    "category": "其他",
+    "rulePath": "rule/Clash/Overcast/Overcast.yaml"
+  },
+  {
+    "id": "overwatch",
+    "name": "Overwatch",
+    "category": "其他",
+    "rulePath": "rule/Clash/Overwatch/Overwatch.yaml"
+  },
+  {
+    "id": "pbs",
+    "name": "PBS",
+    "category": "其他",
+    "rulePath": "rule/Clash/PBS/PBS.yaml"
+  },
+  {
+    "id": "pccw",
+    "name": "PCCW",
+    "category": "其他",
+    "rulePath": "rule/Clash/PCCW/PCCW.yaml"
+  },
+  {
+    "id": "pchome",
+    "name": "PChome",
+    "category": "其他",
+    "rulePath": "rule/Clash/PChome/PChome.yaml"
+  },
+  {
+    "id": "pchometw",
+    "name": "PChomeTW",
+    "category": "其他",
+    "rulePath": "rule/Clash/PChomeTW/PChomeTW.yaml"
+  },
+  {
+    "id": "pptv",
+    "name": "PPTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/PPTV/PPTV.yaml"
+  },
+  {
+    "id": "psbc",
+    "name": "PSBC",
+    "category": "其他",
+    "rulePath": "rule/Clash/PSBC/PSBC.yaml"
+  },
+  {
+    "id": "pandora",
+    "name": "Pandora",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pandora/Pandora.yaml"
+  },
+  {
+    "id": "pandoratv",
+    "name": "PandoraTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/PandoraTV/PandoraTV.yaml"
+  },
+  {
+    "id": "paramountplus",
+    "name": "ParamountPlus",
+    "category": "其他",
+    "rulePath": "rule/Clash/ParamountPlus/ParamountPlus.yaml"
+  },
+  {
+    "id": "patreon",
+    "name": "Patreon",
+    "category": "其他",
+    "rulePath": "rule/Clash/Patreon/Patreon.yaml"
+  },
+  {
+    "id": "paypal",
+    "name": "PayPal",
+    "category": "其他",
+    "rulePath": "rule/Clash/PayPal/PayPal.yaml"
+  },
+  {
+    "id": "peacock",
+    "name": "Peacock",
+    "category": "其他",
+    "rulePath": "rule/Clash/Peacock/Peacock.yaml"
+  },
+  {
+    "id": "picacg",
+    "name": "Picacg",
+    "category": "其他",
+    "rulePath": "rule/Clash/Picacg/Picacg.yaml"
+  },
+  {
+    "id": "picsee",
+    "name": "Picsee",
+    "category": "其他",
+    "rulePath": "rule/Clash/Picsee/Picsee.yaml"
+  },
+  {
+    "id": "pikpak",
+    "name": "PikPak",
+    "category": "其他",
+    "rulePath": "rule/Clash/PikPak/PikPak.yaml"
+  },
+  {
+    "id": "pinduoduo",
+    "name": "Pinduoduo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pinduoduo/Pinduoduo.yaml"
+  },
+  {
+    "id": "pingan",
+    "name": "PingAn",
+    "category": "其他",
+    "rulePath": "rule/Clash/PingAn/PingAn.yaml"
+  },
+  {
+    "id": "pinterest",
+    "name": "Pinterest",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pinterest/Pinterest.yaml"
+  },
+  {
+    "id": "pixiv",
+    "name": "Pixiv",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pixiv/Pixiv.yaml"
+  },
+  {
+    "id": "pixnet",
+    "name": "Pixnet",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pixnet/Pixnet.yaml"
+  },
+  {
+    "id": "playstation",
+    "name": "PlayStation",
+    "category": "其他",
+    "rulePath": "rule/Clash/PlayStation/PlayStation.yaml"
+  },
+  {
+    "id": "potatochat",
+    "name": "PotatoChat",
+    "category": "其他",
+    "rulePath": "rule/Clash/PotatoChat/PotatoChat.yaml"
+  },
+  {
+    "id": "primevideo",
+    "name": "PrimeVideo",
+    "category": "其他",
+    "rulePath": "rule/Clash/PrimeVideo/PrimeVideo.yaml"
+  },
+  {
+    "id": "privacy",
+    "name": "Privacy",
+    "category": "其他",
+    "rulePath": "rule/Clash/Privacy/Privacy.yaml"
+  },
+  {
+    "id": "privatetracker",
+    "name": "PrivateTracker",
+    "category": "其他",
+    "rulePath": "rule/Clash/PrivateTracker/PrivateTracker.yaml"
+  },
+  {
+    "id": "protonmail",
+    "name": "Protonmail",
+    "category": "其他",
+    "rulePath": "rule/Clash/Protonmail/Protonmail.yaml"
+  },
+  {
+    "id": "proxy",
+    "name": "Proxy",
+    "category": "其他",
+    "rulePath": "rule/Clash/Proxy/Proxy.yaml"
+  },
+  {
+    "id": "proxylite",
+    "name": "ProxyLite",
+    "category": "其他",
+    "rulePath": "rule/Clash/ProxyLite/ProxyLite.yaml"
+  },
+  {
+    "id": "pubmatic",
+    "name": "Pubmatic",
+    "category": "其他",
+    "rulePath": "rule/Clash/Pubmatic/Pubmatic.yaml"
+  },
+  {
+    "id": "purikonejp",
+    "name": "Purikonejp",
+    "category": "其他",
+    "rulePath": "rule/Clash/Purikonejp/Purikonejp.yaml"
+  },
+  {
+    "id": "python",
+    "name": "Python",
+    "category": "其他",
+    "rulePath": "rule/Clash/Python/Python.yaml"
+  },
+  {
+    "id": "qiniuyun",
+    "name": "QiNiuYun",
+    "category": "其他",
+    "rulePath": "rule/Clash/QiNiuYun/QiNiuYun.yaml"
+  },
+  {
+    "id": "qingcloud",
+    "name": "QingCloud",
+    "category": "其他",
+    "rulePath": "rule/Clash/QingCloud/QingCloud.yaml"
+  },
+  {
+    "id": "qobuz",
+    "name": "Qobuz",
+    "category": "其他",
+    "rulePath": "rule/Clash/Qobuz/Qobuz.yaml"
+  },
+  {
+    "id": "qualcomm",
+    "name": "Qualcomm",
+    "category": "其他",
+    "rulePath": "rule/Clash/Qualcomm/Qualcomm.yaml"
+  },
+  {
+    "id": "quickconnect",
+    "name": "QuickConnect",
+    "category": "其他",
+    "rulePath": "rule/Clash/QuickConnect/QuickConnect.yaml"
+  },
+  {
+    "id": "qyyjt",
+    "name": "Qyyjt",
+    "category": "其他",
+    "rulePath": "rule/Clash/Qyyjt/Qyyjt.yaml"
+  },
+  {
+    "id": "rthk",
+    "name": "RTHK",
+    "category": "其他",
+    "rulePath": "rule/Clash/RTHK/RTHK.yaml"
+  },
+  {
+    "id": "rakuten",
+    "name": "Rakuten",
+    "category": "其他",
+    "rulePath": "rule/Clash/Rakuten/Rakuten.yaml"
+  },
+  {
+    "id": "rarbg",
+    "name": "Rarbg",
+    "category": "其他",
+    "rulePath": "rule/Clash/Rarbg/Rarbg.yaml"
+  },
+  {
+    "id": "razer",
+    "name": "Razer",
+    "category": "其他",
+    "rulePath": "rule/Clash/Razer/Razer.yaml"
+  },
+  {
+    "id": "reabble",
+    "name": "Reabble",
+    "category": "其他",
+    "rulePath": "rule/Clash/Reabble/Reabble.yaml"
+  },
+  {
+    "id": "reddit",
+    "name": "Reddit",
+    "category": "社交",
+    "rulePath": "rule/Clash/Reddit/Reddit.yaml"
+  },
+  {
+    "id": "remotedesktop",
+    "name": "RemoteDesktop",
+    "category": "其他",
+    "rulePath": "rule/Clash/RemoteDesktop/RemoteDesktop.yaml"
+  },
+  {
+    "id": "riot",
+    "name": "Riot",
+    "category": "其他",
+    "rulePath": "rule/Clash/Riot/Riot.yaml"
+  },
+  {
+    "id": "rockstar",
+    "name": "Rockstar",
+    "category": "其他",
+    "rulePath": "rule/Clash/Rockstar/Rockstar.yaml"
+  },
+  {
+    "id": "ruanmei",
+    "name": "RuanMei",
+    "category": "其他",
+    "rulePath": "rule/Clash/RuanMei/RuanMei.yaml"
+  },
+  {
+    "id": "sfexpress",
+    "name": "SFExpress",
+    "category": "其他",
+    "rulePath": "rule/Clash/SFExpress/SFExpress.yaml"
+  },
+  {
+    "id": "smg",
+    "name": "SMG",
+    "category": "其他",
+    "rulePath": "rule/Clash/SMG/SMG.yaml"
+  },
+  {
+    "id": "smzdm",
+    "name": "SMZDM",
+    "category": "其他",
+    "rulePath": "rule/Clash/SMZDM/SMZDM.yaml"
+  },
+  {
+    "id": "stun",
+    "name": "STUN",
+    "category": "其他",
+    "rulePath": "rule/Clash/STUN/STUN.yaml"
+  },
+  {
+    "id": "salesforce",
+    "name": "Salesforce",
+    "category": "其他",
+    "rulePath": "rule/Clash/Salesforce/Salesforce.yaml"
+  },
+  {
+    "id": "samsung",
+    "name": "Samsung",
+    "category": "其他",
+    "rulePath": "rule/Clash/Samsung/Samsung.yaml"
+  },
+  {
+    "id": "scaleflex",
+    "name": "Scaleflex",
+    "category": "其他",
+    "rulePath": "rule/Clash/Scaleflex/Scaleflex.yaml"
+  },
+  {
+    "id": "scholar",
+    "name": "Scholar",
+    "category": "其他",
+    "rulePath": "rule/Clash/Scholar/Scholar.yaml"
+  },
+  {
+    "id": "sectigo",
+    "name": "Sectigo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sectigo/Sectigo.yaml"
+  },
+  {
+    "id": "shanghaijuxiao",
+    "name": "ShangHaiJuXiao",
+    "category": "其他",
+    "rulePath": "rule/Clash/ShangHaiJuXiao/ShangHaiJuXiao.yaml"
+  },
+  {
+    "id": "shanling",
+    "name": "Shanling",
+    "category": "其他",
+    "rulePath": "rule/Clash/Shanling/Shanling.yaml"
+  },
+  {
+    "id": "sharethis",
+    "name": "Sharethis",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sharethis/Sharethis.yaml"
+  },
+  {
+    "id": "shenma",
+    "name": "ShenMa",
+    "category": "其他",
+    "rulePath": "rule/Clash/ShenMa/ShenMa.yaml"
+  },
+  {
+    "id": "shijichaoxing",
+    "name": "ShiJiChaoXing",
+    "category": "其他",
+    "rulePath": "rule/Clash/ShiJiChaoXing/ShiJiChaoXing.yaml"
+  },
+  {
+    "id": "shinongzhike",
+    "name": "ShiNongZhiKe",
+    "category": "其他",
+    "rulePath": "rule/Clash/ShiNongZhiKe/ShiNongZhiKe.yaml"
+  },
+  {
+    "id": "shopee",
+    "name": "Shopee",
+    "category": "其他",
+    "rulePath": "rule/Clash/Shopee/Shopee.yaml"
+  },
+  {
+    "id": "shopify",
+    "name": "Shopify",
+    "category": "购物与服务",
+    "rulePath": "rule/Clash/Shopify/Shopify.yaml"
+  },
+  {
+    "id": "sina",
+    "name": "Sina",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sina/Sina.yaml"
+  },
+  {
+    "id": "siri",
+    "name": "Siri",
+    "category": "其他",
+    "rulePath": "rule/Clash/Siri/Siri.yaml"
+  },
+  {
+    "id": "skygo",
+    "name": "SkyGO",
+    "category": "其他",
+    "rulePath": "rule/Clash/SkyGO/SkyGO.yaml"
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "category": "即时通讯",
+    "rulePath": "rule/Clash/Slack/Slack.yaml"
+  },
+  {
+    "id": "slideshare",
+    "name": "SlideShare",
+    "category": "其他",
+    "rulePath": "rule/Clash/SlideShare/SlideShare.yaml"
+  },
+  {
+    "id": "sling",
+    "name": "Sling",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sling/Sling.yaml"
+  },
+  {
+    "id": "smartone",
+    "name": "SmarTone",
+    "category": "其他",
+    "rulePath": "rule/Clash/SmarTone/SmarTone.yaml"
+  },
+  {
+    "id": "snap",
+    "name": "Snap",
+    "category": "其他",
+    "rulePath": "rule/Clash/Snap/Snap.yaml"
+  },
+  {
+    "id": "sohu",
+    "name": "Sohu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sohu/Sohu.yaml"
+  },
+  {
+    "id": "sony",
+    "name": "Sony",
+    "category": "其他",
+    "rulePath": "rule/Clash/Sony/Sony.yaml"
+  },
+  {
+    "id": "soufang",
+    "name": "SouFang",
+    "category": "其他",
+    "rulePath": "rule/Clash/SouFang/SouFang.yaml"
+  },
+  {
+    "id": "soundcloud",
+    "name": "SoundCloud",
+    "category": "其他",
+    "rulePath": "rule/Clash/SoundCloud/SoundCloud.yaml"
+  },
+  {
+    "id": "sourceforge",
+    "name": "SourceForge",
+    "category": "其他",
+    "rulePath": "rule/Clash/SourceForge/SourceForge.yaml"
+  },
+  {
+    "id": "spark",
+    "name": "Spark",
+    "category": "其他",
+    "rulePath": "rule/Clash/Spark/Spark.yaml"
+  },
+  {
+    "id": "speedtest",
+    "name": "Speedtest",
+    "category": "其他",
+    "rulePath": "rule/Clash/Speedtest/Speedtest.yaml"
+  },
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "category": "音乐",
+    "rulePath": "rule/Clash/Spotify/Spotify.yaml"
+  },
+  {
+    "id": "stackexchange",
+    "name": "Stackexchange",
+    "category": "其他",
+    "rulePath": "rule/Clash/Stackexchange/Stackexchange.yaml"
+  },
+  {
+    "id": "starcraftii",
+    "name": "StarCraftII",
+    "category": "其他",
+    "rulePath": "rule/Clash/StarCraftII/StarCraftII.yaml"
+  },
+  {
+    "id": "starbucks",
+    "name": "Starbucks",
+    "category": "其他",
+    "rulePath": "rule/Clash/Starbucks/Starbucks.yaml"
+  },
+  {
+    "id": "steam",
+    "name": "Steam",
+    "category": "其他",
+    "rulePath": "rule/Clash/Steam/Steam.yaml"
+  },
+  {
+    "id": "steamcn",
+    "name": "SteamCN",
+    "category": "其他",
+    "rulePath": "rule/Clash/SteamCN/SteamCN.yaml"
+  },
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "category": "其他",
+    "rulePath": "rule/Clash/Stripe/Stripe.yaml"
+  },
+  {
+    "id": "suning",
+    "name": "SuNing",
+    "category": "其他",
+    "rulePath": "rule/Clash/SuNing/SuNing.yaml"
+  },
+  {
+    "id": "sublimetext",
+    "name": "SublimeText",
+    "category": "其他",
+    "rulePath": "rule/Clash/SublimeText/SublimeText.yaml"
+  },
+  {
+    "id": "suishichuanmei",
+    "name": "SuiShiChuanMei",
+    "category": "其他",
+    "rulePath": "rule/Clash/SuiShiChuanMei/SuiShiChuanMei.yaml"
+  },
+  {
+    "id": "supercell",
+    "name": "Supercell",
+    "category": "其他",
+    "rulePath": "rule/Clash/Supercell/Supercell.yaml"
+  },
+  {
+    "id": "synology",
+    "name": "Synology",
+    "category": "其他",
+    "rulePath": "rule/Clash/Synology/Synology.yaml"
+  },
+  {
+    "id": "systemota",
+    "name": "SystemOTA",
+    "category": "其他",
+    "rulePath": "rule/Clash/SystemOTA/SystemOTA.yaml"
+  },
+  {
+    "id": "tcl",
+    "name": "TCL",
+    "category": "其他",
+    "rulePath": "rule/Clash/TCL/TCL.yaml"
+  },
+  {
+    "id": "tidal",
+    "name": "TIDAL",
+    "category": "其他",
+    "rulePath": "rule/Clash/TIDAL/TIDAL.yaml"
+  },
+  {
+    "id": "tvb",
+    "name": "TVB",
+    "category": "其他",
+    "rulePath": "rule/Clash/TVB/TVB.yaml"
+  },
+  {
+    "id": "tver",
+    "name": "TVer",
+    "category": "其他",
+    "rulePath": "rule/Clash/TVer/TVer.yaml"
+  },
+  {
+    "id": "taikang",
+    "name": "TaiKang",
+    "category": "其他",
+    "rulePath": "rule/Clash/TaiKang/TaiKang.yaml"
+  },
+  {
+    "id": "taiwangood",
+    "name": "TaiWanGood",
+    "category": "其他",
+    "rulePath": "rule/Clash/TaiWanGood/TaiWanGood.yaml"
+  },
+  {
+    "id": "taihemusic",
+    "name": "TaiheMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/TaiheMusic/TaiheMusic.yaml"
+  },
+  {
+    "id": "taptap",
+    "name": "TapTap",
+    "category": "其他",
+    "rulePath": "rule/Clash/TapTap/TapTap.yaml"
+  },
+  {
+    "id": "teamviewer",
+    "name": "TeamViewer",
+    "category": "其他",
+    "rulePath": "rule/Clash/TeamViewer/TeamViewer.yaml"
+  },
+  {
+    "id": "teambition",
+    "name": "Teambition",
+    "category": "其他",
+    "rulePath": "rule/Clash/Teambition/Teambition.yaml"
+  },
+  {
+    "id": "teams",
+    "name": "Teams",
+    "category": "其他",
+    "rulePath": "rule/Clash/Teams/Teams.yaml"
+  },
+  {
+    "id": "telegram",
+    "name": "Telegram",
+    "category": "即时通讯",
+    "aliases": [
+      "TG"
+    ],
+    "rulePath": "rule/Clash/Telegram/Telegram.yaml"
+  },
+  {
+    "id": "telegramnl",
+    "name": "TelegramNL",
+    "category": "其他",
+    "rulePath": "rule/Clash/TelegramNL/TelegramNL.yaml"
+  },
+  {
+    "id": "telegramsg",
+    "name": "TelegramSG",
+    "category": "其他",
+    "rulePath": "rule/Clash/TelegramSG/TelegramSG.yaml"
+  },
+  {
+    "id": "telegramus",
+    "name": "TelegramUS",
+    "category": "其他",
+    "rulePath": "rule/Clash/TelegramUS/TelegramUS.yaml"
+  },
+  {
+    "id": "tencent",
+    "name": "Tencent",
+    "category": "其他",
+    "rulePath": "rule/Clash/Tencent/Tencent.yaml"
+  },
+  {
+    "id": "tencentvideo",
+    "name": "TencentVideo",
+    "category": "其他",
+    "rulePath": "rule/Clash/TencentVideo/TencentVideo.yaml"
+  },
+  {
+    "id": "terabox",
+    "name": "TeraBox",
+    "category": "其他",
+    "rulePath": "rule/Clash/TeraBox/TeraBox.yaml"
+  },
+  {
+    "id": "tesla",
+    "name": "Tesla",
+    "category": "其他",
+    "rulePath": "rule/Clash/Tesla/Tesla.yaml"
+  },
+  {
+    "id": "testflight",
+    "name": "TestFlight",
+    "category": "其他",
+    "rulePath": "rule/Clash/TestFlight/TestFlight.yaml"
+  },
+  {
+    "id": "thomsonreuters",
+    "name": "ThomsonReuters",
+    "category": "其他",
+    "rulePath": "rule/Clash/ThomsonReuters/ThomsonReuters.yaml"
+  },
+  {
+    "id": "threads",
+    "name": "Threads",
+    "category": "其他",
+    "rulePath": "rule/Clash/Threads/Threads.yaml"
+  },
+  {
+    "id": "tiantiankankan",
+    "name": "TianTianKanKan",
+    "category": "其他",
+    "rulePath": "rule/Clash/TianTianKanKan/TianTianKanKan.yaml"
+  },
+  {
+    "id": "tianweichengxin",
+    "name": "TianWeiChengXin",
+    "category": "其他",
+    "rulePath": "rule/Clash/TianWeiChengXin/TianWeiChengXin.yaml"
+  },
+  {
+    "id": "tianyaforum",
+    "name": "TianYaForum",
+    "category": "其他",
+    "rulePath": "rule/Clash/TianYaForum/TianYaForum.yaml"
+  },
+  {
+    "id": "tigerfintech",
+    "name": "TigerFintech",
+    "category": "其他",
+    "rulePath": "rule/Clash/TigerFintech/TigerFintech.yaml"
+  },
+  {
+    "id": "tiktok",
+    "name": "TikTok",
+    "category": "社交",
+    "aliases": [
+      "抖音国际版"
+    ],
+    "rulePath": "rule/Clash/TikTok/TikTok.yaml"
+  },
+  {
+    "id": "tmdb",
+    "name": "Tmdb",
+    "category": "其他",
+    "rulePath": "rule/Clash/Tmdb/Tmdb.yaml"
+  },
+  {
+    "id": "tongcheng",
+    "name": "TongCheng",
+    "category": "其他",
+    "rulePath": "rule/Clash/TongCheng/TongCheng.yaml"
+  },
+  {
+    "id": "trustwave",
+    "name": "TrustWave",
+    "category": "其他",
+    "rulePath": "rule/Clash/TrustWave/TrustWave.yaml"
+  },
+  {
+    "id": "truthsocial",
+    "name": "TruthSocial",
+    "category": "其他",
+    "rulePath": "rule/Clash/TruthSocial/TruthSocial.yaml"
+  },
+  {
+    "id": "tumblr",
+    "name": "Tumblr",
+    "category": "其他",
+    "rulePath": "rule/Clash/Tumblr/Tumblr.yaml"
+  },
+  {
+    "id": "twitch",
+    "name": "Twitch",
+    "category": "视频",
+    "rulePath": "rule/Clash/Twitch/Twitch.yaml"
+  },
+  {
+    "id": "twitter",
+    "name": "X / Twitter",
+    "category": "社交",
+    "aliases": [
+      "X",
+      "推特"
+    ],
+    "rulePath": "rule/Clash/Twitter/Twitter.yaml"
+  },
+  {
+    "id": "u17",
+    "name": "U17",
+    "category": "其他",
+    "rulePath": "rule/Clash/U17/U17.yaml"
+  },
+  {
+    "id": "ubi",
+    "name": "UBI",
+    "category": "其他",
+    "rulePath": "rule/Clash/UBI/UBI.yaml"
+  },
+  {
+    "id": "uc",
+    "name": "UC",
+    "category": "其他",
+    "rulePath": "rule/Clash/UC/UC.yaml"
+  },
+  {
+    "id": "ucloud",
+    "name": "UCloud",
+    "category": "其他",
+    "rulePath": "rule/Clash/UCloud/UCloud.yaml"
+  },
+  {
+    "id": "ukmedia",
+    "name": "UKMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/UKMedia/UKMedia.yaml"
+  },
+  {
+    "id": "upyun",
+    "name": "UPYun",
+    "category": "其他",
+    "rulePath": "rule/Clash/UPYun/UPYun.yaml"
+  },
+  {
+    "id": "usmedia",
+    "name": "USMedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/USMedia/USMedia.yaml"
+  },
+  {
+    "id": "ubisoft",
+    "name": "Ubisoft",
+    "category": "其他",
+    "rulePath": "rule/Clash/Ubisoft/Ubisoft.yaml"
+  },
+  {
+    "id": "ubuntu",
+    "name": "Ubuntu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Ubuntu/Ubuntu.yaml"
+  },
+  {
+    "id": "udacity",
+    "name": "Udacity",
+    "category": "其他",
+    "rulePath": "rule/Clash/Udacity/Udacity.yaml"
+  },
+  {
+    "id": "unionpay",
+    "name": "UnionPay",
+    "category": "其他",
+    "rulePath": "rule/Clash/UnionPay/UnionPay.yaml"
+  },
+  {
+    "id": "unity",
+    "name": "Unity",
+    "category": "其他",
+    "rulePath": "rule/Clash/Unity/Unity.yaml"
+  },
+  {
+    "id": "visa",
+    "name": "VISA",
+    "category": "其他",
+    "rulePath": "rule/Clash/VISA/VISA.yaml"
+  },
+  {
+    "id": "vk",
+    "name": "VK",
+    "category": "其他",
+    "rulePath": "rule/Clash/VK/VK.yaml"
+  },
+  {
+    "id": "voa",
+    "name": "VOA",
+    "category": "其他",
+    "rulePath": "rule/Clash/VOA/VOA.yaml"
+  },
+  {
+    "id": "vancl",
+    "name": "Vancl",
+    "category": "其他",
+    "rulePath": "rule/Clash/Vancl/Vancl.yaml"
+  },
+  {
+    "id": "vercel",
+    "name": "Vercel",
+    "category": "其他",
+    "rulePath": "rule/Clash/Vercel/Vercel.yaml"
+  },
+  {
+    "id": "verisign",
+    "name": "Verisign",
+    "category": "其他",
+    "rulePath": "rule/Clash/Verisign/Verisign.yaml"
+  },
+  {
+    "id": "verizon",
+    "name": "Verizon",
+    "category": "其他",
+    "rulePath": "rule/Clash/Verizon/Verizon.yaml"
+  },
+  {
+    "id": "vidoltv",
+    "name": "VidolTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/VidolTV/VidolTV.yaml"
+  },
+  {
+    "id": "vikacg",
+    "name": "VikACG",
+    "category": "其他",
+    "rulePath": "rule/Clash/VikACG/VikACG.yaml"
+  },
+  {
+    "id": "viki",
+    "name": "Viki",
+    "category": "其他",
+    "rulePath": "rule/Clash/Viki/Viki.yaml"
+  },
+  {
+    "id": "vimeo",
+    "name": "Vimeo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Vimeo/Vimeo.yaml"
+  },
+  {
+    "id": "vipshop",
+    "name": "VipShop",
+    "category": "其他",
+    "rulePath": "rule/Clash/VipShop/VipShop.yaml"
+  },
+  {
+    "id": "viutv",
+    "name": "ViuTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/ViuTV/ViuTV.yaml"
+  },
+  {
+    "id": "vivo",
+    "name": "Vivo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Vivo/Vivo.yaml"
+  },
+  {
+    "id": "voxmedia",
+    "name": "Voxmedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/Voxmedia/Voxmedia.yaml"
+  },
+  {
+    "id": "w3schools",
+    "name": "W3schools",
+    "category": "其他",
+    "rulePath": "rule/Clash/W3schools/W3schools.yaml"
+  },
+  {
+    "id": "wix",
+    "name": "WIX",
+    "category": "其他",
+    "rulePath": "rule/Clash/WIX/WIX.yaml"
+  },
+  {
+    "id": "wankahuanju",
+    "name": "WanKaHuanJu",
+    "category": "其他",
+    "rulePath": "rule/Clash/WanKaHuanJu/WanKaHuanJu.yaml"
+  },
+  {
+    "id": "wanmeishijie",
+    "name": "WanMeiShiJie",
+    "category": "其他",
+    "rulePath": "rule/Clash/WanMeiShiJie/WanMeiShiJie.yaml"
+  },
+  {
+    "id": "wanfang",
+    "name": "Wanfang",
+    "category": "其他",
+    "rulePath": "rule/Clash/Wanfang/Wanfang.yaml"
+  },
+  {
+    "id": "wangsukeji",
+    "name": "WangSuKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/WangSuKeJi/WangSuKeJi.yaml"
+  },
+  {
+    "id": "wangxinkeji",
+    "name": "WangXinKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/WangXinKeJi/WangXinKeJi.yaml"
+  },
+  {
+    "id": "wechat",
+    "name": "WeChat",
+    "category": "其他",
+    "rulePath": "rule/Clash/WeChat/WeChat.yaml"
+  },
+  {
+    "id": "wetv",
+    "name": "WeTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/WeTV/WeTV.yaml"
+  },
+  {
+    "id": "wetype",
+    "name": "WeType",
+    "category": "其他",
+    "rulePath": "rule/Clash/WeType/WeType.yaml"
+  },
+  {
+    "id": "weizhiyundong",
+    "name": "WeiZhiYunDong",
+    "category": "其他",
+    "rulePath": "rule/Clash/WeiZhiYunDong/WeiZhiYunDong.yaml"
+  },
+  {
+    "id": "weibo",
+    "name": "Weibo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Weibo/Weibo.yaml"
+  },
+  {
+    "id": "wenjuanxing",
+    "name": "WenJuanXing",
+    "category": "其他",
+    "rulePath": "rule/Clash/WenJuanXing/WenJuanXing.yaml"
+  },
+  {
+    "id": "westerndigital",
+    "name": "Westerndigital",
+    "category": "其他",
+    "rulePath": "rule/Clash/Westerndigital/Westerndigital.yaml"
+  },
+  {
+    "id": "whatsapp",
+    "name": "Whatsapp",
+    "category": "其他",
+    "rulePath": "rule/Clash/Whatsapp/Whatsapp.yaml"
+  },
+  {
+    "id": "wifimaster",
+    "name": "WiFiMaster",
+    "category": "其他",
+    "rulePath": "rule/Clash/WiFiMaster/WiFiMaster.yaml"
+  },
+  {
+    "id": "wikimedia",
+    "name": "Wikimedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/Wikimedia/Wikimedia.yaml"
+  },
+  {
+    "id": "wikipedia",
+    "name": "Wikipedia",
+    "category": "其他",
+    "rulePath": "rule/Clash/Wikipedia/Wikipedia.yaml"
+  },
+  {
+    "id": "wildrift",
+    "name": "WildRift",
+    "category": "其他",
+    "rulePath": "rule/Clash/WildRift/WildRift.yaml"
+  },
+  {
+    "id": "wolai",
+    "name": "WoLai",
+    "category": "其他",
+    "rulePath": "rule/Clash/WoLai/WoLai.yaml"
+  },
+  {
+    "id": "wordpress",
+    "name": "Wordpress",
+    "category": "其他",
+    "rulePath": "rule/Clash/Wordpress/Wordpress.yaml"
+  },
+  {
+    "id": "worldofwarcraft",
+    "name": "WorldofWarcraft",
+    "category": "其他",
+    "rulePath": "rule/Clash/WorldofWarcraft/WorldofWarcraft.yaml"
+  },
+  {
+    "id": "wteam",
+    "name": "Wteam",
+    "category": "其他",
+    "rulePath": "rule/Clash/Wteam/Wteam.yaml"
+  },
+  {
+    "id": "xbox",
+    "name": "Xbox",
+    "category": "其他",
+    "rulePath": "rule/Clash/Xbox/Xbox.yaml"
+  },
+  {
+    "id": "xiamimusic",
+    "name": "XiamiMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/XiamiMusic/XiamiMusic.yaml"
+  },
+  {
+    "id": "xianyu",
+    "name": "XianYu",
+    "category": "其他",
+    "rulePath": "rule/Clash/XianYu/XianYu.yaml"
+  },
+  {
+    "id": "xiaogoukeji",
+    "name": "XiaoGouKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/XiaoGouKeJi/XiaoGouKeJi.yaml"
+  },
+  {
+    "id": "xiaohongshu",
+    "name": "XiaoHongShu",
+    "category": "其他",
+    "rulePath": "rule/Clash/XiaoHongShu/XiaoHongShu.yaml"
+  },
+  {
+    "id": "xiaomi",
+    "name": "XiaoMi",
+    "category": "其他",
+    "rulePath": "rule/Clash/XiaoMi/XiaoMi.yaml"
+  },
+  {
+    "id": "xiaoyuankeji",
+    "name": "XiaoYuanKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/XiaoYuanKeJi/XiaoYuanKeJi.yaml"
+  },
+  {
+    "id": "xiecheng",
+    "name": "XieCheng",
+    "category": "其他",
+    "rulePath": "rule/Clash/XieCheng/XieCheng.yaml"
+  },
+  {
+    "id": "xingkongwuxian",
+    "name": "XingKongWuXian",
+    "category": "其他",
+    "rulePath": "rule/Clash/XingKongWuXian/XingKongWuXian.yaml"
+  },
+  {
+    "id": "xueersi",
+    "name": "XueErSi",
+    "category": "其他",
+    "rulePath": "rule/Clash/XueErSi/XueErSi.yaml"
+  },
+  {
+    "id": "xueqiu",
+    "name": "XueQiu",
+    "category": "其他",
+    "rulePath": "rule/Clash/XueQiu/XueQiu.yaml"
+  },
+  {
+    "id": "xunlei",
+    "name": "Xunlei",
+    "category": "其他",
+    "rulePath": "rule/Clash/Xunlei/Xunlei.yaml"
+  },
+  {
+    "id": "yyets",
+    "name": "YYeTs",
+    "category": "其他",
+    "rulePath": "rule/Clash/YYeTs/YYeTs.yaml"
+  },
+  {
+    "id": "yandex",
+    "name": "Yandex",
+    "category": "其他",
+    "rulePath": "rule/Clash/Yandex/Yandex.yaml"
+  },
+  {
+    "id": "yiche",
+    "name": "YiChe",
+    "category": "其他",
+    "rulePath": "rule/Clash/YiChe/YiChe.yaml"
+  },
+  {
+    "id": "yixiakeji",
+    "name": "YiXiaKeJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/YiXiaKeJi/YiXiaKeJi.yaml"
+  },
+  {
+    "id": "yizhibo",
+    "name": "YiZhiBo",
+    "category": "其他",
+    "rulePath": "rule/Clash/YiZhiBo/YiZhiBo.yaml"
+  },
+  {
+    "id": "youmengchuangxiang",
+    "name": "YouMengChuangXiang",
+    "category": "其他",
+    "rulePath": "rule/Clash/YouMengChuangXiang/YouMengChuangXiang.yaml"
+  },
+  {
+    "id": "youtube",
+    "name": "YouTube",
+    "category": "视频",
+    "aliases": [
+      "Google Video",
+      "油管"
+    ],
+    "rulePath": "rule/Clash/YouTube/YouTube.yaml"
+  },
+  {
+    "id": "youtubemusic",
+    "name": "YouTubeMusic",
+    "category": "其他",
+    "rulePath": "rule/Clash/YouTubeMusic/YouTubeMusic.yaml"
+  },
+  {
+    "id": "youzan",
+    "name": "YouZan",
+    "category": "其他",
+    "rulePath": "rule/Clash/YouZan/YouZan.yaml"
+  },
+  {
+    "id": "youku",
+    "name": "Youku",
+    "category": "其他",
+    "rulePath": "rule/Clash/Youku/Youku.yaml"
+  },
+  {
+    "id": "yuanfudao",
+    "name": "YuanFuDao",
+    "category": "其他",
+    "rulePath": "rule/Clash/YuanFuDao/YuanFuDao.yaml"
+  },
+  {
+    "id": "yunfanjiasu",
+    "name": "YunFanJiaSu",
+    "category": "其他",
+    "rulePath": "rule/Clash/YunFanJiaSu/YunFanJiaSu.yaml"
+  },
+  {
+    "id": "zdns",
+    "name": "ZDNS",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZDNS/ZDNS.yaml"
+  },
+  {
+    "id": "zalo",
+    "name": "Zalo",
+    "category": "其他",
+    "rulePath": "rule/Clash/Zalo/Zalo.yaml"
+  },
+  {
+    "id": "zee",
+    "name": "Zee",
+    "category": "其他",
+    "rulePath": "rule/Clash/Zee/Zee.yaml"
+  },
+  {
+    "id": "zeetv",
+    "name": "ZeeTV",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZeeTV/ZeeTV.yaml"
+  },
+  {
+    "id": "zendesk",
+    "name": "Zendesk",
+    "category": "其他",
+    "rulePath": "rule/Clash/Zendesk/Zendesk.yaml"
+  },
+  {
+    "id": "zhangyue",
+    "name": "ZhangYue",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhangYue/ZhangYue.yaml"
+  },
+  {
+    "id": "zhiyinmanke",
+    "name": "ZhiYinManKe",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhiYinManKe/ZhiYinManKe.yaml"
+  },
+  {
+    "id": "zhiyunzhong",
+    "name": "ZhiYunZhong",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhiYunZhong/ZhiYunZhong.yaml"
+  },
+  {
+    "id": "zhihu",
+    "name": "Zhihu",
+    "category": "其他",
+    "rulePath": "rule/Clash/Zhihu/Zhihu.yaml"
+  },
+  {
+    "id": "zhihuads",
+    "name": "ZhihuAds",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhihuAds/ZhihuAds.yaml"
+  },
+  {
+    "id": "zhongguoshihua",
+    "name": "ZhongGuoShiHua",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhongGuoShiHua/ZhongGuoShiHua.yaml"
+  },
+  {
+    "id": "zhongweishiji",
+    "name": "ZhongWeiShiJi",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhongWeiShiJi/ZhongWeiShiJi.yaml"
+  },
+  {
+    "id": "zhongxingtongxun",
+    "name": "ZhongXingTongXun",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhongXingTongXun/ZhongXingTongXun.yaml"
+  },
+  {
+    "id": "zhongyuanyishang",
+    "name": "ZhongYuanYiShang",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhongYuanYiShang/ZhongYuanYiShang.yaml"
+  },
+  {
+    "id": "zhuanzhuan",
+    "name": "ZhuanZhuan",
+    "category": "其他",
+    "rulePath": "rule/Clash/ZhuanZhuan/ZhuanZhuan.yaml"
+  },
+  {
+    "id": "zoho",
+    "name": "Zoho",
+    "category": "其他",
+    "rulePath": "rule/Clash/Zoho/Zoho.yaml"
+  },
+  {
+    "id": "aixcoder",
+    "name": "aiXcoder",
+    "category": "其他",
+    "rulePath": "rule/Clash/aiXcoder/aiXcoder.yaml"
+  },
+  {
+    "id": "ebay",
+    "name": "eBay",
+    "category": "其他",
+    "rulePath": "rule/Clash/eBay/eBay.yaml"
+  },
+  {
+    "id": "friday",
+    "name": "friDay",
+    "category": "其他",
+    "rulePath": "rule/Clash/friDay/friDay.yaml"
+  },
+  {
+    "id": "icloud",
+    "name": "iCloud",
+    "category": "其他",
+    "rulePath": "rule/Clash/iCloud/iCloud.yaml"
+  },
+  {
+    "id": "icloudprivaterelay",
+    "name": "iCloudPrivateRelay",
+    "category": "其他",
+    "rulePath": "rule/Clash/iCloudPrivateRelay/iCloudPrivateRelay.yaml"
+  },
+  {
+    "id": "iflytek",
+    "name": "iFlytek",
+    "category": "其他",
+    "rulePath": "rule/Clash/iFlytek/iFlytek.yaml"
+  },
+  {
+    "id": "iqiyi",
+    "name": "iQIYI",
+    "category": "其他",
+    "rulePath": "rule/Clash/iQIYI/iQIYI.yaml"
+  },
+  {
+    "id": "iqiyiintl",
+    "name": "iQIYIIntl",
+    "category": "其他",
+    "rulePath": "rule/Clash/iQIYIIntl/iQIYIIntl.yaml"
+  },
+  {
+    "id": "italkbb",
+    "name": "iTalkBB",
+    "category": "其他",
+    "rulePath": "rule/Clash/iTalkBB/iTalkBB.yaml"
+  },
+  {
+    "id": "ifanr",
+    "name": "ifanr",
+    "category": "其他",
+    "rulePath": "rule/Clash/ifanr/ifanr.yaml"
+  },
+  {
+    "id": "mytvsuper",
+    "name": "myTVSUPER",
+    "category": "其他",
+    "rulePath": "rule/Clash/myTVSUPER/myTVSUPER.yaml"
+  },
+  {
+    "id": "zhanqi",
+    "name": "zhanqi",
+    "category": "其他",
+    "rulePath": "rule/Clash/zhanqi/zhanqi.yaml"
+  }
+]

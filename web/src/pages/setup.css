@@ -1,0 +1,325 @@
+/* Setup / login / quick-onboarding screens (AdminSetupPage, LoginPage,
+   RouterOSSetupPage). Token-only values; the aurora background and glass
+   material come from base.css. */
+
+.setup-card {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-6);
+  border-radius: var(--r-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.setup-card-choice {
+  max-width: 460px;
+}
+
+.setup-card-wide {
+  max-width: 560px;
+}
+
+.setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.setup-form > .btn {
+  width: 100%;
+}
+
+.setup-form-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 96px;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.setup-form-grow {
+  min-width: 0;
+}
+
+/* ---------- choice cards ---------- */
+.setup-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.setup-choice-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke);
+  background: var(--glass);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast),
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+.setup-choice-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: var(--glass-2);
+}
+
+.setup-choice-card .choice-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: var(--glass-2);
+  flex: none;
+}
+
+.setup-choice-card.primary {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.setup-choice-card.primary .choice-icon {
+  background: var(--grad-brand);
+}
+
+.setup-choice-card .choice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-choice-card strong {
+  display: block;
+  font-size: var(--text-card-title);
+  font-weight: 650;
+}
+
+.setup-choice-card small {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  margin-top: 2px;
+}
+
+.setup-choice-card .choice-badge {
+  flex: none;
+}
+
+/* ---------- wizard steps ---------- */
+.setup-steps {
+  display: flex;
+  gap: var(--space-4);
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-step-n {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--glass-2);
+  color: var(--ink-2);
+  font-weight: 700;
+  font-size: 10px;
+  flex: none;
+}
+
+.setup-step.on {
+  color: var(--accent);
+}
+
+.setup-step.on .setup-step-n {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.setup-step.done .setup-step-n {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+/* ---------- onboarding instructions & script ---------- */
+.setup-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  counter-reset: setup-step;
+}
+
+.setup-instructions li {
+  counter-increment: setup-step;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-3) var(--space-3) var(--space-3) 42px;
+  position: relative;
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+}
+
+.setup-instructions li::before {
+  content: counter(setup-step);
+  position: absolute;
+  left: var(--space-3);
+  top: var(--space-3);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.setup-instructions b {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.setup-instructions span {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+.setup-script-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.setup-script-meta {
+  font-size: var(--text-xs);
+}
+
+.setup-script-meta code {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-script {
+  max-height: 240px;
+  overflow: auto;
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  padding: var(--space-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--ink-2);
+  white-space: pre;
+  user-select: text;
+}
+
+.setup-expired {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+}
+
+.setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ---------- verify result ---------- */
+.setup-verify {
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.setup-verify-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--stroke);
+  font-size: var(--text-card-title);
+}
+
+.setup-verify-head .badge {
+  margin-left: auto;
+}
+
+.setup-warn-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--warn-soft);
+  border-radius: var(--r-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.setup-warn-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--warn);
+}
+
+.setup-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+@media (max-width: 767px) {
+  .setup-card,
+  .setup-card-choice,
+  .setup-card-wide {
+    max-width: none;
+  }
+
+  .setup-card .btn,
+  .setup-card .input,
+  .setup-card .select {
+    min-height: 40px;
+  }
+
+  .setup-choice-card {
+    min-height: 44px;
+  }
+
+  .setup-form-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .setup-form-row .setup-form-grow {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}

@@ -16,7 +16,7 @@ import (
 	"rosboard/internal/routeros"
 )
 
-func TestDeviceCreateRequiresMatchingVerificationAndCanonicalizesCIDRs(t *testing.T) {
+func TestDeviceCreateAllowsSaveWithoutPriorVerificationAndCanonicalizesCIDRs(t *testing.T) {
 	router := newDeviceTestRouter(t)
 	defer router.Close()
 	scheme, host, port := testConnectionParts(t, router.URL)
@@ -24,22 +24,8 @@ func TestDeviceCreateRequiresMatchingVerificationAndCanonicalizesCIDRs(t *testin
 	cfg := config.Config{Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48}
 	server := NewServer(cfg, nil, nil)
 
-	withoutTicket := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":" secret ","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.7/24"]}`
+	withoutTicket := `{"name":"Edge","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":" secret ","trafficScope":{"mode":"auto"},"terminalCidrs":["10.0.0.7/24"]}`
 	response := serveJSON(server, http.MethodPost, "/api/devices", withoutTicket)
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "verification") {
-		t.Fatalf("missing-ticket status=%d body=%s", response.Code, response.Body.String())
-	}
-
-	baseURL, err := normalizedRouterOSURL(scheme, host, port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, _, err := server.tickets.issue(connectionFingerprint(baseURL, "admin", " secret "), []routeros.VerificationInterface{{Name: "ether1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	withTicket := strings.TrimSuffix(withoutTicket, "}") + `,"verificationToken":"` + token + `"}`
-	response = serveJSON(server, http.MethodPost, "/api/devices", withTicket)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -197,7 +183,7 @@ func TestUnsavedDeviceCanCompleteOnboardingDirectly(t *testing.T) {
 	}
 }
 
-func TestDeviceCreateRejectsEndpointUsedByArchivedDevice(t *testing.T) {
+func TestDeviceCreateAllowsEndpointUsedByArchivedDevice(t *testing.T) {
 	router := newDeviceTestRouter(t)
 	defer router.Close()
 	scheme, host, port := testConnectionParts(t, router.URL)
@@ -213,7 +199,7 @@ func TestDeviceCreateRejectsEndpointUsedByArchivedDevice(t *testing.T) {
 	}
 	body := `{"name":"New","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"other","password":"secret","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.0/24"],"verificationToken":"` + token + `"}`
 	response := serveJSON(server, http.MethodPost, "/api/devices", body)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "already uses") {
+	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
@@ -226,7 +212,7 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := config.Config{
 		Path: path, PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret", TrafficInterfaces: []string{"ether1"}, TerminalCIDRs: []string{"10.0.0.0/24"}}}},
+		Devices: []config.DeviceConfig{{ID: "edge", Name: "Edge", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret", TrafficInterfaces: []string{"ether1"}, TerminalCIDRs: []string{"10.0.0.0/24"}}, MosDNS: config.MosDNSConfig{Enabled: true, BaseURL: "http://10.0.0.3", SyncIntervalMinutes: 15}}},
 	}
 	server := NewServer(cfg, nil, nil)
 	body := `{"name":"Renamed","enabled":true,"scheme":"` + scheme + `","host":"` + host + `","port":` + strconv.Itoa(port) + `,"username":"admin","password":"","trafficInterfaces":["ether1"],"terminalCidrs":["10.0.0.0/24"]}`
@@ -240,6 +226,9 @@ func TestDeviceEditKeepsBlankPasswordWithoutRetest(t *testing.T) {
 	}
 	if saved.Devices[0].Name != "Renamed" || saved.Devices[0].RouterOS.Password != "secret" {
 		t.Fatalf("unexpected saved device: %#v", saved.Devices[0])
+	}
+	if !saved.Devices[0].MosDNS.Configured() || saved.Devices[0].MosDNS.BaseURL != "http://10.0.0.3" || saved.Devices[0].MosDNS.SyncIntervalMinutes != 15 || saved.Devices[0].MosDNS.MatchWindowMinutes != 30 {
+		t.Fatalf("device edit without mosdns payload must preserve recognition settings: %#v", saved.Devices[0].MosDNS)
 	}
 }
 
@@ -270,6 +259,49 @@ func TestDeviceConnectionTestRejectsUnavailableTrafficScopeInclude(t *testing.T)
 	response := serveJSON(server, http.MethodPost, "/api/devices/test-connection", body)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `traffic scope include interface \"pppoe-不存在\" is unavailable`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDeviceScopePreviewUsesVerificationTopology(t *testing.T) {
+	server := NewServer(config.Config{}, nil, nil)
+	baseURL := "http://router.test:80"
+	topology := routeros.TopologySnapshot{
+		Interfaces:  []routeros.Interface{{Name: "bridge", Type: "bridge", Running: "true"}, {Name: "ether1", Type: "ether", Running: "true"}},
+		DHCPClients: []routeros.DHCPClient{{Interface: "ether1", Status: "bound", AddDefaultRoute: "true"}},
+	}
+	token, _, err := server.tickets.issueWithTopology(connectionFingerprint(baseURL, "admin", "secret"), []routeros.VerificationInterface{{Name: "bridge"}, {Name: "ether1"}}, topology)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := serveJSON(server, http.MethodPost, "/api/devices/preview-scope", `{"verificationToken":"`+token+`","trafficScope":{"mode":"auto","include_interfaces":["ether1"]},"terminalScope":{"mode":"auto","include_interfaces":["bridge"]}}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		TrafficScope struct {
+			Interfaces []struct{ Name string } `json:"interfaces"`
+		} `json:"trafficScope"`
+		TerminalScope struct {
+			Interfaces []struct {
+				Name string
+				Role string
+			} `json:"interfaces"`
+		} `json:"terminalScope"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.TrafficScope.Interfaces) != 1 || result.TrafficScope.Interfaces[0].Name != "ether1" {
+		t.Fatalf("unexpected traffic preview: %#v", result.TrafficScope)
+	}
+	foundLAN := false
+	for _, item := range result.TerminalScope.Interfaces {
+		if item.Name == "bridge" && item.Role == "lan" {
+			foundLAN = true
+		}
+	}
+	if !foundLAN {
+		t.Fatalf("unexpected terminal preview: %#v", result.TerminalScope)
 	}
 }
 

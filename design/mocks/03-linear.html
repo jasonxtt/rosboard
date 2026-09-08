@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rosboard · 风格 03 · Linear 极简</title>
+<style>
+  :root{
+    --bg:#fbfbfc; --card:#ffffff; --line:#ececf0; --line2:#e2e2e8;
+    --ink:#17171c; --ink2:#6b6b76; --ink3:#a0a0ab;
+    --accent:#5e5ce6; --accent-soft:#eeeefc;
+    --g:#0d9f6e; --a:#d97706; --r:#dc4446;
+    --mono:"SF Mono","Geist Mono",Menlo,monospace;
+    --shadow:0 1px 2px rgba(23,23,28,.04);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:13.5px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Inter","PingFang SC","Hiragino Sans GB",sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-.005em}
+  .app{display:grid;grid-template-columns:224px 1fr;min-height:100vh}
+
+  .side{border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:0;height:100vh;overflow:auto;background:var(--bg)}
+  .brand{display:flex;align-items:center;gap:9px;padding:4px 8px 14px;font-weight:650;font-size:14px}
+  .brand .logo{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:11.5px;font-weight:700}
+  .brand .kb{margin-left:auto}
+  .kb{font-family:var(--mono);font-size:10.5px;color:var(--ink3);border:1px solid var(--line2);border-radius:5px;padding:1.5px 6px;background:#fff}
+  .dev{display:flex;align-items:center;gap:8px;margin:0 2px 12px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;box-shadow:var(--shadow)}
+  .dev:hover{border-color:#d4d4dc}
+  .dev .d{width:6px;height:6px;border-radius:50%;background:var(--g)}
+  .dev b{font-size:12.5px;font-weight:600}
+  .dev span{color:var(--ink3);font-size:11px}
+  .nav-sec{font-size:10.5px;color:var(--ink3);font-weight:600;letter-spacing:.05em;padding:12px 10px 4px}
+  .nav a{display:flex;align-items:center;gap:8px;padding:5.5px 10px;border-radius:7px;color:var(--ink2);text-decoration:none;font-size:13px}
+  .nav a:hover{background:#f2f2f5;color:var(--ink)}
+  .nav a.on{background:#ececf3;color:var(--ink);font-weight:550}
+  .nav a .k{margin-left:auto}
+  .nav a .cnt{margin-left:auto;font-size:11px;color:var(--ink3);font-family:var(--mono)}
+
+  .main{padding:20px 32px 70px;min-width:0;max-width:1240px}
+  .crumb{font-size:12px;color:var(--ink3);margin-bottom:6px}
+  .crumb b{color:var(--ink2);font-weight:500}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+  .head h1{font-size:19px;font-weight:650;letter-spacing:-.02em}
+  .head .sub{color:var(--ink3);font-size:12px}
+  .head .sp{flex:1}
+  .vtab{display:flex;gap:2px;border:1px solid var(--line);border-radius:8px;padding:2px;background:#fff}
+  .vtab button{border:0;background:transparent;padding:4.5px 13px;font-size:12.5px;color:var(--ink2);border-radius:6px;cursor:pointer}
+  .vtab button.on{background:#f0f0f5;color:var(--ink);font-weight:550}
+  .btn{border:1px solid var(--line2);background:#fff;border-radius:7px;padding:5.5px 12px;font-size:12.5px;color:var(--ink);cursor:pointer;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow)}
+  .btn:hover{border-color:#cfcfda}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.accent{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  .statline{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid var(--line);border-radius:12px;background:#fff;margin:18px 0 14px;overflow:hidden;box-shadow:var(--shadow)}
+  .stat{padding:13px 16px 11px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:0}
+  .stat .l{font-size:11.5px;color:var(--ink3);display:flex;justify-content:space-between}
+  .stat .v{font-size:21px;font-weight:650;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat .v small{font-size:11.5px;color:var(--ink3);font-weight:500}
+  .stat .f{font-size:11px;color:var(--ink3);margin-top:2px}
+  .stat .u{height:3px;border-radius:2px;background:#f0f0f4;margin-top:7px;overflow:hidden}
+  .stat .u i{display:block;height:100%;border-radius:2px;background:var(--ink)}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .card-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .card-h h3{font-size:13px;font-weight:600}
+  .card-h .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .link{font-size:12px;color:var(--accent);cursor:pointer}
+  .tag{font-size:11px;color:var(--ink2);background:#f3f3f7;border-radius:99px;padding:2px 9px}
+  .tag.g{color:var(--g);background:#e9f7f1}.tag.a{color:var(--a);background:#fbf3e4}.tag.r{color:var(--r);background:#fdeeee}.tag.v{color:var(--accent);background:var(--accent-soft)}
+  .tag i{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;margin-right:5px;vertical-align:1.5px}
+
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11px;color:var(--ink3);font-weight:550;padding:8px 16px;border-bottom:1px solid var(--line);background:#fcfcfd}
+  td{padding:9.5px 16px;border-bottom:1px solid var(--line);font-size:12.5px}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fafafc}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .mono{font-family:var(--mono);font-size:12px}
+  .dim{color:var(--ink3)}
+  .row2{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-top:14px}
+  .row2b{display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-top:14px}
+  .alert{display:flex;gap:9px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px;align-items:baseline}
+  .alert:last-child{border:0}
+  .alert time{margin-left:auto;font-size:11px;color:var(--ink3);font-family:var(--mono)}
+  .egr{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+  .egr .t{display:flex;font-weight:600;font-size:13px;align-items:center;gap:8px}
+  .egr .kv{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);padding:2.5px 0}
+  .egr .kv b{color:var(--ink);font-weight:500}
+  .egr3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .empty-hint{font-size:11.5px;color:var(--ink3)}
+  .mock-note{position:fixed;left:12px;bottom:12px;background:#fff;border:1px solid var(--line2);color:var(--ink2);font-size:11.5px;padding:7px 12px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.08);z-index:9}
+  .mock-note b{color:var(--ink)}
+  .view{display:none}.view.on{display:block}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo">R</span>rosboard<span class="kb">⌘K</span></div>
+    <div class="dev"><span class="d"></span><b>主路由</b><span>RB5009</span><span class="kb" style="margin-left:auto">⌘1</span></div>
+    <nav class="nav">
+      <a href="#"><span>设备总览</span><span class="cnt">3</span></a>
+      <a href="#" class="on"><span>系统概览</span></a>
+      <div class="nav-sec">状态监控</div>
+      <a href="#"><span>接口监控</span></a>
+      <a href="#"><span>终端监控</span><span class="cnt">41</span></a>
+      <a href="#"><span>流量监控</span></a>
+      <a href="#"><span>网络服务</span></a>
+      <a href="#"><span>系统运行</span></a>
+      <div class="nav-sec">主机设置</div>
+      <a href="#"><span>目标库</span></a>
+      <a href="#"><span>策略路由</span><span class="k kb">G P</span></a>
+      <a href="#"><span>访问控制</span></a>
+      <a href="#"><span>识别设置</span></a>
+      <div class="nav-sec">面板</div>
+      <a href="#"><span>设置</span></a>
+      <a href="#"><span>告警</span><span class="cnt" style="color:var(--a)">2</span></a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="crumb">主路由 / <b id="crumbHere">系统概览</b></div>
+    <div class="head">
+      <h1 id="h1">系统概览</h1>
+      <span class="sub" id="h1sub">RB5009UG+S+ · RouterOS v7.22.3 · 更新于 2s 前</span>
+      <span class="sp"></span>
+      <div class="vtab"><button class="on" data-view="dash">仪表盘</button><button data-view="policy">策略路由</button></div>
+      <button class="btn">⟳ 3s</button>
+      <button class="btn primary">＋ 新建规则</button>
+    </div>
+
+    <!-- ======== DASH ======== -->
+    <section class="view on" id="view-dash">
+      <div class="statline">
+        <div class="stat"><div class="l">CPU <span>34%</span></div><div class="v">34<small>%</small></div><div class="u"><i style="width:34%"></i></div><div class="f">8 核 · peak 61%</div></div>
+        <div class="stat"><div class="l">内存 <span>61%</span></div><div class="v">61<small>%</small></div><div class="u"><i style="width:61%"></i></div><div class="f">623 / 1024 MB</div></div>
+        <div class="stat"><div class="l">存储 <span>42%</span></div><div class="v">42<small>%</small></div><div class="u"><i style="width:42%"></i></div><div class="f">剩余 58 MB</div></div>
+        <div class="stat"><div class="l">在线终端</div><div class="v">23<small>/41</small></div><div class="f">4 空闲 · 14 离线</div></div>
+        <div class="stat"><div class="l">活动连接</div><div class="v">1,482</div><div class="f">TCP 1,204 · UDP 261</div></div>
+        <div class="stat"><div class="l">运行时长</div><div class="v" style="font-size:18px;padding-top:3px">23d 4h</div><div class="f">重启于 8/15</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>实时流量</h3>
+          <span class="tag">↓ 186.4 Mbps</span><span class="tag">↑ 42.7 Mbps</span>
+          <div class="r"><span class="tag v">5 分钟</span><span class="link">1h · 6h · 24h</span></div>
+        </div>
+        <svg id="chartMain" width="100%" height="190" viewBox="0 0 760 190" preserveAspectRatio="none" style="display:block"></svg>
+      </div>
+
+      <div class="row2b">
+        <div class="card">
+          <div class="card-h"><h3>终端</h3><span class="dim" style="font-size:11.5px">按速率</span><div class="r"><span class="link">全部 41 →</span></div></div>
+          <table>
+            <thead><tr><th>名称</th><th>IP</th><th class="num">连接</th><th class="num">↓ 速率</th><th class="num">↑ 速率</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>台式机 · 书房</td><td class="mono dim">192.168.88.22</td><td class="num">341</td><td class="num">52.1 Mbps</td><td class="num">6.3 Mbps</td><td><span class="tag g"><i></i>在线</span></td></tr>
+              <tr><td>小米电视 · 客厅</td><td class="mono dim">192.168.88.57</td><td class="num">23</td><td class="num">31.5 Mbps</td><td class="num">0.4 Mbps</td><td><span class="tag g"><i></i>在线</span></td></tr>
+              <tr><td>iPhone 15 Pro</td><td class="mono dim">192.168.88.42</td><td class="num">86</td><td class="num">12.4 Mbps</td><td class="num">1.2 Mbps</td><td><span class="tag g"><i></i>在线</span></td></tr>
+              <tr><td>MacBook Pro 14</td><td class="mono dim">192.168.88.31</td><td class="num">214</td><td class="num">8.7 Mbps</td><td class="num">3.9 Mbps</td><td><span class="tag g"><i></i>在线</span></td></tr>
+              <tr><td>NAS · 群晖</td><td class="mono dim">192.168.88.10</td><td class="num">178</td><td class="num">6.2 Mbps</td><td class="num">22.8 Mbps</td><td><span class="tag g"><i></i>在线</span></td></tr>
+              <tr><td class="dim">扫地机器人 · IoT</td><td class="mono dim">192.168.90.15</td><td class="num dim">3</td><td class="num dim">—</td><td class="num dim">—</td><td><span class="tag a"><i></i>空闲</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>动态</h3><div class="r"><span class="tag a">2 条待处理</span></div></div>
+          <div class="alert"><span class="tag a" style="flex:none"><i></i>警告</span><span>ether4 链路抖动 ×6 / 10 分钟</span><time>12m</time></div>
+          <div class="alert"><span class="tag" style="flex:none">提示</span><span>DNS 特征库 3 天未更新</span><time>3d</time></div>
+          <div class="alert"><span class="tag g" style="flex:none"><i></i>成功</span><span>策略「苹果服务加速」已应用 · 42 项变更</span><time>21h</time></div>
+          <div class="alert"><span class="tag g" style="flex:none"><i></i>成功</span><span>gfwlist 已刷新 · 12,480 条规则</span><time>3h</time></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== POLICY ======== -->
+    <section class="view" id="view-policy">
+      <div class="egr3" style="margin-top:16px">
+        <div class="egr"><div class="t">电信 · PPPoE<span class="tag g" style="margin-left:auto"><i></i>已应用</span></div>
+          <div class="kv"><span>接口</span><b class="mono">pppoe-out1</b></div><div class="kv"><span>协议族</span><b>IPv4 + IPv6</b></div><div class="kv"><span>故障策略</span><b>严格</b></div><div class="kv"><span>速率</span><b class="mono">↓152M ↑38M</b></div></div>
+        <div class="egr"><div class="t">联通 · DHCP<span class="tag g" style="margin-left:auto"><i></i>已应用</span></div>
+          <div class="kv"><span>接口</span><b class="mono">ether2</b></div><div class="kv"><span>协议族</span><b>IPv4</b></div><div class="kv"><span>故障策略</span><b>回退电信</b></div><div class="kv"><span>速率</span><b class="mono">↓34M ↑4.7M</b></div></div>
+        <div class="egr" style="opacity:.55"><div class="t">移动 · 备用<span class="tag" style="margin-left:auto">停用</span></div>
+          <div class="kv"><span>接口</span><b class="mono">ether3</b></div><div class="kv"><span>协议族</span><b>IPv4</b></div><div class="kv"><span>故障策略</span><b>严格</b></div><div class="kv"><span>速率</span><b>—</b></div></div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-h"><h3>分流规则</h3><span class="tag v">写入权限 ✓</span><div class="r"><span class="link">＋ 新建规则 ⌘N</span></div></div>
+        <table>
+          <thead><tr><th style="width:44px">优先级</th><th>规则</th><th>来源</th><th>目标</th><th>出口</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="num mono dim">10</td><td>苹果服务加速</td><td class="dim">全部终端</td><td><span class="tag">Apple · 14,344 条</span></td><td>电信</td><td><span class="tag g"><i></i>已应用</span></td><td class="num"><span class="link">编辑</span></td></tr>
+            <tr><td class="num mono dim">20</td><td>流媒体走联通</td><td class="dim">小米电视 +2</td><td><span class="tag">Netflix</span> <span class="tag">YouTube</span></td><td>联通</td><td><span class="tag g"><i></i>已应用</span></td><td class="num"><span class="link">编辑</span></td></tr>
+            <tr><td class="num mono dim">30</td><td>办公优先</td><td class="dim">MacBook +1</td><td class="dim">整个互联网</td><td>自动</td><td><span class="tag a"><i></i>待应用 · 2 项变更</span></td><td class="num"><span class="link" style="font-weight:600">审查 →</span></td></tr>
+            <tr style="opacity:.55"><td class="num mono dim">90</td><td>默认分流</td><td class="dim">全部终端</td><td><span class="tag">gfwlist</span></td><td>移动</td><td><span class="tag">停用</span></td><td class="num"><span class="link">启用</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="row2b">
+        <div class="card">
+          <div class="card-h"><h3>目标库</h3><div class="r"><span class="link">管理 →</span></div></div>
+          <table>
+            <thead><tr><th>名称</th><th>类型</th><th class="num">规则数</th><th>更新</th></tr></thead>
+            <tbody>
+              <tr><td>gfwlist <span class="dim">· URL</span></td><td><span class="tag">域名</span></td><td class="num mono">12,480</td><td class="dim">每日</td></tr>
+              <tr><td>Netflix <span class="dim">· 预设</span></td><td><span class="tag">域名+IP</span></td><td class="num mono">228</td><td class="dim">手动</td></tr>
+              <tr><td>广告域名 <span class="dim">· 手动</span></td><td><span class="tag">域名</span></td><td class="num mono">320</td><td class="dim">手动</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>访问控制</h3><div class="r"><span class="link">管理 →</span></div></div>
+          <div class="alert"><span class="tag r" style="flex:none">阻断</span><span>儿童平板 · 22:00–07:00 断网</span><span class="tag g">生效中</span></div>
+          <div class="alert"><span class="tag r" style="flex:none">阻断</span><span>全部终端 · 广告域名 320 条</span><span class="tag g">生效中</span></div>
+          <div style="padding:12px 16px" class="empty-hint">⌘K 唤起命令菜单 · 支持键盘完成全部操作</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="mock-note">风格 <b>03 · Linear 极简</b>：白底细线 · 单一强调色 · 键盘优先 · 无装饰</div>
+
+<script>
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function series(seed,n,base,amp){const r=rng(seed);let v=base;const out=[];for(let i=0;i<n;i++){v+=(r()-.5)*amp;v=Math.max(base*.35,v);out.push(v)}return out}
+function path(pts,w,h,pad){const max=Math.max(...pts)*1.12,min=Math.min(...pts)*.55;const step=(w-pad*2)/(pts.length-1);return pts.map((p,i)=>{const x=pad+i*step,y=h-pad-((p-min)/(max-min))*(h-pad*2);return(i?'L':'M')+x.toFixed(1)+','+y.toFixed(1)}).join(' ')}
+(function(){
+  const svg=document.getElementById('chartMain'),W=760,H=190;
+  const dn=series(7,110,150,26),up=series(21,110,42,9);
+  const dPath=path(dn,W,H,6),uPath=path(up,W,H,6);
+  const area=dPath+` L${W-6},${H-6} L6,${H-6} Z`;
+  svg.innerHTML=`
+    <defs><linearGradient id="gf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5e5ce6" stop-opacity=".14"/><stop offset="1" stop-color="#5e5ce6" stop-opacity="0"/></linearGradient></defs>
+    ${[0.33,0.66].map(f=>`<line x1="6" x2="${W-6}" y1="${H*f}" y2="${H*f}" stroke="#f0f0f4" stroke-width="1"/>`).join('')}
+    <path d="${area}" fill="url(#gf)"/>
+    <path d="${dPath}" fill="none" stroke="#5e5ce6" stroke-width="1.8"/>
+    <path d="${uPath}" fill="none" stroke="#b9b8f0" stroke-width="1.4"/>`;
+})();
+const tabs=document.querySelectorAll('.vtab button');
+const T={dash:['系统概览','RB5009UG+S+ · RouterOS v7.22.3 · 更新于 2s 前'],policy:['策略路由','分流规则 · 出口 · 目标库']};
+tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById('view-'+b.dataset.view).classList.add('on');
+  document.getElementById('h1').textContent=T[b.dataset.view][0];
+  document.getElementById('crumbHere').textContent=T[b.dataset.view][0];
+  document.getElementById('h1sub').textContent=T[b.dataset.view][1];});
+</script>
+</body>
+</html>

@@ -19,6 +19,63 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type AccountAccess struct {
+	Username string
+	Group    string
+	Policies []string
+	Writable bool
+}
+
+func (c *Client) AccountAccess(ctx context.Context, username string) (AccountAccess, error) {
+	var users []struct {
+		Name  string `json:"name"`
+		Group string `json:"group"`
+	}
+	if err := c.getJSON(ctx, "/rest/user", &users); err != nil {
+		return AccountAccess{}, err
+	}
+	username = strings.TrimSpace(username)
+	group := ""
+	for _, user := range users {
+		if user.Name == username {
+			group = strings.TrimSpace(user.Group)
+			break
+		}
+	}
+	if group == "" {
+		return AccountAccess{}, errors.New("current RouterOS user was not found")
+	}
+	var groups []struct {
+		Name   string `json:"name"`
+		Policy string `json:"policy"`
+	}
+	if err := c.getJSON(ctx, "/rest/user/group", &groups); err != nil {
+		return AccountAccess{}, err
+	}
+	for _, candidate := range groups {
+		if strings.TrimSpace(candidate.Name) != group {
+			continue
+		}
+		policies, writable := normalizeAccountPolicies(candidate.Policy)
+		return AccountAccess{Username: username, Group: group, Policies: policies, Writable: writable}, nil
+	}
+	return AccountAccess{}, errors.New("current RouterOS user group was not found")
+}
+
+func normalizeAccountPolicies(value string) ([]string, bool) {
+	policies := make([]string, 0)
+	writable := false
+	for _, item := range strings.Split(value, ",") {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if item == "" || strings.HasPrefix(item, "!") {
+			continue
+		}
+		policies = append(policies, item)
+		writable = writable || item == "write"
+	}
+	return policies, writable
+}
+
 type HTTPError struct {
 	Path       string
 	StatusCode int
@@ -27,13 +84,24 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	return fmt.Sprintf("request %s: unexpected status %s", e.Path, e.Status)
+	message := fmt.Sprintf("request %s: unexpected status %s", e.Path, e.Status)
+	if detail := strings.TrimSpace(e.Detail); detail != "" {
+		return message + ": " + detail
+	}
+	return message
 }
 
-func routerOSErrorDetail(reader io.Reader) string {
+func routerOSErrorDetail(reader io.Reader, credentials ...string) string {
 	body, err := io.ReadAll(io.LimitReader(reader, 8<<10))
 	if err != nil {
 		return ""
+	}
+	sanitizeAndBound := func(value string) string {
+		value = sanitizeMutationText(value, credentialValue(credentials, 0), credentialValue(credentials, 1))
+		if len(value) > maxMutationDetailBytes {
+			return value[:maxMutationDetailBytes]
+		}
+		return value
 	}
 	var payload struct {
 		Message string `json:"message"`
@@ -48,10 +116,17 @@ func routerOSErrorDetail(reader io.Reader) string {
 			parts = append(parts, value)
 		}
 		if len(parts) > 0 {
-			return strings.Join(parts, ": ")
+			return sanitizeAndBound(strings.Join(parts, ": "))
 		}
 	}
-	return strings.TrimSpace(string(body))
+	return sanitizeAndBound(strings.TrimSpace(string(body)))
+}
+
+func credentialValue(credentials []string, index int) string {
+	if index >= len(credentials) {
+		return ""
+	}
+	return credentials[index]
 }
 
 func NewClient(baseURL, username, password string) *Client {
@@ -291,14 +366,17 @@ func (c *Client) do(req *http.Request, out any) error {
 	if err != nil {
 		return fmt.Errorf("request %s: %w", req.URL.Path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+		c.httpClient.CloseIdleConnections()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &HTTPError{
 			Path:       req.URL.Path,
 			StatusCode: resp.StatusCode,
-			Status:     resp.Status,
-			Detail:     routerOSErrorDetail(resp.Body),
+			Status:     sanitizeMutationText(resp.Status, c.username, c.password),
+			Detail:     routerOSErrorDetail(resp.Body, c.username, c.password),
 		}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

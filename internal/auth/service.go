@@ -164,29 +164,10 @@ func (s *Service) CreateAdmin(ctx context.Context, username, password, confirmat
 }
 
 func (s *Service) Login(ctx context.Context, remoteIP, username, password string) (Session, error) {
-	username = strings.TrimSpace(username)
-	key := remoteIP + "\x00" + username
-	if retry := s.limiter.retryAfter(key); retry > 0 {
-		return Session{}, &LoginError{Err: ErrRateLimited, RetryAfter: retry}
+	account, err := s.verifyCredentials(ctx, remoteIP, username, password)
+	if err != nil {
+		return Session{}, err
 	}
-	select {
-	case s.verifySlots <- struct{}{}:
-		defer func() { <-s.verifySlots }()
-	default:
-		return Session{}, &LoginError{Err: ErrRateLimited, RetryAfter: time.Second}
-	}
-
-	account, err := s.store.Admin(ctx)
-	passwordMatches := err == nil && s.verifyPassword(password, account.PasswordHash)
-	valid := err == nil && account.Username == username && passwordMatches
-	if !valid {
-		retry := s.limiter.failed(key)
-		if retry > 0 {
-			return Session{}, &LoginError{Err: ErrRateLimited, RetryAfter: retry}
-		}
-		return Session{}, ErrInvalidCredentials
-	}
-	s.limiter.succeeded(key)
 	session, persisted, err := s.newSession(account.ID)
 	if err != nil {
 		return Session{}, err
@@ -196,6 +177,41 @@ func (s *Service) Login(ctx context.Context, remoteIP, username, password string
 	}
 	session.Username = account.Username
 	return session, nil
+}
+
+// VerifyStepUp verifies the password for the administrator represented by the
+// current session. It shares login throttling and verification slots, but does
+// not create or renew a session.
+func (s *Service) VerifyStepUp(ctx context.Context, remoteIP, sessionUsername, password string) error {
+	_, err := s.verifyCredentials(ctx, remoteIP, sessionUsername, password)
+	return err
+}
+
+func (s *Service) verifyCredentials(ctx context.Context, remoteIP, username, password string) (store.AdminAccount, error) {
+	username = strings.TrimSpace(username)
+	key := remoteIP + "\x00" + username
+	if retry := s.limiter.retryAfter(key); retry > 0 {
+		return store.AdminAccount{}, &LoginError{Err: ErrRateLimited, RetryAfter: retry}
+	}
+	select {
+	case s.verifySlots <- struct{}{}:
+		defer func() { <-s.verifySlots }()
+	default:
+		return store.AdminAccount{}, &LoginError{Err: ErrRateLimited, RetryAfter: time.Second}
+	}
+
+	account, err := s.store.Admin(ctx)
+	passwordMatches := err == nil && s.verifyPassword(password, account.PasswordHash)
+	valid := err == nil && account.Username == username && passwordMatches
+	if !valid {
+		retry := s.limiter.failed(key)
+		if retry > 0 {
+			return store.AdminAccount{}, &LoginError{Err: ErrRateLimited, RetryAfter: retry}
+		}
+		return store.AdminAccount{}, ErrInvalidCredentials
+	}
+	s.limiter.succeeded(key)
+	return account, nil
 }
 
 func (s *Service) Authenticate(ctx context.Context, token string) (Session, error) {

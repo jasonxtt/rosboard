@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/08-27-policy-routing-backend-v2/research/frontend-reachable-contract.md", "reason": "检查实现未超出或遗漏当前前端契约"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查跨层字段和错误契约"}
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "检查认证与秘密边界未回退"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查设备隔离和事务安全"}

@@ -1,0 +1,75 @@
+/* 访问控制 page layout (component styles live in features/policy/policy.css). */
+
+/* boundary + sync-state foldables share one row (sync on the right, per user) */
+.pol-fold-row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.pol-fold-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.pol-fold-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+.pol-boundary {
+  padding: var(--space-3) var(--space-4);
+}
+
+.pol-boundary summary {
+  cursor: pointer;
+  font-size: var(--text-card-title);
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pol-boundary summary::before {
+  content: '▸';
+  color: var(--ink-3);
+}
+
+.pol-boundary[open] summary::before {
+  content: '▾';
+}
+
+.pol-boundary-text {
+  margin-top: var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+.pol-boundary .pol-kv-list {
+  margin-top: var(--space-2);
+}
+
+.pol-member-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .pol-fold-row {
+    flex-direction: column;
+  }
+
+  .pol-fold-row > * {
+    width: 100%;
+  }
+
+  .pol-page-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

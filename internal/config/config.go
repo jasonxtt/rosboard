@@ -5,37 +5,45 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Path                        string                 `yaml:"-"`
-	MigrationPending            bool                   `yaml:"-"`
-	RecognitionDefaultsMigrated bool                   `yaml:"recognition_defaults_migrated,omitempty"`
-	ProtocolAnalysisMigrated    bool                   `yaml:"protocol_analysis_migrated,omitempty"`
-	ListenAddress               string                 `yaml:"listen_address"`
-	DataDir                     string                 `yaml:"data_dir"`
-	PollIntervalSeconds         int                    `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int                    `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int                    `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int                    `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string               `yaml:"allowed_cidrs"`
-	MosDNS                      MosDNSConfig           `yaml:"mosdns,omitempty"`
-	FeatureLibrary              FeatureLibraryConfig   `yaml:"feature_library,omitempty"`
-	ProtocolAnalysis            ProtocolAnalysisConfig `yaml:"protocol_analysis,omitempty"`
-	RouterOS                    RouterOSConfig         `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig         `yaml:"devices,omitempty"`
+	Path                        string         `yaml:"-"`
+	ListenAddress               string         `yaml:"listen_address"`
+	DataDir                     string         `yaml:"data_dir"`
+	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
+	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
+
+	// ProtocolAnalysis is runtime-only (see ProtocolAnalysisConfig).
+	ProtocolAnalysis ProtocolAnalysisConfig `yaml:"-"`
 }
 
 type MosDNSConfig struct {
 	Enabled             bool   `yaml:"enabled" json:"enabled"`
 	BaseURL             string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	SyncIntervalMinutes int    `yaml:"sync_interval_minutes,omitempty" json:"sync_interval_minutes,omitempty"`
+	MatchWindowMinutes  int    `yaml:"match_window_minutes,omitempty" json:"match_window_minutes,omitempty"`
 }
 
+// ProtocolAnalysisConfig is a runtime-only carrier: recognition settings live
+// per device in DeviceConfig, and the manager copies the owning device's flag
+// here when building that device's monitor configuration. It is never
+// persisted as a global section.
+type ProtocolAnalysisConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+// FeatureLibraryConfig is retained only so legacy per-device YAML can be
+// decoded and preserved while its match window migrates to MosDNS.
 type FeatureLibraryConfig struct {
 	Enabled              bool   `yaml:"enabled" json:"enabled"`
 	SourceURL            string `yaml:"source_url,omitempty" json:"source_url,omitempty"`
@@ -43,21 +51,19 @@ type FeatureLibraryConfig struct {
 	MatchWindowMinutes   int    `yaml:"match_window_minutes,omitempty" json:"match_window_minutes,omitempty"`
 }
 
-type ProtocolAnalysisConfig struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
-}
-
 const DefaultDeviceID = "default"
 
-const defaultFeatureLibrarySourceURL = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml"
-
 type DeviceConfig struct {
-	ID             string                  `yaml:"id"`
-	Name           string                  `yaml:"name"`
-	Enabled        bool                    `yaml:"enabled"`
-	Archived       bool                    `yaml:"archived,omitempty"`
-	ManagedAccount *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
-	RouterOS       RouterOSConfig          `yaml:"routeros"`
+	ID               string                  `yaml:"id"`
+	Name             string                  `yaml:"name"`
+	Enabled          bool                    `yaml:"enabled"`
+	Archived         bool                    `yaml:"archived,omitempty"`
+	SortOrder        int                     `yaml:"sort_order,omitempty"`
+	ManagedAccount   *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
+	RouterOS         RouterOSConfig          `yaml:"routeros"`
+	ProtocolAnalysis bool                    `yaml:"protocol_analysis"`
+	FeatureLibrary   FeatureLibraryConfig    `yaml:"feature_library,omitempty"`
+	MosDNS           MosDNSConfig            `yaml:"mosdns,omitempty"`
 }
 
 type ManagedRouterOSAccount struct {
@@ -101,27 +107,11 @@ func Load(path string) (Config, error) {
 		RealtimePollIntervalSeconds: 1,
 		TerminalPollIntervalSeconds: 5,
 		SampleRetentionHours:        48,
-		MosDNS: MosDNSConfig{
-			Enabled:             false,
-			BaseURL:             "",
-			SyncIntervalMinutes: 30,
-		},
-		FeatureLibrary: FeatureLibraryConfig{
-			Enabled:              false,
-			SourceURL:            "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat_plain.yml",
-			RefreshIntervalHours: 168,
-			MatchWindowMinutes:   30,
-		},
-		ProtocolAnalysis: ProtocolAnalysisConfig{
-			Enabled: false,
-		},
 		RouterOS: RouterOSConfig{
 			BaseURL: "http://10.0.0.1",
 		},
 	}
 
-	fileExisted := false
-	sectionPresent := false
 	if path != "" {
 		payload, err := os.ReadFile(path)
 		if err != nil {
@@ -132,19 +122,10 @@ func Load(path string) (Config, error) {
 			if err := yaml.Unmarshal(payload, &cfg); err != nil {
 				return Config{}, fmt.Errorf("parse config: %w", err)
 			}
-			fileExisted = true
-			var probe map[string]yaml.Node
-			if err := yaml.Unmarshal(payload, &probe); err == nil {
-				_, sectionPresent = probe["protocol_analysis"]
-			}
 		}
 	}
 
-	cfg.migrateRecognitionDefaults()
-	cfg.migrateProtocolAnalysisDefault(fileExisted, sectionPresent)
 	overrideFromEnv(&cfg)
-	cfg.normalizeMosDNS()
-	cfg.normalizeFeatureLibrary()
 	cfg.normalizeDevices()
 
 	if err := cfg.validate(); err != nil {
@@ -229,32 +210,6 @@ func overrideFromEnv(cfg *Config) {
 		target.Password = value
 		cfg.RouterOS.Password = value
 	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_MOSDNS_BASE_URL")); value != "" {
-		cfg.MosDNS.BaseURL = value
-	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_MOSDNS_SYNC_INTERVAL_MINUTES")); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			cfg.MosDNS.SyncIntervalMinutes = parsed
-		}
-	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_ENABLED")); value != "" {
-		if parsed, err := strconv.ParseBool(value); err == nil {
-			cfg.FeatureLibrary.Enabled = parsed
-		}
-	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_SOURCE_URL")); value != "" {
-		cfg.FeatureLibrary.SourceURL = value
-	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_REFRESH_INTERVAL_HOURS")); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			cfg.FeatureLibrary.RefreshIntervalHours = parsed
-		}
-	}
-	if value := strings.TrimSpace(os.Getenv("ROSBOARD_FEATURE_LIBRARY_MATCH_WINDOW_MINUTES")); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			cfg.FeatureLibrary.MatchWindowMinutes = parsed
-		}
-	}
 }
 
 func (c Config) validate() error {
@@ -269,20 +224,6 @@ func (c Config) validate() error {
 	}
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
-	}
-	if c.MosDNS.Enabled && strings.TrimSpace(c.MosDNS.BaseURL) == "" {
-		return errors.New("mosdns.base_url is required when enabled")
-	}
-	if c.MosDNS.Configured() && c.MosDNS.SyncIntervalMinutes <= 0 {
-		return errors.New("mosdns.sync_interval_minutes must be positive")
-	}
-	if c.FeatureLibrary.Configured() {
-		if c.FeatureLibrary.RefreshIntervalHours <= 0 {
-			return errors.New("feature_library.refresh_interval_hours must be positive")
-		}
-		if c.FeatureLibrary.MatchWindowMinutes <= 0 {
-			return errors.New("feature_library.match_window_minutes must be positive")
-		}
 	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {
@@ -302,6 +243,15 @@ func (c Config) validate() error {
 		if err := device.RouterOS.TrafficScope.validate(); err != nil {
 			return fmt.Errorf("devices[%d].routeros.traffic_scope: %w", index, err)
 		}
+		if device.MosDNS.Enabled && strings.TrimSpace(device.MosDNS.BaseURL) == "" {
+			return fmt.Errorf("devices[%d].mosdns.base_url is required when enabled", index)
+		}
+		if device.MosDNS.Configured() && device.MosDNS.SyncIntervalMinutes <= 0 {
+			return fmt.Errorf("devices[%d].mosdns.sync_interval_minutes must be positive", index)
+		}
+		if device.MosDNS.Configured() && device.MosDNS.MatchWindowMinutes <= 0 {
+			return fmt.Errorf("devices[%d].mosdns.match_window_minutes must be positive", index)
+		}
 	}
 	if len(c.Devices) == 0 {
 		if err := c.RouterOS.TerminalScope.validate(); err != nil {
@@ -312,13 +262,6 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
-}
-
-func (c *Config) normalizeMosDNS() {
-	c.MosDNS.BaseURL = NormalizeMosDNSBaseURL(c.MosDNS.BaseURL)
-	if c.MosDNS.SyncIntervalMinutes == 0 {
-		c.MosDNS.SyncIntervalMinutes = 30
-	}
 }
 
 // NormalizeMosDNSBaseURL keeps the config/client contract URL-shaped while
@@ -333,51 +276,6 @@ func NormalizeMosDNSBaseURL(value string) string {
 
 func (c MosDNSConfig) Configured() bool {
 	return c.Enabled && strings.TrimSpace(c.BaseURL) != ""
-}
-
-func (c *Config) normalizeFeatureLibrary() {
-	if strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" {
-		c.FeatureLibrary.SourceURL = defaultFeatureLibrarySourceURL
-	}
-	if c.FeatureLibrary.RefreshIntervalHours == 0 {
-		c.FeatureLibrary.RefreshIntervalHours = 168
-	}
-	if c.FeatureLibrary.MatchWindowMinutes == 0 {
-		c.FeatureLibrary.MatchWindowMinutes = 30
-	}
-}
-
-func (c *Config) migrateRecognitionDefaults() {
-	if c.RecognitionDefaultsMigrated {
-		return
-	}
-
-	legacyMosDNSAddress := NormalizeMosDNSBaseURL(c.MosDNS.BaseURL)
-	if c.MosDNS.Enabled && (strings.TrimSpace(c.MosDNS.BaseURL) == "" || (legacyMosDNSAddress == "http://10.0.0.3" && c.MosDNS.SyncIntervalMinutes == 30)) {
-		c.MosDNS.Enabled = false
-		c.MosDNS.BaseURL = ""
-		c.MigrationPending = true
-	}
-	if c.FeatureLibrary.Enabled && (strings.TrimSpace(c.FeatureLibrary.SourceURL) == "" || (c.FeatureLibrary.SourceURL == defaultFeatureLibrarySourceURL && c.FeatureLibrary.RefreshIntervalHours == 168 && c.FeatureLibrary.MatchWindowMinutes == 30)) {
-		c.FeatureLibrary.Enabled = false
-		c.MigrationPending = true
-	}
-	c.RecognitionDefaultsMigrated = true
-}
-
-func (c *Config) migrateProtocolAnalysisDefault(fileExisted, sectionPresent bool) {
-	if c.ProtocolAnalysisMigrated {
-		return
-	}
-	if fileExisted && !sectionPresent {
-		c.ProtocolAnalysis.Enabled = true
-		c.MigrationPending = true
-	}
-	c.ProtocolAnalysisMigrated = true
-}
-
-func (c FeatureLibraryConfig) Configured() bool {
-	return c.Enabled && strings.TrimSpace(c.SourceURL) != ""
 }
 
 func (scope TrafficScopeConfig) validate() error {
@@ -454,10 +352,12 @@ func (c *Config) normalizeDevices() {
 	if len(c.Devices) == 0 {
 		if c.RouterOS.Configured() {
 			c.Devices = []DeviceConfig{{
-				ID:       DefaultDeviceID,
-				Name:     "RouterOS",
-				Enabled:  true,
-				RouterOS: c.RouterOS,
+				ID:        DefaultDeviceID,
+				Name:      "RouterOS",
+				Enabled:   true,
+				SortOrder: 1,
+				RouterOS:  c.RouterOS,
+				MosDNS:    MosDNSConfig{SyncIntervalMinutes: 30, MatchWindowMinutes: 30},
 			}}
 		}
 		return
@@ -465,7 +365,33 @@ func (c *Config) normalizeDevices() {
 	for index := range c.Devices {
 		c.Devices[index].ID = strings.TrimSpace(c.Devices[index].ID)
 		c.Devices[index].Name = strings.TrimSpace(c.Devices[index].Name)
+		c.Devices[index].MosDNS.BaseURL = NormalizeMosDNSBaseURL(c.Devices[index].MosDNS.BaseURL)
+		if c.Devices[index].MosDNS.SyncIntervalMinutes == 0 {
+			c.Devices[index].MosDNS.SyncIntervalMinutes = 30
+		}
+		if c.Devices[index].MosDNS.MatchWindowMinutes == 0 {
+			c.Devices[index].MosDNS.MatchWindowMinutes = c.Devices[index].FeatureLibrary.MatchWindowMinutes
+			if c.Devices[index].MosDNS.MatchWindowMinutes <= 0 {
+				c.Devices[index].MosDNS.MatchWindowMinutes = 30
+			}
+		}
+		if c.Devices[index].SortOrder < 0 {
+			c.Devices[index].SortOrder = 0
+		}
 	}
+	if !deviceSortOrderConfigured(c.Devices) {
+		// Legacy config without sort_order: assign positions matching the
+		// previous name-sorted display order so upgrades keep the same order.
+		sorted := append([]DeviceConfig(nil), c.Devices...)
+		sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+		for index := range sorted {
+			sorted[index].SortOrder = index + 1
+		}
+		c.Devices = sorted
+	}
+	// The config slice is the single source of truth for display order: keep
+	// it identical to the effective sort order everywhere.
+	SortDevicesByDisplayOrder(c.Devices)
 	for _, device := range c.Devices {
 		if device.Enabled && !device.Archived {
 			c.RouterOS = device.RouterOS
@@ -473,6 +399,52 @@ func (c *Config) normalizeDevices() {
 		}
 	}
 	c.RouterOS = c.Devices[0].RouterOS
+}
+
+func deviceSortOrderConfigured(devices []DeviceConfig) bool {
+	for _, device := range devices {
+		if device.SortOrder > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// DisplayOrderLess orders devices by (sortOrder, name): positive sort_order
+// values ascending with ties broken by name, and non-positive (unconfigured)
+// values always last, name-sorted among themselves.
+func DisplayOrderLess(aOrder int, aName string, bOrder int, bName string) bool {
+	aConfigured, bConfigured := aOrder > 0, bOrder > 0
+	if !aConfigured || !bConfigured {
+		if !aConfigured && !bConfigured {
+			return aName < bName
+		}
+		return bOrder <= 0
+	}
+	if aOrder != bOrder {
+		return aOrder < bOrder
+	}
+	return aName < bName
+}
+
+// SortDevicesByDisplayOrder sorts device configs into display order in place.
+func SortDevicesByDisplayOrder(devices []DeviceConfig) {
+	sort.SliceStable(devices, func(i, j int) bool {
+		return DisplayOrderLess(devices[i].SortOrder, devices[i].Name, devices[j].SortOrder, devices[j].Name)
+	})
+}
+
+// NextDeviceSortOrder returns the sort position for a device appended to the
+// end of the current display order: one past the largest configured value,
+// or 1 when no device carries a configured order yet.
+func NextDeviceSortOrder(devices []DeviceConfig) int {
+	next := 1
+	for _, device := range devices {
+		if device.SortOrder >= next {
+			next = device.SortOrder + 1
+		}
+	}
+	return next
 }
 
 func (c RouterOSConfig) Configured() bool {

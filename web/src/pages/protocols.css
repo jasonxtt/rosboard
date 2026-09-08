@@ -1,0 +1,40 @@
+/* 协议统计 (tokens only). */
+
+.protocol-rates {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.protocol-rate-down {
+  color: var(--accent);
+}
+
+.protocol-rate-up {
+  color: var(--accent-2);
+}
+
+.protocol-name-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.protocol-share {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.protocol-share-track {
+  flex: 1;
+}
+
+.protocol-share-value {
+  min-width: 48px;
+  text-align: right;
+  color: var(--ink-2);
+}

@@ -1,0 +1,246 @@
+# Policy Routing
+
+## Scenario: Reconcile domain policy routing to RouterOS
+
+### 1. Scope / Trigger
+
+- Trigger: changes to policy egresses, domain sources, traffic ingress, RouterOS planning, apply, enable/disable, or deletion.
+- SQLite stores desired policy state and pending source versions. RouterOS remains the actual runtime state and is rescanned before every plan and apply.
+
+### 2. Signatures
+
+- Policy reads and writes live under `/api/policy-routing/devices/{deviceID}`.
+- `POST /plans` returns normalized `create`, `patch`, `move`, and `delete` operations plus blocking issues and confirmations.
+- `POST /plans/{planID}/apply` uses the authenticated panel session and the device's configured RouterOS account. It does not request the administrator password again.
+- The device RouterOS account must have `write` permission. Read-only accounts are rejected with a device-management recovery path.
+
+### 3. Contracts
+
+- Every new RouterOS rule/object comment uses the shared canonical identity `rbs_<scope8>_<object8>` and may append ` | readable label`. `rbs_` is the equivalent short scoped format selected because the other writer's legacy `rb_` cleanup boundary must not recognize the current graph. `scope8` is the first eight lowercase hexadecimal characters of SHA-256 over the length-framed installation/device input, and `object8` is the first eight lowercase hexadecimal characters of SHA-256 over the stable logical-object identity; the label is display-only. The exact scope input is `scope:v1:<manager-byte-length>:<trimmed-manager>:<device-byte-length>:<trimmed-device>`.
+- Ownership is matched by the complete canonical identity and the current manager/device scope, never by the `rbs_` prefix or by an unscoped short hash. A foreign scoped object is ignored and cannot be stale, owned, or actionable. A stale current-scope identity may only appear as an explicit operation in a generated plan; current-scoped legacy identities are read only for exact migration and are never deleted by a broad prefix.
+- Apply is idempotent: scan actual state, compare it with desired state, create or patch required objects, activate them, then remove stale managed objects last.
+- A saved traffic-ingress selection is represented in RouterOS by one managed aggregate interface list. Create it only while at least one policy egress needs it; remove it after the last egress is deleted while retaining the saved selection in SQLite.
+- Disable preserves the egress and its managed objects but disables only that egress's activation, DNS, route, and NAT rules. Shared lists, shared marks, and externally owned routing tables remain available to other policies.
+- Delete omits that egress's owned objects from desired state. Shared managed objects are removed only after their last consumer disappears; external objects are never removed.
+- Managed comments use `rbs_<scope8>_<object8> | readable label`. Ownership matching uses only the exact shared identity from the desired-object mapping, while a label change produces a patch so RouterOS remains readable. Policy routing and Access Control use the same manager/device/logical identity contract.
+- An `internet` access rule is expanded per address family and per RouterOS default-route egress interface into direct `forward` filters (`src-address-list + out-interface` and `dst-address-list + in-interface`). When a family has multiple egresses, they share one managed RouterOS interface list and the filters use `out-interface-list` / `in-interface-list`, so interface count does not multiply filter rules. All non-disabled default routes across routing tables are considered, including standby routes; PPPoE and other known WAN/tunnel interfaces take precedence over stale local-scope evidence. If a family cannot be proven, the plan blocks without an unconditional drop and returns scanned interface candidates for explicit multi-selection; the backend revalidates selected interfaces before applying.
+- Auto-follow access members project every currently observed usable address. IPv6 link-local addresses are excluded because they are interface-scoped and cannot be matched reliably in a forwarded address-list rule.
+- `Egress.ListMode` and `Egress.ListName` remain only as legacy migration/storage compatibility. They are not the canonical RoutingRule target-grouping authority and are not exposed as new user configuration; the desired-state Execution Group projection determines safe physical sharing automatically.
+- Custom canonical routing TargetLists use hash-stable physical names such as `rb_rt_<hash>`. Preset-backed routing TargetLists may use a stable preset-ID slug for readability, such as `rb_rt_<hash>_<preset>_d` or `_ip`; mutable display-name changes must not change ownership identity.
+- Dynamic VPN ingress is included through a selected stable RouterOS interface list. WireGuard and other fixed interfaces may be selected directly; rosboard does not configure the VPN service itself.
+- Ordinary saves for a TargetList referenced by an enabled canonical
+  RoutingRule or AccessRule automatically generate and execute one
+  synchronization job after the desired state is persisted; an unreferenced
+  TargetList remains a library-only standby item and is not materialized in
+  RouterOS.
+- The RoutingRule wizard keeps intermediate edits in a read-only proposal
+  overlay. Plan generation does not write Egress, TrafficIngress, TargetList,
+  RoutingRule, or `desired_revision`; only the exact reviewed plan hash may
+  promote the proposal. Approval checks the base desired revision, proposal
+  and desired hashes, and referenced Egress/TargetList revisions, then commits
+  the bundle and one desired-revision bump atomically before starting the
+  RouterOS job. Back/Close and unrelated source refreshes cannot apply the
+  unapproved draft.
+- Scheduled URL refreshes batch due source updates per device and automatically
+  synchronize sources with enabled canonical RoutingRule or AccessRule
+  consumers. Unreferenced TargetLists may remain pending until a later eligible
+  reference; TargetList.Enabled is retained only as a legacy wire/storage
+  compatibility field and never controls canonical projection activity.
+- Old unscoped `rb_<8>` comments are ambiguous legacy objects, not current
+  ownership. They are never auto-adopted, including Access objects. When the
+  hash uniquely identifies a desired logical object, the plan must surface an
+  ambiguous blocker instead of replacing it; unknown rows remain untouched.
+  Legacy physical prefixes and readable labels are domain hints only after
+  ownership is proven, and never establish current ownership.
+
+### 4. Validation & Error Matrix
+
+- Draft revision or RouterOS fingerprint changed after preview -> reject the stale plan and require a new preview.
+- A proposal plan without its exact plan hash, with a changed dependency, or
+  with a changed canonical desired revision -> reject it without committing
+  the draft.
+- Another apply is active for the same device -> reject it; different devices remain independent.
+- RouterOS account lacks write permission -> block plan application and direct lifecycle actions.
+- An apply mutation fails -> stop, retain desired/pending state, record the failure, and allow a later rescan and retry.
+- Deleting one of multiple consumers -> preserve every shared or external dependency still in use.
+- Deleting the final egress -> remove the managed traffic-ingress list and its members.
+
+### 5. Tests Required
+
+- Planner/reconciler: create, patch, move, delete, idempotent replay, stale revision, stale RouterOS fingerprint, and injected mutation failure.
+- Ownership: current scoped comments are deterministic and shared across
+  policy-v2 and Access Control; readable-label changes patch instead of
+  replacing; foreign manager/device objects remain untouched; current-scoped
+  legacy migration is exact and conservative, while old unscoped rows never
+  auto-adopt.
+- Lifecycle: enable/disable affects only the selected egress; deleting one shared consumer preserves dependencies; deleting the last consumer cleans managed shared objects and traffic ingress.
+- Sources: URL/upload parsing, SSRF and content limits, pending-version promotion only after successful apply, stable preset-list names, hash-stable custom-list names, and rename cleanup.
+- Proposal boundary: preview leaves canonical rows and revisions unchanged;
+  another GenerateAndApply sees the old graph; approval commits the reviewed
+  proposal exactly once and applies that graph.
+- Quality: `go test ./...`, targeted race tests, `go vet ./...`, frontend lint/build/audit, deployed health/API/assets checks, and user acceptance before production delivery, `main` merge, or task completion. Work-branch checkpoint commits and pushes are allowed before final acceptance.
+
+## 6.1 Cross-manager ownership safety
+
+Two rosboard installations may point at the same RouterOS device. A manager B
+scan seeing a canonical object scoped to manager A must not delete, patch, move,
+or enable/disable it. B may create a separate object for the same logical ID
+under B's scope. The same rule applies when one installation manages multiple
+device IDs: each device scope gets a distinct identity.
+
+The ownership regressions must cover: same logical ID `access-forwarder` across
+two managers and two devices; A/B coexistence with stable RouterOS IDs across
+repeated scans and plans; current scoped V1 migration; foreign scoped V1
+protection; old unscoped short-hash ambiguity without adoption; foreign or
+structurally incompatible old short-hash protection; and unknown old
+short-hash stale objects with no delete.
+
+The Access terminal-refresh reconciler is idempotent after a committed apply.
+With unchanged terminals, TargetLists, and RouterOS state,
+`GeneratePlan("access-terminal-refresh")` must produce zero operations and zero
+member resolutions over repeated rounds, and the scheduler must not create a
+new apply job.
+
+### 6.2 Wrong vs Correct
+
+#### Wrong
+
+```go
+deleteObjectsWithCommentPrefix("rosboard:")
+recreateEverythingFromScratch()
+```
+
+#### Correct
+
+```go
+actual := scanRouterOS()
+desired := buildDesiredState(savedPolicy)
+plan := diffExactManagedObjects(actual, desired)
+applyRequiredBeforeCleanup(plan)
+```
+
+## 7. Slice 4C policy UX and apply-domain boundaries
+
+The Routing product surface is one policy list and a complete policy wizard.
+Egress remains an internal reusable execution configuration; it is not a
+separate first-level user workflow. The existing `RoutingRule + Egress +
+TargetList` aggregate is sufficient, and no duplicate persistent
+`RoutingPolicy` entity should be introduced.
+
+RoutingRule owns a narrow per-rule ingress scope. `all` and `excluded` require
+an ingress guard; `selected` is source-only and may omit ingress. Existing
+device-global TrafficIngress is migration/default compatibility only and must
+not remain a second writable runtime authority. Execution groups must include
+normalized ingress scope in their grouping boundary.
+
+Routing and Access are separate execution domains. Implementers must use
+domain facts, not an operation classifier over a combined desired graph:
+
+- Routing desired/plan/scan/diff owns `rb_rt_*`, routing target projections,
+  mangle, routes, routing tables, NAT, execution groups, and routing
+  RouterOutput objects.
+- Access desired/plan/scan/diff owns the scoped `rbs_<scope8>_` access projections
+  (plus exact current-scoped legacy comment identities during migration), access
+  target projections, filter/jump/anchor rules, and internet-blocking interface
+  lists. Legacy `rb_ac_*`/`rbac_*`/`rosboard_access_*` values are domain hints
+  only after ownership is established.
+
+`CommitRoutingApply` may advance only policy routing applied revision/hash and
+`CommitAccessApply` may advance only access-control applied state. A routing
+drift must not enter an access plan, and access pending state must not block a
+routing plan. A cross-domain blocker is valid only for a concrete, named
+RouterOS global capability conflict; `policy_changes_pending` is not such a
+capability and must not be used.
+
+TargetList is shared input, not routing-owned state. Compute its consumer
+domains from canonical RoutingRule and AccessRule references. A mutation to an
+unreferenced list bumps neither domain; routing-only, access-only, and shared
+lists bump routing, access, and both respectively. Plans record the exact
+pending TargetList versions they reviewed, and apply promotes only those
+versions.
+
+Access ApplicationPreset selection remains inside the Access proposal until
+the AccessRule, backing TargetList/version rows, desired graph, and reviewed
+apply are committed as one domain-scoped flow. It must not pre-materialize a
+shared TargetList and accidentally bump routing state.
+
+### 8. Root-review corrections for Slice 4C
+
+Normal target operations must resolve the exact consumer domain from the
+canonical target references. They must not scan unrelated sources or return a
+combined plan. `Combined` is an explicit legacy compatibility mode only;
+unknown operation kinds use the Routing-compatible path. An exact shared
+target operation must use two explicit domain applies, with Routing and Access
+plans kept separate and applied in stable order.
+
+Each shared-target domain apply owns its own RouterOS snapshot, desired graph,
+diff, commit, and pending-version promotion. When a domain target is consumed
+by both domains, Access is generated and committed first; Routing is generated
+only after that commit so it reviews the final Access projection and DNS order.
+If Access fails, Routing must not be generated or applied. If Routing later
+fails, the successful Access domain remains applied and Routing remains
+pending. An IP-only shared target keeps the established Routing-first apply
+order because it has no DNS precedence conflict. Refresh batches changed target
+IDs and domain flags before creating these scoped plans.
+
+Access domain projection identity is one physical
+`rbs_<scope8>_target_<hash>` target projection per `(device, TargetListID)`;
+Access filters remain rule-specific. Distinct
+Access target IDs with exact/suffix-overlapping enabled domains must block with
+`access_domain_projection_ambiguous`. Enabled overlapping Routing and Access
+domain projections are a device-global precedence case: Access DNS Static must
+be physically ordered before the overlapping Routing DNS Static and emits a
+`cross_domain_access_priority_shadowed` warning. Access wins regardless of
+matcher specificity or Routing Priority, so the overlapping domain is shadowed
+for the whole RouterOS device rather than per client. A Routing plan must fail
+closed with `cross_domain_access_precedence_unavailable` until the owned Access
+projection exists, is enabled, and matches the planned DNS projection fields;
+an Access plan may create and order it. Never widen either blocker into a
+`Combined` plan. Shared IP targets remain valid and retain the established
+Routing-first order.
+
+Display Egress names are non-authoritative: no required/unique UI field and no
+execution-signature input. Preserve an existing name during edits and generate
+a readable internal name for new or copied policy Egresses. After ownership is
+established, Access domain classification may use `rb_ac_*`, `rbac_*`,
+`rbac_internet_*`, forwarder, readable labels, and legacy Access comment
+namespaces; these hints cannot establish ownership, while Routing cleanup
+remains unable to remove Access objects.
+
+Routing DNS projection capability is evaluated on distinct physical
+`(device, egressID, targetID)` projections. Enabled rules sharing the same
+Egress and Target share one projection and are allowed; a shared projection's
+effective DNS priority is the smallest (highest) Priority among its ACTIVE
+consumers — an active DNS consumer is an enabled rule whose Egress exists, is
+enabled, and is not pending deletion, matching the objects that can materialize
+a live `disabled=no` DNS Static. Inactive projections keep deterministic
+ordering priority but never shadow, warn, block, or become a winner/loser.
+Domain match-space overlap between distinct projections is resolved
+by that effective Priority, which is device-global because RouterOS DNS Static
+is an ordered first-match list with no RoutingRule subject matcher:
+projections sharing an active RoutingRule are one rule's OR'ed target lists
+and never conflict; overlapping projections with different Priority produce a
+`domain_projection_priority_shadowed` warning, and the higher-priority matcher
+is ordered before the lower one so the loser keeps its non-overlapping domain
+space without any domain-set subtraction; Priority beats matcher specificity
+(a high DOMAIN-SUFFIX fully shadows a low exact inside it). Only equal-
+Priority overlap blocks with `domain_projection_context_ambiguous`, and its
+Reason names the overlapped matcher and both rule display names, never UUIDs or
+physical-projection jargon. Managed routing DNS Statics are emitted in
+effective-priority order and `/ip dns static` participates in generic owned
+order moves (batch-created statics resolve their RouterOS IDs by comment
+identity before any move references them, strictly one match per identity:
+zero or duplicate matches fail the apply closed instead of choosing); foreign
+and Access-owned statics are never moved by this Routing-only order pass.
+Cross-domain ordering is a separate owned-object move pass: it may move only
+the current manager instance's Access DNS Static before its overlapping Routing
+DNS Static, never a foreign or unowned object. IP-only projections receive no
+DNS resolution.
+
+Access target projection activity is at least one enabled AccessRule consumer;
+`TargetList.Enabled` is a legacy compatibility field and must not gate a
+canonical target reference. A target referenced only by disabled rules emits
+no active `rbs_<scope8>_` DNS/address-list projection, while a mixed enabled/disabled
+consumer set keeps one shared active projection and preserves each rule
+filter's independent enabled state. This activity rule is shared by desired
+state and Access/cross-domain precedence validators.

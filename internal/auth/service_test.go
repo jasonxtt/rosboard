@@ -147,3 +147,36 @@ func TestOnboardingStateIsIndependentFromAdmin(t *testing.T) {
 		t.Fatalf("onboarding completion not persisted: complete=%v err=%v", complete, err)
 	}
 }
+
+func TestVerifyStepUpUsesCurrentSessionUsernameWithoutCreatingSession(t *testing.T) {
+	service, _, _ := testService(t)
+	ctx := context.Background()
+	if _, err := service.CreateAdmin(ctx, "admin", "1234", "1234"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.VerifyStepUp(ctx, "127.0.0.1", "admin", "1234"); err != nil {
+		t.Fatalf("correct step-up password failed: %v", err)
+	}
+	if !errors.Is(service.VerifyStepUp(ctx, "127.0.0.1", "changed", "1234"), ErrInvalidCredentials) {
+		t.Fatal("session username mismatch was accepted")
+	}
+	if !errors.Is(service.VerifyStepUp(ctx, "127.0.0.1", "admin", "wrong"), ErrInvalidCredentials) {
+		t.Fatal("wrong step-up password was accepted")
+	}
+}
+
+func TestVerifyStepUpReusesLoginRateLimit(t *testing.T) {
+	service, _, _ := testService(t)
+	ctx := context.Background()
+	if _, err := service.CreateAdmin(ctx, "admin", "1234", "1234"); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := service.VerifyStepUp(ctx, "127.0.0.1", "admin", "wrong"); err == nil {
+			t.Fatal("wrong step-up password was accepted")
+		}
+	}
+	if err := service.VerifyStepUp(ctx, "127.0.0.1", "admin", "1234"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("step-up did not use login rate limit: %v", err)
+	}
+}

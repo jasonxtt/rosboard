@@ -1,0 +1,8 @@
+/* RecognitionPage layout — single device card; component styles live in
+   features/settings/settings.css. */
+
+@media (max-width: 767px) {
+  .recognition-page .card {
+    padding: var(--space-4);
+  }
+}
