@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import rosboardMark from './assets/rosboard-mark.svg'
 import {
@@ -815,10 +816,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   const [terminalTab, setTerminalTab] = useState<TerminalTab>('basic')
   const [connectionFamily, setConnectionFamily] = useState<ConnectionFamily>('all')
   const [detailScope, setDetailScope] = useState<TerminalFamily>('all')
-  const [editingTerminalID, setEditingTerminalID] = useState<string | null>(null)
-  const [customNameDraft, setCustomNameDraft] = useState('')
-  const [remarkDraft, setRemarkDraft] = useState('')
-  const [savingRemark, setSavingRemark] = useState(false)
   const [terminalFamily, setTerminalFamily] = useState<TerminalFamily>(() => panelPreferences.terminalFamily)
   const [interfaceCategory, setInterfaceCategory] = useState<InterfaceCategory>('physical')
   const [dashboardRefreshMs, setDashboardRefreshMs] = useState(() => panelPreferences.refreshMs)
@@ -1214,7 +1211,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       return (
       [
         terminal.displayName,
-        terminal.remark,
         terminal.macAddress,
         terminal.primaryInterface,
         ...terminal.ipv4,
@@ -1226,14 +1222,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       )
     })
   }, [dashboard, query, terminalFamily])
-
-  const editingTerminal = useMemo(() => {
-    if (!dashboard || !editingTerminalID) {
-      return null
-    }
-    return dashboard.terminals.find((terminal) => terminal.id === editingTerminalID) ?? null
-  }, [dashboard, editingTerminalID])
-
 
   const currentDevice = devices.find((device) => device.id === selectedDeviceID)
   const globalWarnings = Array.from(new Set((dashboard?.warnings ?? []).map((warning) => warning.trim()).filter(Boolean)))
@@ -1557,6 +1545,8 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               ) : null}
               {activeView !== 'fleet' && activeView !== 'access-control' ? <span className="last-updated">最后更新 {relativeUpdateTime(dashboard?.overview.updatedAt ?? '')}</span> : null}
               <div className="topbar-refresh-controls">
+                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名称 / IP / MAC" aria-label="搜索终端" /> : null}
+                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
                 <ChoiceMenu
                   value={panelPreferences.theme}
                   options={panelThemeOptions}
@@ -1596,10 +1586,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           </div>
         </header>
 
-        {activeView === 'fleet' || (activeView === 'terminals' && !detailMode) ? <div className="page-search-toolbar">
-                {activeView === 'terminals' && !detailMode ? <input className="search-input terminal-topbar-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="备注 / 名称 / IP / MAC" aria-label="搜索终端" /> : null}
-                {activeView === 'fleet' ? <input className="search-input fleet-topbar-search-input" value={fleetQuery} onChange={(event) => setFleetQuery(event.target.value)} placeholder="搜索设备名称、型号、版本或 IP" aria-label="搜索设备" /> : null}
-        </div> : null}
         {globalWarnings.length && warningsExpanded ? (
           <section className="global-warning-list" id="global-warning-list" aria-label="全局告警详情">
             <div className="global-warning-list-head"><strong>当前告警</strong><button type="button" className="pill pill--xs pill--pad-sm global-warning-collapse" onClick={() => setWarningsExpanded(false)}>收起</button></div>
@@ -1721,10 +1707,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               setDetailScope(terminalFamily)
               setConnectionFamily(terminalFamily)
             }}
-            onOpenRemark={(terminal) => {
-              setEditingTerminalID(terminal.id)
-              setCustomNameDraft(terminal.customName ?? '')
-              setRemarkDraft(terminal.remark ?? '')
+            key={selectedDeviceID}
+            deviceID={selectedDeviceID}
+            onRenamed={(payload) => {
+              setDashboard((previous) => previous ? { ...previous, terminals: previous.terminals.map((terminal) => terminal.id === payload.terminal.id ? payload.terminal : terminal) } : previous)
+              setRefreshNonce((value) => value + 1)
             }}
           />
         ) : null}
@@ -1746,52 +1733,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         ) : null}
       </section>
 
-      {editingTerminal ? (
-        <TerminalMetadataModal
-          terminal={editingTerminal}
-          customName={customNameDraft}
-          remark={remarkDraft}
-          saving={savingRemark}
-          onCustomNameChange={setCustomNameDraft}
-          onRemarkChange={setRemarkDraft}
-          onClose={() => setEditingTerminalID(null)}
-          onSave={async () => {
-            setSavingRemark(true)
-            try {
-              const response = await fetch(
-                scopedURL(`/api/terminals/${encodeURIComponent(editingTerminal.id)}/metadata`, selectedDeviceID),
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ customName: customNameDraft, remark: remarkDraft }),
-                },
-              )
-              if (!response.ok) {
-                const failure = await response.json().catch(() => null) as { error?: string } | null
-                throw new Error(failure?.error || `HTTP ${response.status}`)
-              }
-              const payload = normalizeTerminalDetail((await response.json()) as TerminalDetail)
-              setTerminalDetail(payload)
-              setDashboard((previous) =>
-                previous
-                  ? {
-                      ...previous,
-                      terminals: previous.terminals.map((terminal) =>
-                        terminal.id === payload.terminal.id ? payload.terminal : terminal,
-                      ),
-                    }
-                  : previous,
-              )
-              setEditingTerminalID(null)
-              setError(null)
-            } catch (saveError) {
-              setError(saveError instanceof Error ? saveError.message : '设备信息保存失败')
-            } finally {
-              setSavingRemark(false)
-            }
-          }}
-        />
-      ) : null}
+
     </main>
   )
 }
@@ -3587,7 +3529,8 @@ function TerminalsPage(props: {
   family: TerminalFamily
   query: string
   onOpenDetail: (terminalID: string) => void
-  onOpenRemark: (terminal: Terminal) => void
+  deviceID: string
+  onRenamed: (detail: TerminalDetail) => void
 }) {
   const [sortKey, setSortKey] = useState<TerminalSortKey>('address')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -3687,7 +3630,6 @@ function TerminalsPage(props: {
               </div>
             </th>
             <SortHeader label="在线时长" sortKey="online" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
-            <SortHeader label="备注" sortKey="remark" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
             <th><span>操作</span></th>
           </tr></thead>
           <tbody>
@@ -3696,17 +3638,16 @@ function TerminalsPage(props: {
               const addressCount = props.family === 'ipv4' ? terminal.ipv4.length : props.family === 'ipv6' ? terminal.ipv6.length : terminal.ipv4.length + terminal.ipv6.length
               const shownAddressCount = props.family === 'all' ? Number(Boolean(terminal.primaryIpv4)) + Number(Boolean(terminal.primaryIpv6)) : Number(Boolean(terminalPrimaryAddress(terminal, props.family)))
               const extraAddressCount = Math.max(0, addressCount - shownAddressCount)
-              return <tr key={terminal.id}>
-                <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}><strong>{terminal.displayName}</strong><span className="muted-text">{terminal.macAddress || 'MAC 未知'}</span></button></td>
-                <td><button type="button" className="link-button terminal-link" onClick={() => props.onOpenDetail(terminal.id)}>
+              return <tr key={terminal.id} className="terminal-row" onClick={(event) => { event.stopPropagation(); props.onOpenDetail(terminal.id) }}>
+                <td><TerminalNameCell terminal={terminal} deviceID={props.deviceID} onRenamed={props.onRenamed} /></td>
+                <td><button type="button" className="link-button terminal-link" onClick={(event) => { event.stopPropagation(); props.onOpenDetail(terminal.id) }}>
                   {props.family === 'all' ? <><strong>{terminal.primaryIpv4 || terminal.primaryIpv6 || '-'}</strong>{terminal.primaryIpv4 && terminal.primaryIpv6 ? <span className="muted-text">{terminal.primaryIpv6}{extraAddressCount ? `  +${extraAddressCount}` : ''}</span> : extraAddressCount ? <span className="muted-text">+{extraAddressCount}</span> : null}</> : <><strong>{terminalPrimaryAddress(terminal, props.family) || '-'}</strong>{extraAddressCount ? <span className="muted-text">+{extraAddressCount}</span> : null}</>}
                 </button></td>
                 <td>{metrics.connectionCount}</td><td>{formatBits(metrics.currentUploadBps)}</td><td>{formatBits(metrics.currentDownloadBps)}</td>
                 <td>{formatBytes(metrics.totalUploadBytes)}</td><td>{formatBytes(metrics.totalDownloadBytes)}</td>
                 <td><span className={`terminal-state-badge ${terminal.state}`}><span className={`state-dot state-${terminal.state}`} />{terminalStateText(terminal.state)}</span></td>
                 <td>{terminal.state === 'online' ? formatOnlineDuration(terminal.onlineSince) : '-'}</td>
-                <td>{terminal.remark || '-'}</td>
-                <td><div className="action-links"><button type="button" className="link-button" onClick={() => props.onOpenDetail(terminal.id)}>详情</button><button type="button" className="link-button" onClick={() => props.onOpenRemark(terminal)}>编辑</button></div></td>
+                <td><div className="action-links"><button type="button" className="link-button" onClick={(event) => { event.stopPropagation(); props.onOpenDetail(terminal.id) }}>详情</button></div></td>
               </tr>
             })}
           </tbody>
@@ -4015,7 +3956,6 @@ function TerminalDetailPage(props: {
             <DetailItem label="当前下行速率" value={formatBits(summary.currentDownloadBps)} />
             <DetailItem label={props.scope === 'all' ? '累计上行' : '活动连接累计上行'} value={formatBytes(summary.totalUploadBytes)} />
             <DetailItem label={props.scope === 'all' ? '累计下行' : '活动连接累计下行'} value={formatBytes(summary.totalDownloadBytes)} />
-            <DetailItem label="备注" value={summary.remark || '-'} />
             <DetailItem label="面板开始统计" value={formatDateTime(summary.trackingSince)} />
             <DetailItem label="最后活动时间" value={formatDateTime(summary.lastSeen)} />
           </div>
@@ -4101,56 +4041,82 @@ function TerminalDetailPage(props: {
   )
 }
 
-function TerminalMetadataModal(props: {
-  terminal: Terminal
-  customName: string
-  remark: string
-  saving: boolean
-  onCustomNameChange: (value: string) => void
-  onRemarkChange: (value: string) => void
-  onClose: () => void
-  onSave: () => void
-}) {
-  return (
-    <div className="dialog-backdrop" role="dialog" aria-modal="true">
-      <div className="remark-modal">
-        <div className="dialog-head">
-          <div>
-            <h3>编辑终端</h3>
-            <p className="muted-text">设备名称和备注只保存到面板本地，不写回 RouterOS。</p>
-          </div>
-          <button type="button" className="close-button" onClick={props.onClose}>
-            关闭
-          </button>
-        </div>
-        <div className="remark-modal-body">
-          <label className="metadata-field">
-            <span>设备名称</span>
-            <input value={props.customName} onChange={(event) => props.onCustomNameChange(event.target.value)} maxLength={100} placeholder={props.terminal.displayName} />
-            <small>自动识别：{props.terminal.autoName || '暂未识别'}；清空后恢复自动名称。</small>
-          </label>
-          <label className="metadata-field">
-            <span>备注</span>
-          <textarea
-            value={props.remark}
-            onChange={(event) => props.onRemarkChange(event.target.value)}
-            rows={5}
-            maxLength={500}
-            className="remark-textarea"
-          />
-          </label>
-          <div className="remark-modal-actions">
-            <button type="button" className="close-button modal-action-button" onClick={props.onClose}>
-              取消
-            </button>
-            <button type="button" className="primary-button modal-action-button" onClick={props.onSave} disabled={props.saving}>
-              {props.saving ? '保存中...' : '保存'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+function TerminalNameCell(props: { terminal: Terminal; deviceID: string; onRenamed: (detail: TerminalDetail) => void }) {
+  const [position, setPosition] = useState<{ left: number; top: number; above: boolean } | null>(null)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLFormElement>(null)
+  const requestRef = useRef<AbortController | null>(null)
+
+  useEffect(() => () => requestRef.current?.abort(), [])
+  useEffect(() => {
+    if (!position) return
+    const close = () => { if (!saving) setPosition(null) }
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !popoverRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) close()
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) { setPosition(null); triggerRef.current?.focus() }
+    }
+    const scroll = (event: Event) => { if (!(event.target instanceof Node) || !popoverRef.current?.contains(event.target)) close() }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', scroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', scroll, true)
+    }
+  }, [position, saving])
+
+  const save = async () => {
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    const controller = new AbortController()
+    requestRef.current = controller
+    try {
+      const response = await fetch(scopedURL(`/api/terminals/${encodeURIComponent(props.terminal.id)}/metadata`, props.deviceID), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customName: draft }), signal: controller.signal,
+      })
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(failure?.error || `HTTP ${response.status}`)
+      }
+      const payload = normalizeTerminalDetail(await response.json() as TerminalDetail)
+      if (controller.signal.aborted) return
+      props.onRenamed(payload)
+      setPosition(null)
+      triggerRef.current?.focus()
+    } catch (failure) {
+      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : '设备名称保存失败')
+    } finally {
+      if (!controller.signal.aborted) setSaving(false)
+    }
+  }
+
+  return <div className="terminal-name-cell">
+    <div className="terminal-name-line"><strong>{props.terminal.displayName}</strong><button ref={triggerRef} type="button" className="terminal-name-edit" disabled={saving} aria-label={`修改设备名称：${props.terminal.displayName}`} aria-expanded={Boolean(position)} onClick={(event) => {
+      event.stopPropagation()
+      const rect = event.currentTarget.parentElement!.getBoundingClientRect()
+      setDraft(props.terminal.customName || props.terminal.displayName)
+      setError(null)
+      const above = rect.bottom + 200 > window.innerHeight
+      setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)), top: above ? rect.top - 8 : rect.bottom + 8, above })
+    }}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg></button></div>
+    <span className="muted-text">{props.terminal.macAddress || 'MAC 未知'}</span>
+    {position ? createPortal(<form ref={popoverRef} className={`terminal-name-popover${position.above ? ' above' : ''}`} role="dialog" aria-label="修改设备名称" style={{ left: position.left, top: position.top }} onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void save() }}>
+      <input className="settings-input" aria-label="设备名称" autoFocus maxLength={100} value={draft} disabled={saving} placeholder={props.terminal.autoName || '自动名称'} onChange={(event) => setDraft(event.target.value)} />
+      <small>仅修改 Rosboard 显示，清空恢复自动名称。</small>
+      {error ? <p role="alert">{error}</p> : null}
+      <div><button type="button" className="toolbar-button" disabled={saving} onClick={() => { setPosition(null); triggerRef.current?.focus() }}>取消</button><button type="submit" className="primary-button" disabled={saving}>{saving ? '保存中…' : '确定'}</button></div>
+    </form>, document.body) : null}
+  </div>
 }
 
 function TabButton(props: { label: string; active: boolean; onClick: () => void }) {

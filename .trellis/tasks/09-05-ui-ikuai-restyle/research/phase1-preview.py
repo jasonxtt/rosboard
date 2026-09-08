@@ -8,8 +8,11 @@ import json
 import math
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import unquote, parse_qs, urlparse
 
+
+# Ephemeral, device-scoped display names for the interactive preview only.
+custom_names = {}
 
 def fixture(device_id, window):
     now = datetime.now(timezone.utc)
@@ -63,7 +66,7 @@ def fixture(device_id, window):
                   terminalOnline=count, terminalInactive=6, terminalOffline=9, connectionCount=719,
                   connectionTCP=630, connectionUDP=80, connectionOther=9, uptime=overview['uptime'])
              for i, d in enumerate(devices)]
-    terminals = [dict(id=f'lab-{i}', displayName=name, autoName=name, customName='', remark='模拟终端',
+    terminals = [dict(id=f'lab-{i}', displayName=name, autoName=name, customName='',
                       macAddress=f'02:00:00:00:01:{i:02x}', primaryInterface='ether2',
                       ipv4=[f'198.51.100.{i+8}'], ipv6=[f'2001:db8::{i}'],
                       routingIpv4=[f'198.51.100.{i+8}'], routingIpv6=[f'2001:db8::{i}'], autoEligible=True,
@@ -114,6 +117,11 @@ def fixture(device_id, window):
     for item in interfaces:
         data[f"/api/interfaces/{item['name']}"] = dict(interface=item, samples=samples)
     for item in terminals:
+        item.pop('remark', None)
+        item['autoName'] = item['displayName']
+        item['customName'] = custom_names.get((device_id, item['id']), '')
+        item['displayName'] = item['customName'] or item['autoName']
+    for item in terminals:
         data[f"/api/terminals/{item['id']}"] = dict(terminal=item, connections=[], history=samples,
             capabilities=[], flowCategories=[], familySummaries={}, routeInterfaces=[], egressInterfaces=[])
     return data
@@ -139,7 +147,25 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(501, dict(error='此隔离预览未模拟该接口；没有连接真实设备。'))
 
     def do_POST(self):
-        if self.command == 'POST' and urlparse(self.path).path == '/api/policy-routing/plans':
+        url = urlparse(self.path)
+        if self.command == 'POST' and url.path.startswith('/api/terminals/') and url.path.endswith('/metadata'):
+            device_id = parse_qs(url.query).get('device', ['preview-1'])[0]
+            terminal_id = unquote(url.path[len('/api/terminals/'):-len('/metadata')])
+            detail_path = f'/api/terminals/{terminal_id}'
+            if detail_path not in fixture(device_id, '5m'):
+                self.reply(404, dict(error='terminal not found'))
+                return
+            try:
+                payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
+                name = payload['customName'].strip()
+                if len(name) > 100:
+                    raise ValueError('name too long')
+            except (ValueError, KeyError, AttributeError):
+                self.reply(400, dict(error='设备名称无效'))
+                return
+            custom_names[(device_id, terminal_id)] = name
+            self.reply(200, fixture(device_id, '5m')[detail_path])
+        elif self.command == 'POST' and url.path == '/api/policy-routing/plans':
             # A display fixture only; applying it still returns the write-rejection below.
             self.reply(200, dict(planId='preview-plan', planHash='synthetic-preview', readOnly=True,
                 plan=dict(planID='preview-plan', planHash='synthetic-preview', kind='routing', state='preview',

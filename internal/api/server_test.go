@@ -904,3 +904,23 @@ func equalStrings(got []string, want []string) bool {
 	}
 	return true
 }
+
+func TestTerminalNamePayloadValidation(t *testing.T) {
+	monitor := service.NewMonitor(config.Config{}, nil, nil, log.Default())
+	server := NewServer(config.Config{}, monitor, nil)
+	for _, body := range []string{`{}`, `{"customName":null}`, `{"remark":"removed"}`, `{"customName":"ok","remark":"removed"}`, `{"customName":"` + strings.Repeat("名", 101) + `"}`} {
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/terminals/missing/metadata", strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d response=%s", body, response.Code, response.Body.String())
+		}
+	}
+	for _, name := range []string{"", strings.Repeat("名", 100)} {
+		body, _ := json.Marshal(map[string]string{"customName": name})
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/terminals/missing/metadata", strings.NewReader(string(body))))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("valid name status=%d response=%s", response.Code, response.Body.String())
+		}
+	}
+}

@@ -723,14 +723,14 @@ func (m *Monitor) TerminalDetail(id string) (model.TerminalDetail, bool) {
 	return detail, true
 }
 
-func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, remark string) (model.TerminalDetail, error) {
+func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName string) (model.TerminalDetail, error) {
 	m.metadataMu.Lock()
 	defer m.metadataMu.Unlock()
 
 	if _, ok := m.TerminalDetail(id); !ok {
 		return model.TerminalDetail{}, store.ErrTerminalNotFound
 	}
-	if err := m.store.UpdateTerminalMetadata(ctx, id, customName, remark); err != nil {
+	if err := m.store.UpdateTerminalMetadata(ctx, id, customName); err != nil {
 		return model.TerminalDetail{}, err
 	}
 
@@ -738,16 +738,16 @@ func (m *Monitor) UpdateTerminalMetadata(ctx context.Context, id, customName, re
 	defer m.mu.Unlock()
 	for index := range m.snapshot.Terminals {
 		if m.snapshot.Terminals[index].ID == id {
-			applyTerminalMetadata(&m.snapshot.Terminals[index], customName, remark)
+			applyTerminalMetadata(&m.snapshot.Terminals[index], customName)
 		}
 	}
 	detail, ok := m.terminalDetails[id]
 	if !ok {
 		return model.TerminalDetail{}, store.ErrTerminalNotFound
 	}
-	applyTerminalMetadata(&detail.Terminal, customName, remark)
+	applyTerminalMetadata(&detail.Terminal, customName)
 	for family, summary := range detail.FamilySummaries {
-		applyTerminalMetadata(&summary, customName, remark)
+		applyTerminalMetadata(&summary, customName)
 		detail.FamilySummaries[family] = summary
 	}
 	m.terminalDetails[id] = detail
@@ -760,24 +760,23 @@ func mergeLatestTerminalMetadata(terminals []model.Terminal, details map[string]
 		if !ok {
 			continue
 		}
-		applyTerminalMetadata(&detail.Terminal, current.Terminal.CustomName, current.Terminal.Remark)
+		applyTerminalMetadata(&detail.Terminal, current.Terminal.CustomName)
 		for family, summary := range detail.FamilySummaries {
-			applyTerminalMetadata(&summary, current.Terminal.CustomName, current.Terminal.Remark)
+			applyTerminalMetadata(&summary, current.Terminal.CustomName)
 			detail.FamilySummaries[family] = summary
 		}
 		details[id] = detail
 		for index := range terminals {
 			if terminals[index].ID == id {
-				applyTerminalMetadata(&terminals[index], current.Terminal.CustomName, current.Terminal.Remark)
+				applyTerminalMetadata(&terminals[index], current.Terminal.CustomName)
 				break
 			}
 		}
 	}
 }
 
-func applyTerminalMetadata(terminal *model.Terminal, customName, remark string) {
+func applyTerminalMetadata(terminal *model.Terminal, customName string) {
 	terminal.CustomName = customName
-	terminal.Remark = remark
 	terminal.DisplayName = effectiveTerminalName(*terminal)
 }
 
@@ -1895,7 +1894,6 @@ func (m *Monitor) buildTerminals(
 			ID:                 builder.ID,
 			AutoName:           recognizedAutoName(total.AutoName, builder.MACAddress, mapKeys(builder.IPv4), mapKeys(builder.IPv6)),
 			CustomName:         total.CustomName,
-			Remark:             total.Remark,
 			MACAddress:         builder.MACAddress,
 			PrimaryInterface:   builder.PrimaryInterface,
 			IPv4:               sortedAddresses(builder.IPv4),
@@ -1933,7 +1931,6 @@ func (m *Monitor) buildTerminals(
 			DisplayName:        terminal.DisplayName,
 			AutoName:           terminal.AutoName,
 			CustomName:         terminal.CustomName,
-			Remark:             terminal.Remark,
 			MACAddress:         terminal.MACAddress,
 			PrimaryInterface:   terminal.PrimaryInterface,
 			IPv4:               terminal.IPv4,

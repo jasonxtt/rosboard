@@ -181,7 +181,6 @@ type Terminal struct {
 	DisplayName        string                         `json:"displayName"`
 	AutoName           string                         `json:"autoName"`
 	CustomName         string                         `json:"customName"`
-	Remark             string                         `json:"remark"`
 	MACAddress         string                         `json:"macAddress"`
 	PrimaryInterface   string                         `json:"primaryInterface"`
 	IPv4               []string                       `json:"ipv4"`

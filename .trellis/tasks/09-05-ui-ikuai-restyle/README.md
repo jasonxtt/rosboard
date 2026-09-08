@@ -1,8 +1,10 @@
 # UI restyle: handoff entry
 
-**2026-09-07: Overview direction approved; requested amendments and remaining-page styling implemented.**
+**2026-09-08: Overview direction approved; requested amendments and remaining-page styling implemented.**
 
 The user approved the overview's overall appearance and explicitly requested removal of its system-status module, moving storage usage and data freshness into device information, renaming interface information to WAN信息, and a new mobile order. The same instruction authorizes extending the compact treatment to remaining pages. This supersedes the phase-1 pause below. Final visual and integrated business acceptance remain pending; no production deployment or merge is authorized.
+
+Latest follow-up: [header search and inline terminal naming](research/terminal-name-checkpoint.md), including the explicitly authorized removal of terminal remarks and the operations Edit action.
 
 See [the rollout checkpoint](research/rollout-checkpoint.md) for changes, verification, preservation boundaries and the updated actual application preview. The [phase-1 checkpoint](research/phase1-checkpoint.md) is historical evidence.
 
