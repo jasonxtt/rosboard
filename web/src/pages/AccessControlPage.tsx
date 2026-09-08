@@ -265,7 +265,7 @@ export default function AccessControlPage() {
 
       <details className="glass card pol-boundary">
         <summary>
-          访问控制的边界
+          访问控制能力边界说明
           <span className="faint">（展开查看）</span>
         </summary>
         <p className="pol-boundary-text">{overview.boundary}</p>
