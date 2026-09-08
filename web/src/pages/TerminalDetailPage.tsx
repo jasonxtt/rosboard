@@ -3,7 +3,6 @@ import { formatBitRate, formatBytes, formatDateTime, formatDuration, formatRelat
 import { useShell } from '../shell/useShell'
 import { Badge, Button, Card, DataTable, EmptyState, SegTabs, Skeleton, Tooltip } from '../ui'
 import { ConnectionTable } from '../features/monitor-detail/ConnectionTable'
-import { MetadataModal } from '../features/monitor-detail/MetadataModal'
 import { fetchProtocols, fetchTerminalDetail, type TerminalDetail, type TerminalFlowCategory } from '../features/monitor-detail/api'
 import { useMonitorResource } from '../features/monitor-detail/hooks'
 import { terminalStateText, terminalStateTone } from '../features/monitor-detail/utils'
@@ -152,11 +151,9 @@ function HistoryView({ detail }: { detail: TerminalDetail }) {
 type TerminalDetailPageProps = {
   terminalId: string
   onBack: () => void
-  /** refresh the parent terminal list after metadata edits */
-  onMetadataSaved?: () => void
 }
 
-export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved }: TerminalDetailPageProps) {
+export default function TerminalDetailPage({ terminalId, onBack }: TerminalDetailPageProps) {
   const { scopedPath, selectedDeviceId, refreshMs, reloadNonce } = useShell()
   const { data: detail, loading, error, reload } = useMonitorResource(() => fetchTerminalDetail(scopedPath, terminalId), refreshMs, [
     selectedDeviceId,
@@ -164,7 +161,6 @@ export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved
     reloadNonce,
   ])
   const [tab, setTab] = useState<DetailTab>(() => detailTabFromHash())
-  const [editing, setEditing] = useState(false)
   const [protocolsEnabled, setProtocolsEnabled] = useState<boolean | null>(null)
   const isRouterSelf = terminalId === 'routeros:self'
 
@@ -243,44 +239,32 @@ export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved
         <Button variant="ghost" size="sm" onClick={onBack} className="detail-back">
           ← 返回
         </Button>
-        <div className="detail-identity">
-          <span className="detail-icon" aria-hidden="true">
-            {isRouterSelf ? '🔀' : '💻'}
+        <span className="detail-icon" aria-hidden="true">
+          {isRouterSelf ? '🔀' : '💻'}
+        </span>
+        <h1 className="detail-name">{terminal.displayName || terminal.id}</h1>
+        <Badge tone={terminalStateTone(terminal.state)} dot>
+          {terminalStateText(terminal.state)}
+        </Badge>
+        <span className="detail-inline-meta num">
+          {chips.map((chip) => (
+            <span key={chip.key} title={`${chip.label} ${chip.value}`}>
+              <em className="detail-chip-label">{chip.label}</em> {chip.value}
+            </span>
+          ))}
+          <span>↓ {formatBitRate(terminal.currentDownloadBps)}</span>
+          <span>↑ {formatBitRate(terminal.currentUploadBps)}</span>
+          <span>{isRouterSelf ? `跟踪条目 ${terminal.connectionCount}` : `连接 ${terminal.connectionCount}`}</span>
+          <Tooltip tip={formatDateTime(terminal.lastSeen)}>
+            <span>最后活动 {formatRelativeTime(terminal.lastSeen)}</span>
+          </Tooltip>
+          <span className="faint">统计始于 {formatDateTime(terminal.trackingSince)}</span>
+        </span>
+        {terminal.remark ? (
+          <span className="detail-remark faint" title={terminal.remark}>
+            {terminal.remark}
           </span>
-          <div className="detail-title">
-            <div className="detail-name-row">
-              <h1>{terminal.displayName || terminal.id}</h1>
-              <button type="button" className="icon-btn detail-edit" aria-label="编辑名称与备注" title="编辑名称与备注" onClick={() => setEditing(true)}>
-                ✏️
-              </button>
-              <Badge tone={terminalStateTone(terminal.state)} dot>
-                {terminalStateText(terminal.state)}
-              </Badge>
-            </div>
-            <div className="detail-chips">
-              {chips.map((chip) => (
-                <span key={chip.key} className="detail-chip num" title={`${chip.label} ${chip.value}`}>
-                  <span className="detail-chip-label">{chip.label}</span>
-                  {chip.value}
-                </span>
-              ))}
-            </div>
-            <div className="detail-meta faint num">
-              <span>↓ {formatBitRate(terminal.currentDownloadBps)}</span>
-              <span>↑ {formatBitRate(terminal.currentUploadBps)}</span>
-              <span>{isRouterSelf ? `跟踪条目 ${terminal.connectionCount}` : `连接 ${terminal.connectionCount}`}</span>
-              <span>面板统计始于 {formatDateTime(terminal.trackingSince)}</span>
-              <Tooltip tip={formatDateTime(terminal.lastSeen)}>
-                <span>最后活动 {formatRelativeTime(terminal.lastSeen)}</span>
-              </Tooltip>
-            </div>
-            {terminal.remark ? (
-              <p className="detail-remark faint" title={terminal.remark}>
-                {terminal.remark}
-              </p>
-            ) : null}
-          </div>
-        </div>
+        ) : null}
       </header>
 
       {isRouterSelf ? (
@@ -314,17 +298,6 @@ export default function TerminalDetailPage({ terminalId, onBack, onMetadataSaved
       ) : null}
 
       {tab === 'history' ? <HistoryView detail={detail} /> : null}
-
-      <MetadataModal
-        open={editing}
-        terminal={terminal}
-        scopedPath={scopedPath}
-        onClose={() => setEditing(false)}
-        onSaved={() => {
-          onMetadataSaved?.()
-          reload()
-        }}
-      />
     </div>
   )
 }

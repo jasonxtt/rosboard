@@ -170,6 +170,13 @@
   left: 0;
 }
 
+/* portal mode: panel is fixed at trigger coordinates (inside clipped
+   containers like scrollable tables) */
+.popover-portal {
+  position: fixed;
+  z-index: 90;
+}
+
 .alert-item {
   cursor: default;
   align-items: flex-start;

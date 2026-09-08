@@ -3,7 +3,7 @@ import { StatusDot } from '../ui/StatusDot'
 import { formatRelativeTime } from '../lib/format'
 import type { AlertEvent } from '../lib/types'
 import { useShell } from './useShell'
-import { Popover } from './Popover'
+import { Popover } from '../ui'
 import { NAV_GROUPS, NAV_ITEM_META, TOP_LEVEL_NAV, VIEW_TITLES, navGroupOf } from './views'
 
 function DevicePill() {

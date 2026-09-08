@@ -80,98 +80,68 @@
 
 /* ---------- inline terminal detail ---------- */
 
+/* compact one-line header (wraps to two on narrow widths) */
 .detail-header {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-}
-
-.detail-back {
-  flex: none;
-  min-height: 40px;
-  margin-top: 2px;
-}
-
-.detail-identity {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.detail-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-md);
-  background: var(--glass-2);
-  border: 1px solid var(--stroke);
-  display: grid;
-  place-items: center;
-  font-size: 20px;
-  flex: none;
-}
-
-.detail-title {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.detail-name-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
 
-.detail-name-row h1 {
-  font-size: var(--text-page-title);
-  font-weight: 650;
+.detail-back {
+  flex: none;
+  min-height: 40px;
 }
 
-.detail-edit {
-  width: 32px;
-  height: 32px;
-  font-size: 13px;
-}
-
-.detail-chips {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.detail-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+.detail-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
   background: var(--glass-2);
   border: 1px solid var(--stroke);
-  border-radius: var(--r-sm);
-  padding: 3px 10px;
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex: none;
 }
 
-.detail-chip-label {
-  font-size: var(--text-xs);
-  color: var(--ink-3);
-}
-
-.detail-meta {
-  display: flex;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  font-size: var(--text-sm);
-}
-
-.detail-remark {
-  max-width: 560px;
+.detail-name {
+  font-size: var(--text-page-title);
+  font-weight: 650;
+  margin: 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-sm);
+}
+
+.detail-inline-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.detail-inline-meta > span {
+  white-space: nowrap;
+}
+
+.detail-chip-label {
+  font-style: normal;
+  color: var(--ink-3);
+}
+
+.detail-remark {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  margin-top: 2px;
 }
 
 .conntrack-note {
@@ -321,14 +291,9 @@
 }
 
 @media (max-width: 767px) {
-  .detail-header {
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .detail-back {
-    align-self: flex-end;
-    order: -1;
+  .detail-inline-meta {
+    flex-basis: 100%;
+    order: 1;
   }
 
   .history-stat-grid {
@@ -342,4 +307,52 @@
   .terminal-remark {
     max-width: 120px;
   }
+}
+
+/* ---------- quick inline edit (name / remark pencils) ---------- */
+.quick-edit-trigger {
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  border-radius: 8px;
+  flex: none;
+}
+
+.table tbody tr:hover .quick-edit-trigger,
+.quick-edit-trigger:focus-visible,
+.quick-edit-trigger[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .quick-edit-trigger {
+    opacity: 1;
+  }
+}
+
+.quick-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.quick-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.terminal-remark-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.terminal-remark-cell .terminal-remark {
+  flex: 1;
+  min-width: 0;
 }
