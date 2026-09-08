@@ -90,3 +90,19 @@ export const DEVICE_SCOPED_VIEWS: ReadonlySet<View> = new Set([
   'access-control',
   'recognition',
 ])
+
+const ALL_VIEWS = Object.keys(VIEW_TITLES) as View[]
+
+/**
+ * Hash routing (`#/<view>`, terminal detail `#/terminals/<id>`): parse the
+ * view segment; invalid or empty hashes return null (caller falls back to
+ * the landing view). Sub-paths (e.g. the terminal id) are owned by the page.
+ */
+export function viewFromHash(hash: string): View | null {
+  const head = hash.replace(/^#\/?/, '').split('/')[0]
+  return (ALL_VIEWS as string[]).includes(head) ? (head as View) : null
+}
+
+export function hashForView(view: View): string {
+  return `#/${view}`
+}

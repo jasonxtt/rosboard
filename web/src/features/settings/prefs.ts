@@ -25,7 +25,7 @@ export type PanelPreferences = {
 }
 
 export const defaultPanelPreferences: PanelPreferences = {
-  landingView: 'overview',
+  landingView: 'fleet',
   terminalFamily: 'all',
 }
 

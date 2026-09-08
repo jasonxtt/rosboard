@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { apiGet, apiPost, scoped } from '../lib/api'
 import { getTheme, subscribeTheme, toggleTheme } from '../lib/theme'
 import { parseDashboard, parseDevices, type DeviceStatus } from '../lib/types'
 import { loadPanelPreferences } from '../features/settings/prefs'
 import { usePolling } from './usePolling'
 import { REFRESH_MS_KEY, REFRESH_OPTIONS, SELECTED_DEVICE_KEY, ShellContext, type ShellContextValue } from './shellContext'
-import type { View } from './views'
+import { hashForView, viewFromHash, type View } from './views'
 
 const DEVICE_LIST_POLL_MS = 10_000
 const HEARTBEAT_MS = 10_000
@@ -27,14 +27,26 @@ function readSelectedDevice(): string {
   }
 }
 
+/** Initial view: the URL hash wins (deep link / browser refresh); bare `/`
+ * falls back to the landing-page preference (默认仪表台). */
+function readInitialView(): View {
+  try {
+    const fromHash = viewFromHash(window.location.hash)
+    if (fromHash) return fromHash
+  } catch {
+    // hash parsing never blocks startup
+  }
+  return loadPanelPreferences().landingView
+}
+
 /**
- * Shell state owner: active view, device list + selection, refresh
- * preference, theme, viewer heartbeat, and the alerts/warnings summary that
- * feeds the top bar. Device-scoped pages reset by remounting on
+ * Shell state owner: active view (hash-routed), device list + selection,
+ * refresh preference, theme, viewer heartbeat, and the alerts/warnings
+ * summary that feeds the top bar. Device-scoped pages reset by remounting on
  * `selectedDeviceId` changes (see ShellApp).
  */
 export function ShellProvider({ children }: { children: ReactNode }) {
-  const [view, setView] = useState<View>(() => loadPanelPreferences().landingView)
+  const [view, setView] = useState<View>(readInitialView)
   const [devices, setDevices] = useState<DeviceStatus[]>([])
   const [devicesLoading, setDevicesLoading] = useState(true)
   const [selectedDeviceId, setSelectedDeviceId] = useState(readSelectedDevice)
@@ -44,7 +56,25 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const [warnings, setWarnings] = useState<string[]>([])
   const theme = useSyncExternalStore(subscribeTheme, getTheme)
 
-  const navigate = useCallback((next: View) => setView(next), [])
+  const navigate = useCallback((next: View) => {
+    setView(next)
+    const target = hashForView(next)
+    try {
+      if (window.location.hash !== target) window.location.hash = target
+    } catch {
+      // hash routing is best-effort; in-app navigation still works
+    }
+  }, [])
+
+  // Browser back/forward and manual hash edits drive the view too.
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = viewFromHash(window.location.hash)
+      if (next) setView(next)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
   const setRefreshMs = useCallback((ms: number) => {
     const valid = REFRESH_OPTIONS.some((option) => option.value === ms) ? ms : 1000

@@ -41,12 +41,13 @@ const PAGE_SIZE_OPTIONS = [
   { value: '50', label: '50 条/页' },
 ]
 
-const TERMINAL_HASH_PREFIX = '#terminal='
+const TERMINAL_HASH_RE = /^#\/terminals\/(.+)$/
 
 function terminalIdFromHash(): string | null {
-  if (!window.location.hash.startsWith(TERMINAL_HASH_PREFIX)) return null
+  const match = TERMINAL_HASH_RE.exec(window.location.hash)
+  if (!match) return null
   try {
-    return decodeURIComponent(window.location.hash.slice(TERMINAL_HASH_PREFIX.length)) || null
+    return decodeURIComponent(match[1]) || null
   } catch {
     return null
   }
@@ -64,20 +65,24 @@ export default function TerminalsPage() {
   const sort = useSortState<TerminalSortKey>('address')
   const [selectedId, setSelectedId] = useState<string | null>(() => terminalIdFromHash())
 
-  // Terminal-detail deep link: opening pushes #terminal=<id>, back pops it.
+  // Terminal-detail deep link: opening pushes #/terminals/<id>, back pops it.
   useEffect(() => {
     const onPopState = () => setSelectedId(terminalIdFromHash())
     window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
+    window.addEventListener('hashchange', onPopState)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      window.removeEventListener('hashchange', onPopState)
+    }
   }, [])
 
   const openTerminal = useCallback((id: string) => {
     setSelectedId(id)
-    window.history.pushState(null, '', `${TERMINAL_HASH_PREFIX}${encodeURIComponent(id)}`)
+    window.history.pushState(null, '', `#/terminals/${encodeURIComponent(id)}`)
   }, [])
 
   const closeTerminal = useCallback(() => {
-    if (window.location.hash.startsWith(TERMINAL_HASH_PREFIX)) {
+    if (TERMINAL_HASH_RE.test(window.location.hash)) {
       window.history.back()
     } else {
       setSelectedId(null)
