@@ -1864,7 +1864,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .policy-choice strong { color: var(--ink); font-size: 13px; font-weight: 500; }
 
-.policy-choice small { color: var(--stone); font-size: 12px; line-height: 1.5; }
+.policy-choice small { color: var(--stone); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 
 .policy-interface-options{gap:var(--gap-stack-sm);grid-template-columns:repeat(2,minmax(0,1fr));display:grid}
 
