@@ -16,6 +16,7 @@ import {
   viewTitle,
 } from './lib/format'
 import { statusColor, useThemeTokens } from './lib/themeTokens'
+import { terminalNameDraft, terminalNamePlaceholder, terminalNameSubmission } from './lib/terminalName'
 import type {
   ActiveView,
   BootstrapResponse,
@@ -4049,6 +4050,7 @@ function TerminalNameCell(props: { terminal: Terminal; deviceID: string; onRenam
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLFormElement>(null)
   const requestRef = useRef<AbortController | null>(null)
+  const currentCustomName = props.terminal.customName || ''
 
   useEffect(() => () => requestRef.current?.abort(), [])
   useEffect(() => {
@@ -4075,6 +4077,12 @@ function TerminalNameCell(props: { terminal: Terminal; deviceID: string; onRenam
 
   const save = async () => {
     if (saving) return
+    const customName = terminalNameSubmission(draft, currentCustomName)
+    if (customName === null) {
+      setPosition(null)
+      triggerRef.current?.focus()
+      return
+    }
     setSaving(true)
     setError(null)
     const controller = new AbortController()
@@ -4082,7 +4090,7 @@ function TerminalNameCell(props: { terminal: Terminal; deviceID: string; onRenam
     try {
       const response = await fetch(scopedURL(`/api/terminals/${encodeURIComponent(props.terminal.id)}/metadata`, props.deviceID), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customName: draft }), signal: controller.signal,
+        body: JSON.stringify({ customName }), signal: controller.signal,
       })
       if (!response.ok) {
         const failure = await response.json().catch(() => null) as { error?: string } | null
@@ -4104,17 +4112,17 @@ function TerminalNameCell(props: { terminal: Terminal; deviceID: string; onRenam
     <div className="terminal-name-line"><strong>{props.terminal.displayName}</strong><button ref={triggerRef} type="button" className="terminal-name-edit" disabled={saving} aria-label={`修改设备名称：${props.terminal.displayName}`} aria-expanded={Boolean(position)} onClick={(event) => {
       event.stopPropagation()
       const rect = event.currentTarget.parentElement!.getBoundingClientRect()
-      setDraft(props.terminal.customName || props.terminal.displayName)
+      setDraft(terminalNameDraft(props.terminal))
       setError(null)
       const above = rect.bottom + 200 > window.innerHeight
       setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)), top: above ? rect.top - 8 : rect.bottom + 8, above })
     }}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg></button></div>
     <span className="muted-text">{props.terminal.macAddress || 'MAC 未知'}</span>
     {position ? createPortal(<form ref={popoverRef} className={`terminal-name-popover${position.above ? ' above' : ''}`} role="dialog" aria-label="修改设备名称" style={{ left: position.left, top: position.top }} onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void save() }}>
-      <input className="settings-input" aria-label="设备名称" autoFocus maxLength={100} value={draft} disabled={saving} placeholder={props.terminal.autoName || '自动名称'} onChange={(event) => setDraft(event.target.value)} />
+      <input className="settings-input" aria-label="设备名称" autoFocus maxLength={100} value={draft} disabled={saving} placeholder={terminalNamePlaceholder(props.terminal)} onChange={(event) => setDraft(event.target.value)} />
       <small>仅修改 Rosboard 显示，清空恢复自动名称。</small>
       {error ? <p role="alert">{error}</p> : null}
-      <div><button type="button" className="toolbar-button" disabled={saving} onClick={() => { setPosition(null); triggerRef.current?.focus() }}>取消</button><button type="submit" className="primary-button" disabled={saving}>{saving ? '保存中…' : '确定'}</button></div>
+      <div><button type="button" className="toolbar-button" disabled={saving} onClick={() => { setPosition(null); triggerRef.current?.focus() }}>取消</button><button type="submit" className="primary-button" disabled={saving || terminalNameSubmission(draft, currentCustomName) === null}>{saving ? '保存中…' : '确定'}</button></div>
     </form>, document.body) : null}
   </div>
 }
