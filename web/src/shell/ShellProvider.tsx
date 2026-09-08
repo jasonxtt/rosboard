@@ -1,3 +1,4 @@
+import { readRefreshPreference } from '../uiPreference'
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { apiGet, apiPost, scoped } from '../lib/api'
 import { getTheme, subscribeTheme, toggleTheme } from '../lib/theme'
@@ -9,15 +10,6 @@ import { hashForView, viewFromHash, type View } from './views'
 
 const DEVICE_LIST_POLL_MS = 10_000
 const HEARTBEAT_MS = 10_000
-
-function readRefreshMs(): number {
-  try {
-    const stored = Number(window.localStorage.getItem(REFRESH_MS_KEY))
-    return REFRESH_OPTIONS.some((option) => option.value === stored) ? stored : 1000
-  } catch {
-    return 1000
-  }
-}
 
 function readSelectedDevice(): string {
   try {
@@ -50,7 +42,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const [devices, setDevices] = useState<DeviceStatus[]>([])
   const [devicesLoading, setDevicesLoading] = useState(true)
   const [selectedDeviceId, setSelectedDeviceId] = useState(readSelectedDevice)
-  const [refreshMs, setRefreshMsState] = useState(readRefreshMs)
+  const [refreshMs, setRefreshMsState] = useState(readRefreshPreference)
   const [reloadNonce, setReloadNonce] = useState(0)
   const [alerts, setAlerts] = useState<ShellContextValue['alerts']>([])
   const [warnings, setWarnings] = useState<string[]>([])

@@ -18,6 +18,8 @@ embedded build (`web` → `internal/ui/dist`).
 
 ---
 
+See [Complete UI Variants](./dual-ui.md) for the current dual-entry architecture; the shell ownership notes below apply within each variant.
+
 ## Guidelines Index
 
 | Guide | Description | Status |

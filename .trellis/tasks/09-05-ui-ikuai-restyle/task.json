@@ -1,0 +1,33 @@
+{
+  "id": "ui-ikuai-restyle",
+  "name": "ui-ikuai-restyle",
+  "title": "仿 iKuai 4.0 风格前端 UI 重写",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-09-05",
+  "completedAt": null,
+  "branch": "codex/ui-compact-rebuild",
+  "base_branch": "main",
+  "worktree_path": "/Users/tom/github/rosboard-ui-compact",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "User explicitly requested independent implementation from feat/policy-access-rebuild, not the other agent UI. Worktree prepared with baseline application and carried planning/preview only. Implementation remains paused until explicitly started. See README.md.",
+  "meta": {
+    "audited_head": "1049314",
+    "functional_baseline": "7a7d463da028519661878070a0027cae50b69e0c",
+    "implementation_authorized": false,
+    "overview_reference_commit": "74ac43aa6a6d3ca8b3fde33f8002b912d0f70757",
+    "starting_branch": "feat/policy-access-rebuild",
+    "independent_ui_workstream": true
+  }
+}

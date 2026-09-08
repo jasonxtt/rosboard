@@ -51,7 +51,7 @@ export function compareIp(left: string, right: string): number {
   return left.localeCompare(right, 'en', { numeric: true })
 }
 
-export type TerminalSortKey = 'address' | 'device' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online' | 'remark'
+export type TerminalSortKey = 'address' | 'device' | 'connections' | 'upload' | 'download' | 'totalUpload' | 'totalDownload' | 'online'
 
 export function compareTerminal(left: Terminal, right: Terminal, key: TerminalSortKey, family: TerminalFamily): number {
   const text = (a: string, b: string) => a.localeCompare(b, 'zh-CN', { numeric: true, sensitivity: 'base' })
@@ -76,8 +76,6 @@ export function compareTerminal(left: Terminal, right: Terminal, key: TerminalSo
       return leftMetrics.totalDownloadBytes - rightMetrics.totalDownloadBytes
     case 'online':
       return new Date(left.onlineSince || 0).getTime() - new Date(right.onlineSince || 0).getTime()
-    case 'remark':
-      return text(left.remark, right.remark)
   }
 }
 

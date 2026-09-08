@@ -1,3 +1,4 @@
+import { readThemePreference } from '../uiPreference'
 /**
  * Theme control: `data-theme` on <html>, preference persisted under
  * localStorage["rosboard:theme"], default follows prefers-color-scheme
@@ -18,7 +19,7 @@ function systemTheme(): Theme {
 
 function readStoredTheme(): Theme | null {
   try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    const stored = readThemePreference()
     return stored === 'dark' || stored === 'light' ? stored : null
   } catch {
     return null

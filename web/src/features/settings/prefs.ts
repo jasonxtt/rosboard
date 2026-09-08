@@ -1,3 +1,5 @@
+import { VIEW_TITLES, type View } from '../../shell/views'
+import { readPanelRecord, savePanelRecord, resetSharedPanelPreferences } from '../../uiPreference'
 /**
  * Browser-local, non-sensitive UI preferences and transient cleanup state.
  * Passwords / RouterOS credentials must never touch these helpers
@@ -16,7 +18,7 @@ import type { RouterOSCleanup } from './api'
 export const PANEL_PREFERENCES_KEY = 'rosboard:panel-preferences'
 const PENDING_CLEANUP_KEY = 'rosboard:pending-routeros-cleanup'
 
-export type LandingView = 'fleet' | 'overview'
+export type LandingView = View
 export type DefaultTerminalFamily = 'all' | 'ipv4' | 'ipv6'
 
 export type PanelPreferences = {
@@ -31,11 +33,9 @@ export const defaultPanelPreferences: PanelPreferences = {
 
 export function loadPanelPreferences(): PanelPreferences {
   try {
-    const raw = window.localStorage.getItem(PANEL_PREFERENCES_KEY)
-    if (!raw) return defaultPanelPreferences
-    const parsed = JSON.parse(raw) as Partial<PanelPreferences>
+    const parsed = readPanelRecord()
     return {
-      landingView: parsed.landingView === 'fleet' || parsed.landingView === 'overview' ? parsed.landingView : defaultPanelPreferences.landingView,
+      landingView: typeof parsed.landingView === 'string' && Object.hasOwn(VIEW_TITLES, parsed.landingView) ? parsed.landingView as LandingView : defaultPanelPreferences.landingView,
       terminalFamily:
         parsed.terminalFamily === 'ipv4' || parsed.terminalFamily === 'ipv6' || parsed.terminalFamily === 'all'
           ? parsed.terminalFamily
@@ -48,7 +48,7 @@ export function loadPanelPreferences(): PanelPreferences {
 
 export function savePanelPreferences(preferences: PanelPreferences): void {
   try {
-    window.localStorage.setItem(PANEL_PREFERENCES_KEY, JSON.stringify(preferences))
+    savePanelRecord(preferences)
   } catch {
     // Storage unavailable — preferences stay session-only.
   }
@@ -56,7 +56,7 @@ export function savePanelPreferences(preferences: PanelPreferences): void {
 
 export function resetPanelPreferences(): void {
   try {
-    window.localStorage.removeItem(PANEL_PREFERENCES_KEY)
+    resetSharedPanelPreferences()
   } catch {
     // ignore
   }
@@ -90,6 +90,7 @@ export function applyThemeChoice(choice: ThemeChoice): void {
   setTheme(system)
   try {
     window.localStorage.removeItem(THEME_STORAGE_KEY)
+    savePanelRecord({ theme: null })
   } catch {
     // ignore
   }
@@ -127,7 +128,7 @@ export function consumePendingCleanup(): RouterOSCleanup | null {
 /** Clear every browser-local panel key after a full reset. */
 export function clearLocalPanelState(): void {
   try {
-    window.localStorage.removeItem(PANEL_PREFERENCES_KEY)
+    resetSharedPanelPreferences()
     window.localStorage.removeItem('rosboard:selected-device')
     window.localStorage.removeItem('rosboard:refresh-ms')
     window.sessionStorage.removeItem(PENDING_CLEANUP_KEY)

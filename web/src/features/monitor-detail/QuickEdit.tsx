@@ -10,10 +10,8 @@ import type { ScopedPath } from './api'
 type QuickEditProps = {
   scopedPath: ScopedPath
   terminalId: string
-  field: 'customName' | 'remark'
-  /** current stored values — the untouched field must be re-sent verbatim */
+  /** Empty custom name restores automatic naming. */
   currentCustomName: string
-  currentRemark: string
   /** shown as the input placeholder */
   placeholder: string
   /** extra hint line, e.g. the auto-detected name behind a custom one */
@@ -21,14 +19,8 @@ type QuickEditProps = {
   onSaved: () => void
 }
 
-const FIELD_META = {
-  customName: { label: '编辑名称', maxLength: 100 },
-  remark: { label: '编辑备注', maxLength: 500 },
-} as const
-
-/** Hover pencil → small bubble popover that edits one metadata field inline. */
-export function QuickEdit({ scopedPath, terminalId, field, currentCustomName, currentRemark, placeholder, hint, onSaved }: QuickEditProps) {
-  const meta = FIELD_META[field]
+/** Hover pencil → small bubble popover that edits the local terminal display name. */
+export function QuickEdit({ scopedPath, terminalId, currentCustomName, placeholder, hint, onSaved }: QuickEditProps) {
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,17 +30,18 @@ export function QuickEdit({ scopedPath, terminalId, field, currentCustomName, cu
       portal
       align="left"
       width={280}
-      ariaLabel={meta.label}
+      ariaLabel="编辑名称"
       closeOnContentClick={false}
       trigger={(_open, toggle) => (
         <button
           type="button"
           className="icon-btn quick-edit-trigger"
-          aria-label={meta.label}
-          title={meta.label}
+          aria-label="编辑名称"
+          title="编辑名称"
           onClick={(event) => {
             event.stopPropagation()
-            setValue(field === 'customName' ? currentCustomName : currentRemark)
+            setValue(currentCustomName)
+            setSaving(false)
             setError(null)
             toggle()
           }}
@@ -64,10 +57,9 @@ export function QuickEdit({ scopedPath, terminalId, field, currentCustomName, cu
           setError(null)
           try {
             await saveTerminalMetadata(scopedPath, terminalId, {
-              customName: field === 'customName' ? value.trim() : currentCustomName,
-              remark: field === 'remark' ? value.trim() : currentRemark,
+              customName: value.trim(),
             })
-            toast(field === 'customName' ? '名称已更新' : '备注已更新')
+            toast(value.trim() ? '名称已更新' : '已恢复自动名称')
             onSaved()
             close()
           } catch (saveError) {
@@ -84,7 +76,7 @@ export function QuickEdit({ scopedPath, terminalId, field, currentCustomName, cu
               void save()
             }}
           >
-            <Input value={value} onChange={setValue} placeholder={placeholder} maxLength={meta.maxLength} autoFocus disabled={saving} ariaLabel={meta.label} />
+            <Input value={value} onChange={setValue} placeholder={placeholder} maxLength={100} autoFocus disabled={saving} ariaLabel="编辑名称" />
             {hint ? <small className="faint">{hint}</small> : null}
             {error ? <small className="form-error">{error}</small> : null}
             <div className="quick-edit-actions">

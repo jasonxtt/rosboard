@@ -346,7 +346,7 @@ export function fetchTerminalDetail(scopedPath: ScopedPath, id: string): Promise
   return apiGet(scopedPath(`/api/terminals/${encodeURIComponent(id)}`), parseTerminalDetail)
 }
 
-export function saveTerminalMetadata(scopedPath: ScopedPath, id: string, draft: { customName: string; remark: string }): Promise<TerminalDetail> {
+export function saveTerminalMetadata(scopedPath: ScopedPath, id: string, draft: { customName: string }): Promise<TerminalDetail> {
   return apiPost(scopedPath(`/api/terminals/${encodeURIComponent(id)}/metadata`), draft, parseTerminalDetail)
 }
 

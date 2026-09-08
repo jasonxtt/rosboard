@@ -1443,24 +1443,24 @@ func (s *Server) serveTerminalAPI(writer http.ResponseWriter, request *http.Requ
 
 	if len(parts) == 2 && parts[1] == "metadata" && request.Method == http.MethodPost {
 		var payload struct {
-			CustomName string `json:"customName"`
-			Remark     string `json:"remark"`
+			CustomName *string `json:"customName"`
 		}
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		decoder := json.NewDecoder(request.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload); err != nil {
 			writeError(writer, http.StatusBadRequest, "invalid json body")
 			return
 		}
-		payload.CustomName = strings.TrimSpace(payload.CustomName)
-		payload.Remark = strings.TrimSpace(payload.Remark)
-		if utf8.RuneCountInString(payload.CustomName) > 100 {
+		if payload.CustomName == nil {
+			writeError(writer, http.StatusBadRequest, "device name is required")
+			return
+		}
+		customName := strings.TrimSpace(*payload.CustomName)
+		if utf8.RuneCountInString(customName) > 100 {
 			writeError(writer, http.StatusBadRequest, "device name is too long")
 			return
 		}
-		if utf8.RuneCountInString(payload.Remark) > 500 {
-			writeError(writer, http.StatusBadRequest, "remark is too long")
-			return
-		}
-		detail, err := monitor.UpdateTerminalMetadata(request.Context(), terminalID, payload.CustomName, payload.Remark)
+		detail, err := monitor.UpdateTerminalMetadata(request.Context(), terminalID, customName)
 		if errors.Is(err, store.ErrTerminalNotFound) {
 			writeError(writer, http.StatusNotFound, "terminal not found")
 			return
