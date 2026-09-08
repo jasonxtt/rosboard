@@ -50,7 +50,7 @@ func TestOpenMigratesLegacyRowsToDefaultDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if totals["mac:legacy"].UploadBytes != 123 || totals["mac:legacy"].Remark != "kept" || totals["mac:legacy"].CustomName != "Legacy device" {
+	if totals["mac:legacy"].UploadBytes != 123 || totals["mac:legacy"].CustomName != "Legacy device" {
 		t.Fatalf("legacy row was not preserved: %#v", totals)
 	}
 	other, err := storage.ForDevice("other").TerminalTotals(context.Background(), []string{"mac:legacy"})
@@ -97,7 +97,7 @@ func TestLoadSamplesPersistConnectionCountPerDevice(t *testing.T) {
 	}
 }
 
-func TestUpdateTerminalMetadataPersistsCustomNameAndRemark(t *testing.T) {
+func TestUpdateTerminalMetadataPersistsCustomName(t *testing.T) {
 	ctx := context.Background()
 	storage, err := Open(t.TempDir())
 	if err != nil {
@@ -109,17 +109,17 @@ func TestUpdateTerminalMetadataPersistsCustomNameAndRemark(t *testing.T) {
 	if err := storage.UpsertTerminal(ctx, id, "00:11:22:33:44:55", "iphone", time.Now().UTC()); err != nil {
 		t.Fatalf("upsert terminal: %v", err)
 	}
-	if err := storage.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM", "Tom 的手机"); err != nil {
+	if err := storage.UpdateTerminalMetadata(ctx, id, "iPhone 13 PM"); err != nil {
 		t.Fatalf("update metadata: %v", err)
 	}
 	totals, err := storage.TerminalTotals(ctx, []string{id})
 	if err != nil {
 		t.Fatalf("load totals: %v", err)
 	}
-	if totals[id].AutoName != "iphone" || totals[id].CustomName != "iPhone 13 PM" || totals[id].Remark != "Tom 的手机" {
+	if totals[id].AutoName != "iphone" || totals[id].CustomName != "iPhone 13 PM" {
 		t.Fatalf("unexpected metadata: %#v", totals[id])
 	}
-	if err := storage.UpdateTerminalMetadata(ctx, "missing", "name", "remark"); !errors.Is(err, ErrTerminalNotFound) {
+	if err := storage.UpdateTerminalMetadata(ctx, "missing", "name"); !errors.Is(err, ErrTerminalNotFound) {
 		t.Fatalf("expected ErrTerminalNotFound, got %v", err)
 	}
 }
@@ -206,7 +206,7 @@ func TestDeviceScopesKeepSameMACTerminalsSeparate(t *testing.T) {
 	if err := two.UpsertTerminal(ctx, "mac:aa", "AA:BB:CC:DD:EE:FF", "Two", at); err != nil {
 		t.Fatal(err)
 	}
-	if err := one.UpdateTerminalMetadata(ctx, "mac:aa", "Kitchen", "one only"); err != nil {
+	if err := one.UpdateTerminalMetadata(ctx, "mac:aa", "Kitchen"); err != nil {
 		t.Fatal(err)
 	}
 	oneTotals, err := one.TerminalTotals(ctx, []string{"mac:aa"})
@@ -217,7 +217,7 @@ func TestDeviceScopesKeepSameMACTerminalsSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if oneTotals["mac:aa"].Remark != "one only" || twoTotals["mac:aa"].Remark != "" {
+	if oneTotals["mac:aa"].CustomName != "Kitchen" || twoTotals["mac:aa"].CustomName != "" {
 		t.Fatalf("device metadata leaked: one=%#v two=%#v", oneTotals, twoTotals)
 	}
 	if err := storage.PurgeDevice(ctx, "one"); err != nil {

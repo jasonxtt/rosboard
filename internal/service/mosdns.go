@@ -22,6 +22,7 @@ type MosDNSStatus struct {
 	Enabled                bool      `json:"enabled"`
 	BaseURL                string    `json:"baseUrl"`
 	SyncIntervalMinutes    int       `json:"syncIntervalMinutes"`
+	MatchWindowMinutes     int       `json:"matchWindowMinutes"`
 	LastAttempt            time.Time `json:"lastAttempt,omitempty"`
 	LastSuccess            time.Time `json:"lastSuccess,omitempty"`
 	LastImported           int       `json:"lastImported"`
@@ -49,7 +50,7 @@ func NewMosDNSSynchronizer(cfg config.MosDNSConfig, storage *store.Store, logger
 		return nil, nil
 	}
 	if storage == nil {
-		return nil, fmt.Errorf("MosDNS requires the owner store")
+		return nil, fmt.Errorf("MosDNS requires a device store")
 	}
 	client, err := mosclient.NewClient(cfg.BaseURL, nil)
 	if err != nil {
@@ -68,6 +69,7 @@ func NewMosDNSSynchronizer(cfg config.MosDNSConfig, storage *store.Store, logger
 			Enabled:             true,
 			BaseURL:             cfg.BaseURL,
 			SyncIntervalMinutes: cfg.SyncIntervalMinutes,
+			MatchWindowMinutes:  cfg.MatchWindowMinutes,
 		},
 	}, nil
 }

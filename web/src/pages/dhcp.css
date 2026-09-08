@@ -1,0 +1,71 @@
+/* DHCP (tokens only). */
+
+.dhcp-server-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.dhcp-server-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dhcp-server-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-card-title);
+}
+
+.dhcp-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dhcp-usage-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.dhcp-server-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+.dhcp-lease-toolbar {
+  margin: 0 var(--space-1) var(--space-3);
+}
+
+.dhcp-comment {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--ink-2);
+}
+
+.dhcp-kind-cell {
+  display: inline-flex;
+  gap: 4px;
+}
+
+@media (max-width: 1199px) {
+  .dhcp-server-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .dhcp-server-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,381 @@
+/* 终端监控 + 终端详情 (tokens only, design/UX-STANDARD.md §9.3). */
+
+/* Fixed layout: header and value column boundaries line up exactly; widths
+   come from the column defs (18/17/7/14/14/9/11/10%). A min-width keeps the
+   proportions meaningful on narrower containers (the card scrolls). */
+.terminals-page .table {
+  table-layout: fixed;
+  min-width: 1000px;
+}
+
+.terminals-page .table td {
+  overflow: hidden;
+}
+
+.terminals-toolbar {
+  margin: 0 var(--space-1);
+}
+
+.terminal-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.terminal-name-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.terminal-display-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-custom-flag {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+.terminal-address-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.terminal-address-stack span,
+.terminal-address-stack small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-rates {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.terminal-rate-down {
+  color: var(--accent);
+}
+
+.terminal-rate-up {
+  color: var(--accent-2);
+}
+
+.terminal-rate-head {
+  display: inline-flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* 备注: capped narrow column — wraps to the next line beyond ~6 chars */
+.terminal-remark {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.terminal-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+.terminal-list-footer .select {
+  width: auto;
+}
+
+/* ---------- inline terminal detail ---------- */
+
+/* compact one-line header (wraps to two on narrow widths) */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.detail-back {
+  flex: none;
+  min-height: 40px;
+}
+
+.detail-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--glass-2);
+  border: 1px solid var(--stroke);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex: none;
+}
+
+.detail-name {
+  font-size: var(--text-page-title);
+  font-weight: 650;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-inline-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.detail-inline-meta > span {
+  white-space: nowrap;
+}
+
+.detail-chip-label {
+  font-style: normal;
+  color: var(--ink-3);
+}
+
+.detail-remark {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  margin-top: 2px;
+}
+
+.conntrack-note {
+  margin: 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+}
+
+.detail-connections-card {
+  padding: var(--space-3);
+}
+
+/* ---------- 流量分布 bars ---------- */
+
+.flow-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.flow-note {
+  font-size: var(--text-sm);
+}
+
+.flow-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flow-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.flow-bar-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.flow-bar-rates {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.flow-bar-track {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--glass-2);
+  overflow: hidden;
+}
+
+.flow-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width var(--motion-fast);
+}
+
+.flow-bar-down {
+  background: var(--grad-brand);
+}
+
+.flow-bar-up {
+  background: var(--accent-2);
+}
+
+.flow-bar-legend {
+  font-size: var(--text-xs);
+}
+
+/* ---------- 历史记录 ---------- */
+
+.terminal-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.history-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.history-stat strong {
+  font-size: var(--text-metric);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.history-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+}
+
+.history-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent-soft);
+  border-top: 2px solid var(--accent);
+  transition: height var(--motion-fast);
+}
+
+.history-bar:hover {
+  background: var(--accent);
+}
+
+.history-family-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.detail-back-fallback {
+  align-self: flex-start;
+}
+
+/* ---------- metadata modal ---------- */
+
+.metadata-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.metadata-note {
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 767px) {
+  .detail-inline-meta {
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  .history-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .history-family-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- quick inline edit (name / remark pencils) ---------- */
+.quick-edit-trigger {
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  border-radius: 8px;
+  flex: none;
+}
+
+.table tbody tr:hover .quick-edit-trigger,
+.quick-edit-trigger:focus-visible,
+.quick-edit-trigger[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .quick-edit-trigger {
+    opacity: 1;
+  }
+}
+
+.quick-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.quick-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.terminal-remark-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.terminal-remark-cell .terminal-remark {
+  flex: 1;
+  min-width: 0;
+}

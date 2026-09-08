@@ -181,7 +181,6 @@ type Terminal struct {
 	DisplayName        string                         `json:"displayName"`
 	AutoName           string                         `json:"autoName"`
 	CustomName         string                         `json:"customName"`
-	Remark             string                         `json:"remark"`
 	MACAddress         string                         `json:"macAddress"`
 	PrimaryInterface   string                         `json:"primaryInterface"`
 	IPv4               []string                       `json:"ipv4"`
@@ -220,7 +219,9 @@ type TerminalScopeSummary struct {
 type TerminalConnection struct {
 	Key                string   `json:"key"`
 	Family             string   `json:"family"`
+	ApplicationID      string   `json:"applicationId,omitempty"`
 	Application        string   `json:"application"`
+	Service            string   `json:"service,omitempty"`
 	MatchedDomain      string   `json:"matchedDomain,omitempty"`
 	ApplicationSource  string   `json:"applicationSource,omitempty"`
 	Protocol           string   `json:"protocol"`
@@ -297,6 +298,8 @@ type CapabilityNote struct {
 
 type ProtocolStat struct {
 	Name          string  `json:"name"`
+	ApplicationID string  `json:"applicationId,omitempty"`
+	Service       string  `json:"service,omitempty"`
 	Kind          string  `json:"kind"`
 	Connections   int     `json:"connections"`
 	UploadBps     float64 `json:"uploadBps"`

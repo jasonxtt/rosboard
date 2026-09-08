@@ -1,32 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
-    <title>Rosboard · RouterOS 监控</title>
+    <meta name="theme-color" content="#eef1f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0c1c" media="(prefers-color-scheme: dark)" />
+    <title>rosboard</title>
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      (() => {
-        const retryKey = 'rosboard:boot-retries'
-        window.setTimeout(() => {
-          const root = document.getElementById('root')
-          if (root && root.childElementCount === 0) {
-            const retries = Number(window.sessionStorage.getItem(retryKey) || '0')
-            if (retries < 3) {
-              window.sessionStorage.setItem(retryKey, String(retries + 1))
-              window.location.reload()
-            }
-            return
-          }
-          window.sessionStorage.removeItem(retryKey)
-        }, 2000)
-      })()
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

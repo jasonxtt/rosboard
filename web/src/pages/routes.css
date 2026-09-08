@@ -1,0 +1,89 @@
+/* 路由 / 分流 (tokens only). */
+
+.routes-toolbar {
+  margin: 0 var(--space-1);
+}
+
+.routes-hide-disabled {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.routes-count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+}
+
+.routes-group-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.routes-group-head {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-size: var(--text-card-title);
+  cursor: pointer;
+  text-align: left;
+  min-height: 32px;
+}
+
+.routes-group-head strong {
+  font-weight: 650;
+}
+
+.routes-group-head .faint {
+  font-size: var(--text-sm);
+}
+
+.routes-group-chevron {
+  color: var(--ink-3);
+  transition: transform var(--motion-fast);
+  display: inline-block;
+}
+
+.routes-group-chevron-collapsed {
+  transform: rotate(-90deg);
+}
+
+.route-gateway-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.route-active-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+
+.route-comment {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--ink-2);
+}
+
+@media (max-width: 767px) {
+  .routes-count {
+    margin-left: 0;
+    width: 100%;
+  }
+}

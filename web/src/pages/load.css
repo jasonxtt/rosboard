@@ -1,0 +1,26 @@
+/* 负载历史 (tokens only). */
+
+.load-toolbar {
+  margin: 0 var(--space-1);
+}
+
+.load-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.load-metric-card .load-line-chart {
+  margin-top: var(--space-2);
+}
+
+.load-stat-head {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+@media (max-width: 767px) {
+  .load-grid {
+    grid-template-columns: 1fr;
+  }
+}
