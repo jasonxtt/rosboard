@@ -760,6 +760,35 @@ func TestMutationAccessTimeCapabilityProbeRetriesReadbackCleanupAfterDeleteFailu
 	}
 }
 
+func TestMutationAccessTimeCapabilityProbeCleanupIgnoresCancelledCaller(t *testing.T) {
+	var deletes int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			if r.URL.Query().Get("comment") != "cancelled-probe" {
+				t.Fatalf("cleanup readback lost the unique probe comment: %q", r.URL.Query().Get("comment"))
+			}
+			_, _ = io.WriteString(w, `[{".id":"*ca","comment":"cancelled-probe"}]`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*ca":
+			deletes++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := client.cleanupAccessTimeCapabilityProbe(ctx, MenuIPFirewallFilter, "cancelled-probe"); err != nil {
+		t.Fatalf("cancelled caller must not prevent bounded probe cleanup: %v", err)
+	}
+	if deletes != 1 {
+		t.Fatalf("cancelled caller did not allow probe deletion: deletes=%d", deletes)
+	}
+}
+
 func TestMutationCommandFieldAllowLists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/export" || r.Method != http.MethodPost {

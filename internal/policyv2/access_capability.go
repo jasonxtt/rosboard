@@ -11,6 +11,32 @@ import (
 )
 
 func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) ([]PlanIssue, error) {
+	ordered, scheduled := accessFilterMenus(desired)
+	if len(ordered) == 0 {
+		return nil, nil
+	}
+
+	verifier, ok := mutation.(AccessCapabilityVerifier)
+	if !ok {
+		return accessCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control capability probe")), nil
+	}
+	if err := verifier.VerifyAccessControlCapabilities(ctx, ordered); err != nil {
+		return accessCapabilityIssues(ordered, err), nil
+	}
+	if len(scheduled) == 0 {
+		return nil, nil
+	}
+	timeVerifier, ok := mutation.(AccessTimeCapabilityVerifier)
+	if !ok {
+		return accessTimeCapabilityIssues(scheduled, errors.New("RouterOS mutation client does not implement the access-control time capability probe")), nil
+	}
+	if err := timeVerifier.VerifyAccessControlTimeCapabilities(ctx, scheduled); err != nil {
+		return accessTimeCapabilityIssues(scheduled, err), nil
+	}
+	return nil, nil
+}
+
+func accessFilterMenus(desired []DesiredObject) (ordered, scheduled []routeros.MutationMenu) {
 	menus := make(map[routeros.MutationMenu]bool)
 	scheduledMenus := make(map[routeros.MutationMenu]bool)
 	for _, object := range desired {
@@ -25,41 +51,42 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 			}
 		}
 	}
-	ordered := make([]routeros.MutationMenu, 0, len(menus))
+	ordered = make([]routeros.MutationMenu, 0, len(menus))
 	for menu := range menus {
 		ordered = append(ordered, menu)
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
-	if len(ordered) == 0 {
-		return nil, nil
+	for menu := range scheduledMenus {
+		scheduled = append(scheduled, menu)
 	}
+	sort.Slice(scheduled, func(i, j int) bool { return scheduled[i] < scheduled[j] })
+	return ordered, scheduled
+}
 
-	verifier, ok := mutation.(AccessCapabilityVerifier)
-	if !ok {
-		return accessCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control capability probe")), nil
-	}
-	if err := verifier.VerifyAccessControlCapabilities(ctx, ordered); err != nil {
-		return accessCapabilityIssues(ordered, err), nil
-	}
-	if len(scheduledMenus) > 0 {
-		timeVerifier, ok := mutation.(AccessTimeCapabilityVerifier)
-		if !ok {
-			return accessTimeCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control time capability probe")), nil
+// scheduledAccessRuntimeBlockers checks runtime conditions that can change
+// outside rosboard. Unlike the mutation capability probes, this check must run
+// even when the desired graph already matches RouterOS and the plan has no
+// operations.
+func scheduledAccessRuntimeBlockers(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) ([]PlanIssue, error) {
+	for _, object := range desired {
+		if !strings.HasPrefix(object.LogicalID, "access:") || object.Menu != string(routeros.MenuIPFirewallFilter) || object.Fields["chain"] == "" {
+			continue
 		}
-		if err := timeVerifier.VerifyAccessControlTimeCapabilities(ctx, ordered); err != nil {
-			return accessTimeCapabilityIssues(ordered, err), nil
+		if strings.TrimSpace(object.Fields["time"]) == "" || desiredObjectDisabled(object) {
+			continue
 		}
-	}
-	if scheduledMenus[routeros.MenuIPFirewallFilter] {
-		issues, err := scheduledAccessFastTrackBlockers(ctx, mutation)
-		if err != nil {
-			return nil, err
-		}
-		if len(issues) > 0 {
-			return issues, nil
-		}
+		return scheduledAccessFastTrackBlockers(ctx, mutation)
 	}
 	return nil, nil
+}
+
+func desiredObjectDisabled(object DesiredObject) bool {
+	switch strings.ToLower(strings.TrimSpace(object.Fields["disabled"])) {
+	case "yes", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func accessCapabilityIssues(menus []routeros.MutationMenu, err error) []PlanIssue {

@@ -46,8 +46,8 @@ func appendAccessDomainProjectionBlockers(ctx context.Context, repository Reposi
 
 // CrossDomainProjectionResolution describes one active Access/Routing domain
 // overlap. Access has fixed precedence on the device-wide RouterOS DNS Static
-// list; the resolution is therefore a warning plus an ordering constraint, not
-// a blocker.
+// list; permanent overlaps remain a warning plus an ordering constraint, while
+// scheduled Access overlaps are represented as fail-closed blockers.
 type CrossDomainProjectionResolution struct {
 	AccessRuleID    string          `json:"accessRuleId"`
 	AccessRuleName  string          `json:"accessRuleName,omitempty"`

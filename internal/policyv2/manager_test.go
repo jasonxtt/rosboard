@@ -519,7 +519,7 @@ func TestScheduledAccessBlocksWhenIPv4FastTrackIsActive(t *testing.T) {
 	probe := &scheduledAccessFastTrackProbe{firewall: []routeros.RouterOSObject{{
 		".id": "*fasttrack", "action": "fasttrack-connection", "disabled": "false",
 	}}}
-	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	blockers, err := scheduledAccessRuntimeBlockers(context.Background(), probe, []DesiredObject{desired})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestScheduledAccessIgnoresDisabledIPv4FastTrack(t *testing.T) {
 	probe := &scheduledAccessFastTrackProbe{firewall: []routeros.RouterOSObject{{
 		".id": "*fasttrack", "action": "fasttrack-connection", "disabled": "true",
 	}}}
-	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	blockers, err := scheduledAccessRuntimeBlockers(context.Background(), probe, []DesiredObject{desired})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,12 +547,26 @@ func TestScheduledAccessFailsClosedWhenIPv4FastTrackCannotBeRead(t *testing.T) {
 	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
 	desired.Fields["time"] = "20:00:00-22:00:00,mon"
 	probe := &scheduledAccessFastTrackProbe{listErr: errors.New("firewall read failed")}
-	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	blockers, err := scheduledAccessRuntimeBlockers(context.Background(), probe, []DesiredObject{desired})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(blockers) != 1 || blockers[0].Code != scheduledAccessFastTrackCode {
 		t.Fatalf("inability to inspect IPv4 FastTrack must block scheduled access: %#v", blockers)
+	}
+}
+
+func TestScheduledAccessRuntimeCheckSkipsDisabledDesiredFilters(t *testing.T) {
+	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
+	desired.Fields["time"] = "20:00:00-22:00:00,mon"
+	desired.Fields["disabled"] = "yes"
+	probe := &scheduledAccessFastTrackProbe{listErr: errors.New("runtime read must not be needed")}
+	blockers, err := scheduledAccessRuntimeBlockers(context.Background(), probe, []DesiredObject{desired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 0 {
+		t.Fatalf("disabled scheduled access filters must not trigger the runtime check: %#v", blockers)
 	}
 }
 

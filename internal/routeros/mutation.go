@@ -25,6 +25,7 @@ const (
 	maxMutationDetailBytes        = 8 << 10
 	maxMutationJSONBytes          = 2 << 20
 	maxMutationExportBytes        = 32 << 20
+	accessTimeProbeCleanupTimeout = 5 * time.Second
 )
 
 // writeProbeComment marks the inert capability probe created by WriteProbe so
@@ -415,6 +416,12 @@ func (c *MutationClient) VerifyAccessControlTimeCapabilities(ctx context.Context
 // best-effort readback prevents that ambiguous result from leaving an inert
 // probe behind. The caller still fails closed after any ambiguous mutation.
 func (c *MutationClient) cleanupAccessTimeCapabilityProbe(ctx context.Context, menu MutationMenu, comment string, knownIDs ...string) error {
+	// Cleanup is recovery after an ambiguous mutation. Do not let a cancelled
+	// request context prevent the readback/delete pass from removing the inert
+	// probe; keep the recovery bounded and preserve the caller's context values.
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), accessTimeProbeCleanupTimeout)
+	defer cancel()
+
 	ids := make([]string, 0, len(knownIDs))
 	seen := make(map[string]bool, len(knownIDs))
 	addID := func(id string) {
@@ -427,7 +434,7 @@ func (c *MutationClient) cleanupAccessTimeCapabilityProbe(ctx context.Context, m
 	for _, id := range knownIDs {
 		addID(id)
 	}
-	objects, err := c.List(ctx, menu, MutationQuery{Filters: map[string]string{"comment": comment}, Proplist: []string{".id", "comment"}})
+	objects, err := c.List(cleanupContext, menu, MutationQuery{Filters: map[string]string{"comment": comment}, Proplist: []string{".id", "comment"}})
 	if err != nil {
 		return err
 	}
@@ -442,7 +449,7 @@ func (c *MutationClient) cleanupAccessTimeCapabilityProbe(ctx context.Context, m
 	}
 	var cleanupErr error
 	for _, id := range ids {
-		if err := c.Delete(ctx, menu, id); err != nil {
+		if err := c.Delete(cleanupContext, menu, id); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
