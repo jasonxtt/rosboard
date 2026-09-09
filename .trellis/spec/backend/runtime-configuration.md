@@ -197,7 +197,9 @@ if err := config.Save(next.Path, next); err == nil {
 - Update APIs live at `/api/settings/update`, `/check`, and `/install` under the
   existing session, origin, network, and setup gates. Install pins the checked
   version; there is no reinstall/downgrade path. A mutation lock serializes
-  installation admission with existing writes; active jobs block new writes.
+  installation admission with existing writes; active jobs block new writes. A
+  synchronously published pending-restart flag rejects installs during the delayed
+  restart window, including after full reset.
 - Only a supervised Linux child can install. The separate stable
   `rosboard-supervisor` executable owns child lifetimes and recovery; it must not
   be overwritten during an online install. Release archives still contain only
@@ -209,7 +211,11 @@ if err := config.Save(next.Path, next); err == nil {
   all device databases and WAL files. Installation uses a durable write-ahead job
   record and same-filesystem binary rename. A candidate must finish configuration,
   storage, embedded-asset, and listener initialization before the supervisor
-  activates serving and workers. No RouterOS worker runs during probation.
+  activates serving and workers. Keep the journal in `verifying_startup` until
+  five continuous seconds of health responses identify the candidate version and
+  PID (20-second deadline). Exit, timeout, or interruption restores the snapshot.
+  Typed background RouterOS mutations wait for the durable success commit;
+  reads and local startup remain active during observation.
 - Interrupted install/restore recovers from the last complete snapshot before
   starting a child. A corrupt journal fails closed. Reload the effective data
   directory on ordinary child restarts, including after full reset.

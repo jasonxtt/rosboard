@@ -1670,7 +1670,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             selectedDeviceID={selectedDeviceID}
             collectionSaving={collectionSaving}
             collectionMessage={collectionMessage}
-            restartSaving={restartSaving}
+            restartSaving={restartSaving || restartPending}
             restartMessage={restartMessage}
             onSaveCollection={saveCollectionSettings}
 	            onOrderChanged={refreshDeviceOrder}
@@ -1745,9 +1745,15 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   )
 }
 
-function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onOrderChanged?: () => unknown }) {
+export function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceStatus[]; username: string; onAuthenticationChanged: () => void; onOrderChanged?: () => unknown }) {
 	const [section, setSection] = useState<'overview' | 'interfaces' | 'terminals' | 'devices' | 'account' | 'maintenance'>('overview')
 	const [sidebarOpen, setSidebarOpen] = useState(false)
+	const [restartPending, setRestartPending] = useState(false)
+	const onRestartingAction = async (action: () => Promise<void>, onOffline: () => void) => {
+		setRestartPending(true)
+		try { await action(); await waitForPanelRestart(onOffline) }
+		catch (error) { setRestartPending(false); throw error }
+	}
 	const label = section === 'overview' ? '系统概览' : section === 'interfaces' ? '接口监控' : section === 'terminals' ? '终端监控' : section === 'devices' ? '设备管理' : section === 'account' ? '账号安全' : '维护设置'
 	const hideTopbarHeading = section === 'interfaces'
 	const choose = (value: typeof section) => { setSection(value); setSidebarOpen(false) }
@@ -1770,7 +1776,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
                 setSidebarOpen(true)
                 requestAnimationFrame(() => shell?.querySelector<HTMLButtonElement>('.sidebar button')?.focus())
               }}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <><CompactUpdateCard /><section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section></> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={onRestartingAction} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <><CompactUpdateCard disabled={restartPending} /><section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={onRestartingAction} /><FullResetZone onRestartingAction={onRestartingAction} /></section></> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }

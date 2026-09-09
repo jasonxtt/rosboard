@@ -34,6 +34,17 @@ def wait_for(fn, label, timeout=60):
     raise AssertionError(f"timeout waiting for {label}: {last}")
 
 
+def atomic_copy(source, destination):
+    # Never truncate an inode that a child may still have mapped (ETXTBSY).
+    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temp:
+        temporary = Path(temp.name)
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--old', required=True)
@@ -47,8 +58,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='rosboard-update-smoke-') as temp:
         root = Path(temp)
         binary, supervisor = root / 'rosboard', root / 'rosboard-supervisor'
-        shutil.copy2(old, binary)
-        shutil.copy2(old, supervisor)
+        atomic_copy(old, binary)
+        atomic_copy(old, supervisor)
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
@@ -88,7 +99,7 @@ def main():
 
         def enqueue(candidate, job_id, target):
             state_dir = root / '.rosboard-update'
-            shutil.copy2(candidate, state_dir / 'candidate')
+            atomic_copy(candidate, state_dir / 'candidate')
             journal = {'id': job_id, 'from': state()['current']['version'], 'to': target, 'stage': 'pending', 'startedAt': '2026-09-09T00:00:00Z'}
             tmp = state_dir / 'job.tmp'
             tmp.write_text(json.dumps(journal))
@@ -98,6 +109,10 @@ def main():
         try:
             proc = start()
             wait_for(lambda: request('/api/health')['ok'], 'initial health')
+            running_pid = child_pid()
+            atomic_copy(old, binary)
+            assert child_pid() == running_pid and request('/api/health')['ok']
+            print('PASS: atomic executable replacement while the old inode is running')
             request('/api/setup/admin', {'username': 'update-smoke', 'password': 'fixture-only-1234', 'passwordConfirmation': 'fixture-only-1234'})
             request('/api/setup/complete', {'skipRouterOS': True})
             assert state()['current']['version'] == old_version
@@ -115,6 +130,17 @@ def main():
             assert (root / 'data' / 'fixture-history').read_text() == 'preserve this data'
             assert request('/api/bootstrap')['authenticated']
             print('PASS: install, new version health, persistent session/data, stable supervisor')
+
+            # Activation has started HTTP/workers, but the journal must remain
+            # recoverable throughout the post-activation observation window.
+            enqueue(old, 'activated-crash', old_version)
+            wait_for(lambda: request('/api/health').get('version') == old_version and state()['job']['stage'] == 'verifying_startup', 'candidate activation')
+            (root / 'data' / 'fixture-history').write_text('candidate changed data')
+            os.kill(child_pid(), signal.SIGKILL)
+            wait_for(lambda: state()['current']['version'] == new_version and state()['job']['stage'] == 'rolled_back', 'post-activation crash rollback')
+            assert (root / 'data' / 'fixture-history').read_text() == 'preserve this data'
+            assert request('/api/bootstrap')['authenticated']
+            print('PASS: activated candidate crash restores binary, data and session')
 
             broken = root / 'broken'
             broken.write_text('not an executable\n')
@@ -137,7 +163,7 @@ def main():
             stop()
             # Simulate a power loss after replace: stable supervisor must run
             # even when the main executable and data are unusable.
-            shutil.copy2(broken, binary)
+            atomic_copy(broken, binary)
             (root / 'data' / 'fixture-history').write_text('candidate changed data')
             journal.write_text(json.dumps({'id': 'power-loss', 'stage': 'verifying_startup', 'from': new_version, 'to': '99.0.0'}))
             proc = start()

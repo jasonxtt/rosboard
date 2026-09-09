@@ -53,3 +53,23 @@ test('only the last result is shown after rollback, with no history controls', a
  assert.match(document.querySelector('[role="status"]')!.textContent!,/最近更新：v0.2.0 → v0.2.1 · 已恢复原版本/)
  assert.doesNotMatch(document.body.textContent!,/更多操作|重新安装|历史记录/)
 })
+
+test('Compact empty-device reset gates both update actions and releases on failure', async () => {
+ const { EmptyDevicePanel } = await import('../src/compact/App.tsx')
+ window.confirm = () => true
+ let rejectReset!: (error: Error) => void
+ globalThis.fetch = (async (path) => {
+  if (String(path).endsWith('/full-reset')) return await new Promise<Response>((_resolve, reject) => { rejectReset = reject })
+  return new Response(JSON.stringify(response), { status: 200 })
+ }) as typeof fetch
+ await act(async () => root.render(<EmptyDevicePanel settings={{ devices: [] } as unknown as React.ComponentProps<typeof EmptyDevicePanel>['settings']} devices={[]} username="fixture" onAuthenticationChanged={() => {}} />))
+ await act(async () => [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find(button => button.textContent?.includes('维护设置'))!.click())
+ const buttons = [...document.querySelectorAll<HTMLButtonElement>('.version-update > .version-update-actions > button')]
+ assert.equal(buttons.length, 2)
+ assert.ok(buttons.every(button => !button.disabled))
+ await act(async () => document.querySelector<HTMLButtonElement>('.full-reset-button')!.click())
+ assert.ok(buttons.every(button => button.disabled))
+ await act(async () => rejectReset(new Error('fixture reset failed')))
+ assert.ok(buttons.every(button => !button.disabled))
+ assert.match(document.body.textContent!, /fixture reset failed/)
+})

@@ -19,7 +19,7 @@ func (s *Server) serveUpdate(writer http.ResponseWriter, request *http.Request) 
 			methodNotAllowed(writer, http.MethodGet)
 			return
 		}
-		writeJSON(writer, http.StatusOK, s.updater.Status())
+		writeJSON(writer, http.StatusOK, s.updateStatus(s.updater.Status()))
 	case "/api/settings/update/check":
 		if request.Method != http.MethodPost {
 			methodNotAllowed(writer, http.MethodPost)
@@ -31,10 +31,14 @@ func (s *Server) serveUpdate(writer http.ResponseWriter, request *http.Request) 
 			writeAPIError(writer, http.StatusConflict, "update_check_busy", err.Error())
 			return
 		}
-		writeJSON(writer, http.StatusOK, status)
+		writeJSON(writer, http.StatusOK, s.updateStatus(status))
 	case "/api/settings/update/install":
 		if request.Method != http.MethodPost {
 			methodNotAllowed(writer, http.MethodPost)
+			return
+		}
+		if s.restartPending.Load() {
+			writeAPIError(writer, http.StatusConflict, "restart_pending", "面板正在重启，请稍后检查更新")
 			return
 		}
 		var payload struct {
@@ -55,4 +59,12 @@ func (s *Server) serveUpdate(writer http.ResponseWriter, request *http.Request) 
 }
 func updatePath(path string) bool {
 	return path == "/api/settings/update" || strings.HasPrefix(path, "/api/settings/update/")
+}
+
+func (s *Server) updateStatus(status update.Status) update.Status {
+	if s.restartPending.Load() {
+		status.CanInstall = false
+		status.Reason = "面板正在重启，请稍后检查更新"
+	}
+	return status
 }
