@@ -29,6 +29,64 @@ type policyV2FakeRouter struct {
 	timeCapabilityChecks int
 }
 
+// policyV2BatchFakeRouter models the contract provided by the real mutation
+// client: a batch activation may only change part of its input, after which
+// the routeros layer repairs the remaining IDs with ordinary PATCH calls.
+// The routeros package tests exercise the actual HTTP/read-back implementation;
+// this fake keeps one policyv2 regression focused on staging, activation,
+// verification, and the final revision commit.
+type policyV2BatchFakeRouter struct {
+	*policyV2FakeRouter
+	batchCreates     int
+	batchActivations int
+	activationMenus  []routeros.MutationMenu
+	fallbackPatchIDs []string
+}
+
+func newPolicyV2BatchFakeRouter() *policyV2BatchFakeRouter {
+	return &policyV2BatchFakeRouter{policyV2FakeRouter: newPolicyV2FakeRouter()}
+}
+
+func (r *policyV2BatchFakeRouter) CreateBatch(ctx context.Context, menu routeros.MutationMenu, entries []routeros.RouterOSFields) error {
+	for _, fields := range entries {
+		if _, err := r.policyV2FakeRouter.Create(ctx, menu, fields); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	r.batchCreates++
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *policyV2BatchFakeRouter) SetDisabledBatch(ctx context.Context, menu routeros.MutationMenu, ids []string, disabled bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	r.batchActivations++
+	r.activationMenus = append(r.activationMenus, menu)
+	first := r.objects[menu][ids[0]]
+	if first == nil {
+		r.mu.Unlock()
+		return fmt.Errorf("missing object %s", ids[0])
+	}
+	first["disabled"] = fmt.Sprint(disabled)
+	r.mu.Unlock()
+
+	// Leave all but the first ID to the simulated routeros fallback path. The
+	// policyv2 manager sees only the all-IDs-converged contract of SetDisabledBatch.
+	for _, id := range ids[1:] {
+		if _, err := r.policyV2FakeRouter.Patch(ctx, menu, id, routeros.RouterOSFields{"disabled": disabled}); err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.fallbackPatchIDs = append(r.fallbackPatchIDs, id)
+		r.mu.Unlock()
+	}
+	return nil
+}
+
 func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
@@ -618,6 +676,88 @@ func clonePolicyV2RouterObject(object routeros.RouterOSObject) routeros.RouterOS
 		result[key] = value
 	}
 	return result
+}
+
+func TestPolicyV2CommitsAfterPartialBatchActivationIsRepaired(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	repository := storage.PolicyRepository()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "batch-wan", Name: "Batch WAN", Priority: 10, ListMode: policyv2.ListModeShared, ListName: "batch_wan",
+		DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.53", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "ether2", Gateway: "198.51.100.1", RouteMode: "strict", NATMode: "masquerade"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := repository.SaveSource(ctx, policyv2.Source{
+		ID: "batch-source", EgressID: "batch-wan", Type: "upload", Name: "Batch source", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingSourceVersion(ctx, policyv2.SourceVersion{
+		ID: "batch-version", SourceID: source.ID, SHA256: "batch", CompressedYAML: []byte("gzip"), Counts: map[string]int{"valid": 2},
+	}, []policyv2.SourceRule{
+		{RuleType: "DOMAIN", Domain: "api.batch.example"},
+		{RuleType: "DOMAIN-SUFFIX", Domain: "batch.example"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	router := newPolicyV2BatchFakeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: repository}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := manager.GeneratePlan(ctx, "default", "batch-activation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Plan.State != "ready" || envelope.Plan.Summary.Create == 0 {
+		t.Fatalf("unexpected batch activation plan: %#v", envelope.Plan)
+	}
+	job, err := manager.ApplyPlan(ctx, "default", envelope.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job = waitPolicyV2Job(t, repository, job.ID)
+	if job.State != "committed" {
+		t.Fatalf("partial batch activation was not repaired before verify/commit: %#v", job)
+	}
+	state, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Applied() || state.AppliedRevision != state.DesiredRevision {
+		t.Fatalf("routing revision did not advance after repaired activation: %#v", state)
+	}
+
+	router.mu.Lock()
+	batchCreates := router.batchCreates
+	batchActivations := router.batchActivations
+	activationMenus := append([]routeros.MutationMenu(nil), router.activationMenus...)
+	fallbackPatchIDs := append([]string(nil), router.fallbackPatchIDs...)
+	router.mu.Unlock()
+	if batchCreates == 0 {
+		t.Fatal("DNS creates did not use the batch mutation contract")
+	}
+	foundDNSStaticActivation := false
+	for _, menu := range activationMenus {
+		if menu == routeros.MenuIPDNSStatic {
+			foundDNSStaticActivation = true
+			break
+		}
+	}
+	if batchActivations == 0 || !foundDNSStaticActivation || len(fallbackPatchIDs) == 0 {
+		t.Fatalf("partial activation fallback was not exercised: batches=%d menus=%v patches=%v", batchActivations, activationMenus, fallbackPatchIDs)
+	}
 }
 
 func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
