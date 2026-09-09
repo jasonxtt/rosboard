@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -218,6 +219,10 @@ func TestPolicyV2AccessPresetProposalCommitsAtomically(t *testing.T) {
 	proposal := policyv2.AccessProposal{
 		Rule: accesscontrol.AccessRule{
 			ID: "access-preset-rule", Name: "YouTube", Subject: subject.Subject{Mode: subject.ModeSelected}, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{targetID}, Enabled: true,
+			Schedule: accesscontrol.AccessSchedule{
+				Mode:    accesscontrol.ScheduleModeWeekly,
+				Windows: []accesscontrol.AccessTimeWindow{{Days: []string{"mon"}, Start: "20:00", End: "22:00"}},
+			},
 		},
 		Members: []accesscontrol.RuleMember{{RuleID: "access-preset-rule", TerminalID: "terminal-a", Binding: accesscontrol.BindingFixed, PinnedIPv4: []string{"10.0.0.20"}}},
 		TargetLists: []policyv2.ProposedTargetList{{
@@ -272,7 +277,7 @@ func TestPolicyV2AccessPresetProposalCommitsAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || rules[0].ID != proposal.Rule.ID {
+	if len(rules) != 1 || rules[0].ID != proposal.Rule.ID || rules[0].Schedule.Mode != accesscontrol.ScheduleModeWeekly || len(rules[0].Schedule.Windows) != 1 {
 		t.Fatalf("access rule was not atomically committed: %#v", rules)
 	}
 	policyAfter, err := policyRepository.GetDeviceState(ctx)
@@ -288,6 +293,23 @@ func TestPolicyV2AccessPresetProposalCommitsAtomically(t *testing.T) {
 	}
 	if !accessState.Applied() {
 		t.Fatalf("access preset proposal did not commit access state: %#v", accessState)
+	}
+	var beforeJSON, afterJSON string
+	if err := storage.db.QueryRow(`SELECT before_json, after_json FROM access_audit WHERE device_id = ? AND rule_id = ? ORDER BY id DESC LIMIT 1`, storage.deviceID, proposal.Rule.ID).Scan(&beforeJSON, &afterJSON); err != nil {
+		t.Fatalf("access preset proposal audit row missing: %v", err)
+	}
+	var beforeSnapshot, afterSnapshot accessRuleSnapshot
+	if err := json.Unmarshal([]byte(beforeJSON), &beforeSnapshot); err != nil {
+		t.Fatalf("decode access proposal before audit snapshot: %v", err)
+	}
+	if err := json.Unmarshal([]byte(afterJSON), &afterSnapshot); err != nil {
+		t.Fatalf("decode access proposal after audit snapshot: %v", err)
+	}
+	if beforeSnapshot.Rule.Schedule.Mode != accesscontrol.ScheduleModeAlways || len(beforeSnapshot.Rule.Schedule.Windows) != 0 {
+		t.Fatalf("new access proposal audit before snapshot must use the always default: %#v", beforeSnapshot.Rule.Schedule)
+	}
+	if afterSnapshot.Rule.Schedule.Mode != accesscontrol.ScheduleModeWeekly || len(afterSnapshot.Rule.Schedule.Windows) != 1 || afterSnapshot.Rule.Schedule.Windows[0].Start != "20:00" {
+		t.Fatalf("access proposal audit after snapshot lost the weekly schedule: %#v", afterSnapshot.Rule.Schedule)
 	}
 }
 

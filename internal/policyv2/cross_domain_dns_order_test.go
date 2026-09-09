@@ -190,3 +190,35 @@ func TestBuildCrossDomainDNSConstraintsUsesMatcherOverlapPairs(t *testing.T) {
 		t.Fatalf("unexpected cross-domain DNS constraint: %#v", constraints)
 	}
 }
+
+func TestScheduledCrossDomainProjectionIsBlocked(t *testing.T) {
+	resolution := CrossDomainProjectionResolution{
+		AccessRuleID: "access-scheduled", AccessRuleName: "Scheduled access", AccessTargetID: "access-target", AccessScheduled: true,
+		RoutingRuleID: "routing-rule", RoutingRuleName: "Routing", RoutingEgressID: "wan-a", RoutingTargetID: "routing-target",
+		Overlaps: [][2]SourceRule{{
+			{RuleType: "DOMAIN", Domain: "youtube.com"},
+			{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.com"},
+		}},
+	}
+	for _, domain := range []PolicyDomain{PolicyDomainAccess, PolicyDomainRouting} {
+		t.Run(string(domain), func(t *testing.T) {
+			result := DesiredResult{Domain: domain}
+			appendCrossDomainProjectionIssues(&result, []CrossDomainProjectionResolution{resolution})
+			if len(result.Blockers) != 1 || result.Blockers[0].Code != scheduledAccessDomainOverlapUnsupportedCode || len(result.Warnings) != 0 {
+				t.Fatalf("scheduled overlap must be fail-closed for %s: blockers=%#v warnings=%#v", domain, result.Blockers, result.Warnings)
+			}
+		})
+	}
+}
+
+func TestPermanentCrossDomainProjectionRemainsWarning(t *testing.T) {
+	resolution := CrossDomainProjectionResolution{
+		AccessRuleID: "access-always", AccessTargetID: "access-target", RoutingRuleID: "routing-rule", RoutingEgressID: "wan-a", RoutingTargetID: "routing-target",
+		Overlaps: [][2]SourceRule{{{RuleType: "DOMAIN", Domain: "youtube.com"}, {RuleType: "DOMAIN", Domain: "youtube.com"}}},
+	}
+	result := DesiredResult{Domain: PolicyDomainAccess}
+	appendCrossDomainProjectionIssues(&result, []CrossDomainProjectionResolution{resolution})
+	if len(result.Blockers) != 0 || len(result.Warnings) != 1 || result.Warnings[0].Code != crossDomainPriorityShadowedCode {
+		t.Fatalf("permanent overlap should remain an explicit warning: blockers=%#v warnings=%#v", result.Blockers, result.Warnings)
+	}
+}

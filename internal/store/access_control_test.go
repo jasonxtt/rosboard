@@ -526,6 +526,39 @@ func TestPreviousAccessSchemaAddsDefaultScheduleColumn(t *testing.T) {
 	}
 }
 
+func TestMarkedAccessSchemaMissingScheduleColumnFailsClosed(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	device, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`DROP TABLE access_rules`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`CREATE TABLE access_rules (
+		device_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		target_scope TEXT NOT NULL,
+		action TEXT NOT NULL DEFAULT 'deny',
+		enabled INTEGER NOT NULL,
+		revision INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		subject_mode TEXT NOT NULL DEFAULT 'selected',
+		PRIMARY KEY (device_id, id)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := device.initAccessControlSchema(); err == nil {
+		t.Fatal("a v3 schema missing schedule_json must fail closed")
+	}
+}
+
 func TestMergeTerminalMovesAccessRuleMembers(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {

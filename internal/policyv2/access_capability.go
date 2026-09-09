@@ -12,7 +12,7 @@ import (
 
 func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) ([]PlanIssue, error) {
 	menus := make(map[routeros.MutationMenu]bool)
-	scheduled := false
+	scheduledMenus := make(map[routeros.MutationMenu]bool)
 	for _, object := range desired {
 		if !strings.HasPrefix(object.LogicalID, "access:") || object.Fields["chain"] == "" {
 			continue
@@ -21,7 +21,7 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 		if menu == routeros.MenuIPFirewallFilter || menu == routeros.MenuIPv6FirewallFilter {
 			menus[menu] = true
 			if strings.TrimSpace(object.Fields["time"]) != "" {
-				scheduled = true
+				scheduledMenus[menu] = true
 			}
 		}
 	}
@@ -41,13 +41,22 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 	if err := verifier.VerifyAccessControlCapabilities(ctx, ordered); err != nil {
 		return accessCapabilityIssues(ordered, err), nil
 	}
-	if scheduled {
+	if len(scheduledMenus) > 0 {
 		timeVerifier, ok := mutation.(AccessTimeCapabilityVerifier)
 		if !ok {
 			return accessTimeCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control time capability probe")), nil
 		}
 		if err := timeVerifier.VerifyAccessControlTimeCapabilities(ctx, ordered); err != nil {
 			return accessTimeCapabilityIssues(ordered, err), nil
+		}
+	}
+	if scheduledMenus[routeros.MenuIPFirewallFilter] {
+		issues, err := scheduledAccessFastTrackBlockers(ctx, mutation)
+		if err != nil {
+			return nil, err
+		}
+		if len(issues) > 0 {
+			return issues, nil
 		}
 	}
 	return nil, nil
@@ -81,4 +90,35 @@ func accessTimeCapabilityIssues(menus []routeros.MutationMenu, err error) []Plan
 		})
 	}
 	return issues
+}
+
+const scheduledAccessFastTrackCode = "routeros_access_scheduled_fasttrack_unverified"
+
+func scheduledAccessFastTrackBlockers(ctx context.Context, mutation PolicyMutation) ([]PlanIssue, error) {
+	objects, err := mutation.List(ctx, routeros.MenuIPFirewallFilter, routeros.MutationQuery{
+		Proplist: []string{".id", "action", "disabled"},
+	})
+	if err != nil {
+		return []PlanIssue{scheduledAccessFastTrackIssue(fmt.Errorf("无法读取 IPv4 firewall filter：%w", err))}, nil
+	}
+	for _, object := range objects {
+		if !strings.EqualFold(strings.TrimSpace(object["action"]), "fasttrack-connection") {
+			continue
+		}
+		disabled, err := object.Bool("disabled")
+		if err != nil {
+			return []PlanIssue{scheduledAccessFastTrackIssue(fmt.Errorf("FastTrack 规则 %q 的 disabled 状态无效：%w", object.ID(), err))}, nil
+		}
+		if !disabled {
+			return []PlanIssue{scheduledAccessFastTrackIssue(fmt.Errorf("发现启用中的 FastTrack 规则 %q", object.ID()))}, nil
+		}
+	}
+	return nil, nil
+}
+
+func scheduledAccessFastTrackIssue(err error) PlanIssue {
+	return PlanIssue{
+		Code: scheduledAccessFastTrackCode, Status: "blocker", Family: string(FamilyIPv4),
+		Reason: fmt.Sprintf("无法证明限时访问规则会在窗口开始后重新检查已有 IPv4 连接；请停用或排除 FastTrack 后再应用：%v", err),
+	}
 }
