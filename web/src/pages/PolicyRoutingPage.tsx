@@ -80,13 +80,21 @@ function ruleTargetNodes(rule: RoutingRule, targetByID: Map<string, TargetList>)
   })
 }
 
-/** 出口列主文案：每个启用的协议族一行（IPv4 在前）——有下一跳显示「接口·网关」，点对点无 IP 只显示接口名。 */
+/** 出口列主文案：每个启用的协议族一行（IPv4 在前）。
+ *  下一跳模式（wanSource=next-hop）没有接口名，显示网关 IP；
+ *  接口模式显示「接口·网关」，点对点无 IP 只显示接口名。 */
 function egressFamilyLines(egress: Egress): string[] {
   const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
   return [...egress.families]
-    .filter((family) => family.enabled && family.wanInterface)
+    .filter((family) => family.enabled)
     .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
-    .map((family) => (family.gateway ? `${family.wanInterface}·${family.gateway}` : family.wanInterface))
+    .map((family) => {
+      const iface = family.wanInterface.trim()
+      const gateway = family.gateway.trim()
+      if (!iface || family.wanSource === 'next-hop') return gateway
+      return gateway ? `${iface}·${gateway}` : iface
+    })
+    .filter((line) => line.length > 0)
 }
 
 export default function PolicyRoutingPage() {

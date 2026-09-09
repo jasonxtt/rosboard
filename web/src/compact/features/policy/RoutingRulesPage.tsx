@@ -23,14 +23,22 @@ function egressStatus(rule: RoutingRule, egress?: Egress): { tone: StatusTone; l
   return { tone: 'good', label: '已启用' }
 }
 
-/** 出口摘要：每个启用的协议族一行（IPv4 在前）——有下一跳显示「接口·网关」，点对点无 IP 只显示接口名。 */
+/** 出口摘要：每个启用的协议族一行（IPv4 在前）。
+ *  下一跳模式（wanSource=next-hop）没有接口名，显示网关 IP；
+ *  接口模式显示「接口·网关」，点对点无 IP 只显示接口名。 */
 function egressLines(egress?: Egress): string[] {
   if (!egress) return ['出口缺失']
   const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
   const lines = [...egress.families]
-    .filter((family) => family.enabled && family.wanInterface)
+    .filter((family) => family.enabled)
     .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
-    .map((family) => (family.gateway ? `${family.wanInterface}·${family.gateway}` : family.wanInterface))
+    .map((family) => {
+      const iface = family.wanInterface.trim()
+      const gateway = family.gateway.trim()
+      if (!iface || family.wanSource === 'next-hop') return gateway
+      return gateway ? `${iface}·${gateway}` : iface
+    })
+    .filter((line) => line.length > 0)
   return lines.length ? lines : ['未配置出口']
 }
 
