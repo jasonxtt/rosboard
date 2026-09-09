@@ -9,16 +9,18 @@ import (
 )
 
 const (
-	accessDomainProjectionAmbiguousCode = "access_domain_projection_ambiguous"
-	crossDomainPriorityShadowedCode     = "cross_domain_access_priority_shadowed"
+	accessDomainProjectionAmbiguousCode         = "access_domain_projection_ambiguous"
+	crossDomainPriorityShadowedCode             = "cross_domain_access_priority_shadowed"
+	scheduledAccessDomainOverlapUnsupportedCode = "scheduled_access_routing_domain_overlap_unsupported"
 )
 
 type domainProjectionConsumer struct {
-	ruleID   string
-	ruleName string
-	targetID string
-	egressID string
-	rules    []SourceRule
+	ruleID    string
+	ruleName  string
+	targetID  string
+	egressID  string
+	rules     []SourceRule
+	scheduled bool
 }
 
 func appendAccessDomainProjectionBlockers(ctx context.Context, repository Repository, rules []accesscontrol.AccessRule, sources map[string]Source, targetScope map[string]bool, result *DesiredResult) error {
@@ -44,12 +46,13 @@ func appendAccessDomainProjectionBlockers(ctx context.Context, repository Reposi
 
 // CrossDomainProjectionResolution describes one active Access/Routing domain
 // overlap. Access has fixed precedence on the device-wide RouterOS DNS Static
-// list; the resolution is therefore a warning plus an ordering constraint, not
-// a blocker.
+// list; permanent overlaps remain a warning plus an ordering constraint, while
+// scheduled Access overlaps are represented as fail-closed blockers.
 type CrossDomainProjectionResolution struct {
 	AccessRuleID    string          `json:"accessRuleId"`
 	AccessRuleName  string          `json:"accessRuleName,omitempty"`
 	AccessTargetID  string          `json:"accessTargetId"`
+	AccessScheduled bool            `json:"accessScheduled,omitempty"`
 	RoutingRuleID   string          `json:"routingRuleId"`
 	RoutingRuleName string          `json:"routingRuleName,omitempty"`
 	RoutingEgressID string          `json:"routingEgressId"`
@@ -82,7 +85,7 @@ func CrossDomainProjectionResolutions(ctx context.Context, repository Repository
 		return nil, err
 	}
 	result := make([]CrossDomainProjectionResolution, 0)
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	for _, routing := range routingConsumers {
 		for _, access := range accessConsumers {
 			overlaps := domainProjectionOverlaps(access.rules, routing.rules)
@@ -93,12 +96,21 @@ func CrossDomainProjectionResolutions(ctx context.Context, repository Repository
 			// physical target projection. The DNS order contract is per physical
 			// Access-target/Routing-egress-target pair, not per rule pair.
 			key := access.targetID + "\x00" + routing.egressID + "\x00" + routing.targetID
-			if seen[key] {
+			if index, ok := seen[key]; ok {
+				// A physical target projection can be shared by permanent and
+				// scheduled Access consumers. Keep the scheduled attribution if
+				// any consumer requires it; the shared DNS projection is still
+				// unable to turn off at the window boundary.
+				if access.scheduled && !result[index].AccessScheduled {
+					result[index].AccessScheduled = true
+					result[index].AccessRuleID = access.ruleID
+					result[index].AccessRuleName = access.ruleName
+				}
 				continue
 			}
-			seen[key] = true
+			seen[key] = len(result)
 			result = append(result, CrossDomainProjectionResolution{
-				AccessRuleID: access.ruleID, AccessRuleName: access.ruleName, AccessTargetID: access.targetID,
+				AccessRuleID: access.ruleID, AccessRuleName: access.ruleName, AccessTargetID: access.targetID, AccessScheduled: access.scheduled,
 				RoutingRuleID: routing.ruleID, RoutingRuleName: routing.ruleName, RoutingEgressID: routing.egressID,
 				RoutingTargetID: routing.targetID, Overlaps: overlaps,
 			})
@@ -127,17 +139,28 @@ func appendCrossDomainProjectionResolutions(ctx context.Context, repository Repo
 		return err
 	}
 	result.crossDomainResolutions = append([]CrossDomainProjectionResolution(nil), resolutions...)
+	appendCrossDomainProjectionIssues(result, resolutions)
+	return nil
+}
+
+func appendCrossDomainProjectionIssues(result *DesiredResult, resolutions []CrossDomainProjectionResolution) {
 	for _, resolution := range resolutions {
 		logicalID := resolution.RoutingRuleID
 		if result.Domain == PolicyDomainAccess {
 			logicalID = resolution.AccessRuleID
+		}
+		if resolution.AccessScheduled {
+			result.Blockers = append(result.Blockers, PlanIssue{
+				Code: scheduledAccessDomainOverlapUnsupportedCode, Status: "blocker", LogicalID: logicalID, EgressID: resolution.RoutingEgressID,
+				Reason: "限时访问规则「" + displayName(resolution.AccessRuleName, resolution.AccessRuleID) + "」引用的域名目标与启用的策略路由域名投影重叠（" + domainOverlapPhrase(resolution.Overlaps) + "）。访问控制 DNS 投影目前无法随时间窗口关闭，无法安全保证窗口外仍由策略路由生效；请拆分不重叠域名目标，或暂时使用 always 规则。",
+			})
+			continue
 		}
 		result.Warnings = append(result.Warnings, PlanIssue{
 			Code: crossDomainPriorityShadowedCode, Status: "warning", LogicalID: logicalID, EgressID: resolution.RoutingEgressID,
 			Reason: "访问控制域名投影优先于策略路由：" + domainOverlapPhrase(resolution.Overlaps) + "。访问规则「" + displayName(resolution.AccessRuleName, resolution.AccessRuleID) + "」优先于策略路由「" + displayName(resolution.RoutingRuleName, resolution.RoutingRuleID) + "」，重叠域名在本设备上不会按策略路由出口生效；其他不重叠域名不受影响。",
 		})
 	}
-	return nil
 }
 
 func accessDomainProjectionConsumers(ctx context.Context, repository Repository, rules []accesscontrol.AccessRule, sources map[string]Source, targetScope map[string]bool) ([]domainProjectionConsumer, error) {
@@ -165,7 +188,7 @@ func accessDomainProjectionConsumers(ctx context.Context, repository Repository,
 				continue
 			}
 			seen[key] = true
-			consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, ruleName: rule.Name, targetID: targetID, rules: domainDomainRules(rulesForTarget)})
+			consumers = append(consumers, domainProjectionConsumer{ruleID: rule.ID, ruleName: rule.Name, targetID: targetID, rules: domainDomainRules(rulesForTarget), scheduled: accessRuleUsesWeeklySchedule(rule)})
 		}
 	}
 	sort.Slice(consumers, func(i, j int) bool {
@@ -175,6 +198,11 @@ func accessDomainProjectionConsumers(ctx context.Context, repository Repository,
 		return consumers[i].targetID < consumers[j].targetID
 	})
 	return consumers, nil
+}
+
+func accessRuleUsesWeeklySchedule(rule accesscontrol.AccessRule) bool {
+	normalized, err := accesscontrol.NormalizeSchedule(rule.Schedule)
+	return err == nil && normalized.Mode == accesscontrol.ScheduleModeWeekly
 }
 
 func routingDomainProjectionConsumers(ctx context.Context, repository Repository, sources map[string]Source, targetScope map[string]bool) ([]domainProjectionConsumer, error) {

@@ -38,6 +38,7 @@ type accessRuleRequest struct {
 	Subject          subject.Subject             `json:"subject"`
 	TargetScope      string                      `json:"targetScope"`
 	TargetListIDs    []string                    `json:"targetListIds"`
+	Schedule         accesscontrol.AccessSchedule `json:"schedule"`
 	Enabled          bool                        `json:"enabled"`
 	Revision         int64                       `json:"revision"`
 	PresetSelections []policyPlanPresetSelection `json:"presetSelections"`
@@ -67,6 +68,7 @@ type accessRuleResponse struct {
 	Subject       subject.Subject            `json:"subject"`
 	TargetScope   string                     `json:"targetScope"`
 	TargetListIDs []string                   `json:"targetListIds"`
+	Schedule      accesscontrol.AccessSchedule `json:"schedule"`
 	Enabled       bool                       `json:"enabled"`
 	Revision      int64                      `json:"revision"`
 	CreatedAt     string                     `json:"createdAt"`
@@ -240,6 +242,7 @@ func buildAccessRuleResponse(rule accesscontrol.AccessRule, members []accesscont
 	}
 	return accessRuleResponse{
 		ID: rule.ID, Name: rule.Name, Subject: rule.Subject, TargetScope: rule.TargetScope, TargetListIDs: nonNilStrings(rule.TargetListIDs),
+		Schedule: rule.Schedule,
 		Enabled: rule.Enabled, Revision: rule.Revision,
 		CreatedAt: rule.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: rule.UpdatedAt.UTC().Format(time.RFC3339),
 		Members: memberResponses, Status: status, Issues: issues,
@@ -318,6 +321,7 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 	}
 	rule := accesscontrol.AccessRule{
 		ID: payload.ID, Name: payload.Name, Subject: payload.Subject, TargetScope: payload.TargetScope, TargetListIDs: payload.TargetListIDs,
+		Schedule: payload.Schedule,
 		Enabled: payload.Enabled, Revision: payload.Revision,
 	}
 	if pathID != "" {
@@ -332,7 +336,11 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 	}
 	rule, err := accesscontrol.NormalizeRule(rule)
 	if err != nil {
-		writeAccessError(writer, http.StatusUnprocessableEntity, "invalid_rule", err.Error())
+		code := "invalid_rule"
+		if errors.Is(err, accesscontrol.ErrInvalidSchedule) {
+			code = "invalid_schedule"
+		}
+		writeAccessError(writer, http.StatusUnprocessableEntity, code, err.Error())
 		return
 	}
 	existingMembers := make(map[string]accesscontrol.RuleMember)

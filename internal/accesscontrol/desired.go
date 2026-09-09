@@ -256,7 +256,8 @@ func targetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Muta
 	}
 	chain := RuleChainName(input.ManagerID, input.DeviceID, rule.ID)
 	prefix := "access:" + rule.ID + ":" + family + ":"
-	objects := make([]DesiredObject, 0, 2*len(rule.TargetListIDs)+3)
+	timeMatchers := accessScheduleMatchers(rule)
+	objects := make([]DesiredObject, 0, 2*len(rule.TargetListIDs)*len(timeMatchers)+3)
 	for _, targetID := range sortedUniqueStrings(rule.TargetListIDs) {
 		key := AccessTargetKey(rule.ID, targetID)
 		list := strings.TrimSpace(input.TargetList[key])
@@ -270,14 +271,21 @@ func targetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Muta
 		if input.TargetListDisabled[key] || input.TargetListDisabled[targetID] {
 			targetDisabled = "yes"
 		}
-		objects = append(objects,
-			desiredObject(input, prefix+"jump-out:target:"+targetID, menu, "activation", "访问规则目标出站入口", map[string]string{
-				"chain": "forward", "src-address-list": ruleList, "dst-address-list": list, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
-			}),
-			desiredObject(input, prefix+"jump-in:target:"+targetID, menu, "activation", "访问规则目标回程入口", map[string]string{
-				"chain": "forward", "src-address-list": list, "dst-address-list": ruleList, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
-			}),
-		)
+		for windowIndex, timeMatcher := range timeMatchers {
+			suffix := scheduleObjectSuffix(timeMatcher, windowIndex)
+			matcher := map[string]string{}
+			if timeMatcher != "" {
+				matcher["time"] = timeMatcher
+			}
+			objects = append(objects,
+				desiredObject(input, prefix+"jump-out:target:"+targetID+suffix, menu, "activation", "访问规则目标出站入口", mergeFields(map[string]string{
+					"chain": "forward", "src-address-list": ruleList, "dst-address-list": list, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
+				}, matcher)),
+				desiredObject(input, prefix+"jump-in:target:"+targetID+suffix, menu, "activation", "访问规则目标回程入口", mergeFields(map[string]string{
+					"chain": "forward", "src-address-list": list, "dst-address-list": ruleList, "action": "jump", "jump-target": chain, "disabled": targetDisabled,
+				}, matcher)),
+			)
+		}
 	}
 	return append(objects, chainDenyObjects(input, menu, chain, prefix, disabled)...)
 }
@@ -292,48 +300,78 @@ func internetFilterObjects(input DesiredInput, rule AccessRule, menu routeros.Mu
 	if len(egresses) > 1 {
 		targets = []string{"interface-list"}
 	}
-	objects := make([]DesiredObject, 0, len(targets)*6)
+	timeMatchers := accessScheduleMatchers(rule)
+	objects := make([]DesiredObject, 0, len(targets)*6*len(timeMatchers))
 	interfaceLabel := "接口"
 	if len(egresses) > 1 {
 		interfaceLabel = "接口列表"
 	}
 	for _, egress := range targets {
-		for _, direction := range []struct {
-			name           string
-			interfaceField string
-			addressField   string
-			label          string
-		}{
-			{name: "out", interfaceField: "out-interface", addressField: "src-address-list", label: "访问规则出站"},
-			{name: "in", interfaceField: "in-interface", addressField: "dst-address-list", label: "访问规则回程"},
-		} {
-			base := map[string]string{
-				"chain": "forward", direction.addressField: ruleList,
-				"disabled": disabled,
+		for windowIndex, timeMatcher := range timeMatchers {
+			suffix := scheduleObjectSuffix(timeMatcher, windowIndex)
+			matcher := map[string]string{}
+			if timeMatcher != "" {
+				matcher["time"] = timeMatcher
 			}
-			if len(egresses) > 1 {
-				base[direction.interfaceField+"-list"] = InternetEgressListName(input.ManagerID, input.DeviceID, family)
-			} else {
-				base[direction.interfaceField] = egress
+			for _, direction := range []struct {
+				name           string
+				interfaceField string
+				addressField   string
+				label          string
+			}{
+				{name: "out", interfaceField: "out-interface", addressField: "src-address-list", label: "访问规则出站"},
+				{name: "in", interfaceField: "in-interface", addressField: "dst-address-list", label: "访问规则回程"},
+			} {
+				base := map[string]string{
+					"chain": "forward", direction.addressField: ruleList,
+					"disabled": disabled,
+				}
+				base = mergeFields(base, matcher)
+				if len(egresses) > 1 {
+					base[direction.interfaceField+"-list"] = InternetEgressListName(input.ManagerID, input.DeviceID, family)
+				} else {
+					base[direction.interfaceField] = egress
+				}
+				logicalTarget := egress
+				if len(egresses) > 1 {
+					logicalTarget = "interface-list"
+				}
+				objects = append(objects,
+					desiredObject(input, prefix+direction.name+":"+logicalTarget+suffix+":tcp", menu, "activation", direction.label+interfaceLabel+" TCP 重置", mergeFields(base, map[string]string{
+						"protocol": "tcp", "action": "reject", "reject-with": "tcp-reset",
+					})),
+					desiredObject(input, prefix+direction.name+":"+logicalTarget+suffix+":udp", menu, "activation", direction.label+interfaceLabel+" UDP 丢弃", mergeFields(base, map[string]string{
+						"protocol": "udp", "action": "drop",
+					})),
+					desiredObject(input, prefix+direction.name+":"+logicalTarget+suffix+":other", menu, "activation", direction.label+interfaceLabel+"其他协议丢弃", mergeFields(base, map[string]string{
+						"action": "drop",
+					})),
+				)
 			}
-			logicalTarget := egress
-			if len(egresses) > 1 {
-				logicalTarget = "interface-list"
-			}
-			objects = append(objects,
-				desiredObject(input, prefix+direction.name+":"+logicalTarget+":tcp", menu, "activation", direction.label+interfaceLabel+" TCP 重置", mergeFields(base, map[string]string{
-					"protocol": "tcp", "action": "reject", "reject-with": "tcp-reset",
-				})),
-				desiredObject(input, prefix+direction.name+":"+logicalTarget+":udp", menu, "activation", direction.label+interfaceLabel+" UDP 丢弃", mergeFields(base, map[string]string{
-					"protocol": "udp", "action": "drop",
-				})),
-				desiredObject(input, prefix+direction.name+":"+logicalTarget+":other", menu, "activation", direction.label+interfaceLabel+"其他协议丢弃", mergeFields(base, map[string]string{
-					"action": "drop",
-				})),
-			)
 		}
 	}
 	return objects
+}
+
+func accessScheduleMatchers(rule AccessRule) []string {
+	matchers, err := CompileSchedule(rule.Schedule)
+	if err != nil {
+		// BuildDesired validates the rule before reaching this helper. Keep an
+		// unexpected compile failure fail-closed here as well: never turn a
+		// malformed schedule into an all-day deny projection.
+		return nil
+	}
+	if len(matchers) == 0 {
+		return []string{""}
+	}
+	return matchers
+}
+
+func scheduleObjectSuffix(timeMatcher string, windowIndex int) string {
+	if timeMatcher == "" {
+		return ""
+	}
+	return fmt.Sprintf(":window:%d", windowIndex)
 }
 
 func internetEgressInterfaceListObjects(input DesiredInput, family, listName string, egresses []string) []DesiredObject {

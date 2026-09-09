@@ -44,16 +44,17 @@ var (
 	ErrCanonicalRuleRequired = errors.New("canonical access rule is required")
 )
 
-// AccessRule is the user-facing logical entity. Multi-client and multi-source
-// semantics live here; the RouterOS expansion layer is derived from it. Future
-// schedule windows and shared daily quotas aggregate on this rule identity,
-// which is why terminal/source pairs must not become the primary entity.
+// AccessRule is the user-facing logical entity. Multi-client, multi-source,
+// and schedule semantics live here; the RouterOS expansion layer is derived
+// from it, which is why terminal/source pairs must not become the primary
+// entity.
 type AccessRule struct {
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
 	Subject       subject.Subject `json:"subject"`
 	TargetScope   string          `json:"targetScope"`
 	TargetListIDs []string        `json:"targetListIds"`
+	Schedule      AccessSchedule  `json:"schedule"`
 	Enabled       bool            `json:"enabled"`
 	Revision      int64           `json:"revision"`
 	CreatedAt     time.Time       `json:"createdAt"`
@@ -250,6 +251,9 @@ func ValidateRule(rule AccessRule) error {
 	if rule.Subject.Mode == subject.ModeExcluded {
 		return errors.New("access-control subject mode must be all or selected")
 	}
+	if err := ValidateSchedule(rule.Schedule); err != nil {
+		return err
+	}
 	switch rule.TargetScope {
 	case TargetScopeInternet:
 		if len(rule.TargetListIDs) != 0 || len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
@@ -337,6 +341,11 @@ func NormalizeRule(rule AccessRule) (AccessRule, error) {
 	}
 	if rule.Subject.Mode == subject.ModeExcluded {
 		return AccessRule{}, errors.New("access-control subject mode must be all or selected")
+	}
+	var err error
+	rule.Schedule, err = NormalizeSchedule(rule.Schedule)
+	if err != nil {
+		return AccessRule{}, err
 	}
 	targetIDs := make([]string, 0, len(rule.TargetListIDs))
 	seenTargets := make(map[string]bool, len(rule.TargetListIDs))

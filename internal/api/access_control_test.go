@@ -85,6 +85,16 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 	if created.Rule.ID == "" || created.Rule.Revision != 1 || created.JobID == "" || len(created.Rule.TargetListIDs) != 1 || created.Rule.TargetListIDs[0] != source.ID {
 		t.Fatalf("unexpected create response: %#v", created)
 	}
+	if created.Rule.Schedule.Mode != accesscontrol.ScheduleModeAlways || len(created.Rule.Schedule.Windows) != 0 {
+		t.Fatalf("omitted schedule must default to always blocking: %#v", created.Rule.Schedule)
+	}
+	invalidSchedule := accessControlRequest(server, http.MethodPost, "/rules", `{
+		"id":"","name":"空时间段","targetScope":"targets","targetListIds":["bilibili"],"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["10.0.0.20"],"pinnedIpv6":[]}]},
+		"schedule":{"mode":"weekly","windows":[]},"enabled":true,"revision":0
+	}`)
+	if invalidSchedule.Code != http.StatusUnprocessableEntity || !bytes.Contains(invalidSchedule.Body.Bytes(), []byte(`"code":"invalid_schedule"`)) {
+		t.Fatalf("invalid schedule must use the stable API error code: status=%d body=%s", invalidSchedule.Code, invalidSchedule.Body.String())
+	}
 
 	overview := accessControlRequest(server, http.MethodGet, "", "")
 	if overview.Code != http.StatusOK {
@@ -130,6 +140,43 @@ func TestAccessControlRuleAPIAcceptsMultiClientMultiSourcePayload(t *testing.T) 
 	}`)
 	if mixed.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("internet rule with sources must be rejected: status=%d body=%s", mixed.Code, mixed.Body.String())
+	}
+}
+
+func TestAccessControlScheduledRuleAPICreateAndRead(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	server.accessTerminalsFn = func(string) []accesscontrol.Terminal { return accessTestTerminals() }
+	seedAccessSource(t, server, "scheduled-target")
+
+	create := accessControlRequest(server, http.MethodPost, "/rules", `{
+		"id":"","name":"晚间娱乐限制","targetScope":"targets","targetListIds":["scheduled-target"],"subject":{"mode":"selected","members":[{"terminalId":"mac:aa","binding":"fixed","pinnedIpv4":["10.0.0.20"],"pinnedIpv6":[]}]},
+		"schedule":{"mode":"weekly","windows":[{"days":["mon","fri"],"start":"20:00","end":"22:00"}]},"enabled":true,"revision":0
+	}`)
+	if create.Code != http.StatusAccepted {
+		t.Fatalf("scheduled create status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		Rule accesscontrol.AccessRule `json:"rule"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Rule.ID == "" || created.Rule.Schedule.Mode != accesscontrol.ScheduleModeWeekly || len(created.Rule.Schedule.Windows) != 1 || created.Rule.Schedule.Windows[0].Days[0] != "mon" {
+		t.Fatalf("scheduled create was not returned canonically: %#v", created.Rule)
+	}
+	overview := accessControlRequest(server, http.MethodGet, "", "")
+	if overview.Code != http.StatusOK {
+		t.Fatalf("scheduled overview status=%d body=%s", overview.Code, overview.Body.String())
+	}
+	var payload struct {
+		Rules []accessRuleResponse `json:"rules"`
+	}
+	if err := json.Unmarshal(overview.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Rules) != 1 || payload.Rules[0].Schedule.Mode != accesscontrol.ScheduleModeWeekly {
+		t.Fatalf("scheduled rule was not persisted in the overview response: %#v", payload.Rules)
 	}
 }
 

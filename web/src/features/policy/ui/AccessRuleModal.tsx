@@ -4,12 +4,14 @@ import { Field, Input } from '../../../ui/inputs'
 import { Modal } from '../../../ui/Modal'
 import { Toggle } from '../../../ui/Toggle'
 import type { AccessRule, AccessRuleDraft, PolicyTerminal, Subject, TargetList } from '../canonical'
+import { alwaysAccessSchedule, validateAccessSchedule } from '../schedule'
 import { errorMessage } from '../../../lib/api'
 import { Notice } from './Notice'
 import { SubjectSelector } from './SubjectSelector'
 import { TargetListModal } from './TargetListModal'
 import { TargetSelector } from './TargetSelector'
 import type { PresetPresentation } from './TargetSelector'
+import { AccessScheduleEditor } from './AccessScheduleEditor'
 
 type AccessRuleModalProps = {
   deviceID: string
@@ -30,6 +32,7 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
   const [subject, setSubject] = useState<Subject>(rule?.subject ?? { mode: 'selected', members: [], prefixes: [] })
   const [targetScope, setTargetScope] = useState<'internet' | 'targets'>(rule?.targetScope ?? 'internet')
   const [targetListIds, setTargetListIds] = useState<string[]>(rule?.targetListIds ?? [])
+  const [schedule, setSchedule] = useState(rule?.schedule ?? alwaysAccessSchedule())
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
   const [creatingTargetKind, setCreatingTargetKind] = useState<'domain' | 'ip' | null>(null)
   const [presetPresentations, setPresetPresentations] = useState<PresetPresentation[]>([])
@@ -37,7 +40,7 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
 
   const subjectValid = subject.mode === 'all' || subject.members.length > 0 || subject.prefixes.length > 0
   const targetsValid = targetScope === 'internet' || targetListIds.length > 0
-  const canSave = Boolean(name.trim()) && subjectValid && targetsValid && !saving
+  const canSave = Boolean(name.trim()) && subjectValid && targetsValid && !validateAccessSchedule(schedule) && !saving
 
   const submit = async () => {
     if (!canSave) return
@@ -50,6 +53,7 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
         subject,
         targetScope,
         targetListIds: targetScope === 'targets' ? targetListIds : [],
+        schedule,
         enabled,
         revision: rule?.revision ?? 0,
         ...(targetScope === 'targets' && selections.length ? { presetSelections: selections } : {}),
@@ -128,6 +132,9 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
             {!targetsValid ? <Notice tone="warn">请选择至少一个目标库或应用预设。</Notice> : null}
           </>
         ) : null}
+        <Field label="时间控制">
+          <AccessScheduleEditor value={schedule} disabled={saving} onChange={setSchedule} />
+        </Field>
       </Modal>
       {creatingTargetKind ? (
         <TargetListModal

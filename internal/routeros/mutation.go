@@ -25,6 +25,7 @@ const (
 	maxMutationDetailBytes        = 8 << 10
 	maxMutationJSONBytes          = 2 << 20
 	maxMutationExportBytes        = 32 << 20
+	accessTimeProbeCleanupTimeout = 5 * time.Second
 )
 
 // writeProbeComment marks the inert capability probe created by WriteProbe so
@@ -370,6 +371,89 @@ func (c *MutationClient) VerifyAccessControlCapabilities(ctx context.Context, me
 		}
 	}
 	return nil
+}
+
+// VerifyAccessControlTimeCapabilities proves that each firewall family
+// accepts the RouterOS time matcher used by scheduled access rules. The
+// probe is disabled and removed immediately, so it cannot affect traffic.
+func (c *MutationClient) VerifyAccessControlTimeCapabilities(ctx context.Context, menus []MutationMenu) error {
+	for _, menu := range menus {
+		if menu != MenuIPFirewallFilter && menu != MenuIPv6FirewallFilter {
+			return fmt.Errorf("unsupported access-control time capability menu %q", menu)
+		}
+		suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+		if menu == MenuIPv6FirewallFilter {
+			suffix += "6"
+		}
+		comment := "rosboard access time capability probe (inert; safe to remove) " + suffix
+		fields := RouterOSFields{
+			"comment":  comment,
+			"chain":    "output",
+			"action":   "accept",
+			"time":     "00:00:00-00:01:00,mon",
+			"disabled": "yes",
+		}
+		probe, err := c.Create(ctx, menu, fields)
+		if err != nil {
+			cleanupErr := c.cleanupAccessTimeCapabilityProbe(ctx, menu, comment)
+			return fmt.Errorf("RouterOS %s access-control time capability probe failed: %w (cleanup: %v)", menu, err, cleanupErr)
+		}
+		if probe.ID() == "" {
+			cleanupErr := c.cleanupAccessTimeCapabilityProbe(ctx, menu, comment)
+			return fmt.Errorf("RouterOS %s access-control time capability probe returned no object id (cleanup: %v)", menu, cleanupErr)
+		}
+		if err := c.Delete(ctx, menu, probe.ID()); err != nil {
+			recoveryErr := c.cleanupAccessTimeCapabilityProbe(ctx, menu, comment, probe.ID())
+			return fmt.Errorf("RouterOS %s access-control time capability probe cleanup failed: %w (recovery: %v)", menu, err, recoveryErr)
+		}
+	}
+	return nil
+}
+
+// cleanupAccessTimeCapabilityProbe reconciles a failed time-probe mutation by
+// looking up the unique probe comment before deleting anything. A create can
+// have reached RouterOS even when the REST response is lost or malformed; a
+// best-effort readback prevents that ambiguous result from leaving an inert
+// probe behind. The caller still fails closed after any ambiguous mutation.
+func (c *MutationClient) cleanupAccessTimeCapabilityProbe(ctx context.Context, menu MutationMenu, comment string, knownIDs ...string) error {
+	// Cleanup is recovery after an ambiguous mutation. Do not let a cancelled
+	// request context prevent the readback/delete pass from removing the inert
+	// probe; keep the recovery bounded and preserve the caller's context values.
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), accessTimeProbeCleanupTimeout)
+	defer cancel()
+
+	ids := make([]string, 0, len(knownIDs))
+	seen := make(map[string]bool, len(knownIDs))
+	addID := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	for _, id := range knownIDs {
+		addID(id)
+	}
+	objects, err := c.List(cleanupContext, menu, MutationQuery{Filters: map[string]string{"comment": comment}, Proplist: []string{".id", "comment"}})
+	if err != nil {
+		return err
+	}
+	for _, object := range objects {
+		if object["comment"] != comment {
+			continue
+		}
+		if object.ID() == "" {
+			return errors.New("RouterOS time capability probe readback returned an object without an id")
+		}
+		addID(object.ID())
+	}
+	var cleanupErr error
+	for _, id := range ids {
+		if err := c.Delete(cleanupContext, menu, id); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
+	}
+	return cleanupErr
 }
 
 func (c *MutationClient) SetDNSSettings(ctx context.Context, fields RouterOSFields) error {

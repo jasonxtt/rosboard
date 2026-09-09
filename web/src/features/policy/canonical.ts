@@ -1,6 +1,9 @@
+import { alwaysAccessSchedule, normalizeAccessSchedule } from './schedule'
+
 export type SubjectBinding = 'auto' | 'fixed'
 export type SubjectMember = { terminalId: string; binding: SubjectBinding; pinnedIpv4: string[]; pinnedIpv6: string[] }
 export type Subject = { mode: 'all' | 'selected' | 'excluded'; members: SubjectMember[]; prefixes: string[] }
+export type { AccessSchedule, AccessScheduleMode, AccessTimeWindow, AccessWeekday } from './schedule'
 
 export type TrafficIngressScope = { interfaceLists: string[]; interfaces: string[] }
 
@@ -109,6 +112,7 @@ export type AccessRule = {
   subject: Subject
   targetScope: 'internet' | 'targets'
   targetListIds: string[]
+  schedule: import('./schedule').AccessSchedule
   enabled: boolean
   revision: number
   members: Array<{ terminalId: string; binding: SubjectBinding; state: string; ipv4: string[]; ipv6: string[]; reason?: string }>
@@ -267,9 +271,20 @@ function parseTerminal(value: unknown): PolicyTerminal {
 
 function parseRule(value: unknown): AccessRule {
   const object = objectValue(value)
+  const scheduleObject = objectValue(object.schedule)
+  const scheduleWindows = Array.isArray(scheduleObject.windows) ? scheduleObject.windows.map((raw) => {
+    const window = objectValue(raw)
+    return {
+      days: stringArray(window.days).filter((day): day is import('./schedule').AccessWeekday => ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(day)),
+      start: stringValue(window.start),
+      end: stringValue(window.end),
+    }
+  }) : []
+  const schedule = normalizeAccessSchedule({ mode: stringValue(scheduleObject.mode) === 'weekly' ? 'weekly' : 'always', windows: scheduleWindows })
   return {
     id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject),
     targetScope: stringValue(object.targetScope) === 'targets' ? 'targets' : 'internet', targetListIds: stringArray(object.targetListIds),
+    schedule: object.schedule ? schedule : alwaysAccessSchedule(),
     enabled: booleanValue(object.enabled), revision: numberValue(object.revision),
     members: Array.isArray(object.members) ? object.members.map((raw) => {
       const member = objectValue(raw)

@@ -62,6 +62,9 @@ func (policyV2Router) FlushDNSCache(context.Context) error                      
 func (policyV2Router) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
 	return nil
 }
+func (policyV2Router) VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error {
+	return nil
+}
 
 func newPolicyV2APIServer(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
