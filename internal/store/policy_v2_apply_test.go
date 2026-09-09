@@ -154,6 +154,75 @@ func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *te
 	}
 }
 
+func TestPolicyV2ScheduledAccessZeroOperationPlanRechecksFastTrack(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "scheduled-zero-op-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rule := canonicalRule("scheduled-zero-op-rule", target.ID)
+	rule.Schedule = accesscontrol.AccessSchedule{
+		Mode: accesscontrol.ScheduleModeWeekly,
+		Windows: []accesscontrol.AccessTimeWindow{{Days: []string{"mon"}, Start: "20:00", End: "22:00"}},
+	}
+	if _, err := accessRepository.SaveRule(ctx, rule, []accesscontrol.RuleMember{canonicalRuleMember(rule.ID)}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-access-initial", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialPlan.Plan.Blockers) != 0 {
+		t.Fatalf("initial scheduled access plan was blocked: %#v", initialPlan.Plan.Blockers)
+	}
+	initialJob, err := manager.ApplyPlan(ctx, "default", initialPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialJob = waitPolicyV2Job(t, policyRepository, initialJob.ID); initialJob.State != "committed" {
+		t.Fatalf("initial scheduled access apply failed: %#v", initialJob)
+	}
+	router.mu.Lock()
+	router.objects[routeros.MenuIPFirewallFilter]["*fa57"] = routeros.RouterOSObject{
+		".id": "*fa57", "chain": "forward", "action": "fasttrack-connection", "disabled": "no",
+	}
+	router.order[routeros.MenuIPFirewallFilter] = append(router.order[routeros.MenuIPFirewallFilter], "*fa57")
+	capabilityChecks, timeCapabilityChecks := router.capabilityChecks, router.timeCapabilityChecks
+	router.mu.Unlock()
+
+	zeroOpPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-access-zero-op", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(zeroOpPlan.Plan.Operations) != 0 {
+		t.Fatalf("externally added FastTrack unexpectedly changed the managed operation set: %#v", zeroOpPlan.Plan.Operations)
+	}
+	fastTrackBlocker := false
+	for _, blocker := range zeroOpPlan.Plan.Blockers {
+		if blocker.Code == "routeros_access_scheduled_fasttrack_unverified" {
+			fastTrackBlocker = true
+			break
+		}
+	}
+	if !fastTrackBlocker {
+		t.Fatalf("zero-operation scheduled access plan did not fail closed for active FastTrack: %#v", zeroOpPlan.Plan.Blockers)
+	}
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	if router.capabilityChecks != capabilityChecks || router.timeCapabilityChecks != timeCapabilityChecks {
+		t.Fatalf("zero-operation runtime check must not run mutation capability probes: capability=%d/%d time=%d/%d", router.capabilityChecks, capabilityChecks, router.timeCapabilityChecks, timeCapabilityChecks)
+	}
+}
+
 func TestAccessReconcilePromotesOnlyItsDeferredTargetChanges(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
