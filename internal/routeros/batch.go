@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -16,12 +17,27 @@ import (
 const (
 	// RouterOS limits a script passed to :execute to 64 KiB. Keep a generous
 	// margin for command parsing and future field growth.
-	maxBatchScriptBytes = 48 << 10
-	maxBatchScriptItems = 256
-	batchScriptTimeout  = 50 * time.Second
-	batchScriptOK       = "__rosboard_batch_ok__"
-	batchScriptError    = "__rosboard_batch_error__:"
+	maxBatchScriptBytes    = 48 << 10
+	maxBatchScriptItems    = 256
+	batchScriptTimeout     = 50 * time.Second
+	batchScriptOKPrefix    = "__rosboard_batch_ok_"
+	batchScriptErrorPrefix = "__rosboard_batch_error_"
 )
+
+var batchScriptSequence uint64
+
+type batchScriptProtocol struct {
+	ok          string
+	errorPrefix string
+}
+
+func newBatchScriptProtocol() batchScriptProtocol {
+	token := atomic.AddUint64(&batchScriptSequence, 1)
+	return batchScriptProtocol{
+		ok:          fmt.Sprintf("%s%x__", batchScriptOKPrefix, token),
+		errorPrefix: fmt.Sprintf("%s%x__:", batchScriptErrorPrefix, token),
+	}
+}
 
 type batchScriptErrorResponse struct {
 	detail string
@@ -139,6 +155,10 @@ func (c *MutationClient) applyDisabledBatchChunk(ctx context.Context, menu Mutat
 		return nil
 	}
 	if readbackErr != nil {
+		var invalidReadback *batchReadbackError
+		if errors.As(readbackErr, &invalidReadback) {
+			return readbackErr
+		}
 		pending = append([]string(nil), ids...)
 	}
 	if fallbackErr := c.patchDisabledIndividually(ctx, menu, pending, disabled); fallbackErr != nil {
@@ -147,14 +167,14 @@ func (c *MutationClient) applyDisabledBatchChunk(ctx context.Context, menu Mutat
 			causes = append(causes, batchErr)
 		}
 		if readbackErr != nil {
-			causes = append(causes, fmt.Errorf("batch read-back: %w", readbackErr))
+			causes = append(causes, fmt.Errorf("batch read-back for IDs %s: %w", strings.Join(ids, ","), readbackErr))
 		}
-		causes = append(causes, fmt.Errorf("individual REST fallback: %w", fallbackErr))
+		causes = append(causes, fmt.Errorf("individual REST fallback for IDs %s: %w", strings.Join(pending, ","), fallbackErr))
 		return errors.Join(causes...)
 	}
 	remaining, err := c.readBackDisabledBatch(ctx, menu, ids, disabled)
 	if err != nil {
-		return fmt.Errorf("read back after individual REST fallback: %w", err)
+		return fmt.Errorf("read back after individual REST fallback for IDs %s: %w", strings.Join(ids, ","), err)
 	}
 	if len(remaining) > 0 {
 		return fmt.Errorf("RouterOS batch did not converge for IDs %s", strings.Join(remaining, ","))
@@ -172,29 +192,59 @@ func (c *MutationClient) readBackDisabledBatch(ctx context.Context, menu Mutatio
 		wanted[id] = struct{}{}
 	}
 	pending := make([]string, 0)
+	seen := make(map[string]struct{}, len(ids))
 	for _, object := range objects {
 		id := object.ID()
+		if _, duplicate := seen[id]; duplicate {
+			return nil, c.newBatchReadbackError("RouterOS %s read-back returned duplicate ID %s", menu, id)
+		}
 		if _, ok := wanted[id]; !ok {
 			continue
 		}
+		seen[id] = struct{}{}
 		value, ok := object["disabled"]
 		if !ok {
-			return nil, fmt.Errorf("RouterOS %s object %s has no disabled field", menu, id)
+			return nil, c.newBatchReadbackError("RouterOS %s object %s has no disabled field", menu, id)
 		}
 		actual, parseErr := ParseRouterOSBool(value)
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse RouterOS %s object %s disabled state: %w", menu, id, parseErr)
+			return nil, c.newBatchReadbackError("parse RouterOS %s object %s disabled state: %v", menu, id, parseErr)
 		}
 		if actual != disabled {
 			pending = append(pending, id)
 		}
 		delete(wanted, id)
 	}
-	for id := range wanted {
-		pending = append(pending, id)
+	if len(wanted) > 0 {
+		missing := make([]string, 0, len(wanted))
+		for id := range wanted {
+			missing = append(missing, id)
+		}
+		sort.Strings(missing)
+		return nil, c.newBatchReadbackError("RouterOS %s read-back is missing IDs %s", menu, strings.Join(missing, ","))
 	}
 	sort.Strings(pending)
 	return pending, nil
+}
+
+type batchReadbackError struct {
+	detail string
+}
+
+func (e *batchReadbackError) Error() string {
+	if e == nil || strings.TrimSpace(e.detail) == "" {
+		return "RouterOS batch read-back failed"
+	}
+	return e.detail
+}
+
+func (c *MutationClient) newBatchReadbackError(format string, args ...any) error {
+	detail := fmt.Sprintf(format, args...)
+	detail = sanitizeMutationText(detail, c.username, c.password)
+	if len(detail) > maxMutationDetailBytes {
+		detail = detail[:maxMutationDetailBytes]
+	}
+	return &batchReadbackError{detail: detail}
 }
 
 func (c *MutationClient) patchDisabledIndividually(ctx context.Context, menu MutationMenu, ids []string, disabled bool) error {
@@ -217,7 +267,8 @@ func (c *MutationClient) executeScript(ctx context.Context, script string) ([]by
 	if err != nil {
 		return nil, errors.New("invalid RouterOS batch script request")
 	}
-	script = batchScriptEnvelope(script)
+	protocol := newBatchScriptProtocol()
+	script = batchScriptEnvelope(script, protocol)
 	// `as-string` switches :execute from its default detached background job to
 	// synchronous execution whose HTTP reply arrives only after every script
 	// line has run. Without it, a large CreateBatch can return while later
@@ -227,39 +278,58 @@ func (c *MutationClient) executeScript(ctx context.Context, script string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if err := c.validateBatchScriptResponse(body); err != nil {
+	if err := c.validateBatchScriptResponse(body, protocol); err != nil {
 		return body, err
 	}
 	return body, nil
 }
 
-func batchScriptEnvelope(script string) string {
-	return ":onerror e in={\n" + script + "\n:put \"" + batchScriptOK + "\"\n} do={\n:put \"" + batchScriptError + " $e\"\n}"
+func batchScriptEnvelope(script string, protocol batchScriptProtocol) string {
+	return ":onerror e in={\n" + script + "\n:put \"" + protocol.ok + "\"\n} do={\n:put \"" + protocol.errorPrefix + " $e\"\n}"
 }
 
-func (c *MutationClient) validateBatchScriptResponse(body []byte) error {
+func (c *MutationClient) validateBatchScriptResponse(body []byte, protocol batchScriptProtocol) error {
 	var response struct {
-		Ret string `json:"ret"`
+		Ret json.RawMessage `json:"ret"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return fmt.Errorf("decode RouterOS batch response: %w", err)
 	}
-	lines := strings.Split(strings.ReplaceAll(string(response.Ret), "\r\n", "\n"), "\n")
-	last := ""
+	if len(response.Ret) == 0 {
+		return errors.New("RouterOS batch response missing ret")
+	}
+	var ret string
+	if err := json.Unmarshal(response.Ret, &ret); err != nil {
+		return fmt.Errorf("RouterOS batch response ret is not a string: %w", err)
+	}
+	lines := strings.Split(strings.ReplaceAll(ret, "\r\n", "\n"), "\n")
+	hasOK := false
+	hasError := false
+	errorDetail := ""
 	for _, line := range lines {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			last = trimmed
+		trimmed := strings.TrimSpace(line)
+		if trimmed == protocol.ok {
+			hasOK = true
+		}
+		if strings.HasPrefix(trimmed, protocol.errorPrefix) {
+			hasError = true
+			if errorDetail == "" {
+				errorDetail = strings.TrimSpace(strings.TrimPrefix(trimmed, protocol.errorPrefix))
+			}
 		}
 	}
-	if strings.HasPrefix(last, batchScriptError) {
-		detail := strings.TrimSpace(strings.TrimPrefix(last, batchScriptError))
+	if hasOK && hasError {
+		return errors.New("RouterOS batch response contains both success and error markers")
+	}
+	if hasError {
+		detail := errorDetail
 		detail = sanitizeMutationText(detail, c.username, c.password)
 		if len(detail) > maxMutationDetailBytes {
 			detail = detail[:maxMutationDetailBytes]
 		}
 		return &batchScriptErrorResponse{detail: detail}
 	}
-	if last == batchScriptOK {
+	if hasOK {
 		return nil
 	}
 	return errors.New("RouterOS batch response missing success marker")
