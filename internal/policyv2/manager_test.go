@@ -474,6 +474,19 @@ func (r *accessCapabilityProbe) VerifyAccessControlTimeCapabilities(context.Cont
 	return r.timeErr
 }
 
+type scheduledAccessFastTrackProbe struct {
+	accessCapabilityProbe
+	firewall []routeros.RouterOSObject
+	listErr  error
+}
+
+func (r *scheduledAccessFastTrackProbe) List(_ context.Context, menu routeros.MutationMenu, _ routeros.MutationQuery) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.MenuIPFirewallFilter {
+		return r.firewall, r.listErr
+	}
+	return nil, nil
+}
+
 func TestAccessCapabilityBlockerFailsClosedWhenFilterFamilyCannotBeVerified(t *testing.T) {
 	errProbe := errors.New("read-only firewall menu")
 	blockers, err := accessCapabilityBlockers(context.Background(), &capabilityReadFailure{err: errProbe}, []DesiredObject{
@@ -497,6 +510,49 @@ func TestAccessCapabilityBlockerRequiresTimeProbeForScheduledFilters(t *testing.
 	}
 	if probe.timeChecks != 1 || len(blockers) != 1 || blockers[0].Code != "routeros_access_time_capability_unverified" {
 		t.Fatalf("scheduled access must require a successful time probe: checks=%d blockers=%#v", probe.timeChecks, blockers)
+	}
+}
+
+func TestScheduledAccessBlocksWhenIPv4FastTrackIsActive(t *testing.T) {
+	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
+	desired.Fields["time"] = "20:00:00-22:00:00,mon"
+	probe := &scheduledAccessFastTrackProbe{firewall: []routeros.RouterOSObject{{
+		".id": "*fasttrack", "action": "fasttrack-connection", "disabled": "false",
+	}}}
+	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 1 || blockers[0].Code != scheduledAccessFastTrackCode || blockers[0].Family != string(FamilyIPv4) {
+		t.Fatalf("active IPv4 FastTrack must block scheduled access: %#v", blockers)
+	}
+}
+
+func TestScheduledAccessIgnoresDisabledIPv4FastTrack(t *testing.T) {
+	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
+	desired.Fields["time"] = "20:00:00-22:00:00,mon"
+	probe := &scheduledAccessFastTrackProbe{firewall: []routeros.RouterOSObject{{
+		".id": "*fasttrack", "action": "fasttrack-connection", "disabled": "true",
+	}}}
+	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 0 {
+		t.Fatalf("disabled IPv4 FastTrack must not block scheduled access: %#v", blockers)
+	}
+}
+
+func TestScheduledAccessFailsClosedWhenIPv4FastTrackCannotBeRead(t *testing.T) {
+	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
+	desired.Fields["time"] = "20:00:00-22:00:00,mon"
+	probe := &scheduledAccessFastTrackProbe{listErr: errors.New("firewall read failed")}
+	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 1 || blockers[0].Code != scheduledAccessFastTrackCode {
+		t.Fatalf("inability to inspect IPv4 FastTrack must block scheduled access: %#v", blockers)
 	}
 }
 

@@ -654,6 +654,112 @@ func TestMutationAccessTimeCapabilityProbeCoversBothFirewallFamilies(t *testing.
 	}
 }
 
+func TestMutationAccessTimeCapabilityProbeCleansUpAmbiguousCreate(t *testing.T) {
+	var mu sync.Mutex
+	probeExists := false
+	probeComment := ""
+	deleteCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/rest/ip/firewall/filter":
+			var fields map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+				t.Fatalf("invalid ambiguous time probe body: %v", err)
+			}
+			mu.Lock()
+			probeExists = true
+			probeComment = fmt.Sprint(fields["comment"])
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			if r.URL.Query().Get("comment") == "" {
+				t.Fatalf("probe cleanup did not filter by its unique comment")
+			}
+			mu.Lock()
+			exists := probeExists
+			comment := probeComment
+			mu.Unlock()
+			if exists {
+				_, _ = io.WriteString(w, fmt.Sprintf(`[{".id":"*abc","comment":%q}]`, comment))
+			} else {
+				_, _ = io.WriteString(w, `[]`)
+			}
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*abc":
+			mu.Lock()
+			probeExists = false
+			deleteCount++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter}); err == nil {
+		t.Fatal("ambiguous create must fail closed")
+	}
+	mu.Lock()
+	leftover, deletes := probeExists, deleteCount
+	mu.Unlock()
+	if leftover || deletes != 1 {
+		t.Fatalf("ambiguous create was not reconciled and removed: leftover=%v deletes=%d", leftover, deletes)
+	}
+}
+
+func TestMutationAccessTimeCapabilityProbeRetriesReadbackCleanupAfterDeleteFailure(t *testing.T) {
+	var mu sync.Mutex
+	probeExists := false
+	deleteCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/rest/ip/firewall/filter":
+			mu.Lock()
+			probeExists = true
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{".id":"*def"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			mu.Lock()
+			exists := probeExists
+			mu.Unlock()
+			if exists {
+				_, _ = io.WriteString(w, `[{".id":"*def"}]`)
+			} else {
+				_, _ = io.WriteString(w, `[]`)
+			}
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*def":
+			mu.Lock()
+			deleteCount++
+			currentDelete := deleteCount
+			if currentDelete > 1 {
+				probeExists = false
+			}
+			mu.Unlock()
+			if currentDelete == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w, `{"error":"connection lost after delete"}`)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter}); err == nil {
+		t.Fatal("delete failure must fail closed even after readback cleanup")
+	}
+	mu.Lock()
+	leftover, deletes := probeExists, deleteCount
+	mu.Unlock()
+	if leftover || deletes != 2 {
+		t.Fatalf("delete failure was not reconciled: leftover=%v deletes=%d", leftover, deletes)
+	}
+}
+
 func TestMutationCommandFieldAllowLists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/export" || r.Method != http.MethodPost {

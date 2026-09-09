@@ -16,16 +16,17 @@ import (
 )
 
 type policyV2FakeRouter struct {
-	mu               sync.Mutex
-	nextID           int
-	objects          map[routeros.MutationMenu]map[string]routeros.RouterOSObject
-	order            map[routeros.MutationMenu][]string
-	flushes          int
-	dnsCacheSize     string
-	dnsServers       string
-	failAt           int
-	writes           int
-	capabilityChecks int
+	mu                   sync.Mutex
+	nextID               int
+	objects              map[routeros.MutationMenu]map[string]routeros.RouterOSObject
+	order                map[routeros.MutationMenu][]string
+	flushes              int
+	dnsCacheSize         string
+	dnsServers           string
+	failAt               int
+	writes               int
+	capabilityChecks     int
+	timeCapabilityChecks int
 }
 
 func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *testing.T) {
@@ -523,6 +524,13 @@ func (r *policyV2FakeRouter) FlushDNSCache(context.Context) error {
 func (r *policyV2FakeRouter) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
 	r.mu.Lock()
 	r.capabilityChecks++
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *policyV2FakeRouter) VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error {
+	r.mu.Lock()
+	r.timeCapabilityChecks++
 	r.mu.Unlock()
 	return nil
 }
