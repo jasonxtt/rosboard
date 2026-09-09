@@ -2106,3 +2106,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .terminal-name-popover.above { transform: translateY(-100%); }
 .terminal-name-popover.above::before { top: auto; bottom: -5px; transform: rotate(225deg); }
+
+/* Version and update card: shared markup, UI-local tokens. */
+.version-update { margin: 12px 0 24px; min-width: 0; }
+.version-update-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 24px; margin: 0; }
+.version-update-fields div { min-width: 0; }
+.version-update-fields dt, .version-update-hint { color: var(--muted); font-size: 13px; }
+.version-update-fields dd { margin: 5px 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.version-update-badge { margin-left: 10px; color: var(--ink); font-size: 12px; }
+.version-update-notes { margin-top: 20px; font-size: 13px; }
+.version-update-notes summary { cursor: pointer; }
+.version-update-notes p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; max-height: 240px; overflow: auto; }
+.version-update-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.version-update-error { color: var(--status-error); overflow-wrap: anywhere; font-size: 13px; }
+.version-update-result { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--hairline); font-size: 13px; overflow-wrap: anywhere; line-height: 1.6; }
+.version-update-result p { margin: 5px 0 0; color: var(--muted); }
+.version-update-result progress { display: block; width: 100%; max-width: 400px; margin-top: 8px; accent-color: var(--ink); }
+.version-update-dialog { width: min(480px, calc(100vw - 40px)); box-sizing: border-box; padding: 24px; border: 1px solid var(--hairline); border-radius: 14px; color: var(--slate); background: var(--surface); }
+.version-update-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.version-update-dialog p { font-size: 14px; line-height: 1.7; }
+@media (max-width: 768px) { .version-update-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } }

@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/rosboard
-ExecStart=/opt/rosboard/rosboard -config /opt/rosboard/config.yaml
+ExecStart=/opt/rosboard/rosboard-supervisor supervise -binary /opt/rosboard/rosboard -config /opt/rosboard/config.yaml
+TimeoutStopSec=40
 Restart=always
 RestartSec=5
 User=rosboard

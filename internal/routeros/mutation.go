@@ -68,6 +68,7 @@ type MutationClientOptions struct {
 }
 
 type MutationClient struct {
+	beforeWrite    func(context.Context) error
 	baseURL        string
 	username       string
 	password       string
@@ -78,6 +79,9 @@ type MutationClient struct {
 	sleep          func(context.Context, time.Duration) error
 	initErr        error
 }
+
+// SetWriteGate must be configured before the client is shared with workers.
+func (c *MutationClient) SetWriteGate(gate func(context.Context) error) { c.beforeWrite = gate }
 
 func NewMutationClient(baseURL, username, password string) *MutationClient {
 	client, err := NewMutationClientWithOptions(baseURL, username, password, MutationClientOptions{
@@ -492,6 +496,11 @@ func (c *MutationClient) executeURLWithTimeout(ctx context.Context, method strin
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if policy == mutationNoRetryMutation && c.beforeWrite != nil {
+		if err := c.beforeWrite(ctx); err != nil {
+			return nil, err
+		}
 	}
 	httpClient := c.httpClient
 	if httpClient == nil {
