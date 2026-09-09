@@ -37,3 +37,7 @@ Release notes render as text and release links are restricted to the official
 repository. Status polling is local API polling, never automatic GitHub checks.
 Abort polling on unmount; stale reads must not overwrite a newer manual action.
 On an observed job's verified success, reload to use the new embedded frontend.
+
+Version metadata uses four columns on desktop and two columns at viewport widths
+up to 768px: current/latest version, then platform/last check. Preserve DOM order
+and permit long values to wrap inside their own cells.

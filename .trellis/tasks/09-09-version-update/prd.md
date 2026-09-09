@@ -13,3 +13,6 @@ Add a version/update card to maintenance in both UI variants. Exactly two primar
 - Most recent job survives restart/browser closure; only one job may run. Failures never appear as up-to-date.
 - Existing production NAS-only backups/manual acceptance rules remain binding; production online installation stays disabled until an appropriate external backup destination is configured.
 - Automated tests, frontend checks and isolated Linux test-machine smoke/failure checks pass. Keep Draft PR and do not publish/merge/complete before acceptance.
+
+## Accepted layout refinement
+The four version fields share one row on desktop. At mobile widths (up to 768px), current/latest version share the first row and platform/last check share the second. Apply to both UI variants.
