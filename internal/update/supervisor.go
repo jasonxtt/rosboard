@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,16 +127,6 @@ func (c *child) waitReady(ctx context.Context, expected string) error {
 		}
 		if expected != "" && (r.info.Version != expected || r.info.OS != "linux") {
 			return errors.New("candidate readiness version mismatch")
-		}
-		if expected != "" {
-			select {
-			case err := <-c.done:
-				c.done <- err
-				return errors.New("candidate exited before activation")
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(2 * time.Second):
-			}
 		}
 		return nil
 	case <-ctx.Done():
@@ -284,15 +276,89 @@ func apply(ctx context.Context, p Paths, j *Job, logger *log.Logger) (*child, er
 		c.stop()
 		return recoverOld(e)
 	}
-	// Candidate is ready but cannot mutate anything before this durable commit.
-	if e = finishJob(p, j, "succeeded", "更新成功"); e != nil {
+	if e = c.activate(); e != nil {
 		c.stop()
 		return recoverOld(e)
 	}
-	if e = c.activate(); e != nil {
+	cfg, e := config.Load(p.Config)
+	if e == nil {
+		var host, port string
+		host, port, e = net.SplitHostPort(cfg.ListenAddress)
+		if host == "" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		}
+		if host == "::" {
+			host = "::1"
+		}
+		if e == nil {
+			e = c.observe(ctx, "http://"+net.JoinHostPort(host, port)+"/api/health", j.To, 5*time.Second, 20*time.Second)
+		}
+	}
+	if e != nil {
+		c.stop()
+		return recoverOld(e)
+	}
+	// Workers run during observation, but external writes remain gated until
+	// this durable commit. Local changes can still be restored from snapshot.
+	if e = finishJob(p, j, "succeeded", "更新成功"); e != nil {
 		c.stop()
 		return recoverOld(e)
 	}
 	cleanupDownload(p)
 	return c, nil
+}
+
+// observe requires continuous healthy responses from this exact child, not an
+// unrelated listener or a stale version. Any exit before commit triggers recovery.
+func (c *child) observe(ctx context.Context, endpoint, version string, stable, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var healthySince time.Time
+	for {
+		select {
+		case err := <-c.done:
+			c.done <- err // stop still owns reaping the child.
+			return fmt.Errorf("candidate exited after activation: %v", err)
+		case <-ctx.Done():
+			return fmt.Errorf("candidate health observation: %w", ctx.Err())
+		case <-ticker.C:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		response, err := client.Do(req)
+		healthy := false
+		if err == nil {
+			var health struct {
+				OK      bool   `json:"ok"`
+				Version string `json:"version"`
+				PID     int    `json:"pid"`
+			}
+			decodeErr := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&health)
+			response.Body.Close()
+			healthy = response.StatusCode == http.StatusOK && decodeErr == nil && health.OK && health.Version == version && health.PID == c.cmd.Process.Pid
+		}
+		if !healthy {
+			healthySince = time.Time{}
+			continue
+		}
+		if healthySince.IsZero() {
+			healthySince = time.Now()
+		}
+		if time.Since(healthySince) >= stable {
+			select {
+			case err := <-c.done:
+				c.done <- err
+				return fmt.Errorf("candidate exited after activation: %v", err)
+			default:
+				return ctx.Err()
+			}
+		}
+	}
 }

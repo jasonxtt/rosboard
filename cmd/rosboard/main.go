@@ -89,11 +89,6 @@ func main() {
 	if !cfg.RouterOSConfigured() {
 		logger.Print("routeros is not configured, serving setup UI")
 	}
-	policyManager := policyv2.NewManager(logger)
-	if err := assemblePolicyRuntimes(cfg, storage, manager, policyManager); err != nil {
-		log.Fatalf("assemble policy runtimes: %v", err)
-	}
-	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, cancel, policyManager)
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -103,7 +98,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	apiServer.SetUpdater(update.NewManager(ctx, updatePaths, buildinfo.Current(), cancel, logger))
+	updater := update.NewManager(ctx, updatePaths, buildinfo.Current(), cancel, logger)
+	policyManager := policyv2.NewManager(logger)
+	if err := assemblePolicyRuntimes(cfg, storage, manager, policyManager, updater.WaitForCommit); err != nil {
+		log.Fatalf("assemble policy runtimes: %v", err)
+	}
+	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, cancel, policyManager)
+
+	apiServer.SetUpdater(updater)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,

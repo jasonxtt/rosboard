@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -222,4 +223,26 @@ func (m *Manager) ClearRecovery() error {
 	}
 	m.job = nil
 	return nil
+}
+
+// WaitForCommit gates external policy writes while this candidate is under
+// observation. Reads and local startup run normally; cancellation sends no write.
+func (m *Manager) WaitForCommit(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		j, err := readJob(m.paths)
+		if err != nil {
+			return fmt.Errorf("read update commit: %w", err)
+		}
+		if j == nil || j.To != m.info.Version || j.Stage != "verifying_startup" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

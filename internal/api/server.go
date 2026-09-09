@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +21,7 @@ import (
 	"rosboard/internal/accesscontrol"
 	"rosboard/internal/applicationpreset"
 	"rosboard/internal/auth"
+	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
 	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
@@ -30,23 +32,24 @@ import (
 )
 
 type Server struct {
-	updater       *update.Manager
-	mutationMu    sync.RWMutex
-	cfgMu         sync.RWMutex
-	deviceSaveMu  sync.Mutex
-	cfg           config.Config
-	monitor       *service.Monitor
-	manager       *service.MonitorManager
-	policy        *policyv2.Manager
-	store         *store.Store
-	assets        fs.FS
-	allowedCIDRs  []*net.IPNet
-	fileServer    http.Handler
-	restart       func()
-	auth          *auth.Service
-	tickets       *verificationTickets
-	provisioning  *provisioningSessions
-	sourceFetcher *policy.SourceFetcher
+	restartPending atomic.Bool
+	updater        *update.Manager
+	mutationMu     sync.RWMutex
+	cfgMu          sync.RWMutex
+	deviceSaveMu   sync.Mutex
+	cfg            config.Config
+	monitor        *service.Monitor
+	manager        *service.MonitorManager
+	policy         *policyv2.Manager
+	store          *store.Store
+	assets         fs.FS
+	allowedCIDRs   []*net.IPNet
+	fileServer     http.Handler
+	restart        func()
+	auth           *auth.Service
+	tickets        *verificationTickets
+	provisioning   *provisioningSessions
+	sourceFetcher  *policy.SourceFetcher
 	// accessTerminalsFn lets tests inject a terminal snapshot; nil means the
 	// live monitor snapshot is used.
 	accessTerminalsFn func(deviceID string) []accesscontrol.Terminal
@@ -252,7 +255,7 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if request.URL.Path == "/api/health" {
-		writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
+		writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "version": buildinfo.Current().Version, "pid": os.Getpid()})
 		return
 	}
 	if request.URL.Path == "/api/fleet-overview" {
@@ -1281,7 +1284,7 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 }
 
 func (s *Server) scheduleRestart() {
-	if s.restart == nil {
+	if s.restart == nil || !s.restartPending.CompareAndSwap(false, true) {
 		return
 	}
 	go func() {
