@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -337,6 +338,137 @@ func TestSourceFetcherRejectsPrivateMixedDNSAndRedirectTargets(t *testing.T) {
 	}
 	if resolver.callCount("private.test") != 1 {
 		t.Fatalf("redirect target was not resolved exactly once: %d", resolver.callCount("private.test"))
+	}
+}
+
+func TestSourceIPClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want sourceIPDisposition
+	}{
+		{name: "fake IPv4 lower boundary", raw: "198.18.0.1", want: sourceIPUsable},
+		{name: "fake IPv4 upper boundary", raw: "198.19.255.254", want: sourceIPUsable},
+		{name: "fake IPv4 reserved-looking range", raw: "28.0.0.1", want: sourceIPUsable},
+		{name: "fake IPv4 reserved-looking upper boundary", raw: "28.255.255.254", want: sourceIPUsable},
+		{name: "fake IPv6 lower boundary", raw: "2001:2::1", want: sourceIPUsable},
+		{name: "fake IPv6 outside /64", raw: "2001:2:0:1::1", want: sourceIPForbidden},
+		{name: "fake IPv6 alternate lower boundary", raw: "f2b0::1", want: sourceIPUsable},
+		{name: "fake IPv6 alternate upper boundary", raw: "f2b0:3fff::1", want: sourceIPUsable},
+		{name: "fake IPv6 outside /18", raw: "f2b0:4000::1", want: sourceIPForbidden},
+		{name: "unspecified IPv4", raw: "0.0.0.0", want: sourceIPIgnored},
+		{name: "unspecified IPv6", raw: "::", want: sourceIPIgnored},
+		{name: "synthetic IPv6 sentinel", raw: "::ffff", want: sourceIPIgnored},
+		{name: "mapped loopback", raw: "::ffff:127.0.0.1", want: sourceIPForbidden},
+		{name: "mapped private", raw: "::ffff:10.0.0.1", want: sourceIPForbidden},
+		{name: "mapped fake IPv4", raw: "::ffff:198.18.0.1", want: sourceIPUsable},
+		{name: "public IPv4", raw: "93.184.216.34", want: sourceIPUsable},
+		{name: "private IPv4", raw: "10.0.0.1", want: sourceIPForbidden},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ip, err := netip.ParseAddr(test.raw)
+			if err != nil {
+				t.Fatalf("ParseAddr(%q): %v", test.raw, err)
+			}
+			if got := classifySourceIP(ip); got != test.want {
+				t.Fatalf("classifySourceIP(%q) = %d, want %d", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
+func TestSourceFetcherFiltersSyntheticDNSAnswers(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("DOMAIN,example.com\n"))
+	}))
+	defer server.Close()
+
+	tests := []struct {
+		name       string
+		answers    []netip.Addr
+		wantDialed string
+		wantError  bool
+	}{
+		{name: "public plus sentinel", answers: []netip.Addr{netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("::ffff")}, wantDialed: "93.184.216.34:"},
+		{name: "fake IPv4 plus sentinel", answers: []netip.Addr{netip.MustParseAddr("198.18.1.1"), netip.MustParseAddr("::ffff")}, wantDialed: "198.18.1.1:"},
+		{name: "mapped fake IPv4 plus sentinel", answers: []netip.Addr{netip.MustParseAddr("::ffff:198.18.1.1"), netip.MustParseAddr("::ffff")}, wantDialed: "198.18.1.1:"},
+		{name: "fake IPv6 plus sentinel", answers: []netip.Addr{netip.MustParseAddr("2001:2::1234"), netip.MustParseAddr("::ffff")}, wantDialed: "[2001:2::1234]:"},
+		{name: "only sentinel", answers: []netip.Addr{netip.MustParseAddr("::ffff")}, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &testResolver{answers: map[string][]netip.Addr{"source.test": test.answers}}
+			var dialed string
+			fetcher := testFetcher(server, resolver, localDialer(server, &dialed))
+			result, err := fetcher.Fetch(context.Background(), testHTTPSURL(server, "source.test", "/source.yaml"), FetchOptions{})
+			if test.wantError {
+				if err == nil || !errors.Is(err, ErrSourceTransport) || !IsRetryableSourceError(err) {
+					t.Fatalf("Fetch() error = %v, want retryable source transport error", err)
+				}
+				if dialed != "" {
+					t.Fatalf("sentinel-only source was dialed at %q", dialed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Fetch() error = %v", err)
+			}
+			if result.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", result.StatusCode, http.StatusOK)
+			}
+			if !strings.HasPrefix(dialed, test.wantDialed) {
+				t.Fatalf("dialed address = %q, want prefix %q", dialed, test.wantDialed)
+			}
+		})
+	}
+}
+
+func TestSourceFetcherClassifiesDirectIPHosts(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("DOMAIN,example.com\n"))
+	}))
+	defer server.Close()
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+
+	tests := []struct {
+		name       string
+		url        string
+		wantDialed string
+		wantError  bool
+		wantRetry  bool
+	}{
+		{name: "allowed fake IPv4", url: fmt.Sprintf("https://198.18.1.1:%d/source.yaml", port), wantDialed: "198.18.1.1:"},
+		{name: "sentinel", url: fmt.Sprintf("https://[::ffff]:%d/source.yaml", port), wantError: true, wantRetry: true},
+		{name: "loopback", url: fmt.Sprintf("https://127.0.0.1:%d/source.yaml", port), wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &testResolver{answers: make(map[string][]netip.Addr)}
+			var dialed string
+			fetcher := testFetcher(server, resolver, localDialer(server, &dialed))
+			_, err := fetcher.Fetch(context.Background(), test.url, FetchOptions{})
+			if test.wantError {
+				if err == nil {
+					t.Fatal("Fetch() error = nil, want error")
+				}
+				if IsRetryableSourceError(err) != test.wantRetry {
+					t.Fatalf("IsRetryableSourceError(%v) = %t, want %t", err, IsRetryableSourceError(err), test.wantRetry)
+				}
+				if dialed != "" {
+					t.Fatalf("rejected direct host was dialed at %q", dialed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Fetch() error = %v", err)
+			}
+			if !strings.HasPrefix(dialed, test.wantDialed) {
+				t.Fatalf("dialed address = %q, want prefix %q", dialed, test.wantDialed)
+			}
+		})
 	}
 }
 
