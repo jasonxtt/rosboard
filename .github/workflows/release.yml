@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "VERSION must contain a semantic version such as 0.0.1" >&2
             exit 1
           fi
@@ -45,17 +45,21 @@ jobs:
         working-directory: web
         run: |
           npm ci
+          npm test
+          npm run lint
           npm run build
+          npm run check:ui-build
 
       - name: Build release archives
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p dist
+          built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           build() {
             name="$1"
             shift
-            env "$@" go build -trimpath -ldflags='-s -w' -o dist/rosboard ./cmd/rosboard
+            env "$@" go build -trimpath -ldflags="-s -w -X rosboard/internal/buildinfo.Version=${VERSION} -X rosboard/internal/buildinfo.Commit=${GITHUB_SHA} -X rosboard/internal/buildinfo.BuiltAt=${built_at} -X rosboard/internal/buildinfo.Flavor=${name}" -o dist/rosboard ./cmd/rosboard
             tar -C dist -czf "dist/rosboard_${VERSION}_linux_${name}.tar.gz" rosboard
             rm dist/rosboard
           }
@@ -72,5 +76,6 @@ jobs:
         run: |
           gh release create "v${VERSION}" dist/*.tar.gz dist/sha256sums.txt \
             --target "$GITHUB_SHA" \
-            --title "v${VERSION}" \
+            --title "v${VERSION}" --draft \
             --generate-notes
+          gh release edit "v${VERSION}" --draft=false --latest

@@ -19,3 +19,7 @@ config.yaml
 
 # Reproducible Vite verification metadata (not embedded or delivered)
 /internal/ui/dist/.vite/
+
+# Private updater runtime and recovery snapshots
+.rosboard-update/
+/rosboard-supervisor

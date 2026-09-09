@@ -26,9 +26,12 @@ import (
 	"rosboard/internal/routeros"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
+	"rosboard/internal/update"
 )
 
 type Server struct {
+	updater       *update.Manager
+	mutationMu    sync.RWMutex
 	cfgMu         sync.RWMutex
 	deviceSaveMu  sync.Mutex
 	cfg           config.Config
@@ -156,6 +159,19 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 				return
 			}
 		}
+		if s.updater != nil && request.Method != http.MethodGet && request.Method != http.MethodHead {
+			if request.URL.Path == "/api/settings/update/install" {
+				s.mutationMu.Lock()
+				defer s.mutationMu.Unlock()
+			} else {
+				s.mutationMu.RLock()
+				defer s.mutationMu.RUnlock()
+				if s.updater.Active() {
+					writeAPIError(writer, http.StatusConflict, "update_in_progress", "更新正在进行，请稍后再操作")
+					return
+				}
+			}
+		}
 		s.serveAPI(writer, request)
 		return
 	}
@@ -164,6 +180,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
+	if updatePath(request.URL.Path) {
+		s.serveUpdate(writer, request)
+		return
+	}
 	if s.serveAuthAPI(writer, request) {
 		return
 	}
@@ -1198,6 +1218,12 @@ func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 
+	if s.updater != nil {
+		if err := s.updater.ClearRecovery(); err != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "full_reset_failed", "无法清除更新恢复数据，完整初始化已停止")
+			return
+		}
+	}
 	s.deviceSaveMu.Lock()
 	defer s.deviceSaveMu.Unlock()
 	s.cfgMu.Lock()
