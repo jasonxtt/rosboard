@@ -54,6 +54,14 @@ type AccessCapabilityVerifier interface {
 	VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error
 }
 
+// AccessTimeCapabilityVerifier is optional so existing mutation fakes and
+// integrations that only need permanent access rules remain source-compatible.
+// A scheduled access plan must use an implementation that proves RouterOS
+// accepts the firewall filter time matcher before any writes are attempted.
+type AccessTimeCapabilityVerifier interface {
+	VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error
+}
+
 type Applier struct {
 	Mutation  PolicyMutation
 	Reader    PolicyReader

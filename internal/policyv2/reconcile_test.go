@@ -138,6 +138,35 @@ func TestDiffDesiredClearsRemovedManagedFields(t *testing.T) {
 	}
 }
 
+func TestDiffDesiredClearsRemovedAccessTimeMatcher(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "access:rule-a:ipv4:out:window:0:tcp",
+		Menu:      string(routeros.MenuIPFirewallFilter),
+		Phase:     "activation",
+		Fields: map[string]string{
+			"chain":   "forward",
+			"action":  "drop",
+			"comment": "rosboard:managed scheduled access rule",
+		},
+	}}
+	actual := []ActualObject{{
+		LogicalID: desired[0].LogicalID,
+		Menu:      desired[0].Menu,
+		RouterID:  "*1",
+		Fields: map[string]string{
+			"chain":   "forward",
+			"action":  "drop",
+			"comment": desired[0].Fields["comment"],
+			"time":    "20:00:00-21:59:59,mon",
+		},
+	}}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(blockers) != 0 || len(operations) != 1 || operations[0].After["time"] != "" {
+		t.Fatalf("removing a weekly schedule must clear the managed time field: operations=%#v blockers=%#v", operations, blockers)
+	}
+}
+
 func TestDiffDesiredDoesNotClearImplicitDisabled(t *testing.T) {
 	for _, test := range []struct {
 		name   string

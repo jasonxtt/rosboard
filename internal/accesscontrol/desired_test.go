@@ -186,6 +186,82 @@ func TestBuildDesiredInternetScopeUsesDirectEgressRules(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredScheduledTargetRuleAddsTimeToJumpActivation(t *testing.T) {
+	rule := sourcesRule("scheduled-target", "source-a")
+	rule.Schedule = AccessSchedule{Mode: ScheduleModeWeekly, Windows: []AccessTimeWindow{{Days: []string{"mon"}, Start: "20:00", End: "22:00"}}}
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{rule},
+		Members:    []RuleMember{fixedMember(rule.ID, "t1", "10.0.0.20")},
+		TargetList: map[string]string{"source-a": "rb_src_a"},
+	})
+	if len(result.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", result.Blockers)
+	}
+	timedJumps := 0
+	untimedChainRules := 0
+	for _, object := range collectByMenu(result, routeros.MenuIPFirewallFilter) {
+		if object.Fields["action"] == "jump" {
+			if object.Fields["time"] != "20:00:00-21:59:59,mon" {
+				t.Fatalf("scheduled jump has wrong time matcher: %#v", object)
+			}
+			timedJumps++
+		} else if object.Fields["chain"] == RuleChainName("manager", "router-a", rule.ID) {
+			if object.Fields["time"] != "" {
+				t.Fatalf("deny chain must remain un-timed: %#v", object)
+			}
+			untimedChainRules++
+		}
+	}
+	if timedJumps != 2 || untimedChainRules != 3 {
+		t.Fatalf("expected two timed jumps and three chain deny rules, got jumps=%d chain=%d: %#v", timedJumps, untimedChainRules, result.Objects)
+	}
+}
+
+func TestBuildDesiredScheduledInternetRuleExpandsWindowsForBothFamilies(t *testing.T) {
+	rule := internetRule("scheduled-internet")
+	rule.Schedule = AccessSchedule{Mode: ScheduleModeWeekly, Windows: []AccessTimeWindow{
+		{Days: []string{"mon"}, Start: "20:00", End: "22:00"},
+		{Days: []string{"sat"}, Start: "22:00", End: "07:00"},
+	}}
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{rule},
+		Members:          []RuleMember{{RuleID: rule.ID, TerminalID: "t1", Binding: BindingFixed, PinnedIPv4: []string{"10.0.0.20"}, PinnedIPv6: []string{"fd00::20"}}},
+		InternetEgresses: map[string][]string{FamilyIPv4: {"pppoe-out1"}, FamilyIPv6: {"pppoe-out1"}},
+	})
+	if len(result.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", result.Blockers)
+	}
+	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
+		filters := collectByMenu(result, menu)
+		if len(filters) != 18 {
+			t.Fatalf("two logical windows (three compiled segments) must create eighteen direct rules on %s, got %d: %#v", menu, len(filters), filters)
+		}
+		seen := map[string]bool{}
+		for _, object := range filters {
+			seen[object.Fields["time"]] = true
+		}
+		if !seen["20:00:00-21:59:59,mon"] || !seen["22:00:00-23:59:59,sat"] || !seen["00:00:00-06:59:59,sun"] {
+			t.Fatalf("compiled time matchers missing on %s: %#v", menu, seen)
+		}
+	}
+}
+
+func TestBuildDesiredAlwaysRuleDoesNotAddTimeMatcher(t *testing.T) {
+	result := BuildDesired(DesiredInput{
+		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{internetRule("always-internet")},
+		Members:          []RuleMember{fixedMember("always-internet", "t1", "10.0.0.20")},
+		InternetEgresses: map[string][]string{FamilyIPv4: {"pppoe-out1"}},
+	})
+	if len(result.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", result.Blockers)
+	}
+	for _, object := range result.Objects {
+		if object.Menu == routeros.MenuIPFirewallFilter && object.Fields["time"] != "" {
+			t.Fatalf("always rule must not add a time matcher: %#v", object)
+		}
+	}
+}
+
 func TestBuildDesiredInternetScopeExpandsEveryEgress(t *testing.T) {
 	result := BuildDesired(DesiredInput{
 		ManagerID: "manager", DeviceID: "router-a", Rules: []AccessRule{internetRule("rule-a")},

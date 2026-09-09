@@ -19,8 +19,10 @@ type AccessRepository struct {
 }
 
 const (
-	accessSchemaVersion       = "v2"
-	legacyAccessSchemaVersion = "v1"
+	accessSchemaVersion         = "v3"
+	previousAccessSchemaVersion = "v2"
+	legacyAccessSchemaVersion   = "v1"
+	defaultAccessScheduleJSON   = `{"mode":"always","windows":[]}`
 )
 
 func (s *Store) AccessRepository() *AccessRepository {
@@ -49,13 +51,17 @@ func (s *Store) initAccessControlSchema() error {
 		}
 	case err != nil:
 		return fmt.Errorf("inspect access-control schema marker: %w", err)
-	case marker != legacyAccessSchemaVersion && marker != accessSchemaVersion:
+	case marker != legacyAccessSchemaVersion && marker != previousAccessSchemaVersion && marker != accessSchemaVersion:
 		return fmt.Errorf("unsupported access-control schema marker %q", marker)
 	case marker == legacyAccessSchemaVersion:
 		// v1 has all of the original logical-rule tables, but not the additive
 		// application relation. Validate the committed baseline before adding it.
 		if err := validateLegacyAccessControlSchema(tx); err != nil {
 			return fmt.Errorf("validate legacy access-control schema: %w", err)
+		}
+	case marker == previousAccessSchemaVersion:
+		if err := validateAccessControlSchemaColumns(tx, true, false); err != nil {
+			return fmt.Errorf("validate v2 access-control schema: %w", err)
 		}
 	case marker == accessSchemaVersion:
 		// A committed marker is the boundary between the destructive first-run
@@ -79,6 +85,7 @@ CREATE TABLE IF NOT EXISTS access_rules (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     subject_mode TEXT NOT NULL DEFAULT 'selected',
+    schedule_json TEXT NOT NULL DEFAULT '{"mode":"always","windows":[]}',
     PRIMARY KEY (device_id, id)
 );
 CREATE TABLE IF NOT EXISTS access_rule_sources (
@@ -150,6 +157,15 @@ CREATE TABLE IF NOT EXISTS access_rule_migration_issues (
 	if _, err := tx.Exec(`ALTER TABLE access_rules ADD COLUMN subject_mode TEXT NOT NULL DEFAULT 'selected'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add access rule subject mode: %w", err)
 	}
+	hasSchedule, err := accessTableHasColumns(tx, "access_rules", []string{"schedule_json"})
+	if err != nil {
+		return err
+	}
+	if !hasSchedule {
+		if _, err := tx.Exec(`ALTER TABLE access_rules ADD COLUMN schedule_json TEXT NOT NULL DEFAULT '{"mode":"always","windows":[]}'`); err != nil {
+			return fmt.Errorf("add access rule schedule: %w", err)
+		}
+	}
 	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS access_rule_prefixes (device_id TEXT NOT NULL, rule_id TEXT NOT NULL, prefix TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (device_id, rule_id, prefix))`); err != nil {
 		return fmt.Errorf("init access rule prefixes: %w", err)
 	}
@@ -163,7 +179,7 @@ CREATE TABLE IF NOT EXISTS access_rule_migration_issues (
 		if _, err := tx.Exec(`INSERT INTO access_schema_meta (key, value) VALUES ('logical_rules', ?)`, accessSchemaVersion); err != nil {
 			return fmt.Errorf("record access-control schema marker: %w", err)
 		}
-	} else if marker == legacyAccessSchemaVersion {
+	} else if marker == legacyAccessSchemaVersion || marker == previousAccessSchemaVersion {
 		if _, err := tx.Exec(`UPDATE access_schema_meta SET value = ? WHERE key = 'logical_rules'`, accessSchemaVersion); err != nil {
 			return fmt.Errorf("upgrade access-control schema marker: %w", err)
 		}
@@ -192,14 +208,14 @@ func prepareLegacyAccessSchema(tx *sql.Tx) error {
 }
 
 func validateAccessControlSchema(tx *sql.Tx) error {
-	return validateAccessControlSchemaColumns(tx, true)
+	return validateAccessControlSchemaColumns(tx, true, true)
 }
 
 func validateLegacyAccessControlSchema(tx *sql.Tx) error {
-	return validateAccessControlSchemaColumns(tx, false)
+	return validateAccessControlSchemaColumns(tx, false, false)
 }
 
-func validateAccessControlSchemaColumns(tx *sql.Tx, includeApplications bool) error {
+func validateAccessControlSchemaColumns(tx *sql.Tx, includeApplications, includeSchedule bool) error {
 	required := map[string][]string{
 		"access_schema_meta":   {"key", "value"},
 		"access_rules":         {"device_id", "id", "name", "target_scope", "action", "enabled", "revision", "created_at", "updated_at"},
@@ -210,6 +226,9 @@ func validateAccessControlSchemaColumns(tx *sql.Tx, includeApplications bool) er
 	}
 	if includeApplications {
 		required["access_rule_applications"] = []string{"device_id", "rule_id", "application_id", "position"}
+	}
+	if includeSchedule {
+		required["access_rules"] = append(required["access_rules"], "schedule_json")
 	}
 	for table, columns := range required {
 		ok, err := accessTableHasColumns(tx, table, columns)
@@ -257,7 +276,7 @@ type accessRuleSnapshot struct {
 }
 
 func (r *AccessRepository) ListRules(ctx context.Context) ([]accesscontrol.AccessRule, error) {
-	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, target_scope, subject_mode, enabled, revision, created_at, updated_at
+	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, target_scope, subject_mode, schedule_json, enabled, revision, created_at, updated_at
 		FROM access_rules WHERE device_id = ? ORDER BY created_at, id`, r.store.deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list access rules: %w", err)
@@ -268,8 +287,13 @@ func (r *AccessRepository) ListRules(ctx context.Context) ([]accesscontrol.Acces
 		var rule accesscontrol.AccessRule
 		var enabled int
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&rule.ID, &rule.Name, &rule.TargetScope, &rule.Subject.Mode, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
+		var scheduleJSON string
+		if err := rows.Scan(&rule.ID, &rule.Name, &rule.TargetScope, &rule.Subject.Mode, &scheduleJSON, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan access rule: %w", err)
+		}
+		rule.Schedule, err = decodeAccessSchedule(scheduleJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode access rule schedule: %w", err)
 		}
 		rule.Enabled = enabled != 0
 		rule.CreatedAt = timeFromUnix(createdAt)
@@ -439,6 +463,10 @@ func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.Acce
 	if err != nil {
 		return accesscontrol.AccessRule{}, err
 	}
+	scheduleJSON, err := encodeAccessSchedule(rule.Schedule)
+	if err != nil {
+		return accesscontrol.AccessRule{}, err
+	}
 	var canonicalMarker string
 	if markerErr := r.store.db.QueryRowContext(ctx, `SELECT value FROM access_schema_meta WHERE key = ?`, canonicalAccessMarkerKey).Scan(&canonicalMarker); markerErr == nil && canonicalMarker == "v1" {
 		if rule.TargetScope == accesscontrol.TargetScopeSources || rule.TargetScope == accesscontrol.TargetScopeApplications || len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
@@ -491,6 +519,7 @@ func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.Acce
 		}
 		rule.Revision = 1
 		rule.CreatedAt = now
+		current = accessRuleSnapshot{Rule: accesscontrol.AccessRule{Schedule: accesscontrol.AlwaysSchedule()}, Members: []accesscontrol.RuleMember{}}
 	case err != nil:
 		return accesscontrol.AccessRule{}, fmt.Errorf("load access rule before save: %w", err)
 	default:
@@ -542,10 +571,10 @@ func (r *AccessRepository) SaveRule(ctx context.Context, rule accesscontrol.Acce
 	for _, member := range current.Members {
 		lastByTerminal[member.TerminalID] = member
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at, subject_mode)
-		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?, ?)
-		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at, subject_mode=excluded.subject_mode`,
-		r.store.deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt), rule.Subject.Mode)
+	_, err = tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at, subject_mode, schedule_json)
+		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at, subject_mode=excluded.subject_mode, schedule_json=excluded.schedule_json`,
+		r.store.deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt), rule.Subject.Mode, scheduleJSON)
 	if err != nil {
 		return accesscontrol.AccessRule{}, fmt.Errorf("save access rule: %w", err)
 	}
@@ -772,11 +801,16 @@ func loadAccessRuleTx(ctx context.Context, tx *sql.Tx, deviceID, id string) (acc
 	snapshot := accessRuleSnapshot{Members: []accesscontrol.RuleMember{}}
 	var enabled int
 	var createdAt, updatedAt int64
-	err := tx.QueryRowContext(ctx, `SELECT id, name, target_scope, subject_mode, enabled, revision, created_at, updated_at
+	var scheduleJSON string
+	err := tx.QueryRowContext(ctx, `SELECT id, name, target_scope, subject_mode, schedule_json, enabled, revision, created_at, updated_at
 		FROM access_rules WHERE device_id = ? AND id = ?`, deviceID, id).Scan(
-		&snapshot.Rule.ID, &snapshot.Rule.Name, &snapshot.Rule.TargetScope, &snapshot.Rule.Subject.Mode, &enabled, &snapshot.Rule.Revision, &createdAt, &updatedAt)
+		&snapshot.Rule.ID, &snapshot.Rule.Name, &snapshot.Rule.TargetScope, &snapshot.Rule.Subject.Mode, &scheduleJSON, &enabled, &snapshot.Rule.Revision, &createdAt, &updatedAt)
 	if err != nil {
 		return accessRuleSnapshot{}, err
+	}
+	snapshot.Rule.Schedule, err = decodeAccessSchedule(scheduleJSON)
+	if err != nil {
+		return accessRuleSnapshot{}, fmt.Errorf("decode access rule schedule: %w", err)
 	}
 	snapshot.Rule.Enabled = enabled != 0
 	snapshot.Rule.CreatedAt = timeFromUnix(createdAt)
@@ -919,6 +953,33 @@ func firstNonNil(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func encodeAccessSchedule(schedule accesscontrol.AccessSchedule) (string, error) {
+	normalized, err := accesscontrol.NormalizeSchedule(schedule)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("encode access schedule: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func decodeAccessSchedule(encoded string) (accesscontrol.AccessSchedule, error) {
+	if strings.TrimSpace(encoded) == "" {
+		return accesscontrol.AlwaysSchedule(), nil
+	}
+	var schedule accesscontrol.AccessSchedule
+	if err := json.Unmarshal([]byte(encoded), &schedule); err != nil {
+		return accesscontrol.AccessSchedule{}, fmt.Errorf("decode access schedule JSON: %w", err)
+	}
+	normalized, err := accesscontrol.NormalizeSchedule(schedule)
+	if err != nil {
+		return accesscontrol.AccessSchedule{}, err
+	}
+	return normalized, nil
 }
 
 func bumpAccessDesiredRevision(ctx context.Context, tx *sql.Tx, deviceID string) error {
