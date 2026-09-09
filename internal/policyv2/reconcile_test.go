@@ -2,6 +2,7 @@ package policyv2
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -30,6 +31,106 @@ func TestEquivalentRouterFieldHandlesRouterOSCanonicalValues(t *testing.T) {
 		if got := equivalentRouterField(test.key, test.actual, test.desired); got != test.want {
 			t.Fatalf("%s actual=%q desired=%q got=%v want=%v", test.key, test.actual, test.desired, got, test.want)
 		}
+	}
+}
+
+func TestEquivalentRouterFieldComparesRouterOSTimeSemantics(t *testing.T) {
+	for _, test := range []struct {
+		name, actual, desired string
+		want                  bool
+	}{
+		{
+			name:    "compact time and reordered weekdays",
+			actual:  "20h-22h58m59s,mon,tue,wed,thu,fri",
+			desired: "20:00:00-22:58:59,fri,thu,wed,tue,mon",
+			want:    true,
+		},
+		{
+			name:    "compact midnight segment and reordered all weekdays",
+			actual:  "0s-1h59m59s,sun,mon,tue,wed,thu,fri,sat",
+			desired: "00:00:00-01:59:59,mon,tue,wed,thu,fri,sat,sun",
+			want:    true,
+		},
+		{
+			name:    "compact late day segment",
+			actual:  "23h-23h59m59s,sun,mon,tue,wed,thu,fri,sat",
+			desired: "23:00:00-23:59:59,mon,tue,wed,thu,fri,sat,sun",
+			want:    true,
+		},
+		{
+			name:    "different end",
+			actual:  "20h-22h59m59s,mon,tue,wed,thu,fri",
+			desired: "20:00:00-22:58:59,mon,tue,wed,thu,fri",
+			want:    false,
+		},
+		{
+			name:    "different weekday set",
+			actual:  "20h-22h58m59s,mon,tue,wed,thu,fri,sat",
+			desired: "20:00:00-22:58:59,mon,tue,wed,thu,fri",
+			want:    false,
+		},
+		{
+			name:    "malformed value fails closed",
+			actual:  "20hours-22h58m59s,mon,tue,wed,thu,fri",
+			desired: "20hours-22h58m59s,mon,tue,wed,thu,fri",
+			want:    false,
+		},
+		{
+			name:    "empty matcher",
+			actual:  "",
+			desired: "",
+			want:    true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := equivalentRouterField("time", test.actual, test.desired); got != test.want {
+				t.Fatalf("actual=%q desired=%q got=%v want=%v", test.actual, test.desired, got, test.want)
+			}
+		})
+	}
+}
+
+func TestDiffDesiredTreatsRouterOSTimeCanonicalFormsAsEquivalent(t *testing.T) {
+	type timeForm struct {
+		desired string
+		actual  string
+	}
+	timeForms := []timeForm{
+		{desired: "00:00:00-01:59:59,mon,tue,wed,thu,fri,sat,sun", actual: "0s-1h59m59s,sun,mon,tue,wed,thu,fri,sat"},
+		{desired: "20:00:00-22:58:59,mon,tue,wed,thu,fri", actual: "20h-22h58m59s,mon,tue,wed,thu,fri"},
+		{desired: "23:00:00-23:59:59,mon,tue,wed,thu,fri,sat,sun", actual: "23h-23h59m59s,sun,mon,tue,wed,thu,fri,sat"},
+	}
+	menus := []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter}
+	directions := []string{"jump-out", "jump-in"}
+	desired := make([]DesiredObject, 0, len(timeForms)*len(menus)*len(directions))
+	actual := make([]ActualObject, 0, cap(desired))
+	for menuIndex, menu := range menus {
+		for directionIndex, direction := range directions {
+			for windowIndex, form := range timeForms {
+				logicalID := fmt.Sprintf("access:scheduled:family-%d:%s:window:%d", menuIndex, direction, windowIndex)
+				order := directionIndex*len(timeForms) + windowIndex + 1
+				fields := map[string]string{
+					"chain":       "forward",
+					"action":      "jump",
+					"jump-target": "access-chain",
+					"comment":     "managed scheduled access",
+					"time":        form.desired,
+				}
+				desired = append(desired, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: "activation", Order: order, Fields: fields})
+				actual = append(actual, ActualObject{LogicalID: logicalID, Menu: string(menu), RouterID: fmt.Sprintf("*%d", len(actual)+1), Position: order - 1, Fields: map[string]string{
+					"chain":       "forward",
+					"action":      "jump",
+					"jump-target": "access-chain",
+					"comment":     "managed scheduled access",
+					"time":        form.actual,
+				}})
+			}
+		}
+	}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(operations) != 0 || len(blockers) != 0 {
+		t.Fatalf("canonical RouterOS time forms should converge: operations=%#v blockers=%#v", operations, blockers)
 	}
 }
 

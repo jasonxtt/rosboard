@@ -1150,8 +1150,20 @@ func (m *Manager) ReconcileAccess(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if len(plan.Plan.Blockers) > 0 || (len(plan.Plan.Operations) == 0 && plan.Plan.AccessResolutionCount == 0) {
+		if len(plan.Plan.Blockers) > 0 {
 			continue
+		}
+		if len(plan.Plan.Operations) == 0 && plan.Plan.AccessResolutionCount == 0 {
+			// RouterOS may already contain the desired access projection after a
+			// previous verify false-negative. In that case there is no mutation
+			// left to plan, but the access revision still needs to be committed.
+			accessState, stateErr := applier.Access.GetState(ctx)
+			if stateErr != nil {
+				return stateErr
+			}
+			if accessState.Applied() {
+				continue
+			}
 		}
 		if _, err := m.ApplyPlan(ctx, deviceID, plan.PlanID); err != nil && !errors.Is(err, ErrDeviceBusy) {
 			return err
