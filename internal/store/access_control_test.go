@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"rosboard/internal/accesscontrol"
@@ -27,6 +28,37 @@ func seedAccessPolicySources(t *testing.T, repository *PolicyRepository, sourceI
 		if _, err := repository.SaveSource(context.Background(), policyv2.Source{ID: sourceID, Type: "manual", Kind: policyv2.KindIP, Name: sourceID, Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestAccessRuleScheduleRoundTripsThroughStore(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	seedAccessPolicySources(t, storage.PolicyRepository(), "source-a")
+
+	want, err := accesscontrol.NormalizeSchedule(accesscontrol.AccessSchedule{
+		Mode: accesscontrol.ScheduleModeWeekly,
+		Windows: []accesscontrol.AccessTimeWindow{
+			{Days: []string{"fri", "mon"}, Start: "20:00", End: "22:00"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := accessSourcesRule("scheduled", "source-a")
+	rule.Schedule = want
+	if _, err := storage.AccessRepository().SaveRule(context.Background(), rule, []accesscontrol.RuleMember{accessFixedMember(rule.ID, "terminal", "10.0.0.20")}, "tom"); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := storage.AccessRepository().ListRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !reflect.DeepEqual(rules[0].Schedule, want) {
+		t.Fatalf("scheduled rule did not round-trip canonically: %#v", rules)
 	}
 }
 
@@ -438,6 +470,59 @@ func TestMarkedAccessSchemaAddsApplicationRelation(t *testing.T) {
 	}
 	if count != 4 {
 		t.Fatalf("unexpected application relation schema: %d columns", count)
+	}
+}
+
+func TestPreviousAccessSchemaAddsDefaultScheduleColumn(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	device, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`UPDATE access_schema_meta SET value = 'v2' WHERE key = 'logical_rules'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`DROP TABLE access_rules`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`CREATE TABLE access_rules (
+		device_id TEXT NOT NULL,
+		id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		target_scope TEXT NOT NULL,
+		action TEXT NOT NULL DEFAULT 'deny',
+		enabled INTEGER NOT NULL,
+		revision INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		subject_mode TEXT NOT NULL DEFAULT 'selected',
+		PRIMARY KEY (device_id, id)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := device.db.Exec(`INSERT INTO access_rules (device_id, id, name, target_scope, enabled, revision, created_at, updated_at, subject_mode) VALUES ('edge', 'legacy-v2', '旧规则', 'internet', 1, 1, 0, 0, 'all')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := device.initAccessControlSchema(); err != nil {
+		t.Fatalf("v2 access schema should receive the schedule column: %v", err)
+	}
+	var scheduleJSON string
+	if err := device.db.QueryRow(`SELECT schedule_json FROM access_rules WHERE id = 'legacy-v2'`).Scan(&scheduleJSON); err != nil {
+		t.Fatal(err)
+	}
+	if scheduleJSON != defaultAccessScheduleJSON {
+		t.Fatalf("v2 rule default schedule = %q, want %q", scheduleJSON, defaultAccessScheduleJSON)
+	}
+	var marker string
+	if err := device.db.QueryRow(`SELECT value FROM access_schema_meta WHERE key = 'logical_rules'`).Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != accessSchemaVersion {
+		t.Fatalf("v2 schema marker was not upgraded: %q", marker)
 	}
 }
 

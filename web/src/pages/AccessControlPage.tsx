@@ -23,6 +23,7 @@ import {
   type InternetEgressCandidates,
 } from '../features/policy/api'
 import { AccessRuleModal } from '../features/policy/ui/AccessRuleModal'
+import { accessScheduleSummary } from '../features/policy/schedule'
 import { FlowCard } from '../features/policy/ui/FlowCard'
 import type { FlowCardStatus } from '../features/policy/ui/FlowCard'
 import { InternetEgressModal } from '../features/policy/ui/InternetEgressModal'
@@ -184,6 +185,7 @@ export default function AccessControlPage() {
         subject: rule.subject,
         targetScope: rule.targetScope,
         targetListIds: rule.targetListIds,
+        schedule: rule.schedule,
         enabled: !rule.enabled,
         revision: rule.revision,
       })
@@ -360,7 +362,7 @@ export default function AccessControlPage() {
             <FlowCard
               key={rule.id}
               title={rule.name}
-              meta={`创建于 ${rule.createdAt ? formatRelativeTime(rule.createdAt) : '未知时间'} · 修订 ${rule.revision}`}
+              meta={`创建于 ${rule.createdAt ? formatRelativeTime(rule.createdAt) : '未知时间'} · 修订 ${rule.revision} · ${accessScheduleSummary(rule.schedule)}${rule.schedule.mode === 'always' ? '全天阻断' : '窗口内阻断'}`}
               status={ruleStatus(rule)}
               enabled={rule.enabled}
               busy={busyId === rule.id}
@@ -460,6 +462,7 @@ export default function AccessControlPage() {
                     subject: rule.subject,
                     targetScope: rule.targetScope,
                     targetListIds: rule.targetListIds,
+                    schedule: rule.schedule,
                     enabled: !rule.enabled,
                     revision: rule.revision,
                     internetEgresses: selection,

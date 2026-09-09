@@ -458,7 +458,7 @@ var managedRouterFields = map[string]bool{
 	"include": true, "interface": true, "list": true, "match-subdomain": true,
 	"name": true, "new-connection-mark": true, "new-routing-mark": true,
 	"out-interface": true, "out-interface-list": true, "passthrough": true, "protocol": true, "routing-mark": true,
-	"reject-with": true, "routing-table": true, "src-address-list": true, "jump-target": true,
+	"reject-with": true, "routing-table": true, "src-address-list": true, "jump-target": true, "time": true,
 	"table": true, "to-address": true, "to-addresses": true,
 	"to-ports": true, "type": true,
 }

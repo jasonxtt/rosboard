@@ -616,6 +616,44 @@ func TestMutationAccessCapabilityProbeCoversBothFirewallFamilies(t *testing.T) {
 	}
 }
 
+func TestMutationAccessTimeCapabilityProbeCoversBothFirewallFamilies(t *testing.T) {
+	var creates []map[string]any
+	var deleted []string
+	nextID := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && (r.URL.Path == "/rest/ip/firewall/filter" || r.URL.Path == "/rest/ipv6/firewall/filter") {
+			var fields map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+				t.Fatalf("invalid time capability probe body: %v", err)
+			}
+			creates = append(creates, fields)
+			nextID++
+			_, _ = io.WriteString(w, fmt.Sprintf(`{".id":"*%02x"}`, nextID))
+			return
+		}
+		if r.Method == http.MethodDelete && (strings.HasPrefix(r.URL.Path, "/rest/ip/firewall/filter/*") || strings.HasPrefix(r.URL.Path, "/rest/ipv6/firewall/filter/*")) {
+			deleted = append(deleted, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter, MenuIPv6FirewallFilter}); err != nil {
+		t.Fatalf("access time capability probe failed: %v", err)
+	}
+	if len(creates) != 2 || len(deleted) != 2 {
+		t.Fatalf("time capability probe did not create/delete both inert rules: creates=%d deletes=%d", len(creates), len(deleted))
+	}
+	for _, fields := range creates {
+		if fields["disabled"] != "yes" || fields["time"] != "00:00:00-00:01:00,mon" || fields["action"] != "accept" {
+			t.Fatalf("time capability probe has unexpected fields: %#v", fields)
+		}
+	}
+}
+
 func TestMutationCommandFieldAllowLists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/export" || r.Method != http.MethodPost {

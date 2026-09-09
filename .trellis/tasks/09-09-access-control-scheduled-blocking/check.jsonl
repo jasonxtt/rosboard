@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Check the root-review gate, required automated validation, and no-production-deployment boundary."}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"Check schedule ownership, family-specific RouterOS projection, capability probing, and stale-field cleanup."}
+{"file":".trellis/spec/frontend/dual-ui.md","reason":"Check Aurora/Compact parity and embedded asset graph integrity."}
+{"file":".trellis/tasks/09-09-access-control-scheduled-blocking/prd.md","reason":"Check the accepted window-in-blocking semantics and access-control scheduled-blocking acceptance criteria."}

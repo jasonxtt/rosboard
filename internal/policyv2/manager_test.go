@@ -459,6 +459,21 @@ func (r *capabilityReadFailure) List(context.Context, routeros.MutationMenu, rou
 	return nil, r.err
 }
 
+type accessCapabilityProbe struct {
+	moveRecorder
+	timeChecks int
+	timeErr    error
+}
+
+func (r *accessCapabilityProbe) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
+	return nil
+}
+
+func (r *accessCapabilityProbe) VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error {
+	r.timeChecks++
+	return r.timeErr
+}
+
 func TestAccessCapabilityBlockerFailsClosedWhenFilterFamilyCannotBeVerified(t *testing.T) {
 	errProbe := errors.New("read-only firewall menu")
 	blockers, err := accessCapabilityBlockers(context.Background(), &capabilityReadFailure{err: errProbe}, []DesiredObject{
@@ -469,6 +484,19 @@ func TestAccessCapabilityBlockerFailsClosedWhenFilterFamilyCannotBeVerified(t *t
 	}
 	if len(blockers) != 1 || blockers[0].Code != "routeros_access_filter_capability_unverified" || blockers[0].Family != string(FamilyIPv4) {
 		t.Fatalf("failed capability verification must block IPv4 access filters: %#v", blockers)
+	}
+}
+
+func TestAccessCapabilityBlockerRequiresTimeProbeForScheduledFilters(t *testing.T) {
+	desired := accessRuleForTest("access:rule-a:ipv4:scheduled", 1)
+	desired.Fields["time"] = "20:00:00-22:00:00,mon"
+	probe := &accessCapabilityProbe{timeErr: errors.New("time matcher rejected")}
+	blockers, err := accessCapabilityBlockers(context.Background(), probe, []DesiredObject{desired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.timeChecks != 1 || len(blockers) != 1 || blockers[0].Code != "routeros_access_time_capability_unverified" {
+		t.Fatalf("scheduled access must require a successful time probe: checks=%d blockers=%#v", probe.timeChecks, blockers)
 	}
 }
 

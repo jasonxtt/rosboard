@@ -1,6 +1,28 @@
 /* Policy feature (策略路由 / 访问控制 / 目标库) — token-only Aurora styles.
    All classes carry the pol- prefix to avoid collisions with other slices. */
 
+.access-schedule-editor { display: flex; flex-direction: column; gap: 10px; }
+.access-schedule-intro { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); }
+.access-schedule-intro span { color: var(--ink-3); font-size: var(--text-sm); }
+.access-schedule-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.access-schedule-mode label { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--stroke); border-radius: var(--r-md); background: var(--glass); cursor: pointer; }
+.access-schedule-mode label.active { border-color: var(--accent); background: var(--accent-soft); }
+.access-schedule-mode label span { display: flex; flex-direction: column; gap: 2px; }
+.access-schedule-mode small { color: var(--ink-3); }
+.access-schedule-windows { display: flex; flex-direction: column; gap: 8px; }
+.access-schedule-window { padding: 10px 12px; border: 1px solid var(--stroke); border-radius: var(--r-md); background: var(--glass-2); }
+.access-schedule-window-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.access-schedule-remove, .access-schedule-add { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 3px 0; }
+.access-schedule-remove { color: var(--err); }
+.access-schedule-remove:disabled, .access-schedule-add:disabled { color: var(--ink-3); cursor: not-allowed; }
+.access-schedule-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.access-schedule-days label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--stroke); border-radius: var(--r-sm); cursor: pointer; }
+.access-schedule-days label.active { border-color: var(--accent); background: var(--accent-soft); }
+.access-schedule-times { display: flex; align-items: end; gap: 8px; margin-top: 10px; }
+.access-schedule-times label { display: flex; flex-direction: column; gap: 4px; color: var(--ink-3); font-size: var(--text-sm); }
+.access-schedule-times input { min-height: 34px; padding: 5px 8px; border: 1px solid var(--stroke); border-radius: var(--r-sm); background: var(--glass); color: var(--ink-1); }
+.access-schedule-error { margin: 0; color: var(--err); font-size: var(--text-sm); }
+
 /* ---------- notices ---------- */
 .pol-notice {
   display: flex;

@@ -12,6 +12,7 @@ import (
 
 func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) ([]PlanIssue, error) {
 	menus := make(map[routeros.MutationMenu]bool)
+	scheduled := false
 	for _, object := range desired {
 		if !strings.HasPrefix(object.LogicalID, "access:") || object.Fields["chain"] == "" {
 			continue
@@ -19,6 +20,9 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 		menu := routeros.MutationMenu(object.Menu)
 		if menu == routeros.MenuIPFirewallFilter || menu == routeros.MenuIPv6FirewallFilter {
 			menus[menu] = true
+			if strings.TrimSpace(object.Fields["time"]) != "" {
+				scheduled = true
+			}
 		}
 	}
 	ordered := make([]routeros.MutationMenu, 0, len(menus))
@@ -37,6 +41,15 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 	if err := verifier.VerifyAccessControlCapabilities(ctx, ordered); err != nil {
 		return accessCapabilityIssues(ordered, err), nil
 	}
+	if scheduled {
+		timeVerifier, ok := mutation.(AccessTimeCapabilityVerifier)
+		if !ok {
+			return accessTimeCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control time capability probe")), nil
+		}
+		if err := timeVerifier.VerifyAccessControlTimeCapabilities(ctx, ordered); err != nil {
+			return accessTimeCapabilityIssues(ordered, err), nil
+		}
+	}
 	return nil, nil
 }
 
@@ -50,6 +63,21 @@ func accessCapabilityIssues(menus []routeros.MutationMenu, err error) []PlanIssu
 		issues = append(issues, PlanIssue{
 			Code: "routeros_access_filter_capability_unverified", Status: "blocker", Family: family,
 			Reason: fmt.Sprintf("无法证明 RouterOS %s 过滤器支持访问控制所需的 address-list、jump/return、drop 及 reject-with=tcp-reset 能力：%v", family, err),
+		})
+	}
+	return issues
+}
+
+func accessTimeCapabilityIssues(menus []routeros.MutationMenu, err error) []PlanIssue {
+	issues := make([]PlanIssue, 0, len(menus))
+	for _, menu := range menus {
+		family := string(FamilyIPv4)
+		if menu == routeros.MenuIPv6FirewallFilter {
+			family = string(FamilyIPv6)
+		}
+		issues = append(issues, PlanIssue{
+			Code: "routeros_access_time_capability_unverified", Status: "blocker", Family: family,
+			Reason: fmt.Sprintf("无法证明 RouterOS %s 过滤器支持访问控制的 time 时间匹配器；限时规则已阻止同步：%v", family, err),
 		})
 	}
 	return issues

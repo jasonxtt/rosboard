@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Review SQLite schema versioning, migrations, transactions, and durable schedule persistence."}
+{"file":".trellis/spec/backend/policy-routing.md","reason":"Preserve RouterOS ownership, desired-state projection, capability checks, and reconcile ordering for access rules."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Keep invalid schedules and RouterOS capability failures fail-closed with stable API errors."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply focused regression, race, vet, build, and surgical-change verification requirements."}
+{"file":".trellis/spec/frontend/dual-ui.md","reason":"Keep Aurora and Compact access-control contracts and embedded CSS graphs consistent."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Follow shared component and form-state patterns for the schedule editor."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run and preserve frontend tests, lint, production build, and UI-asset verification."}
+{"file":".trellis/tasks/09-09-access-control-scheduled-blocking/design.md","reason":"Implement the approved window-in-blocking semantic, compatibility boundary, and RouterOS time projection."}

@@ -372,6 +372,39 @@ func (c *MutationClient) VerifyAccessControlCapabilities(ctx context.Context, me
 	return nil
 }
 
+// VerifyAccessControlTimeCapabilities proves that each firewall family
+// accepts the RouterOS time matcher used by scheduled access rules. The
+// probe is disabled and removed immediately, so it cannot affect traffic.
+func (c *MutationClient) VerifyAccessControlTimeCapabilities(ctx context.Context, menus []MutationMenu) error {
+	for _, menu := range menus {
+		if menu != MenuIPFirewallFilter && menu != MenuIPv6FirewallFilter {
+			return fmt.Errorf("unsupported access-control time capability menu %q", menu)
+		}
+		suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
+		if menu == MenuIPv6FirewallFilter {
+			suffix += "6"
+		}
+		fields := RouterOSFields{
+			"comment":  "rosboard access time capability probe (inert; safe to remove) " + suffix,
+			"chain":    "output",
+			"action":   "accept",
+			"time":     "00:00:00-00:01:00,mon",
+			"disabled": "yes",
+		}
+		probe, err := c.Create(ctx, menu, fields)
+		if err != nil {
+			return fmt.Errorf("RouterOS %s access-control time capability probe failed: %w", menu, err)
+		}
+		if probe.ID() == "" {
+			return fmt.Errorf("RouterOS %s access-control time capability probe returned no object id", menu)
+		}
+		if err := c.Delete(ctx, menu, probe.ID()); err != nil {
+			return fmt.Errorf("RouterOS %s access-control time capability probe cleanup failed: %w", menu, err)
+		}
+	}
+	return nil
+}
+
 func (c *MutationClient) SetDNSSettings(ctx context.Context, fields RouterOSFields) error {
 	_, err := c.command(ctx, MenuIPDNS, CommandDNSSettingsSet, fields)
 	return err
