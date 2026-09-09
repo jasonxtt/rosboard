@@ -4,11 +4,16 @@ import { formatRelativeTime } from '../lib/format'
 import { usePolling } from '../shell/usePolling'
 import { useShell } from '../shell/useShell'
 import { Badge } from '../ui/Badge'
+import type { BadgeTone } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { DataTable } from '../ui/DataTable'
+import type { TableColumn } from '../ui/DataTable'
 import { EmptyState } from '../ui/EmptyState'
 import { Modal } from '../ui/Modal'
 import { Skeleton } from '../ui/Skeleton'
+import { Toggle } from '../ui/Toggle'
+import { Tooltip } from '../ui/Tooltip'
 import { toast } from '../ui/toastStore'
 import { deleteAccessRule, saveAccessRule, type AccessRuleDraft, type PolicyTerminal, type TargetList } from '../features/policy/canonical'
 import {
@@ -24,19 +29,20 @@ import {
 } from '../features/policy/api'
 import { AccessRuleModal } from '../features/policy/ui/AccessRuleModal'
 import { accessScheduleSummary } from '../features/policy/schedule'
-import { FlowCard } from '../features/policy/ui/FlowCard'
-import type { FlowCardStatus } from '../features/policy/ui/FlowCard'
 import { InternetEgressModal } from '../features/policy/ui/InternetEgressModal'
 import { JobProgress, JobProgressLine } from '../features/policy/ui/JobProgress'
 import { Notice } from '../features/policy/ui/Notice'
 import { targetCountCap } from '../features/policy/ui/labels'
 import type { FlowNode } from '../ui/FlowNodes'
+import { FlowPills } from '../ui/FlowNodes'
 import '../features/policy/policy.css'
 import './AccessControlPage.css'
 
 type TrackedJob = { id: string; label: string; successMessage: string }
 
-const statusPresentation: Record<string, FlowCardStatus> = {
+type RuleStatus = { tone: BadgeTone; label: string; tip?: string }
+
+const statusPresentation: Record<string, RuleStatus> = {
   applied: { tone: 'ok', label: '已应用' },
   applying: { tone: 'accent', label: '应用中' },
   pending: { tone: 'warn', label: '待应用' },
@@ -45,7 +51,7 @@ const statusPresentation: Record<string, FlowCardStatus> = {
   disabled: { tone: 'neutral', label: '已停用' },
 }
 
-function ruleStatus(rule: AccessRuleDetail): FlowCardStatus {
+function ruleStatus(rule: AccessRuleDetail): RuleStatus {
   const presentation = statusPresentation[rule.status] ?? { tone: 'neutral' as const, label: rule.status || '未知' }
   return rule.issues.length ? { ...presentation, tip: rule.issues.join('；') } : presentation
 }
@@ -271,6 +277,112 @@ export default function AccessControlPage() {
   const inSync = overview.state.desiredRevision === overview.state.appliedRevision
   const activeJob = overview.job && overview.job.id && !jobIsTerminal(overview.job.state) ? overview.job : undefined
 
+  const ruleColumns: Array<TableColumn<AccessRuleDetail>> = [
+    {
+      key: 'name',
+      title: '名称',
+      render: (rule) => (
+        <div className="pol-cell-stack">
+          <span className="pol-rule-name">{rule.name}</span>
+          <span className="pol-rule-sub">
+            创建于 {rule.createdAt ? formatRelativeTime(rule.createdAt) : '未知时间'} · 修订 {rule.revision}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'source',
+      title: '来源',
+      className: 'col-hide-sm',
+      render: (rule) => <FlowPills nodes={ruleSourceNodes(rule, terminalByID)} />,
+    },
+    {
+      key: 'target',
+      title: '目标',
+      render: (rule) => <FlowPills nodes={ruleTargetNodes(rule, targetByID)} />,
+    },
+    {
+      key: 'action',
+      title: '动作',
+      className: 'col-hide-sm',
+      render: (rule) => <FlowPills nodes={[{ label: rule.targetScope === 'internet' ? '禁止互联网' : '阻断访问' }]} tone="err" />,
+    },
+    {
+      key: 'schedule',
+      title: '时段',
+      className: 'col-hide-sm',
+      render: (rule) => (
+        <span className="pol-schedule">
+          {accessScheduleSummary(rule.schedule)} · {rule.schedule.mode === 'always' ? '全天阻断' : '窗口内阻断'}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      title: '状态',
+      render: (rule) => {
+        const status = ruleStatus(rule)
+        const badge = <Badge tone={status.tone}>{status.label}</Badge>
+        return (
+          <div className="pol-status-stack">
+            {status.tip ? <Tooltip tip={status.tip}>{badge}</Tooltip> : badge}
+            {rule.issues.length ? (
+              <Tooltip tip={rule.issues.join('；')}>
+                <Badge tone="warn" dot>
+                  问题
+                </Badge>
+              </Tooltip>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'enabled',
+      title: '启用',
+      width: '64px',
+      className: 'col-hide-sm',
+      render: (rule) => (
+        <Toggle checked={rule.enabled} disabled={busyId === rule.id} onChange={() => void toggleRule(rule)} label={rule.enabled ? '停用规则' : '启用规则'} />
+      ),
+    },
+    {
+      key: 'actions',
+      title: '操作',
+      width: '88px',
+      render: (rule) => (
+        <span className="pol-row-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="编辑"
+            title="编辑"
+            disabled={busyId === rule.id}
+            onClick={() => {
+              setSaveError(null)
+              setEditing(rule)
+            }}
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="删除"
+            title="删除"
+            disabled={busyId === rule.id}
+            onClick={() => {
+              setDeleteError(null)
+              setDeleting(rule)
+            }}
+          >
+            🗑
+          </button>
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="page pol-page">
       <header className="page-head">
@@ -357,37 +469,17 @@ export default function AccessControlPage() {
         <span className="section-sub">{overview.rules.length ? `${overview.rules.length} 条规则` : '阻断类规则按来源与目标匹配'}</span>
       </div>
       {overview.rules.length ? (
-        <div className="pol-rule-list">
-          {overview.rules.map((rule) => (
-            <FlowCard
-              key={rule.id}
-              title={rule.name}
-              meta={`创建于 ${rule.createdAt ? formatRelativeTime(rule.createdAt) : '未知时间'} · 修订 ${rule.revision} · ${accessScheduleSummary(rule.schedule)}${rule.schedule.mode === 'always' ? '全天阻断' : '窗口内阻断'}`}
-              status={ruleStatus(rule)}
-              enabled={rule.enabled}
-              busy={busyId === rule.id}
-              onToggle={() => void toggleRule(rule)}
-              onEdit={() => { setSaveError(null); setEditing(rule) }}
-              onDelete={() => { setDeleteError(null); setDeleting(rule) }}
-              source={ruleSourceNodes(rule, terminalByID)}
-              target={ruleTargetNodes(rule, targetByID)}
-              exit={{ label: rule.targetScope === 'internet' ? '禁止互联网' : '阻断访问' }}
-              exitTone="err"
-              footer={
-                rule.issues.length ? (
-                  <>
-                    {rule.issues.map((issue, index) => (
-                      <div className="pol-member-row" key={`issue-${index}`}>
-                        <Badge tone="warn">问题</Badge>
-                        <span>{issue}</span>
-                      </div>
-                    ))}
-                  </>
-                ) : undefined
-              }
-            />
-          ))}
-        </div>
+        <Card className="pol-rule-table">
+          <DataTable
+            ariaLabel="访问规则列表"
+            columns={ruleColumns}
+            rows={overview.rules}
+            rowKey={(rule) => rule.id}
+            rowClassName={(rule) => (rule.enabled ? undefined : 'pol-row-disabled')}
+            emptyTitle="还没有访问规则"
+            emptyDescription="选择终端与阻断目标（整个互联网或目标库），保存后立即同步到 RouterOS。"
+          />
+        </Card>
       ) : (
         <Card>
           <EmptyState
