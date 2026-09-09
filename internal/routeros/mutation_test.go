@@ -616,6 +616,179 @@ func TestMutationAccessCapabilityProbeCoversBothFirewallFamilies(t *testing.T) {
 	}
 }
 
+func TestMutationAccessTimeCapabilityProbeCoversBothFirewallFamilies(t *testing.T) {
+	var creates []map[string]any
+	var deleted []string
+	nextID := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && (r.URL.Path == "/rest/ip/firewall/filter" || r.URL.Path == "/rest/ipv6/firewall/filter") {
+			var fields map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+				t.Fatalf("invalid time capability probe body: %v", err)
+			}
+			creates = append(creates, fields)
+			nextID++
+			_, _ = io.WriteString(w, fmt.Sprintf(`{".id":"*%02x"}`, nextID))
+			return
+		}
+		if r.Method == http.MethodDelete && (strings.HasPrefix(r.URL.Path, "/rest/ip/firewall/filter/*") || strings.HasPrefix(r.URL.Path, "/rest/ipv6/firewall/filter/*")) {
+			deleted = append(deleted, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter, MenuIPv6FirewallFilter}); err != nil {
+		t.Fatalf("access time capability probe failed: %v", err)
+	}
+	if len(creates) != 2 || len(deleted) != 2 {
+		t.Fatalf("time capability probe did not create/delete both inert rules: creates=%d deletes=%d", len(creates), len(deleted))
+	}
+	for _, fields := range creates {
+		if fields["disabled"] != "yes" || fields["time"] != "00:00:00-00:01:00,mon" || fields["action"] != "accept" {
+			t.Fatalf("time capability probe has unexpected fields: %#v", fields)
+		}
+	}
+}
+
+func TestMutationAccessTimeCapabilityProbeCleansUpAmbiguousCreate(t *testing.T) {
+	var mu sync.Mutex
+	probeExists := false
+	probeComment := ""
+	deleteCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/rest/ip/firewall/filter":
+			var fields map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+				t.Fatalf("invalid ambiguous time probe body: %v", err)
+			}
+			mu.Lock()
+			probeExists = true
+			probeComment = fmt.Sprint(fields["comment"])
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			if r.URL.Query().Get("comment") == "" {
+				t.Fatalf("probe cleanup did not filter by its unique comment")
+			}
+			mu.Lock()
+			exists := probeExists
+			comment := probeComment
+			mu.Unlock()
+			if exists {
+				_, _ = io.WriteString(w, fmt.Sprintf(`[{".id":"*abc","comment":%q}]`, comment))
+			} else {
+				_, _ = io.WriteString(w, `[]`)
+			}
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*abc":
+			mu.Lock()
+			probeExists = false
+			deleteCount++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter}); err == nil {
+		t.Fatal("ambiguous create must fail closed")
+	}
+	mu.Lock()
+	leftover, deletes := probeExists, deleteCount
+	mu.Unlock()
+	if leftover || deletes != 1 {
+		t.Fatalf("ambiguous create was not reconciled and removed: leftover=%v deletes=%d", leftover, deletes)
+	}
+}
+
+func TestMutationAccessTimeCapabilityProbeRetriesReadbackCleanupAfterDeleteFailure(t *testing.T) {
+	var mu sync.Mutex
+	probeExists := false
+	deleteCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/rest/ip/firewall/filter":
+			mu.Lock()
+			probeExists = true
+			mu.Unlock()
+			_, _ = io.WriteString(w, `{".id":"*def"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			mu.Lock()
+			exists := probeExists
+			mu.Unlock()
+			if exists {
+				_, _ = io.WriteString(w, `[{".id":"*def"}]`)
+			} else {
+				_, _ = io.WriteString(w, `[]`)
+			}
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*def":
+			mu.Lock()
+			deleteCount++
+			currentDelete := deleteCount
+			if currentDelete > 1 {
+				probeExists = false
+			}
+			mu.Unlock()
+			if currentDelete == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w, `{"error":"connection lost after delete"}`)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	if err := client.VerifyAccessControlTimeCapabilities(context.Background(), []MutationMenu{MenuIPFirewallFilter}); err == nil {
+		t.Fatal("delete failure must fail closed even after readback cleanup")
+	}
+	mu.Lock()
+	leftover, deletes := probeExists, deleteCount
+	mu.Unlock()
+	if leftover || deletes != 2 {
+		t.Fatalf("delete failure was not reconciled: leftover=%v deletes=%d", leftover, deletes)
+	}
+}
+
+func TestMutationAccessTimeCapabilityProbeCleanupIgnoresCancelledCaller(t *testing.T) {
+	var deletes int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/firewall/filter":
+			if r.URL.Query().Get("comment") != "cancelled-probe" {
+				t.Fatalf("cleanup readback lost the unique probe comment: %q", r.URL.Query().Get("comment"))
+			}
+			_, _ = io.WriteString(w, `[{".id":"*ca","comment":"cancelled-probe"}]`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/ip/firewall/filter/*ca":
+			deletes++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "policy-secret")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := client.cleanupAccessTimeCapabilityProbe(ctx, MenuIPFirewallFilter, "cancelled-probe"); err != nil {
+		t.Fatalf("cancelled caller must not prevent bounded probe cleanup: %v", err)
+	}
+	if deletes != 1 {
+		t.Fatalf("cancelled caller did not allow probe deletion: deletes=%d", deletes)
+	}
+}
+
 func TestMutationCommandFieldAllowLists(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/rest/export" || r.Method != http.MethodPost {

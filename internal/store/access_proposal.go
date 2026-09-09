@@ -90,6 +90,11 @@ func saveAccessProposalRuleTx(ctx context.Context, tx *sql.Tx, deviceID string, 
 			})
 		}
 	}
+	normalizedSchedule, err := accesscontrol.NormalizeSchedule(rule.Schedule)
+	if err != nil {
+		return err
+	}
+	rule.Schedule = normalizedSchedule
 	if err := accesscontrol.ValidateRule(rule); err != nil {
 		return err
 	}
@@ -129,7 +134,10 @@ func saveAccessProposalRuleTx(ctx context.Context, tx *sql.Tx, deviceID string, 
 		if rule.Revision != 0 {
 			return accesscontrol.ErrRevisionStale
 		}
-		current = accessRuleSnapshot{Members: []accesscontrol.RuleMember{}}
+		current = accessRuleSnapshot{
+			Rule:    accesscontrol.AccessRule{Schedule: accesscontrol.AlwaysSchedule()},
+			Members: []accesscontrol.RuleMember{},
+		}
 		rule.Revision = 1
 		rule.CreatedAt = time.Now().UTC()
 	} else if err != nil {
@@ -174,10 +182,14 @@ func saveAccessProposalRuleTx(ctx context.Context, tx *sql.Tx, deviceID string, 
 	for _, member := range normalizedMembers {
 		rule.Subject.Members = append(rule.Subject.Members, accessMemberSubject(member))
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at, subject_mode)
-		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?, ?)
-		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at, subject_mode=excluded.subject_mode`,
-		deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt), rule.Subject.Mode); err != nil {
+	scheduleJSON, err := encodeAccessSchedule(rule.Schedule)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO access_rules (device_id, id, name, target_scope, action, enabled, revision, created_at, updated_at, subject_mode, schedule_json)
+		VALUES (?, ?, ?, ?, 'deny', ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, id) DO UPDATE SET name=excluded.name, target_scope=excluded.target_scope, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at, subject_mode=excluded.subject_mode, schedule_json=excluded.schedule_json`,
+		deviceID, rule.ID, rule.Name, rule.TargetScope, boolToInt(rule.Enabled), rule.Revision, unixTime(rule.CreatedAt), unixTime(rule.UpdatedAt), rule.Subject.Mode, scheduleJSON); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM access_rule_sources WHERE device_id = ? AND rule_id = ?`, deviceID, rule.ID); err != nil {

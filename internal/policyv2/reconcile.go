@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 
 	"rosboard/internal/accesscontrol"
@@ -458,7 +459,7 @@ var managedRouterFields = map[string]bool{
 	"include": true, "interface": true, "list": true, "match-subdomain": true,
 	"name": true, "new-connection-mark": true, "new-routing-mark": true,
 	"out-interface": true, "out-interface-list": true, "passthrough": true, "protocol": true, "routing-mark": true,
-	"reject-with": true, "routing-table": true, "src-address-list": true, "jump-target": true,
+	"reject-with": true, "routing-table": true, "src-address-list": true, "jump-target": true, "time": true,
 	"table": true, "to-address": true, "to-addresses": true,
 	"to-ports": true, "type": true,
 }
@@ -609,6 +610,9 @@ func isForeignMasquerade(menu routeros.MutationMenu, object routeros.RouterOSObj
 }
 
 func equivalentRouterField(key, left, right string) bool {
+	if strings.EqualFold(strings.TrimSpace(key), "time") {
+		return equivalentRouterTime(left, right)
+	}
 	if strings.TrimSpace(left) == "" {
 		normalizedRight := normalizeRouterValue(right)
 		if normalizedRight == "no" {
@@ -622,6 +626,130 @@ func equivalentRouterField(key, left, right string) bool {
 		return true
 	}
 	return equivalentRouterValue(left, right)
+}
+
+type routerOSTimeMatcher struct {
+	startSeconds int
+	endSeconds   int
+	days         uint8
+}
+
+var routerOSWeekdayBits = map[string]uint8{
+	"mon": 1 << 0,
+	"tue": 1 << 1,
+	"wed": 1 << 2,
+	"thu": 1 << 3,
+	"fri": 1 << 4,
+	"sat": 1 << 5,
+	"sun": 1 << 6,
+}
+
+// equivalentRouterTime compares the meaning of a RouterOS firewall time
+// matcher rather than its serialized spelling. RouterOS returns compact
+// duration tokens and may reorder weekdays when a value is read back, while
+// the desired graph uses HH:MM:SS and a deterministic weekday order.
+//
+// A non-empty value that cannot be parsed is deliberately not equivalent,
+// including when both sides contain the same malformed value. This keeps a
+// malformed or newly introduced RouterOS representation fail-closed.
+func equivalentRouterTime(left, right string) bool {
+	if strings.TrimSpace(left) == "" && strings.TrimSpace(right) == "" {
+		return true
+	}
+	leftMatcher, leftOK := parseRouterOSTimeMatcher(left)
+	rightMatcher, rightOK := parseRouterOSTimeMatcher(right)
+	return leftOK && rightOK && leftMatcher == rightMatcher
+}
+
+func parseRouterOSTimeMatcher(value string) (routerOSTimeMatcher, bool) {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	if len(parts) < 2 {
+		return routerOSTimeMatcher{}, false
+	}
+	rangeParts := strings.Split(parts[0], "-")
+	if len(rangeParts) != 2 {
+		return routerOSTimeMatcher{}, false
+	}
+	start, startOK := parseRouterOSTimeValue(rangeParts[0])
+	end, endOK := parseRouterOSTimeValue(rangeParts[1])
+	if !startOK || !endOK {
+		return routerOSTimeMatcher{}, false
+	}
+
+	var days uint8
+	for _, rawDay := range parts[1:] {
+		day, ok := routerOSWeekdayBits[strings.ToLower(strings.TrimSpace(rawDay))]
+		if !ok || days&day != 0 {
+			return routerOSTimeMatcher{}, false
+		}
+		days |= day
+	}
+	if days == 0 {
+		return routerOSTimeMatcher{}, false
+	}
+	return routerOSTimeMatcher{startSeconds: start, endSeconds: end, days: days}, true
+}
+
+func parseRouterOSTimeValue(value string) (int, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) == len("00:00:00") && value[2] == ':' && value[5] == ':' {
+		hour, hourOK := parseRouterOSTwoDigits(value[0:2])
+		minute, minuteOK := parseRouterOSTwoDigits(value[3:5])
+		second, secondOK := parseRouterOSTwoDigits(value[6:8])
+		if hourOK && minuteOK && secondOK && hour <= 23 && minute <= 59 && second <= 59 {
+			return hour*60*60 + minute*60 + second, true
+		}
+		return 0, false
+	}
+
+	// RouterOS uses a compact duration spelling such as 0s, 20h, or
+	// 22h58m59s. Only the ordered h/m/s units are accepted; permissive
+	// duration syntax would risk treating an unknown value as equivalent.
+	seconds := 0
+	lastUnitOrder := -1
+	sawUnit := false
+	for index := 0; index < len(value); {
+		start := index
+		for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+			index++
+		}
+		if start == index || index >= len(value) {
+			return 0, false
+		}
+		amount, err := strconv.Atoi(value[start:index])
+		if err != nil {
+			return 0, false
+		}
+		unit := value[index]
+		index++
+		unitOrder := -1
+		maxAmount := 0
+		multiplier := 0
+		switch unit {
+		case 'h':
+			unitOrder, maxAmount, multiplier = 0, 23, 60*60
+		case 'm':
+			unitOrder, maxAmount, multiplier = 1, 59, 60
+		case 's':
+			unitOrder, maxAmount, multiplier = 2, 59, 1
+		default:
+			return 0, false
+		}
+		if unitOrder <= lastUnitOrder || amount > maxAmount {
+			return 0, false
+		}
+		seconds += amount * multiplier
+		lastUnitOrder = unitOrder
+		sawUnit = true
+	}
+	return seconds, sawUnit && seconds < 24*60*60
+}
+
+func parseRouterOSTwoDigits(value string) (int, bool) {
+	if len(value) != 2 || value[0] < '0' || value[0] > '9' || value[1] < '0' || value[1] > '9' {
+		return 0, false
+	}
+	return int(value[0]-'0')*10 + int(value[1]-'0'), true
 }
 
 func equivalentRouterAddress(left, right string) bool {

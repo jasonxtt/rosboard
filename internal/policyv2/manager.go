@@ -54,6 +54,14 @@ type AccessCapabilityVerifier interface {
 	VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error
 }
 
+// AccessTimeCapabilityVerifier is optional so existing mutation fakes and
+// integrations that only need permanent access rules remain source-compatible.
+// A scheduled access plan must use an implementation that proves RouterOS
+// accepts the firewall filter time matcher before any writes are attempted.
+type AccessTimeCapabilityVerifier interface {
+	VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error
+}
+
 type Applier struct {
 	Mutation  PolicyMutation
 	Reader    PolicyReader
@@ -258,17 +266,26 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		operations = append(operations, accessOrderOperations...)
 	}
 	sortPlanOperations(operations)
-	if len(desired.Blockers) == 0 && len(operations) > 0 {
-		preflightRelease, acquired := m.gate.TryAcquire(deviceID)
-		if !acquired {
-			return PlanEnvelope{}, ErrDeviceBusy
+	if len(desired.Blockers) == 0 {
+		if len(operations) > 0 {
+			preflightRelease, acquired := m.gate.TryAcquire(deviceID)
+			if !acquired {
+				return PlanEnvelope{}, ErrDeviceBusy
+			}
+			capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects)
+			preflightRelease()
+			if capabilityErr != nil {
+				return PlanEnvelope{}, capabilityErr
+			}
+			desired.Blockers = append(desired.Blockers, capabilityBlockers...)
 		}
-		capabilityBlockers, capabilityErr := accessCapabilityBlockers(ctx, applier.Mutation, desired.Objects)
-		preflightRelease()
-		if capabilityErr != nil {
-			return PlanEnvelope{}, capabilityErr
+		if len(desired.Blockers) == 0 {
+			runtimeBlockers, runtimeErr := scheduledAccessRuntimeBlockers(ctx, applier.Mutation, desired.Objects)
+			if runtimeErr != nil {
+				return PlanEnvelope{}, runtimeErr
+			}
+			desired.Blockers = append(desired.Blockers, runtimeBlockers...)
 		}
-		desired.Blockers = append(desired.Blockers, capabilityBlockers...)
 	}
 	blockers := append(append([]PlanIssue{}, desired.Blockers...), diffBlockers...)
 	now := time.Now().UTC()
@@ -597,6 +614,13 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 			return ApplyJob{}, ErrPlanStale
 		}
 	}
+	if runtimeBlockers, runtimeErr := scheduledAccessRuntimeBlockers(ctx, applier.Mutation, desired.Objects); runtimeErr != nil {
+		release()
+		return ApplyJob{}, runtimeErr
+	} else if len(runtimeBlockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
+	}
 	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, domain, desired.crossDomainConstraints)
 	if err != nil {
 		release()
@@ -708,6 +732,13 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 			release()
 			return ApplyJob{}, ErrPlanStale
 		}
+	}
+	if runtimeBlockers, runtimeErr := scheduledAccessRuntimeBlockers(ctx, applier.Mutation, desired.Objects); runtimeErr != nil {
+		release()
+		return ApplyJob{}, runtimeErr
+	} else if len(runtimeBlockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
 	}
 	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, PolicyDomainRouting, desired.crossDomainConstraints)
 	if err != nil {
@@ -849,6 +880,13 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 			release()
 			return ApplyJob{}, ErrPlanStale
 		}
+	}
+	if runtimeBlockers, runtimeErr := scheduledAccessRuntimeBlockers(ctx, applier.Mutation, desired.Objects); runtimeErr != nil {
+		release()
+		return ApplyJob{}, runtimeErr
+	} else if len(runtimeBlockers) > 0 {
+		release()
+		return ApplyJob{}, ErrPlanStale
 	}
 	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, PolicyDomainAccess, desired.crossDomainConstraints)
 	if err != nil {
@@ -1112,8 +1150,20 @@ func (m *Manager) ReconcileAccess(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if len(plan.Plan.Blockers) > 0 || (len(plan.Plan.Operations) == 0 && plan.Plan.AccessResolutionCount == 0) {
+		if len(plan.Plan.Blockers) > 0 {
 			continue
+		}
+		if len(plan.Plan.Operations) == 0 && plan.Plan.AccessResolutionCount == 0 {
+			// RouterOS may already contain the desired access projection after a
+			// previous verify false-negative. In that case there is no mutation
+			// left to plan, but the access revision still needs to be committed.
+			accessState, stateErr := applier.Access.GetState(ctx)
+			if stateErr != nil {
+				return stateErr
+			}
+			if accessState.Applied() {
+				continue
+			}
 		}
 		if _, err := m.ApplyPlan(ctx, deviceID, plan.PlanID); err != nil && !errors.Is(err, ErrDeviceBusy) {
 			return err
@@ -1362,6 +1412,13 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	}
 	if !desiredMatchesPlan(planned, cached.Plan, domain) || len(planned.Blockers) > 0 {
 		m.failJob(ctx, applier.Repo, &job, "desired-state-changed", ErrPlanStale)
+		return job, false
+	}
+	if runtimeBlockers, runtimeErr := scheduledAccessRuntimeBlockers(ctx, applier.Mutation, planned.Objects); runtimeErr != nil {
+		m.failJob(ctx, applier.Repo, &job, "access-runtime-safety", runtimeErr)
+		return job, false
+	} else if len(runtimeBlockers) > 0 {
+		m.failJob(ctx, applier.Repo, &job, "access-runtime-safety", ErrPlanStale)
 		return job, false
 	}
 	_, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, planned.Objects, planned.crossDomainDesired, domain, planned.crossDomainConstraints)

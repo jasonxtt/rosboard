@@ -16,16 +16,17 @@ import (
 )
 
 type policyV2FakeRouter struct {
-	mu               sync.Mutex
-	nextID           int
-	objects          map[routeros.MutationMenu]map[string]routeros.RouterOSObject
-	order            map[routeros.MutationMenu][]string
-	flushes          int
-	dnsCacheSize     string
-	dnsServers       string
-	failAt           int
-	writes           int
-	capabilityChecks int
+	mu                   sync.Mutex
+	nextID               int
+	objects              map[routeros.MutationMenu]map[string]routeros.RouterOSObject
+	order                map[routeros.MutationMenu][]string
+	flushes              int
+	dnsCacheSize         string
+	dnsServers           string
+	failAt               int
+	writes               int
+	capabilityChecks     int
+	timeCapabilityChecks int
 }
 
 // policyV2BatchFakeRouter models the contract provided by the real mutation
@@ -44,6 +45,43 @@ type policyV2BatchFakeRouter struct {
 
 func newPolicyV2BatchFakeRouter() *policyV2BatchFakeRouter {
 	return &policyV2BatchFakeRouter{policyV2FakeRouter: newPolicyV2FakeRouter()}
+}
+
+// policyV2CanonicalTimeRouter models RouterOS canonicalizing firewall time
+// values after a successful write. The manager must verify the semantic value,
+// not the exact spelling returned by the router.
+type policyV2CanonicalTimeRouter struct {
+	*policyV2FakeRouter
+}
+
+func newPolicyV2CanonicalTimeRouter() *policyV2CanonicalTimeRouter {
+	return &policyV2CanonicalTimeRouter{policyV2FakeRouter: newPolicyV2FakeRouter()}
+}
+
+func (r *policyV2CanonicalTimeRouter) Create(ctx context.Context, menu routeros.MutationMenu, fields routeros.RouterOSFields) (routeros.RouterOSObject, error) {
+	object, err := r.policyV2FakeRouter.Create(ctx, menu, fields)
+	if err != nil {
+		return nil, err
+	}
+	r.canonicalizeTime(menu, object.ID())
+	return object, nil
+}
+
+func (r *policyV2CanonicalTimeRouter) Patch(ctx context.Context, menu routeros.MutationMenu, id string, fields routeros.RouterOSFields) (routeros.RouterOSObject, error) {
+	object, err := r.policyV2FakeRouter.Patch(ctx, menu, id, fields)
+	if err != nil {
+		return nil, err
+	}
+	r.canonicalizeTime(menu, object.ID())
+	return object, nil
+}
+
+func (r *policyV2CanonicalTimeRouter) canonicalizeTime(menu routeros.MutationMenu, id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if object := r.objects[menu][id]; object != nil && object["time"] != "" {
+		object["time"] = compactRouterOSTimeForTest(object["time"])
+	}
 }
 
 func (r *policyV2BatchFakeRouter) CreateBatch(ctx context.Context, menu routeros.MutationMenu, entries []routeros.RouterOSFields) error {
@@ -208,6 +246,248 @@ func TestPolicyV2ManagerAppliesAccessOnlyPermanentDenyBeforeForeignFilters(t *te
 	}
 	if err := policyRepository.DeleteSource(ctx, source.ID, source.Revision+1); !errors.Is(err, policyv2.ErrSourceInUse) {
 		t.Fatalf("source referenced by access control was deletable: %v", err)
+	}
+}
+
+func TestPolicyV2ScheduledAccessZeroOperationPlanRechecksFastTrack(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "scheduled-zero-op-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rule := canonicalRule("scheduled-zero-op-rule", target.ID)
+	rule.Schedule = accesscontrol.AccessSchedule{
+		Mode:    accesscontrol.ScheduleModeWeekly,
+		Windows: []accesscontrol.AccessTimeWindow{{Days: []string{"mon"}, Start: "20:00", End: "22:00"}},
+	}
+	if _, err := accessRepository.SaveRule(ctx, rule, []accesscontrol.RuleMember{canonicalRuleMember(rule.ID)}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	router := newPolicyV2FakeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	initialPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-access-initial", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialPlan.Plan.Blockers) != 0 {
+		t.Fatalf("initial scheduled access plan was blocked: %#v", initialPlan.Plan.Blockers)
+	}
+	initialJob, err := manager.ApplyPlan(ctx, "default", initialPlan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialJob = waitPolicyV2Job(t, policyRepository, initialJob.ID); initialJob.State != "committed" {
+		t.Fatalf("initial scheduled access apply failed: %#v", initialJob)
+	}
+	router.mu.Lock()
+	router.objects[routeros.MenuIPFirewallFilter]["*fa57"] = routeros.RouterOSObject{
+		".id": "*fa57", "chain": "forward", "action": "fasttrack-connection", "disabled": "no",
+	}
+	router.order[routeros.MenuIPFirewallFilter] = append(router.order[routeros.MenuIPFirewallFilter], "*fa57")
+	capabilityChecks, timeCapabilityChecks := router.capabilityChecks, router.timeCapabilityChecks
+	router.mu.Unlock()
+
+	zeroOpPlan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-access-zero-op", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(zeroOpPlan.Plan.Operations) != 0 {
+		t.Fatalf("externally added FastTrack unexpectedly changed the managed operation set: %#v", zeroOpPlan.Plan.Operations)
+	}
+	fastTrackBlocker := false
+	for _, blocker := range zeroOpPlan.Plan.Blockers {
+		if blocker.Code == "routeros_access_scheduled_fasttrack_unverified" {
+			fastTrackBlocker = true
+			break
+		}
+	}
+	if !fastTrackBlocker {
+		t.Fatalf("zero-operation scheduled access plan did not fail closed for active FastTrack: %#v", zeroOpPlan.Plan.Blockers)
+	}
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	if router.capabilityChecks != capabilityChecks || router.timeCapabilityChecks != timeCapabilityChecks {
+		t.Fatalf("zero-operation runtime check must not run mutation capability probes: capability=%d/%d time=%d/%d", router.capabilityChecks, capabilityChecks, router.timeCapabilityChecks, timeCapabilityChecks)
+	}
+}
+
+func TestPolicyV2ScheduledAccessApplyVerifiesRouterOSCanonicalTime(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "scheduled-canonical-time-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rule := canonicalRule("scheduled-canonical-time-rule", target.ID)
+	rule.Schedule = accesscontrol.AccessSchedule{
+		Mode: accesscontrol.ScheduleModeWeekly,
+		Windows: []accesscontrol.AccessTimeWindow{
+			{Days: []string{"mon", "tue", "wed", "thu", "fri"}, Start: "20:00", End: "22:59"},
+			{Days: []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}, Start: "23:00", End: "02:00"},
+		},
+	}
+	if _, err := accessRepository.SaveRule(ctx, rule, []accesscontrol.RuleMember{canonicalRuleMember(rule.ID)}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	router := newPolicyV2CanonicalTimeRouter()
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-canonical-time", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Blockers) != 0 || plan.Plan.Summary.Create == 0 {
+		t.Fatalf("unexpected scheduled canonical-time plan: %#v", plan.Plan)
+	}
+	job, err := manager.ApplyPlan(ctx, "default", plan.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job = waitPolicyV2Job(t, policyRepository, job.ID)
+	if job.State != "committed" {
+		t.Fatalf("apply did not accept RouterOS canonical time readback: %#v", job)
+	}
+	state, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Applied() {
+		t.Fatalf("scheduled access revision was not committed: %#v", state)
+	}
+
+	filters, err := router.List(ctx, routeros.MenuIPFirewallFilter, routeros.MutationQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalCount := 0
+	for _, filter := range filters {
+		if strings.Contains(filter["comment"], "访问规则") && filter["time"] != "" {
+			canonicalCount++
+			if !strings.Contains(filter["time"], "h") && !strings.Contains(filter["time"], "s") {
+				t.Fatalf("scheduled filter was not canonicalized by the fake RouterOS: %#v", filter)
+			}
+		}
+	}
+	if canonicalCount == 0 {
+		t.Fatalf("scheduled access apply created no timed filters: %#v", filters)
+	}
+}
+
+func TestAccessReconcileCommitsStaleRevisionWhenRouterOSIsSemanticallyEqual(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	policyRepository := storage.PolicyRepository()
+	accessRepository := storage.AccessRepository()
+	target := seedCanonicalTarget(t, policyRepository, "scheduled-recovery-target", policyv2.KindIP, policyv2.TargetListRule{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"})
+	rule := canonicalRule("scheduled-recovery-rule", target.ID)
+	rule.Schedule = accesscontrol.AccessSchedule{
+		Mode: accesscontrol.ScheduleModeWeekly,
+		Windows: []accesscontrol.AccessTimeWindow{
+			{Days: []string{"mon", "tue", "wed", "thu", "fri"}, Start: "20:00", End: "22:59"},
+			{Days: []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}, Start: "23:00", End: "02:00"},
+		},
+	}
+	if _, err := accessRepository.SaveRule(ctx, rule, []accesscontrol.RuleMember{canonicalRuleMember(rule.ID)}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	router := newPolicyV2FakeRouter()
+	desired, err := policyv2.BuildAccessDesired(ctx, policyRepository, router, accessRepository, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("scheduled recovery desired state is blocked: %#v", desired.Blockers)
+	}
+	seedPolicyV2RouterFromDesired(router, desired.Objects)
+
+	manager := policyv2.NewManager(nil)
+	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: policyRepository, Access: accessRepository}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := manager.GeneratePlanWithOptions(ctx, "default", "scheduled-access-recovery", policyv2.PlanOptions{Domain: policyv2.PolicyDomainAccess})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Operations) != 0 || len(plan.Plan.Blockers) != 0 {
+		t.Fatalf("RouterOS semantic equality should produce a clean zero-operation plan: operations=%#v blockers=%#v", plan.Plan.Operations, plan.Plan.Blockers)
+	}
+	before, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Applied() {
+		t.Fatalf("test must begin with an unapplied access revision: %#v", before)
+	}
+
+	if err := manager.ReconcileAccess(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deviceState, err := policyRepository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deviceState.Job.ID == "" {
+		t.Fatalf("stale access revision did not create a zero-operation recovery job: %#v", deviceState)
+	}
+	if job := waitPolicyV2Job(t, policyRepository, deviceState.Job.ID); job.State != "committed" {
+		t.Fatalf("zero-operation access recovery failed: %#v", job)
+	}
+	after, err := accessRepository.GetState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.Applied() || after.AppliedRevision != before.DesiredRevision {
+		t.Fatalf("zero-operation access recovery did not commit the stale revision: before=%#v after=%#v", before, after)
+	}
+}
+
+func seedPolicyV2RouterFromDesired(router *policyV2FakeRouter, desired []policyv2.DesiredObject) {
+	for index, object := range desired {
+		menu := routeros.MutationMenu(object.Menu)
+		if router.objects[menu] == nil {
+			router.objects[menu] = make(map[string]routeros.RouterOSObject)
+		}
+		id := fmt.Sprintf("*seed-%d", index+1)
+		seeded := routeros.RouterOSObject{".id": id}
+		for key, value := range object.Fields {
+			if key == "time" {
+				value = compactRouterOSTimeForTest(value)
+			}
+			seeded[key] = value
+		}
+		router.objects[menu][id] = seeded
+		router.order[menu] = append(router.order[menu], id)
+	}
+}
+
+func compactRouterOSTimeForTest(value string) string {
+	switch value {
+	case "00:00:00-01:59:59,mon,tue,wed,thu,fri,sat,sun":
+		return "0s-1h59m59s,sun,mon,tue,wed,thu,fri,sat"
+	case "20:00:00-22:58:59,mon,tue,wed,thu,fri":
+		return "20h-22h58m59s,mon,tue,wed,thu,fri"
+	case "23:00:00-23:59:59,mon,tue,wed,thu,fri,sat,sun":
+		return "23h-23h59m59s,sun,mon,tue,wed,thu,fri,sat"
+	default:
+		return value
 	}
 }
 
@@ -581,6 +861,13 @@ func (r *policyV2FakeRouter) FlushDNSCache(context.Context) error {
 func (r *policyV2FakeRouter) VerifyAccessControlCapabilities(context.Context, []routeros.MutationMenu) error {
 	r.mu.Lock()
 	r.capabilityChecks++
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *policyV2FakeRouter) VerifyAccessControlTimeCapabilities(context.Context, []routeros.MutationMenu) error {
+	r.mu.Lock()
+	r.timeCapabilityChecks++
 	r.mu.Unlock()
 	return nil
 }

@@ -15,6 +15,7 @@ import {
   type TargetList,
   type TargetListRule,
 } from './canonical.ts'
+import { alwaysAccessSchedule, normalizeAccessSchedule, type AccessTimeWindow, type AccessWeekday } from './schedule.ts'
 import { apiGet, safeArray, safeObject, scoped } from '../../lib/api.ts'
 import { parseInterfaceStatus } from '../../lib/types.ts'
 
@@ -204,6 +205,19 @@ function parseSubject(value: unknown): Subject {
   }
 }
 
+function parseAccessSchedule(value: unknown) {
+  const object = objectValue(value)
+  const windows = safeArray<unknown>(object.windows).map((raw): AccessTimeWindow => {
+    const window = objectValue(raw)
+    return {
+      days: stringArray(window.days).filter((day): day is AccessWeekday => ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].includes(day)),
+      start: stringValue(window.start),
+      end: stringValue(window.end),
+    }
+  })
+  return normalizeAccessSchedule({ mode: stringValue(object.mode) === 'weekly' ? 'weekly' : 'always', windows })
+}
+
 function parseAccessRuleDetail(value: unknown): AccessRuleDetail {
   const object = objectValue(value)
   return {
@@ -212,6 +226,7 @@ function parseAccessRuleDetail(value: unknown): AccessRuleDetail {
     subject: parseSubject(object.subject),
     targetScope: stringValue(object.targetScope) === 'targets' ? 'targets' : 'internet',
     targetListIds: stringArray(object.targetListIds),
+    schedule: object.schedule ? parseAccessSchedule(object.schedule) : alwaysAccessSchedule(),
     enabled: booleanValue(object.enabled),
     revision: numberValue(object.revision),
     createdAt: stringValue(object.createdAt),
