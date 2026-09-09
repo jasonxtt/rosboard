@@ -80,10 +80,13 @@ function ruleTargetNodes(rule: RoutingRule, targetByID: Map<string, TargetList>)
   })
 }
 
-/** 出口列主文案：去重后的 WAN 接口名（rb_ipv4_wan_… 完整出口名放 Tooltip）。 */
-function egressWanLabel(egress: Egress): string {
-  const interfaces = [...new Set(egress.families.map((family) => family.wanInterface).filter(Boolean))]
-  return interfaces.join(' / ')
+/** 出口列主文案：每个启用的协议族一行（IPv4 在前）——有下一跳显示「接口·网关」，点对点无 IP 只显示接口名。 */
+function egressFamilyLines(egress: Egress): string[] {
+  const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
+  return [...egress.families]
+    .filter((family) => family.enabled && family.wanInterface)
+    .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
+    .map((family) => (family.gateway ? `${family.wanInterface}·${family.gateway}` : family.wanInterface))
 }
 
 export default function PolicyRoutingPage() {
@@ -284,10 +287,16 @@ export default function PolicyRoutingPage() {
       render: (rule) => {
         const egress = egressByID.get(rule.egressId)
         if (!egress) return <span className="pol-cell-err">出口缺失</span>
-        const label = egressWanLabel(egress) || egress.name
+        const lines = egressFamilyLines(egress)
         return (
           <Tooltip tip={egress.name}>
-            <span className="pol-rule-egress">{label}</span>
+            <div className="pol-cell-stack">
+              {(lines.length ? lines : [egress.name]).map((line, index) => (
+                <span key={index} className="pol-rule-egress">
+                  {line}
+                </span>
+              ))}
+            </div>
           </Tooltip>
         )
       },

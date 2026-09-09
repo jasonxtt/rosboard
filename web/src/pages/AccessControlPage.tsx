@@ -313,7 +313,7 @@ export default function AccessControlPage() {
       className: 'col-hide-sm',
       render: (rule) => (
         <span className="pol-schedule">
-          {accessScheduleSummary(rule.schedule)} · {rule.schedule.mode === 'always' ? '全天阻断' : '窗口内阻断'}
+          {accessScheduleSummary(rule.schedule)} · {rule.schedule.mode === 'always' ? '全天阻断' : '阻断'}
         </span>
       ),
     },
