@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { UpdatePanel } from '../update/UpdatePanel'
 import { Button, Card, Modal, toast } from '../../ui'
 import { errorMessage } from '../../lib/api'
 import { restartPanel, type SettingsResponse } from './api'
@@ -66,6 +67,7 @@ export function MaintenanceSection({ settings, restartGate, onChanged }: Mainten
 
   return (
     <div className="maintenance-section">
+ <Card title="版本与更新"><UpdatePanel buttonClass="btn btn-ghost" primaryClass="btn btn-primary" disabled={restartGate.waiting} /></Card>
       <Card title="维护操作" sub="导出、偏好与面板服务">
         {error ? (
           <p className="form-error" role="alert">

@@ -26,3 +26,14 @@ Visual acceptance remains user-led per quality-guidelines.md. Provide exact prod
 
 ## Conditional preload regression
 Do not express the entry selection as a ternary between two dynamic imports. The current Vite/Rolldown production transform can fold it into one preload wrapper carrying only Aurora's CSS dependencies, while correctly selecting Compact's JS. Manifest-only checks cannot detect this. Use separate awaited import statements with an early return. The build checker must execute the emitted bootstrap for both variants and assert the exact loaded CSS graph, in addition to inspecting the manifest. Browser reproduction/fix verification is authorized by the user's explicit UI bug report; check the real built output rather than Vite development mode.
+
+## Version and update maintenance card
+
+Both maintenance views (including Compact's no-device shell) expose the shared
+`features/update/UpdatePanel` markup/behavior in UI-native card wrappers. Styling
+stays in each variant's own CSS graph. The card has check/install actions only,
+with a pinned-version confirmation dialog and the latest update result below.
+Release notes render as text and release links are restricted to the official
+repository. Status polling is local API polling, never automatic GitHub checks.
+Abort polling on unmount; stale reads must not overwrite a newer manual action.
+On an observed job's verified success, reload to use the new embedded frontend.

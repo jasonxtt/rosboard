@@ -1,3 +1,4 @@
+import { UpdatePanel } from '../features/update/UpdatePanel'
 import { UI_OPTIONS, isUiVariant, switchUi, readPanelRecord, savePanelRecord, readRefreshPreference, readThemePreference, readLocal, writeLocal, removeLocal, readSession, writeSession, removeSession, resetSharedPanelPreferences, THEME_KEY, REFRESH_KEY, type UiVariant } from '../uiPreference'
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
@@ -1769,7 +1770,7 @@ function EmptyDevicePanel(props: { settings: SettingsResponse; devices: DeviceSt
                 setSidebarOpen(true)
                 requestAnimationFrame(() => shell?.querySelector<HTMLButtonElement>('.sidebar button')?.focus())
               }}><span /></button>{hideTopbarHeading ? null : <div><h2>{label}</h2><p className="topbar-subtitle">可随时添加第一台 RouterOS，账号与维护设置始终可用。</p></div>}</div></header>
-			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
+			{section === 'devices' ? <section className="panel settings-panel"><div className="empty-device-callout"><Icon name="router" /><div><h3>还没有 RouterOS 设备</h3><p>保存前自动检测连接和范围，确认后立即启动采集。</p></div></div><DeviceSettingsPanel settings={props.settings} deviceStatuses={props.devices} selectedDeviceID="" interfaces={[]} onOrderChanged={props.onOrderChanged} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section> : section === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : section === 'maintenance' ? <><CompactUpdateCard /><section className="panel settings-panel"><ArchivedDevices settings={props.settings} onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /><FullResetZone onRestartingAction={async (action, onOffline) => { await action(); await waitForPanelRestart(onOffline) }} /></section></> : <section className="panel settings-panel empty-monitor-state"><Icon name="router" /><h3>尚未添加设备</h3><p>{label}需要 RouterOS 数据。添加设备后，这里会自动开始显示监控内容。</p><button type="button" className="primary-button" onClick={() => setSection('devices')}>添加 RouterOS 设备</button></section>}
 		</section>
 	</main>
 }
@@ -1925,7 +1926,7 @@ export function SettingsPage(props: {
       ) : null}
 
       {props.settings && props.activeSection === 'maintenance' ? (
-        <section className="panel settings-panel">
+        <><CompactUpdateCard disabled={props.restartSaving} /><section className="panel settings-panel">
           <div className="settings-actions">
             <button type="button" className="toolbar-button" onClick={exportSettings}><Icon name="storage" />导出全部设备脱敏设置</button>
             <button type="button" className="toolbar-button" onClick={() => { props.onResetPreferences(); setPreferenceMessage(null); setMaintenanceMessage('界面偏好已重置') }}><Icon name="clear" />重置界面偏好</button>
@@ -1934,7 +1935,7 @@ export function SettingsPage(props: {
           <ArchivedDevices settings={props.settings} onRestartingAction={props.onRestartingAction} />
           {props.restartMessage || maintenanceMessage ? <div className="settings-message">{props.restartMessage || maintenanceMessage}</div> : null}
 		  <FullResetZone onRestartingAction={props.onRestartingAction} />
-        </section>
+        </section></>
       ) : null}
 
 		{props.settings && props.activeSection === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : null}
@@ -4172,3 +4173,7 @@ function DetailSummary(props: { label: string; value: string }) {
 }
 
 export default App
+
+function CompactUpdateCard({ disabled = false }: { disabled?: boolean }) {
+  return <section className="panel settings-panel"><h3>版本与更新</h3><UpdatePanel buttonClass="toolbar-button" primaryClass="primary-button" disabled={disabled} /></section>
+}

@@ -189,3 +189,34 @@ if err := config.Save(next.Path, next); err == nil {
     s.cfg = next
 }
 ```
+
+## Scenario: Manual stable-release updates
+
+- `internal/buildinfo` is the running executable's version source. Release linker
+  flags inject version/commit/time/architecture; ordinary builds identify as dev.
+- Update APIs live at `/api/settings/update`, `/check`, and `/install` under the
+  existing session, origin, network, and setup gates. Install pins the checked
+  version; there is no reinstall/downgrade path. A mutation lock serializes
+  installation admission with existing writes; active jobs block new writes.
+- Only a supervised Linux child can install. The separate stable
+  `rosboard-supervisor` executable owns child lifetimes and recovery; it must not
+  be overwritten during an online install. Release archives still contain only
+  `rosboard`; initial installation copies it to both locations.
+- Downloads are bounded, fixed to official repository assets, SHA-256 checked,
+  safely extracted, and checked for ELF architecture. The candidate's metadata
+  command runs in an isolated directory without live ROSBOARD environment values.
+- The child stops before a complete data-directory/config/binary snapshot. Include
+  all device databases and WAL files. Installation uses a durable write-ahead job
+  record and same-filesystem binary rename. A candidate must finish configuration,
+  storage, embedded-asset, and listener initialization before the supervisor
+  activates serving and workers. No RouterOS worker runs during probation.
+- Interrupted install/restore recovers from the last complete snapshot before
+  starting a child. A corrupt journal fails closed. Reload the effective data
+  directory on ordinary child restarts, including after full reset.
+- Keep only the latest job result and one private recovery snapshot. Confirmed
+  full reset clears updater-owned snapshots too. External backup destinations
+  must be dedicated; production delivery still follows AGENTS.md NAS/manual gates.
+- Regression: Go update/API tests and targeted races; optional Linux real-package
+  download test via `ROSBOARD_UPDATE_TEST_BINARY`; `scripts/check-update-runtime.py`
+  verifies actual child replacement, rollback, interruption, session/data retention,
+  and full-reset cleanup against isolated fixture binaries.
