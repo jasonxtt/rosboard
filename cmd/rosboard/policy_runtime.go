@@ -20,7 +20,7 @@ import (
 
 // assemblePolicyRuntimes creates device-scoped appliers using the same
 // RouterOS REST credentials as monitoring.
-func assemblePolicyRuntimes(cfg config.Config, storage *store.Store, monitorManager *service.MonitorManager, manager *policyv2.Manager) error {
+func assemblePolicyRuntimes(cfg config.Config, storage *store.Store, monitorManager *service.MonitorManager, manager *policyv2.Manager, beforeWrite func(context.Context) error) error {
 	for _, device := range cfg.Devices {
 		if !device.Enabled || device.Archived || strings.TrimSpace(device.RouterOS.Username) == "" || device.RouterOS.Password == "" {
 			continue
@@ -32,6 +32,7 @@ func assemblePolicyRuntimes(cfg config.Config, storage *store.Store, monitorMana
 		repo := deviceStore.PolicyRepository()
 		reader := routeros.NewClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password)
 		mutation := routeros.NewMutationClient(device.RouterOS.BaseURL, device.RouterOS.Username, device.RouterOS.Password)
+		mutation.SetWriteGate(beforeWrite)
 		applier := &policyv2.Applier{
 			Mutation:  mutation,
 			Reader:    reader,

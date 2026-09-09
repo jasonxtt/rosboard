@@ -63,8 +63,8 @@ function jsonInit(method: string, body?: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
-export function apiGet<T = unknown>(path: string, parse?: (value: unknown) => T): Promise<T> {
-  return request(path, { method: 'GET', cache: 'no-store' }, parse)
+export function apiGet<T = unknown>(path: string, parse?: (value: unknown) => T, signal?: AbortSignal): Promise<T> {
+  return request(path, { method: 'GET', cache: 'no-store', signal }, parse)
 }
 
 export function apiPost<T = unknown>(path: string, body?: unknown, parse?: (value: unknown) => T): Promise<T> {

@@ -1251,3 +1251,59 @@ func TestMutationWriteProbeRequiresLiteralObjectIDTarget(t *testing.T) {
 		t.Fatalf("DELETE request-target = %q; unexpected object path", server.delTarget)
 	}
 }
+
+func TestWriteGateAllowsReadsButBlocksMutation(t *testing.T) {
+	var mu sync.Mutex
+	writes := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			mu.Lock()
+			writes++
+			mu.Unlock()
+			w.WriteHeader(204)
+			return
+		}
+		io.WriteString(w, `[]`)
+	}))
+	defer server.Close()
+	client := NewMutationClient(server.URL, "fixture", "fixture")
+	gate := make(chan struct{})
+	client.SetWriteGate(func(ctx context.Context) error {
+		select {
+		case <-gate:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	if _, err := client.List(context.Background(), MenuIPDNSStatic, MutationQuery{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- client.Delete(ctx, MenuIPDNSStatic, "*1") }()
+	select {
+	case err := <-result:
+		t.Fatalf("gate bypassed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	count := writes
+	mu.Unlock()
+	if count != 0 {
+		t.Fatal("write sent while gated")
+	}
+	close(gate)
+	if err := client.Delete(context.Background(), MenuIPDNSStatic, "*1"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if writes != 1 {
+		t.Fatalf("writes=%d", writes)
+	}
+}
