@@ -134,7 +134,10 @@ func saveAccessProposalRuleTx(ctx context.Context, tx *sql.Tx, deviceID string, 
 		if rule.Revision != 0 {
 			return accesscontrol.ErrRevisionStale
 		}
-		current = accessRuleSnapshot{Members: []accesscontrol.RuleMember{}}
+		current = accessRuleSnapshot{
+			Rule:    accesscontrol.AccessRule{Schedule: accesscontrol.AlwaysSchedule()},
+			Members: []accesscontrol.RuleMember{},
+		}
 		rule.Revision = 1
 		rule.CreatedAt = time.Now().UTC()
 	} else if err != nil {
