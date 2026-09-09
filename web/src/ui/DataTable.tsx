@@ -8,7 +8,14 @@ export type TableColumn<T> = {
   /** numeric columns right-align with tabular figures (§7) */
   numeric?: boolean
   width?: string
+  /** extra class on both th and td, e.g. responsive column hiding */
+  className?: string
   render: (row: T, index: number) => ReactNode
+}
+
+function cellClassName<T>(column: TableColumn<T>): string | undefined {
+  const classes = [column.numeric ? 'num' : '', column.className ?? ''].filter(Boolean).join(' ')
+  return classes || undefined
 }
 
 type DataTableProps<T> = {
@@ -42,7 +49,7 @@ export function DataTable<T>({
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key} className={column.numeric ? 'num' : undefined} style={column.width ? { width: column.width } : undefined}>
+              <th key={column.key} className={cellClassName(column)} style={column.width ? { width: column.width } : undefined}>
                 {column.title}
               </th>
             ))}
@@ -53,7 +60,7 @@ export function DataTable<T>({
             ? Array.from({ length: 4 }, (_, rowIndex) => (
                 <tr key={`skeleton-${rowIndex}`}>
                   {columns.map((column) => (
-                    <td key={column.key} className={column.numeric ? 'num' : undefined}>
+                    <td key={column.key} className={cellClassName(column)}>
                       <Skeleton height={12} width={column.numeric ? '60%' : '82%'} />
                     </td>
                   ))}
@@ -67,7 +74,7 @@ export function DataTable<T>({
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
                 >
                   {columns.map((column) => (
-                    <td key={column.key} className={column.numeric ? 'num' : undefined}>
+                    <td key={column.key} className={cellClassName(column)}>
                       {column.render(row, rowIndex)}
                     </td>
                   ))}
