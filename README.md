@@ -36,9 +36,13 @@ rosboard 把一台或多台 RouterOS 设备集中到一个适合局域网部署�
 | --- | --- | --- |
 | <img src="docs/images/policy-routing-aurora.png" alt="策略路由"> | <img src="docs/images/access-control-aurora.png" alt="访问控制"> | <img src="docs/images/target-library-aurora.png" alt="目标库"> |
 
-| 终端监控 | 多设备仪表台 | Compact 紧凑版 |
-| --- | --- | --- |
-| <img src="docs/images/terminals-aurora.png" alt="终端监控"> | <img src="docs/images/fleet-aurora.png" alt="多设备仪表台"> | <img src="docs/images/overview-compact.png" alt="Compact UI"> |
+| 终端监控 | 多设备仪表台 |
+| --- | --- |
+| <img src="docs/images/terminals-aurora.png" alt="终端监控"> | <img src="docs/images/fleet-aurora.png" alt="多设备仪表台"> |
+
+| Compact 紧凑版 · 仪表台 | Compact 紧凑版 · 系统概览 |
+| --- | --- |
+| <img src="docs/images/fleet-compact.jpg" alt="Compact 仪表台"> | <img src="docs/images/overview-compact.jpg" alt="Compact 系统概览"> |
 
 ## 快速开始
 
