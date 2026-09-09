@@ -44,3 +44,24 @@ export function FlowNodes({ source, target, exit, exitTone = 'accent' }: FlowNod
     </div>
   )
 }
+
+type FlowPillsProps = {
+  nodes: FlowNode[]
+  /** 'accent' = 出口高亮, 'err' = 阻断终点；默认中性胶囊 */
+  tone?: 'accent' | 'err'
+}
+
+/** One group of flow pills without arrows — for a single table cell (§9.2). */
+export function FlowPills({ nodes, tone }: FlowPillsProps) {
+  const extraClass = tone === 'err' ? 'flow-node-err' : tone === 'accent' ? 'flow-node-hl' : ''
+  return (
+    <div className="flow-nodes">
+      {nodes.map((node, index) => (
+        <span key={index} className={`flow-node ${extraClass}`.trim()}>
+          {node.label}
+          {node.cap ? <span className="flow-cap">{node.cap}</span> : null}
+        </span>
+      ))}
+    </div>
+  )
+}

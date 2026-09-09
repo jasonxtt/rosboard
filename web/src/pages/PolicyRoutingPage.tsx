@@ -2,11 +2,16 @@ import { useCallback, useMemo, useState } from 'react'
 import { errorMessage } from '../lib/api'
 import { usePolling } from '../shell/usePolling'
 import { useShell } from '../shell/useShell'
+import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { DataTable } from '../ui/DataTable'
+import type { TableColumn } from '../ui/DataTable'
 import { EmptyState } from '../ui/EmptyState'
 import { Modal } from '../ui/Modal'
 import { Skeleton } from '../ui/Skeleton'
+import { Toggle } from '../ui/Toggle'
+import { Tooltip } from '../ui/Tooltip'
 import { toast } from '../ui/toastStore'
 import {
   deleteRoutingRule,
@@ -26,7 +31,6 @@ import {
   mutationPartialStateOf,
   type PolicyOverviewMeta,
 } from '../features/policy/api'
-import { FlowCard } from '../features/policy/ui/FlowCard'
 import { JobProgress, JobProgressLine } from '../features/policy/ui/JobProgress'
 import { Notice } from '../features/policy/ui/Notice'
 import { PlanReviewModal } from '../features/policy/ui/PlanReview'
@@ -34,6 +38,7 @@ import { RoutingRuleWizard } from '../features/policy/ui/RoutingRuleWizard'
 import { routingRuleStatus } from '../features/policy/ui/ruleStatus'
 import { targetCountCap } from '../features/policy/ui/labels'
 import type { FlowNode } from '../ui/FlowNodes'
+import { FlowPills } from '../ui/FlowNodes'
 import '../features/policy/policy.css'
 import './PolicyRoutingPage.css'
 
@@ -73,6 +78,23 @@ function ruleTargetNodes(rule: RoutingRule, targetByID: Map<string, TargetList>)
     if (preset) return { label: `应用预设 · ${preset[1]}` }
     return { label: '未知目标库' }
   })
+}
+
+/** 出口列主文案：每个启用的协议族一行（IPv4 在前）。
+ *  下一跳模式（wanSource=next-hop）没有接口名，显示网关 IP；
+ *  接口模式显示「接口·网关」，点对点无 IP 只显示接口名。 */
+function egressFamilyLines(egress: Egress): string[] {
+  const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
+  return [...egress.families]
+    .filter((family) => family.enabled)
+    .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
+    .map((family) => {
+      const iface = family.wanInterface.trim()
+      const gateway = family.gateway.trim()
+      if (!iface || family.wanSource === 'next-hop') return gateway
+      return gateway ? `${iface}·${gateway}` : iface
+    })
+    .filter((line) => line.length > 0)
 }
 
 export default function PolicyRoutingPage() {
@@ -234,6 +256,119 @@ export default function PolicyRoutingPage() {
 
   const overviewJobs = meta?.activeJobs ?? []
 
+  const sortedRules = [...context.rules].sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'zh-Hans-CN'))
+
+  const ruleColumns: Array<TableColumn<RoutingRule>> = [
+    {
+      key: 'name',
+      title: '名称',
+      render: (rule) => (
+        <div className="pol-cell-stack">
+          <span className="pol-rule-name">{rule.name}</span>
+          <span className="pol-rule-sub">修订 {rule.revision}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'priority',
+      title: '优先级',
+      numeric: true,
+      width: '72px',
+      className: 'col-hide-sm',
+      render: (rule) => rule.priority,
+    },
+    {
+      key: 'source',
+      title: '来源',
+      className: 'col-hide-sm',
+      render: (rule) => <FlowPills nodes={ruleSourceNodes(rule, terminalByID)} />,
+    },
+    {
+      key: 'target',
+      title: '目标',
+      render: (rule) => <FlowPills nodes={ruleTargetNodes(rule, targetByID)} />,
+    },
+    {
+      key: 'egress',
+      title: '出口',
+      className: 'col-hide-sm',
+      render: (rule) => {
+        const egress = egressByID.get(rule.egressId)
+        if (!egress) return <span className="pol-cell-err">出口缺失</span>
+        const lines = egressFamilyLines(egress)
+        return (
+          <Tooltip tip={egress.name}>
+            <div className="pol-cell-stack">
+              {(lines.length ? lines : [egress.name]).map((line, index) => (
+                <span key={index} className="pol-rule-egress">
+                  {line}
+                </span>
+              ))}
+            </div>
+          </Tooltip>
+        )
+      },
+    },
+    {
+      key: 'status',
+      title: '状态',
+      render: (rule) => {
+        const status = routingRuleStatus(rule, egressByID.get(rule.egressId), desiredMismatch)
+        const pending = status.label === '待应用'
+        return (
+          <div className="pol-status-stack">
+            <Badge tone={status.tone}>{status.label}</Badge>
+            {pending ? (
+              <button type="button" className="pol-review-link" disabled={reviewGenerating || writeBlocked} onClick={() => void openReview()}>
+                {reviewGenerating ? '正在生成计划…' : '审查并应用 →'}
+              </button>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'enabled',
+      title: '启用',
+      width: '64px',
+      className: 'col-hide-sm',
+      render: (rule) => (
+        <Toggle checked={rule.enabled} disabled={busyId === rule.id} onChange={() => void toggleRule(rule)} label={rule.enabled ? '停用规则' : '启用规则'} />
+      ),
+    },
+    {
+      key: 'actions',
+      title: '操作',
+      width: '88px',
+      render: (rule) => (
+        <span className="pol-row-actions">
+          <button type="button" className="icon-btn" aria-label="编辑" title="编辑" disabled={busyId === rule.id} onClick={() => setWizard(rule)}>
+            ✎
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="删除"
+            title="删除"
+            disabled={busyId === rule.id}
+            onClick={() => {
+              setDeleteRuleError(null)
+              setRuleDeleting(rule)
+            }}
+          >
+            🗑
+          </button>
+        </span>
+      ),
+    },
+  ]
+
+  const ruleRowClass = (rule: RoutingRule): string | undefined => {
+    const status = routingRuleStatus(rule, egressByID.get(rule.egressId), desiredMismatch)
+    const classes = [rule.enabled ? '' : 'pol-row-disabled', status.label === '待应用' ? 'pol-row-pending' : ''].filter(Boolean)
+    return classes.length ? classes.join(' ') : undefined
+  }
+
   return (
     <div className="page pol-page">
       <header className="page-head">
@@ -318,36 +453,17 @@ export default function PolicyRoutingPage() {
         </button>
       </div>
       {context.rules.length ? (
-        <div className="pol-rule-list">
-          {[...context.rules]
-            .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'zh-Hans-CN'))
-            .map((rule) => {
-            const egress = egressByID.get(rule.egressId)
-            const status = routingRuleStatus(rule, egress, desiredMismatch)
-            const pending = status.label === '待应用'
-            return (
-              <FlowCard
-                key={rule.id}
-                title={rule.name}
-                meta={`优先级 ${rule.priority} · 修订 ${rule.revision}`}
-                status={status}
-                enabled={rule.enabled}
-                busy={busyId === rule.id}
-                onToggle={() => void toggleRule(rule)}
-                onEdit={() => setWizard(rule)}
-                onDelete={() => {
-                  setDeleteRuleError(null)
-                  setRuleDeleting(rule)
-                }}
-                source={ruleSourceNodes(rule, terminalByID)}
-                target={ruleTargetNodes(rule, targetByID)}
-                exit={{ label: egress?.name || '出口缺失' }}
-                pending={pending}
-                onReview={pending ? () => void openReview() : undefined}
-              />
-            )
-          })}
-        </div>
+        <Card className="pol-rule-table">
+          <DataTable
+            ariaLabel="分流规则列表"
+            columns={ruleColumns}
+            rows={sortedRules}
+            rowKey={(rule) => rule.id}
+            rowClassName={ruleRowClass}
+            emptyTitle="还没有分流规则"
+            emptyDescription="把来源、访问目标和出口组合成一条规则，生成可审阅的 RouterOS 变更计划后再应用。"
+          />
+        </Card>
       ) : (
         <Card>
           <EmptyState

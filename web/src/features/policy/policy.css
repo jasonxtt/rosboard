@@ -79,31 +79,56 @@
   transition: width var(--motion-fast);
 }
 
-/* ---------- flow cards (§9.2) ---------- */
-.pol-flow-card {
-  padding: var(--space-4) var(--space-5);
-  border-radius: var(--r-lg);
-}
-
-.pol-flow-pending {
-  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-}
-
-.pol-flow-disabled { opacity: 0.62; }
-
-.pol-flow-head {
+/* ---------- rule tables (§9.2) ---------- */
+/* 名称列：主文案 + 次级 muted 行（修订/创建时间） */
+.pol-cell-stack {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.pol-flow-title { font-size: var(--text-card-title); font-weight: 650; }
-.pol-flow-meta { font-size: var(--text-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.pol-flow-head-right { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.pol-rule-name { font-weight: 600; }
 
-.pol-flow-line { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
-.pol-flow-line .flow-nodes { flex: 1; min-width: 0; }
+.pol-rule-sub {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态列：徽章 + 待应用时的「审查并应用 →」/ 问题标记 */
+.pol-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pol-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.pol-rule-egress { font-variant-numeric: tabular-nums; }
+.pol-cell-err { color: var(--err); }
+.pol-schedule { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 单元格内 pills 更紧凑地换行 */
+.pol-rule-table .flow-nodes { gap: var(--space-1); }
+.pol-rule-table .flow-node { padding: 3px 9px; }
+
+/* 待应用行：琥珀左侧描边 + 轻 tint；停用行整体降透明（§9.2） */
+.pol-row-pending td { background: var(--warn-soft); }
+
+.pol-row-pending td:first-child {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+.table tbody tr.pol-row-pending:hover td { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+
+.pol-row-disabled { opacity: 0.62; }
 
 .pol-review-link {
   appearance: none;
@@ -117,17 +142,7 @@
 }
 
 .pol-review-link:hover { text-decoration: underline; }
-
-.pol-flow-footer {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--stroke);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-}
+.pol-review-link:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
 
 .flow-node-tag {
   display: inline-block;
@@ -640,21 +655,13 @@
   align-items: center;
 }
 
-/* 分流规则卡片网格：按优先级从左到右排列（用户指定，与出口卡同款栅格） */
-.pol-rule-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: var(--space-3);
-  align-items: stretch;
-}
-
+/* 移动端：规则表隐藏低优先级列，保留 名称/目标/状态/操作（§11 ≤4 列） */
 @media (max-width: 767px) {
   .pol-target-list { grid-template-columns: 1fr; }
   .pol-form-grid { grid-template-columns: 1fr; }
-  .pol-rule-list { grid-template-columns: 1fr; }
   .pol-meta-grid { grid-template-columns: 1fr 1fr; }
   .pol-op-diff-key { min-width: 80px; }
-  .pol-flow-head-right { width: 100%; justify-content: flex-end; }
+  .pol-rule-table .col-hide-sm { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

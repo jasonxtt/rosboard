@@ -23,10 +23,23 @@ function egressStatus(rule: RoutingRule, egress?: Egress): { tone: StatusTone; l
   return { tone: 'good', label: '已启用' }
 }
 
-function egressSummary(egress?: Egress) {
-  if (!egress) return '出口缺失'
-  const families = egress.families.filter((family) => family.enabled).map((family) => `${family.family.toUpperCase()} · ${family.wanInterface || family.gateway || '未配置'}`).join('；')
-  return families || '未配置出口'
+/** 出口摘要：每个启用的协议族一行（IPv4 在前）。
+ *  下一跳模式（wanSource=next-hop）没有接口名，显示网关 IP；
+ *  接口模式显示「接口·网关」，点对点无 IP 只显示接口名。 */
+function egressLines(egress?: Egress): string[] {
+  if (!egress) return ['出口缺失']
+  const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
+  const lines = [...egress.families]
+    .filter((family) => family.enabled)
+    .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
+    .map((family) => {
+      const iface = family.wanInterface.trim()
+      const gateway = family.gateway.trim()
+      if (!iface || family.wanSource === 'next-hop') return gateway
+      return gateway ? `${iface}·${gateway}` : iface
+    })
+    .filter((line) => line.length > 0)
+  return lines.length ? lines : ['未配置出口']
 }
 
 export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string; refreshNonce: number }) {
@@ -59,7 +72,7 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
         const egress = egressByID.get(rule.egressId)
         const status = egressStatus(rule, egress)
         const targetNames = rule.targetListIds.map((id) => targetByID.get(id)?.name ?? id).join('、')
-        return <RoutingRuleRow key={rule.id} rule={rule} subject={subjectLabel(rule)} targets={targetNames || '—'} egressSummary={egressSummary(egress)} status={status} onEdit={() => setEditing({ rule, egress: egress ?? null })} onDelete={() => setDeleting(rule)} onToggle={async () => {
+        return <RoutingRuleRow key={rule.id} rule={rule} subject={subjectLabel(rule)} targets={targetNames || '—'} egressLines={egressLines(egress)} status={status} onEdit={() => setEditing({ rule, egress: egress ?? null })} onDelete={() => setDeleting(rule)} onToggle={async () => {
           try {
             const result = await saveRoutingRule(deviceID, { ...rule, enabled: !rule.enabled })
             const id = jobID(result)
@@ -75,7 +88,7 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
   </div>
 }
 
-function RoutingRuleRow({ rule, subject, targets, egressSummary: summary, status, onEdit, onDelete, onToggle }: { rule: RoutingRule; subject: string; targets: string; egressSummary: string; status: { tone: StatusTone; label: string }; onEdit: () => void; onDelete: () => void; onToggle: () => Promise<void> }) {
+function RoutingRuleRow({ rule, subject, targets, egressLines: egress, status, onEdit, onDelete, onToggle }: { rule: RoutingRule; subject: string; targets: string; egressLines: string[]; status: { tone: StatusTone; label: string }; onEdit: () => void; onDelete: () => void; onToggle: () => Promise<void> }) {
   const [toggling, setToggling] = useState(false)
-  return <tr className={rule.enabled ? '' : 'disabled-row'}><td><strong>{rule.name}</strong><span className="policy-sub-cell">Priority {rule.priority}</span></td><td>{subject}</td><td>{targets}</td><td>{summary}</td><td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td><td><div className="action-links"><button type="button" className="link-button" disabled={toggling} onClick={() => { setToggling(true); void onToggle().finally(() => setToggling(false)) }}>{toggling ? '处理中…' : rule.enabled ? '停用' : '启用'}</button><button type="button" className="link-button" disabled={toggling} onClick={onEdit}>编辑</button><button type="button" className="link-button link-button--danger" disabled={toggling} onClick={onDelete}>删除</button></div></td></tr>
+  return <tr className={rule.enabled ? '' : 'disabled-row'}><td><strong>{rule.name}</strong><span className="policy-sub-cell">Priority {rule.priority}</span></td><td>{subject}</td><td>{targets}</td><td>{egress[0]}{egress.length > 1 ? <span className="policy-sub-cell">{egress.slice(1).join('；')}</span> : null}</td><td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td><td><div className="action-links"><button type="button" className="link-button" disabled={toggling} onClick={() => { setToggling(true); void onToggle().finally(() => setToggling(false)) }}>{toggling ? '处理中…' : rule.enabled ? '停用' : '启用'}</button><button type="button" className="link-button" disabled={toggling} onClick={onEdit}>编辑</button><button type="button" className="link-button link-button--danger" disabled={toggling} onClick={onDelete}>删除</button></div></td></tr>
 }
