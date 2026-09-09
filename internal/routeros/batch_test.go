@@ -114,6 +114,54 @@ func TestMutationBatchUsesBoundedRouterOSScripts(t *testing.T) {
 	}
 }
 
+func TestMutationBatchReadsBackOnceAfterAllChunks(t *testing.T) {
+	ids := make([]string, 300)
+	for index := range ids {
+		ids[index] = "*" + strconv.FormatInt(int64(index+1), 16)
+	}
+	var executeCalls int
+	var readbackCalls int
+	var patchCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/rest/execute":
+			executeCalls++
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode batch request: %v", err)
+			}
+			_, _ = io.WriteString(w, batchSuccessResponse(t, payload["script"].(string)))
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/ip/dns/static":
+			readbackCalls++
+			objects := make([]map[string]string, 0, len(ids))
+			for _, id := range ids {
+				objects = append(objects, map[string]string{".id": id, "disabled": "false"})
+			}
+			_ = json.NewEncoder(w).Encode(objects)
+		case r.Method == http.MethodPatch:
+			patchCalls++
+			t.Fatalf("unexpected fallback PATCH: %s", r.URL.Path)
+		default:
+			t.Fatalf("unexpected batch request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewMutationClient(server.URL, "policy", "secret")
+	if err := client.SetDisabledBatch(context.Background(), MenuIPDNSStatic, ids, false); err != nil {
+		t.Fatal(err)
+	}
+	if executeCalls != 2 {
+		t.Fatalf("execute calls = %d, want 2 bounded chunks", executeCalls)
+	}
+	if readbackCalls != 1 {
+		t.Fatalf("read-back calls = %d, want 1 after all chunks", readbackCalls)
+	}
+	if patchCalls != 0 {
+		t.Fatalf("fallback PATCH calls = %d, want 0", patchCalls)
+	}
+}
+
 func TestMutationBatchAllowsDNSForwarderActivation(t *testing.T) {
 	var script string
 	var payload map[string]any

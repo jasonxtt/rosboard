@@ -129,37 +129,31 @@ func (c *MutationClient) SetDisabledBatch(ctx context.Context, menu MutationMenu
 	for _, id := range unique {
 		lines = append(lines, fmt.Sprintf("/%s/%s %s", menu, verb, id))
 	}
-	offset := 0
+	var batchErr error
 	for index, script := range splitBatchScript(lines) {
-		lineCount := len(strings.Split(script, "\n"))
-		chunkIDs := unique[offset : offset+lineCount]
-		if err := c.applyDisabledBatchChunk(ctx, menu, chunkIDs, disabled, script); err != nil {
-			return fmt.Errorf("RouterOS batch %s %s chunk %d: %w", verb, menu, index+1, err)
+		if _, err := c.executeScript(ctx, script); err != nil {
+			batchErr = fmt.Errorf("RouterOS batch %s %s chunk %d: %w", verb, menu, index+1, err)
+			break
 		}
-		offset += lineCount
 	}
-	return nil
-}
 
-// applyDisabledBatchChunk treats the batch as an optimization, not as the
-// source of truth. RouterOS may report a script error in a successful HTTP
-// response, or a command may fail to change an item while the script itself
-// returns successfully. Read the known IDs back immediately and repair only
-// the items that did not reach the requested state through ordinary REST
-// PATCH calls. Both enable and disable are idempotent, so this is safe even
-// when the batch partially completed before returning an error.
-func (c *MutationClient) applyDisabledBatchChunk(ctx context.Context, menu MutationMenu, ids []string, disabled bool, script string) error {
-	_, batchErr := c.executeScript(ctx, script)
-	pending, readbackErr := c.readBackDisabledBatch(ctx, menu, ids, disabled)
+	// Batch execution is only an optimization. Reconcile the whole requested
+	// set once, after all successful chunks or after the first ambiguous/script
+	// error. This keeps activation close to O(batch chunks + menu size) instead
+	// of scanning the whole RouterOS menu once per chunk.
+	pending, readbackErr := c.readBackDisabledBatch(ctx, menu, unique, disabled)
 	if readbackErr == nil && len(pending) == 0 {
 		return nil
 	}
 	if readbackErr != nil {
 		var invalidReadback *batchReadbackError
 		if errors.As(readbackErr, &invalidReadback) {
+			if batchErr != nil {
+				return errors.Join(batchErr, readbackErr)
+			}
 			return readbackErr
 		}
-		pending = append([]string(nil), ids...)
+		pending = append([]string(nil), unique...)
 	}
 	if fallbackErr := c.patchDisabledIndividually(ctx, menu, pending, disabled); fallbackErr != nil {
 		causes := make([]error, 0, 3)
@@ -167,14 +161,14 @@ func (c *MutationClient) applyDisabledBatchChunk(ctx context.Context, menu Mutat
 			causes = append(causes, batchErr)
 		}
 		if readbackErr != nil {
-			causes = append(causes, fmt.Errorf("batch read-back for IDs %s: %w", strings.Join(ids, ","), readbackErr))
+			causes = append(causes, fmt.Errorf("batch read-back for IDs %s: %w", strings.Join(unique, ","), readbackErr))
 		}
 		causes = append(causes, fmt.Errorf("individual REST fallback for IDs %s: %w", strings.Join(pending, ","), fallbackErr))
 		return errors.Join(causes...)
 	}
-	remaining, err := c.readBackDisabledBatch(ctx, menu, ids, disabled)
+	remaining, err := c.readBackDisabledBatch(ctx, menu, unique, disabled)
 	if err != nil {
-		return fmt.Errorf("read back after individual REST fallback for IDs %s: %w", strings.Join(ids, ","), err)
+		return fmt.Errorf("read back after individual REST fallback for IDs %s: %w", strings.Join(unique, ","), err)
 	}
 	if len(remaining) > 0 {
 		return fmt.Errorf("RouterOS batch did not converge for IDs %s", strings.Join(remaining, ","))
