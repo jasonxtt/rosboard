@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"rosboard/internal/config"
+	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
 )
 
@@ -180,5 +181,26 @@ func TestDeepReaderDoesNotExposeCredentialsInEndpointEvidence(t *testing.T) {
 	}
 	if report.Snapshot.Fingerprint == "" {
 		t.Fatalf("deep fingerprint is empty: %#v", report.Snapshot)
+	}
+}
+
+func TestOnlyWireGuardCandidatesRequiresEveryCandidateToBeWireGuard(t *testing.T) {
+	cases := []struct {
+		name       string
+		candidates []policyv2.TrafficIngressCandidate
+		want       bool
+	}{
+		{name: "empty", want: false},
+		{name: "wireguard only", candidates: []policyv2.TrafficIngressCandidate{{Kind: "wireguard"}}, want: true},
+		{name: "interface list and wireguard", candidates: []policyv2.TrafficIngressCandidate{{Kind: "interface-list"}, {Kind: "wireguard"}}, want: false},
+		{name: "interface list only", candidates: []policyv2.TrafficIngressCandidate{{Kind: "interface-list"}}, want: false},
+		{name: "bridge and wireguard", candidates: []policyv2.TrafficIngressCandidate{{Kind: "bridge"}, {Kind: "wireguard"}}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := onlyWireGuardCandidates(tc.candidates); got != tc.want {
+				t.Fatalf("onlyWireGuardCandidates() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

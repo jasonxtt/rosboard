@@ -135,6 +135,16 @@
   padding: var(--space-4);
 }
 
+.diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.diagnostics-deep-button {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke));
+}
+
 .diagnostics-eyebrow {
   margin: 0 0 var(--space-1) !important;
   color: var(--ink-3) !important;
@@ -219,6 +229,144 @@
   gap: var(--space-4);
 }
 
+.diagnostics-deep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--glass-2);
+}
+
+.diagnostics-deep-header,
+.diagnostics-deep-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.diagnostics-deep-header h3,
+.diagnostics-deep-section h4 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.diagnostics-deep-header p:not(.diagnostics-eyebrow),
+.diagnostics-deep-meta,
+.diagnostics-deep-empty {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-2);
+}
+
+.diagnostics-deep-state {
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.diagnostics-deep-state-healthy { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.diagnostics-deep-state-warning { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.diagnostics-deep-state-error { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+
+.diagnostics-deep-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.diagnostics-deep-section {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  background: var(--glass);
+}
+
+.diagnostics-deep-section-head > span,
+.diagnostics-endpoint-list small {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.diagnostics-endpoint-list,
+.diagnostics-trace-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diagnostics-endpoint-list li,
+.diagnostics-trace-item {
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
+  background: var(--glass-2);
+}
+
+.diagnostics-endpoint-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.diagnostics-endpoint-list li > div {
+  min-width: 0;
+}
+
+.diagnostics-endpoint-list strong,
+.diagnostics-endpoint-list span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-endpoint-list span {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.diagnostics-endpoint-error {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--stroke)) !important;
+}
+
+.diagnostics-trace-item {
+  border-left: 3px solid var(--ink-3);
+}
+
+.diagnostics-trace-accepted { border-left-color: var(--ok); }
+.diagnostics-trace-rejected { border-left-color: var(--warn); }
+
+.diagnostics-trace-line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.diagnostics-trace-line span {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.diagnostics-trace-item code {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-trace-item > p {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
 .diagnostics-group h3 {
   margin: 0 0 var(--space-2);
   color: var(--ink-2);
@@ -286,5 +434,11 @@
   .diagnostics-header,
   .diagnostics-overall,
   .diagnostics-finding-head { align-items: flex-start; flex-direction: column; }
+  .diagnostics-actions,
   .diagnostics-refresh { align-self: stretch; }
+  .diagnostics-actions { flex-direction: column; }
+  .diagnostics-deep-header,
+  .diagnostics-deep-section-head,
+  .diagnostics-endpoint-list li { align-items: flex-start; flex-direction: column; }
+  .diagnostics-deep-grid { grid-template-columns: minmax(0, 1fr); }
 }

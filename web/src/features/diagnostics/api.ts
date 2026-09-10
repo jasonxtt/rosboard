@@ -1,5 +1,5 @@
-import { apiGet, safeArray, safeBoolean, safeObject, safeString, scoped } from '../../lib/api'
-import type { DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticStatus } from './types'
+import { apiGet, apiPost, safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray, scoped } from '../../lib/api'
+import type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'
 
 function parseStatus(value: unknown): DiagnosticStatus {
   switch (value) {
@@ -41,6 +41,51 @@ function parseFinding(value: unknown): DiagnosticFinding | null {
   }
 }
 
+function parseStringMap(value: unknown): Record<string, string> {
+  return Object.fromEntries(Object.entries(safeObject(value)).map(([key, item]) => [key, safeString(item)]))
+}
+
+function parseEndpoint(value: unknown): DiagnosticEndpoint | null {
+  const item = safeObject(value)
+  const endpoint = safeString(item.endpoint)
+  if (!endpoint) return null
+  return {
+    endpoint,
+    purpose: safeString(item.purpose),
+    sharedBy: safeStringArray(item.sharedBy),
+    fields: safeStringArray(item.fields),
+    required: safeBoolean(item.required),
+    readCount: safeNumber(item.readCount),
+    cacheHits: safeNumber(item.cacheHits),
+    objectCount: safeNumber(item.objectCount),
+    objects: safeArray(item.objects).map(parseStringMap),
+    truncated: safeBoolean(item.truncated),
+    error: safeString(item.error),
+  }
+}
+
+function parseSnapshot(value: unknown): DiagnosticSnapshot {
+  const item = safeObject(value)
+  return {
+    capturedAt: safeString(item.capturedAt),
+    fingerprint: safeString(item.fingerprint),
+    endpoints: safeArray(item.endpoints).map(parseEndpoint).filter((endpoint): endpoint is DiagnosticEndpoint => endpoint !== null),
+  }
+}
+
+function parseIngressDecision(value: unknown): IngressDecision | null {
+  const item = safeObject(value)
+  const reasonCode = safeString(item.reasonCode)
+  if (!reasonCode) return null
+  return {
+    interface: safeString(item.interface),
+    result: safeString(item.result),
+    reasonCode,
+    reason: safeString(item.reason),
+    evidence: safeObject(item.evidence),
+  }
+}
+
 export function parseDiagnostics(value: unknown): DiagnosticReport {
   const item = safeObject(value)
   const findings = safeArray(item.findings).map(parseFinding).filter((finding): finding is DiagnosticFinding => finding !== null)
@@ -57,4 +102,19 @@ export function fetchDiagnostics(deviceId: string, signal?: AbortSignal): Promis
   return apiGet(scoped('/api/diagnostics', deviceId), parseDiagnostics, signal)
 }
 
-export type { DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticStatus } from './types'
+export function parseDeepDiagnostics(value: unknown): DeepDiagnosticReport {
+  const item = safeObject(value)
+  const report = parseDiagnostics(value)
+  return {
+    ...report,
+    mode: 'deep',
+    snapshot: parseSnapshot(item.snapshot),
+    ingressTrace: safeArray(item.ingressTrace).map(parseIngressDecision).filter((decision): decision is IngressDecision => decision !== null),
+  }
+}
+
+export function fetchDeepDiagnostics(deviceId: string): Promise<DeepDiagnosticReport> {
+  return apiPost(scoped('/api/diagnostics/deep', deviceId), undefined, parseDeepDiagnostics)
+}
+
+export type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'

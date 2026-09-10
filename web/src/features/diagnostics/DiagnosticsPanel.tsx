@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useDiagnostics } from './hooks'
-import type { DiagnosticFinding, DiagnosticStatus } from './types'
+import type { DeepDiagnosticReport, DiagnosticFinding, DiagnosticStatus, IngressDecision } from './types'
 
 const STATUS_LABELS: Record<DiagnosticStatus, string> = {
   ok: '正常',
@@ -12,10 +12,11 @@ const STATUS_LABELS: Record<DiagnosticStatus, string> = {
 
 const OVERALL_LABELS = { healthy: '系统正常', warning: '系统有注意项', error: '系统有错误' } as const
 
-const GROUP_ORDER = ['system', 'routeros', 'monitor', 'policy', 'access', 'recognition', 'update']
+const GROUP_ORDER = ['system', 'routeros', 'topology', 'monitor', 'policy', 'access', 'recognition', 'update']
 const GROUP_LABELS: Record<string, string> = {
   system: '系统核心',
   routeros: 'RouterOS 连接',
+  topology: '网络拓扑',
   monitor: '采集健康',
   policy: '策略路由',
   access: '访问控制',
@@ -82,8 +83,78 @@ function FindingCard({ finding }: { finding: DiagnosticFinding }) {
   )
 }
 
+function DeepReportSection({ report }: { report: DeepDiagnosticReport }) {
+  const topologyFinding = report.findings.find((finding) => finding.id === 'topology.deep')
+  const failedEndpoints = report.snapshot.endpoints.filter((endpoint) => endpoint.error)
+  return (
+    <section className="diagnostics-deep" aria-labelledby="diagnostics-deep-title">
+      <div className="diagnostics-deep-header">
+        <div>
+          <p className="diagnostics-eyebrow">DEEP SNAPSHOT</p>
+          <h3 id="diagnostics-deep-title">全面体检</h3>
+          <p>基于同一次只读 RouterOS 快照展示网络拓扑和策略入口决策。</p>
+        </div>
+        <span className={`diagnostics-deep-state diagnostics-deep-state-${report.overall}`}>{OVERALL_LABELS[report.overall]}</span>
+      </div>
+      {topologyFinding ? <FindingCard finding={topologyFinding} /> : null}
+      <div className="diagnostics-deep-grid">
+        <section className="diagnostics-deep-section" aria-labelledby="diagnostics-snapshot-title">
+          <div className="diagnostics-deep-section-head">
+            <h4 id="diagnostics-snapshot-title">RouterOS 快照</h4>
+            <span>{report.snapshot.endpoints.length} 个 endpoint{failedEndpoints.length ? ` · ${failedEndpoints.length} 个失败` : ''}</span>
+          </div>
+          <p className="diagnostics-deep-meta">指纹：{report.snapshot.fingerprint || '—'} · 读取于 {formatTime(report.snapshot.capturedAt)}</p>
+          <ul className="diagnostics-endpoint-list">
+            {report.snapshot.endpoints.map((endpoint) => (
+              <li key={endpoint.endpoint} className={endpoint.error ? 'diagnostics-endpoint-error' : undefined}>
+                <div>
+                  <strong>{endpoint.endpoint}</strong>
+                  <span>{endpoint.error ? `失败：${endpoint.error}` : `已读取 · ${endpoint.objectCount} 条对象`}</span>
+                </div>
+                <small>{endpoint.required ? '必需' : '可选'} · read {endpoint.readCount}</small>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="diagnostics-deep-section" aria-labelledby="diagnostics-trace-title">
+          <div className="diagnostics-deep-section-head">
+            <h4 id="diagnostics-trace-title">Ingress Decision Trace</h4>
+            <span>{report.ingressTrace.length} 条决策</span>
+          </div>
+          {report.ingressTrace.length ? (
+            <ol className="diagnostics-trace-list">
+              {report.ingressTrace.map((decision, index) => <TraceItem key={`${decision.interface}:${decision.reasonCode}:${index}`} decision={decision} />)}
+            </ol>
+          ) : <p className="diagnostics-deep-empty">本次没有可展示的策略入口决策。</p>}
+        </section>
+      </div>
+    </section>
+  )
+}
+
+function TraceItem({ decision }: { decision: IngressDecision }) {
+  const evidence = Object.entries(decision.evidence)
+  const accepted = decision.result === 'accepted'
+  return (
+    <li className={`diagnostics-trace-item diagnostics-trace-${accepted ? 'accepted' : 'rejected'}`}>
+      <div className="diagnostics-trace-line">
+        <strong>{decision.interface || '接口列表'}</strong>
+        <span>{accepted ? '接受' : '排除'}</span>
+      </div>
+      <code>{decision.reasonCode}</code>
+      <p>{decision.reason}</p>
+      {evidence.length ? (
+        <details className="diagnostics-evidence">
+          <summary>查看证据</summary>
+          <dl>{evidence.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatEvidence(value)}</dd></div>)}</dl>
+        </details>
+      ) : null}
+    </li>
+  )
+}
+
 export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; deviceName?: string }) {
-  const { report, loading, error, reload } = useDiagnostics(deviceId)
+  const { report, loading, error, reload, deepReport, deepLoading, deepError, runDeep } = useDiagnostics(deviceId)
   const counts = useMemo(() => {
     const values: Record<DiagnosticStatus, number> = { ok: 0, warning: 0, error: 0, disabled: 0, skipped: 0 }
     for (const finding of report?.findings ?? []) values[finding.status] += 1
@@ -108,14 +179,20 @@ export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; d
         <div>
           <p className="diagnostics-eyebrow">QUICK HEALTH</p>
           <h2 id="diagnostics-title">系统诊断</h2>
-          <p>{deviceName || deviceId} · 只读检查，不会触发 RouterOS 请求或更新检查。</p>
+          <p>{deviceName || deviceId} · 快速检查读取现有面板状态；全面体检会执行一次只读 RouterOS 快照。</p>
         </div>
-        <button type="button" className="diagnostics-refresh" onClick={() => void reload()} disabled={loading}>
-          {loading ? '检查中…' : '重新检查'}
-        </button>
+        <div className="diagnostics-actions">
+          <button type="button" className="diagnostics-refresh" onClick={() => void reload()} disabled={loading || deepLoading}>
+            {loading ? '检查中…' : '重新检查'}
+          </button>
+          <button type="button" className="diagnostics-refresh diagnostics-deep-button" onClick={() => void runDeep()} disabled={loading || deepLoading}>
+            {deepLoading ? '体检中…' : '全面体检'}
+          </button>
+        </div>
       </div>
 
       {error ? <p className="diagnostics-error" role="alert">{error}</p> : null}
+      {deepError ? <p className="diagnostics-error" role="alert">{deepError}</p> : null}
       {loading && !report ? <p className="diagnostics-loading">正在读取诊断报告…</p> : null}
 
       {report ? (
@@ -142,8 +219,10 @@ export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; d
               </section>
             ))}
           </div>
+          {deepReport ? <DeepReportSection report={deepReport} /> : null}
         </>
       ) : null}
+      {!report && deepReport ? <DeepReportSection report={deepReport} /> : null}
     </section>
   )
 }
