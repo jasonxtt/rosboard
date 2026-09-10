@@ -2,10 +2,6 @@ package policyv2
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -67,11 +63,57 @@ const (
 	sourceSelectorFactUnavailable = "unavailable"
 )
 
+// PolicyDiscoverySnapshot is the single read-through response used by the
+// routing wizard. Both projections carry the same RouterOS evidence
+// fingerprint, so the UI cannot combine a legacy discovery from one topology
+// read with source facts from another.
+type PolicyDiscoverySnapshot struct {
+	Discovery       Discovery               `json:"discovery"`
+	SourceSelectors SourceSelectorDiscovery `json:"sourceSelectors"`
+}
+
 // SourceSelectors reads the authoritative RouterOS selector facts without
 // making any RouterOS mutation. The /interface and /interface/list reads are
 // independent of route and bridge inference: a failed inference read can
 // reduce recommendationStatus to partial while the facts remain selectable.
 func (s *Scanner) SourceSelectors(ctx context.Context, deviceID string) (SourceSelectorDiscovery, error) {
+	evidence, err := s.collectDiscoveryEvidence(ctx)
+	if err != nil {
+		return SourceSelectorDiscovery{}, err
+	}
+	return sourceSelectorsFromEvidence(evidence, deviceID)
+}
+
+// ScanAndSourceSelectors collects topology evidence once and projects both
+// the legacy discovery and the factual source-selector response from it.
+// This is intentionally the API-facing path for the wizard; the standalone
+// methods remain for existing callers and tests.
+func (s *Scanner) ScanAndSourceSelectors(ctx context.Context, deviceID string) (PolicyDiscoverySnapshot, error) {
+	evidence, err := s.collectDiscoveryEvidence(ctx)
+	if err != nil {
+		return PolicyDiscoverySnapshot{}, err
+	}
+	discovery, discoveryErr := discoveryFromEvidence(evidence, deviceID, nil)
+	if discoveryErr != nil {
+		discovery = Discovery{
+			Device:         map[string]string{"id": deviceID},
+			Available:      false,
+			Reason:         discoveryErr.Error(),
+			Warnings:       []string{},
+			Snapshot:       DiscoverySnapshot{Fingerprint: "", DeviceIdentity: map[string]any{}, Capabilities: map[string]any{}},
+			WANs:           []WANCandidate{},
+			TrafficIngress: []TrafficIngressCandidate{},
+			ExistingPolicy: []any{},
+		}
+	}
+	selectors, selectorsErr := sourceSelectorsFromEvidence(evidence, deviceID)
+	if selectorsErr != nil {
+		selectors = unavailableSourceSelectorDiscovery(deviceID, selectorsErr.Error())
+	}
+	return PolicyDiscoverySnapshot{Discovery: discovery, SourceSelectors: selectors}, nil
+}
+
+func sourceSelectorsFromEvidence(evidence discoveryEvidence, deviceID string) (SourceSelectorDiscovery, error) {
 	result := SourceSelectorDiscovery{
 		Device:               map[string]string{"id": deviceID},
 		FactStatus:           sourceSelectorFactUnavailable,
@@ -80,12 +122,10 @@ func (s *Scanner) SourceSelectors(ctx context.Context, deviceID string) (SourceS
 		Interfaces:           []SourceSelectorInterface{},
 		InterfaceLists:       []SourceSelectorInterfaceList{},
 	}
-	if s == nil || s.reader == nil {
-		return result, fmt.Errorf("policy scanner is not configured")
-	}
-
-	interfaces, interfacesErr := s.reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{".id", "name", "type", "running", "disabled", "dynamic"})
-	lists, listsErr := s.reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"})
+	interfaces := evidence.interfaces
+	lists := evidence.interfaceLists
+	interfacesErr := evidence.interfacesErr
+	listsErr := evidence.interfaceListsErr
 	interfacesOK := interfacesErr == nil
 	listsOK := listsErr == nil
 	if interfacesErr != nil {
@@ -107,15 +147,22 @@ func (s *Scanner) SourceSelectors(ctx context.Context, deviceID string) (SourceS
 	// The remaining reads are recommendation evidence only. They intentionally
 	// do not gate the factual inventory.
 	warnings := &result.Warnings
-	ipv4Routes, ipv4RoutesOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"}, "IPv4 默认路由", warnings)
-	ipv6Routes, ipv6RoutesOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"}, "IPv6 默认路由", warnings)
-	ipv4DHCP, ipv4DHCPOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv4 DHCP Client", warnings)
-	ipv6DHCP, ipv6DHCPOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv6 DHCP Client", warnings)
-	pppoeClients, pppoeOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuPPPoEClient, []string{"interface", "disabled", "invalid", "running"}, "PPPoE Client", warnings)
-	members, membersOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"}, "interface list member", warnings)
-	bridgePorts, bridgePortsOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"}, "bridge port", warnings)
-	ipv4Addresses, ipv4AddressesOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPAddress, []string{"address", "interface", "disabled"}, "IPv4 address", warnings)
-	ipv6Addresses, ipv6AddressesOK := sourceSelectorOptional(s.reader, ctx, routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"}, "IPv6 address", warnings)
+	appendSourceSelectorReadWarning := func(err error, label string) bool {
+		if err != nil {
+			*warnings = append(*warnings, label+"读取失败："+err.Error())
+			return false
+		}
+		return true
+	}
+	ipv4Routes, ipv4RoutesOK := evidence.ipv4Routes, appendSourceSelectorReadWarning(evidence.ipv4RoutesErr, "IPv4 默认路由")
+	ipv6Routes, ipv6RoutesOK := evidence.ipv6Routes, appendSourceSelectorReadWarning(evidence.ipv6RoutesErr, "IPv6 默认路由")
+	ipv4DHCP, ipv4DHCPOK := evidence.ipv4DHCP, appendSourceSelectorReadWarning(evidence.ipv4DHCPErr, "IPv4 DHCP Client")
+	ipv6DHCP, ipv6DHCPOK := evidence.ipv6DHCP, appendSourceSelectorReadWarning(evidence.ipv6DHCPErr, "IPv6 DHCP Client")
+	pppoeClients, pppoeOK := evidence.pppoeClients, appendSourceSelectorReadWarning(evidence.pppoeClientsErr, "PPPoE Client")
+	members, membersOK := evidence.listMembers, appendSourceSelectorReadWarning(evidence.listMembersErr, "interface list member")
+	bridgePorts, bridgePortsOK := evidence.bridgePorts, appendSourceSelectorReadWarning(evidence.bridgePortsErr, "bridge port")
+	ipv4Addresses, ipv4AddressesOK := evidence.ipv4Addresses, appendSourceSelectorReadWarning(evidence.ipv4AddressesErr, "IPv4 address")
+	ipv6Addresses, ipv6AddressesOK := evidence.ipv6Addresses, appendSourceSelectorReadWarning(evidence.ipv6AddressesErr, "IPv6 address")
 
 	routes := append(defaultRoutes(ipv4Routes, "ipv4"), defaultRoutes(ipv6Routes, "ipv6")...)
 	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
@@ -245,7 +292,18 @@ func (s *Scanner) SourceSelectors(ctx context.Context, deviceID string) (SourceS
 		return result.InterfaceLists[i].Name < result.InterfaceLists[j].Name
 	})
 
-	fingerprint, fingerprintErr := sourceSelectorFingerprint(interfaces, lists)
+	fingerprint, fingerprintErr := discoveryFingerprint(
+		evidence.interfaces,
+		evidence.resource,
+		evidence.ipv4Routes,
+		evidence.ipv6Routes,
+		evidence.ipv4DHCP,
+		evidence.ipv6DHCP,
+		evidence.pppoeClients,
+		evidence.interfaceLists,
+		evidence.listMembers,
+		evidence.bridgePorts,
+	)
 	if fingerprintErr != nil {
 		return SourceSelectorDiscovery{}, fingerprintErr
 	}
@@ -253,13 +311,16 @@ func (s *Scanner) SourceSelectors(ctx context.Context, deviceID string) (SourceS
 	return result, nil
 }
 
-func sourceSelectorOptional(reader PolicyReader, ctx context.Context, menu routeros.ReadMenu, properties []string, label string, warnings *[]string) ([]routeros.RouterOSObject, bool) {
-	objects, err := reader.PolicyList(ctx, menu, properties)
-	if err != nil {
-		*warnings = append(*warnings, label+"读取失败："+err.Error())
-		return nil, false
+func unavailableSourceSelectorDiscovery(deviceID, reason string) SourceSelectorDiscovery {
+	return SourceSelectorDiscovery{
+		Device:               map[string]string{"id": deviceID},
+		FactStatus:           sourceSelectorFactUnavailable,
+		RecommendationStatus: sourceSelectorFactUnavailable,
+		Reason:               reason,
+		Warnings:             []string{},
+		Interfaces:           []SourceSelectorInterface{},
+		InterfaceLists:       []SourceSelectorInterfaceList{},
 	}
-	return objects, true
 }
 
 func sourceSelectorInterfaceKind(typeName string) string {
@@ -337,17 +398,4 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
-}
-
-func sourceSelectorFingerprint(interfaces, lists []routeros.RouterOSObject) (string, error) {
-	payload := struct {
-		Interfaces []routeros.RouterOSObject `json:"interfaces"`
-		Lists      []routeros.RouterOSObject `json:"interfaceLists"`
-	}{Interfaces: interfaces, Lists: lists}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
 }
