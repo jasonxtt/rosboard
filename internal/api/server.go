@@ -23,6 +23,7 @@ import (
 	"rosboard/internal/auth"
 	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
+	"rosboard/internal/diagnostics"
 	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/routeros"
@@ -59,6 +60,8 @@ type Server struct {
 	presetPreviews    map[string]applicationPresetPreview
 	presetRegistry    *applicationpreset.Registry
 	deepDiagnostics   map[string]bool
+	deepReports       map[string]diagnostics.DeepReport
+	diagnosticLogs    diagnostics.LogSource
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
@@ -127,6 +130,10 @@ func NewServerWithAuth(cfg config.Config, manager *service.MonitorManager, stora
 
 func (s *Server) SetApplicationPresetRegistry(registry *applicationpreset.Registry) {
 	s.presetRegistry = registry
+}
+
+func (s *Server) SetDiagnosticLogSource(source diagnostics.LogSource) {
+	s.diagnosticLogs = source
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {

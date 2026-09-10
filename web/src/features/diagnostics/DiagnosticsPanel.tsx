@@ -154,7 +154,7 @@ function TraceItem({ decision }: { decision: IngressDecision }) {
 }
 
 export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; deviceName?: string }) {
-  const { report, loading, error, reload, deepReport, deepLoading, deepError, runDeep } = useDiagnostics(deviceId)
+  const { report, loading, error, reload, deepReport, deepLoading, deepError, runDeep, exportLoading, exportError, runExport } = useDiagnostics(deviceId)
   const counts = useMemo(() => {
     const values: Record<DiagnosticStatus, number> = { ok: 0, warning: 0, error: 0, disabled: 0, skipped: 0 }
     for (const finding of report?.findings ?? []) values[finding.status] += 1
@@ -179,20 +179,25 @@ export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; d
         <div>
           <p className="diagnostics-eyebrow">QUICK HEALTH</p>
           <h2 id="diagnostics-title">系统诊断</h2>
-          <p>{deviceName || deviceId} · 快速检查读取现有面板状态；全面体检会执行一次只读 RouterOS 快照。</p>
+          <p>{deviceName || deviceId} · 快速检查读取现有面板状态；全面体检和导出会执行只读 RouterOS 诊断。</p>
         </div>
         <div className="diagnostics-actions">
-          <button type="button" className="diagnostics-refresh" onClick={() => void reload()} disabled={loading || deepLoading}>
+          <button type="button" className="diagnostics-refresh" onClick={() => void reload()} disabled={loading || deepLoading || exportLoading}>
             {loading ? '检查中…' : '重新检查'}
           </button>
-          <button type="button" className="diagnostics-refresh diagnostics-deep-button" onClick={() => void runDeep()} disabled={loading || deepLoading}>
+          <button type="button" className="diagnostics-refresh diagnostics-deep-button" onClick={() => void runDeep()} disabled={loading || deepLoading || exportLoading}>
             {deepLoading ? '体检中…' : '全面体检'}
+          </button>
+          <button type="button" className="diagnostics-refresh diagnostics-export-button" onClick={() => void runExport()} disabled={loading || deepLoading || exportLoading}>
+            {exportLoading ? '导出中…' : '导出诊断包'}
           </button>
         </div>
       </div>
 
       {error ? <p className="diagnostics-error" role="alert">{error}</p> : null}
       {deepError ? <p className="diagnostics-error" role="alert">{deepError}</p> : null}
+      {exportError ? <p className="diagnostics-error" role="alert">{exportError}</p> : null}
+      <p className="diagnostics-export-notice">诊断包不会包含密码、令牌或私钥，但会包含接口名称、内网 IP、路由和设备运行状态，请仅发送给可信的技术支持人员。</p>
       {loading && !report ? <p className="diagnostics-loading">正在读取诊断报告…</p> : null}
 
       {report ? (

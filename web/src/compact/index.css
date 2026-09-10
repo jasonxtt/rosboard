@@ -46,6 +46,8 @@
 .diagnostics-header, .diagnostics-overall { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-section); padding: var(--pad-card); }
 .diagnostics-actions { display: flex; flex-wrap: wrap; gap: var(--gap-inline); }
 .diagnostics-deep-button { border-color: color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
+.diagnostics-export-button { border-color: color-mix(in srgb, var(--primary) 28%, var(--hairline)); }
+.diagnostics-export-notice { margin: var(--gap-stack-sm) 0 0 !important; color: var(--muted) !important; font-size: var(--fs-caption) !important; }
 .diagnostics-eyebrow { margin: 0 0 var(--gap-label) !important; color: var(--muted) !important; font-size: var(--fs-micro) !important; letter-spacing: .08em; }
 .diagnostics-refresh { min-height: var(--control-h-sm); padding: 0 var(--pad-pill-x); border: 1px solid var(--hairline); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--slate); cursor: pointer; }
 .diagnostics-refresh:disabled { cursor: wait; opacity: .6; }

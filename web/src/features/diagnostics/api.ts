@@ -1,4 +1,4 @@
-import { apiGet, apiPost, safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray, scoped } from '../../lib/api'
+import { apiGet, apiPost, apiPostBlob, safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray, scoped } from '../../lib/api'
 import type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'
 
 function parseStatus(value: unknown): DiagnosticStatus {
@@ -115,6 +115,13 @@ export function parseDeepDiagnostics(value: unknown): DeepDiagnosticReport {
 
 export function fetchDeepDiagnostics(deviceId: string): Promise<DeepDiagnosticReport> {
   return apiPost(scoped('/api/diagnostics/deep', deviceId), undefined, parseDeepDiagnostics)
+}
+
+export function downloadDiagnostics(deviceId: string): Promise<{ blob: Blob; filename: string }> {
+  return apiPostBlob(scoped('/api/diagnostics/export', deviceId)).then((result) => ({
+    blob: result.blob,
+    filename: result.filename || `rosboard-diagnostics-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '-')}.zip`,
+  }))
 }
 
 export type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'

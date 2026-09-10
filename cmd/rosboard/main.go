@@ -23,6 +23,7 @@ import (
 	"rosboard/internal/auth"
 	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
+	"rosboard/internal/diagnostics"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/service"
 	"rosboard/internal/store"
@@ -74,7 +75,8 @@ func main() {
 		log.Fatalf("load UI assets: %v", err)
 	}
 
-	logger := log.New(os.Stdout, "rosboard ", log.LstdFlags)
+	logBuffer := diagnostics.NewLogBuffer(500, 64<<10)
+	logger := log.New(io.MultiWriter(os.Stdout, logBuffer), "rosboard ", log.LstdFlags)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -104,6 +106,7 @@ func main() {
 		log.Fatalf("assemble policy runtimes: %v", err)
 	}
 	apiServer := api.NewServerWithPolicyManager(cfg, manager, storage, assets, cancel, policyManager)
+	apiServer.SetDiagnosticLogSource(logBuffer)
 
 	apiServer.SetUpdater(updater)
 

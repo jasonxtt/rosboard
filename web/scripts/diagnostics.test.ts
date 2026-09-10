@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fetchDeepDiagnostics, parseDeepDiagnostics, parseDiagnostics } from '../src/features/diagnostics/api'
+import { downloadDiagnostics, fetchDeepDiagnostics, parseDeepDiagnostics, parseDiagnostics } from '../src/features/diagnostics/api'
 
 test('diagnostics parser keeps finding status and overall impact separate', () => {
   const report = parseDiagnostics({
@@ -51,4 +51,27 @@ test('deep diagnostics API is a device-scoped POST', async () => {
     globalThis.fetch = originalFetch
   }
   assert.deepEqual(request, { path: '/api/diagnostics/deep?device=router%2Fa', method: 'POST' })
+})
+
+test('diagnostic export API downloads a device-scoped ZIP', async () => {
+  const originalFetch = globalThis.fetch
+  let request: { path: string; method: string | undefined } | null = null
+  globalThis.fetch = (async (path, init) => {
+    request = { path: String(path), method: init?.method }
+    return new Response(new Blob(['zip-fixture']), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="rosboard-diagnostics-fixture.zip"',
+      },
+    })
+  }) as typeof fetch
+  try {
+    const result = await downloadDiagnostics('router/a')
+    assert.equal(result.filename, 'rosboard-diagnostics-fixture.zip')
+    assert.equal(await result.blob.text(), 'zip-fixture')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.deepEqual(request, { path: '/api/diagnostics/export?device=router%2Fa', method: 'POST' })
 })
