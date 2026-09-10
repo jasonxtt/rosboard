@@ -282,7 +282,7 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 			finding.Recommendation = "查看每个接口的 Decision Trace，确认接口列表、Bridge 和 WAN 路由证据。"
 		case onlyWireGuard:
 			finding.Status = StatusWarning
-			finding.Summary = "当前策略入口候选只有 WireGuard 或其他隧道接口。"
+			finding.Summary = "当前策略入口候选只有 WireGuard。"
 			finding.Recommendation = "查看被排除的 Bridge、物理接口和 WAN 证据。"
 		default:
 			finding.Status = StatusOK
@@ -306,15 +306,13 @@ func summarizeDeepError(err error) string {
 }
 
 func onlyWireGuardCandidates(candidates []policyv2.TrafficIngressCandidate) bool {
-	interfaceCount := 0
+	if len(candidates) == 0 {
+		return false
+	}
 	for _, candidate := range candidates {
-		if candidate.Kind == "interface-list" {
-			continue
-		}
-		interfaceCount++
 		if candidate.Kind != "wireguard" {
 			return false
 		}
 	}
-	return interfaceCount > 0
+	return true
 }

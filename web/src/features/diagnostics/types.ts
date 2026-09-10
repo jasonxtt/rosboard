@@ -21,3 +21,36 @@ export type DiagnosticReport = {
   overall: DiagnosticOverall
   findings: DiagnosticFinding[]
 }
+
+export type DiagnosticEndpoint = {
+  endpoint: string
+  purpose: string
+  sharedBy: string[]
+  fields: string[]
+  required: boolean
+  readCount: number
+  cacheHits: number
+  objectCount: number
+  objects: Array<Record<string, string>>
+  truncated: boolean
+  error: string
+}
+
+export type DiagnosticSnapshot = {
+  capturedAt: string
+  fingerprint: string
+  endpoints: DiagnosticEndpoint[]
+}
+
+export type IngressDecision = {
+  interface: string
+  result: string
+  reasonCode: string
+  reason: string
+  evidence: Record<string, unknown>
+}
+
+export type DeepDiagnosticReport = DiagnosticReport & {
+  snapshot: DiagnosticSnapshot
+  ingressTrace: IngressDecision[]
+}
