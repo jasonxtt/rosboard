@@ -312,6 +312,77 @@ func TestRoutingTypedIPSourceUsesFamilySpecificAddressMatcherWithoutIngress(t *t
 	}
 }
 
+func TestRoutingConnectionOrderUsesRulePriorityAcrossEgresses(t *testing.T) {
+	target := &routingTargetProjection{
+		id: "youtube", list: "target-youtube", source: Source{ID: "youtube", Kind: KindDomain},
+		rules: []SourceRule{{RuleType: "DOMAIN", Domain: "youtube.example"}},
+	}
+	for _, test := range []struct {
+		name       string
+		firstRule  RoutingRule
+		secondRule RoutingRule
+	}{
+		{
+			name: "interface versus ip",
+			firstRule: RoutingRule{
+				ID: "interface-rule", Name: "Interface", Priority: 100, EgressID: "wan-a", TargetListIDs: []string{"youtube"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, Subject: Subject{Mode: SubjectModeAll},
+			},
+			secondRule: RoutingRule{
+				ID: "ip-rule", Name: "IP", Priority: 10, EgressID: "wan-b", TargetListIDs: []string{"youtube"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceIP}, Subject: Subject{Mode: SubjectModeSelected, Prefixes: []string{"10.0.0.10/32"}},
+			},
+		},
+		{
+			name: "interface-list versus ip",
+			firstRule: RoutingRule{
+				ID: "interface-list-rule", Name: "Interface List", Priority: 100, EgressID: "wan-a", TargetListIDs: []string{"youtube"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, Subject: Subject{Mode: SubjectModeAll},
+			},
+			secondRule: RoutingRule{
+				ID: "ip-rule", Name: "IP", Priority: 10, EgressID: "wan-b", TargetListIDs: []string{"youtube"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceIP}, Subject: Subject{Mode: SubjectModeSelected, Prefixes: []string{"10.0.0.10/32"}},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := DesiredResult{}
+			add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+				result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields, Order: len(result.Objects) + 1})
+			}
+			for _, setup := range []struct {
+				egress Egress
+				rule   RoutingRule
+			}{
+				{egress: Egress{ID: "wan-a", Priority: 1, Enabled: true}, rule: test.firstRule},
+				{egress: Egress{ID: "wan-b", Priority: 100, Enabled: true}, rule: test.secondRule},
+			} {
+				buildRoutingMangleFamily(&result, add, setup.egress, EgressFamily{Family: FamilyIPv4}, map[string]string{}, map[string]bool{}, setup.egress.ID+"-table", []*routingTargetProjection{target}, []RoutingRule{setup.rule}, nil, "no", "manager", "device")
+			}
+			reorderRoutingConnectionObjects(&result)
+
+			connectionIDs := make([]string, 0, 2)
+			connectionOrders := make([]int, 0, 2)
+			for _, object := range result.Objects {
+				if isRoutingPreroutingConnection(object) {
+					connectionIDs = append(connectionIDs, object.LogicalID)
+					connectionOrders = append(connectionOrders, object.Order)
+				}
+			}
+			if len(connectionIDs) != 2 {
+				t.Fatalf("connection objects=%#v, want two prerouting connection matchers", connectionIDs)
+			}
+			wantFirst := "routing-rule-connection:" + test.secondRule.ID + ":ipv4:youtube"
+			if connectionIDs[0] != wantFirst {
+				t.Fatalf("connection order=%#v, want lower-priority rule %q first", connectionIDs, wantFirst)
+			}
+			if connectionOrders[0] >= connectionOrders[1] {
+				t.Fatalf("connection desired orders=%#v, want strictly increasing RouterOS order", connectionOrders)
+			}
+		})
+	}
+}
+
 func TestRoutingAutoSubjectProjectsOnlyUsableIPv6(t *testing.T) {
 	terminals := RoutingUsableTerminals([]accesscontrol.Terminal{{
 		ID: "terminal-a", MACAddress: "AA:BB:CC:DD:EE:FF", IPv6: []string{"2001:db8::20", "fe80::20"},

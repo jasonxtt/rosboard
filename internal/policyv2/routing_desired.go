@@ -64,6 +64,12 @@ type routingDNSStaticEntry struct {
 	fields    map[string]string
 }
 
+type routingConnectionOrder struct {
+	priority int
+	ruleID   string
+	ruleName string
+}
+
 func buildRoutingDesired(ctx context.Context, result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), repository Repository, reader PolicyReader, managerID, deviceID string, defaultIngress TrafficIngressScope, allowDefaultIngress bool, egresses []Egress, sources []Source, rules []RoutingRule, terminals []accesscontrol.Terminal) error {
 	return buildRoutingDesiredWithTargetScope(ctx, result, add, repository, reader, managerID, deviceID, defaultIngress, allowDefaultIngress, egresses, sources, rules, terminals, nil)
 }
@@ -254,6 +260,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			buildRoutingMangleFamily(result, addEgress, egress, family, ingressLists, ingressReady, table, targets, rules, terminals, disabled, managerID, deviceID)
 		}
 	}
+	reorderRoutingConnectionObjects(result)
 	sort.SliceStable(routingDNSStatics, func(i, j int) bool {
 		left, right := routingDNSStatics[i], routingDNSStatics[j]
 		if left.priority != right.priority {
@@ -561,6 +568,7 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			}
 			logicalID := "routing-rule-connection:" + rule.ID + ":" + familyName + ":" + target.id
 			add(logicalID, mangleMenu, "activation", fields)
+			recordRoutingConnectionOrder(result, logicalID, rule)
 		}
 		if rule.Enabled {
 			for _, target := range ruleTargets {
@@ -618,6 +626,58 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		add(logicalID, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": target.list, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": egressDisabled})
 	}
 	add("routing-router-routing:"+egress.ID+":"+familyName, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": egressDisabled})
+}
+
+func recordRoutingConnectionOrder(result *DesiredResult, logicalID string, rule RoutingRule) {
+	if result.routingConnectionOrders == nil {
+		result.routingConnectionOrders = make(map[string]routingConnectionOrder)
+	}
+	result.routingConnectionOrders[logicalID] = routingConnectionOrder{priority: rule.Priority, ruleID: rule.ID, ruleName: rule.Name}
+}
+
+func reorderRoutingConnectionObjects(result *DesiredResult) {
+	if result == nil || len(result.routingConnectionOrders) < 2 {
+		return
+	}
+	indices := make([]int, 0, len(result.routingConnectionOrders))
+	for index, object := range result.Objects {
+		if _, ok := result.routingConnectionOrders[object.LogicalID]; !ok || !isRoutingPreroutingConnection(object) {
+			continue
+		}
+		indices = append(indices, index)
+	}
+	if len(indices) < 2 {
+		return
+	}
+	objects := make([]DesiredObject, len(indices))
+	for index, objectIndex := range indices {
+		objects[index] = result.Objects[objectIndex]
+	}
+	sort.SliceStable(objects, func(i, j int) bool {
+		left := result.routingConnectionOrders[objects[i].LogicalID]
+		right := result.routingConnectionOrders[objects[j].LogicalID]
+		if left.priority != right.priority {
+			return left.priority < right.priority
+		}
+		if left.ruleID != right.ruleID {
+			return left.ruleID < right.ruleID
+		}
+		if left.ruleName != right.ruleName {
+			return left.ruleName < right.ruleName
+		}
+		return objects[i].LogicalID < objects[j].LogicalID
+	})
+	for index, objectIndex := range indices {
+		objects[index].Order = result.Objects[objectIndex].Order
+		result.Objects[objectIndex] = objects[index]
+	}
+}
+
+func isRoutingPreroutingConnection(object DesiredObject) bool {
+	if object.Fields["chain"] != "prerouting" || object.Fields["action"] != "mark-connection" || object.Fields["connection-mark"] != "no-mark" {
+		return false
+	}
+	return object.Menu == string(routeros.MenuIPFirewallMangle) || object.Menu == string(routeros.MenuIPv6FirewallMangle)
 }
 
 func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundary string, rule RoutingRule, subjectList, ingressList string, enabled bool) string {

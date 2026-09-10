@@ -42,6 +42,11 @@ type DesiredResult struct {
 	// changing Device/IP/Interface/List/All cannot reuse a stale plan whose
 	// legacy projection happens to be unchanged.
 	routingSourceHashes []routingRuleSourceHash
+	// The RouterOS prerouting connection-mark sequence is shared across
+	// egresses. Keep the source rule precedence metadata private to desired
+	// construction so the materializer can impose RoutingRule.Priority without
+	// changing the public plan identity payload.
+	routingConnectionOrders map[string]routingConnectionOrder
 }
 
 func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
