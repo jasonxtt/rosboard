@@ -197,7 +197,7 @@ export function DiagnosticsPanel({ deviceId, deviceName }: { deviceId: string; d
       {error ? <p className="diagnostics-error" role="alert">{error}</p> : null}
       {deepError ? <p className="diagnostics-error" role="alert">{deepError}</p> : null}
       {exportError ? <p className="diagnostics-error" role="alert">{exportError}</p> : null}
-      <p className="diagnostics-export-notice">诊断包不会包含密码、令牌或私钥，但会包含接口名称、内网 IP、路由和设备运行状态，请仅发送给可信的技术支持人员。</p>
+      <p className="diagnostics-export-notice">诊断包会自动脱敏密码、令牌、私钥、公网 IP 和设备标识；仍会包含接口名称、内网地址、路由关系和设备运行状态，请仅发送给可信技术支持人员。</p>
       {loading && !report ? <p className="diagnostics-loading">正在读取诊断报告…</p> : null}
 
       {report ? (

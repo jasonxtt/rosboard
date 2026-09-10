@@ -3,6 +3,9 @@ package diagnostics
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -118,6 +121,192 @@ func TestBuildDiagnosticExportBoundsRecentLogs(t *testing.T) {
 	}
 }
 
+func TestBuildDiagnosticExportRedactsNetworkAndIdentityPrivacy(t *testing.T) {
+	report := DeepReport{
+		Report: Report{
+			GeneratedAt: time.Date(2026, time.September, 10, 8, 9, 10, 0, time.UTC),
+			Mode:        ModeDeep,
+			DeviceID:    "customer-secret-device-uuid",
+			Overall:     OverallHealthy,
+			Findings: []Finding{{
+				ID:     "privacy-fixture",
+				Group:  "routeros",
+				Status: StatusOK,
+				Evidence: map[string]any{
+					"globalPrefix":  "2409:8a6c:6910:3e0::/60",
+					"globalHost":    "2409:8a6c:6910:3e0:1234:5678:9abc:def0/64",
+					"linkLocal":     "fe80::20c:29ff:fe98:8b73/64",
+					"linkZone":      "fe80::1234:5678%ether2",
+					"ula":           "fd86:1234:5678::abcd/64",
+					"publicIPv4":    "123.45.67.89 123.45.67.0/24",
+					"privateIPv4":   "10.0.0.99/24 127.0.0.1 169.254.1.1 100.64.0.7",
+					"specialRoutes": "0.0.0.0/0 ::/0 ::1 ::1/128 ff02::1",
+					"metadata":      "version=1.2.3.4 sha=0123456789abcdef timestamp=2026-09-10T08:09:10Z",
+					"dataDir":       "/home/alice/rosboard/data",
+				},
+			}},
+		},
+		Snapshot: EvidenceSnapshot{
+			CapturedAt:  time.Date(2026, time.September, 10, 8, 9, 10, 0, time.UTC),
+			Fingerprint: "privacy-fixture-fingerprint",
+			Endpoints: []EndpointSnapshot{{
+				Endpoint:    "/ipv6/address",
+				ObjectCount: 1,
+				ReadCount:   1,
+				Objects: []map[string]string{{
+					"global":     "2409:8a6c:6910:3e0::/60",
+					"link-local": "fe80::20c:29ff:fe98:8b73/64",
+					"ula":        "fd86:1234:5678::abcd/64",
+					"public":     "123.45.67.0/24",
+					"private":    "10.0.0.99/24",
+					"dataDir":    "/home/alice/rosboard/data",
+				}},
+			}},
+		},
+		IngressTrace: []policyv2.IngressDecision{{
+			Interface:  "ether2",
+			Result:     "accepted",
+			ReasonCode: "ingress.accepted",
+			Evidence: map[string]any{
+				"client":  "2409:8a6c:6910:3e0::/64",
+				"gateway": "123.45.67.89",
+				"peer":    "fe80::1234:5678%ether2",
+			},
+		}},
+	}
+	recentLogs := strings.Join([]string{
+		"client=2409:8a6c:6910:3e0::/64 gateway=123.45.67.89",
+		"peer=fe80::1234:5678%ether2 ula=fd86:1234:5678::abcd/64",
+		"dataDir=/home/alice/rosboard/data deviceId=customer-secret-device-uuid",
+		"password=privacy-password-fixture Authorization: Bearer privacy-authorization-fixture Cookie: session=privacy-cookie-fixture token=privacy-token-fixture secret=privacy-secret-fixture private-key=privacy-private-key-fixture credential=privacy-credential-fixture",
+	}, "\n")
+
+	archiveData, _, err := BuildDiagnosticExport(report, recentLogs)
+	if err != nil {
+		t.Fatalf("BuildDiagnosticExport() error = %v", err)
+	}
+	entries := readDiagnosticArchive(t, archiveData)
+	joined := string(bytes.Join(mapValuesInOrder(entries, []string{
+		"manifest.json",
+		"health-report.json",
+		"routeros/snapshot.json",
+		"routeros/ingress-decision-trace.json",
+		"monitor/status.json",
+		"policy/status.json",
+		"access/status.json",
+		"recognition/mosdns.json",
+		"update/status.json",
+		"logs/recent.log",
+	}), []byte("\n")))
+	for _, forbidden := range []string{
+		"2409:8a6c:6910:3e0::/60",
+		"2409:8a6c:6910:3e0:1234:5678:9abc:def0/64",
+		"fe80::20c:29ff:fe98:8b73/64",
+		"fe80::1234:5678%ether2",
+		"fd86:1234:5678::abcd/64",
+		"123.45.67.89",
+		"123.45.67.0/24",
+		"customer-secret-device-uuid",
+		"/home/alice/rosboard/data",
+		"privacy-password-fixture",
+		"privacy-authorization-fixture",
+		"privacy-cookie-fixture",
+		"privacy-token-fixture",
+		"privacy-secret-fixture",
+		"privacy-private-key-fixture",
+		"privacy-credential-fixture",
+	} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("archive contains forbidden value %q", forbidden)
+		}
+	}
+	for _, expected := range []string{
+		"2409:xxxx:xxxx:xxxx::/60",
+		"2409:xxxx:xxxx:xxxx::/64",
+		"fe80::xxxx/64",
+		"fe80::xxxx%ether2",
+		"fd86::xxxx/64",
+		"123.45.x.x",
+		"123.45.x.x/24",
+		"10.0.0.99/24",
+		"127.0.0.1",
+		"169.254.1.1",
+		"100.64.0.7",
+		"0.0.0.0/0",
+		"::/0",
+		"::1",
+		"::1/128",
+		"ff02::1",
+		redactedDeviceID,
+		"[REDACTED_PATH]/data",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("archive is missing expected sanitized value %q", expected)
+		}
+	}
+	if !strings.Contains(joined, "version=1.2.3.4") || !strings.Contains(joined, "timestamp=2026-09-10T08:09:10Z") {
+		t.Fatalf("archive changed version or timestamp metadata: %s", joined)
+	}
+
+	var manifest struct {
+		Redaction []string `json:"redaction"`
+		Files     []struct {
+			Path   string `json:"path"`
+			Bytes  int    `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(entries["manifest.json"], &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	for _, category := range []string{"Public IPv4", "Global IPv6", "IPv6 interface identifiers", "Device identifier", "Local absolute data path"} {
+		if !containsString(manifest.Redaction, category) {
+			t.Fatalf("manifest redaction list missing %q: %#v", category, manifest.Redaction)
+		}
+	}
+	for _, file := range manifest.Files {
+		data, ok := entries[file.Path]
+		if !ok {
+			t.Fatalf("manifest references missing entry %q", file.Path)
+		}
+		if len(data) != file.Bytes {
+			t.Fatalf("manifest byte count for %q = %d, want %d", file.Path, len(data), file.Bytes)
+		}
+		digest := sha256.Sum256(data)
+		if got := hex.EncodeToString(digest[:]); got != file.SHA256 {
+			t.Fatalf("manifest hash for %q = %s, want %s", file.Path, got, file.SHA256)
+		}
+	}
+}
+
+func TestBuildDiagnosticExportDoesNotMutateDeepReport(t *testing.T) {
+	report := DeepReport{
+		Report: Report{
+			GeneratedAt: time.Date(2026, time.September, 10, 8, 9, 10, 0, time.UTC),
+			Mode:        ModeDeep,
+			DeviceID:    "customer-secret-device-uuid",
+			Findings: []Finding{{
+				ID:       "fixture",
+				Evidence: map[string]any{"address": "2409:8a6c:6910:3e0::/60", "dataDir": "/home/alice/rosboard/data"},
+			}},
+		},
+	}
+	before, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+	if _, _, err := BuildDiagnosticExport(report, ""); err != nil {
+		t.Fatalf("BuildDiagnosticExport() error = %v", err)
+	}
+	after, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("BuildDiagnosticExport mutated the deep report: before=%s after=%s", before, after)
+	}
+}
+
 func TestBuildDiagnosticExportRejectsOversizedArchive(t *testing.T) {
 	noise := make([]byte, maxExportZipBytes*2)
 	state := uint32(0x12345678)
@@ -180,6 +369,15 @@ func sortedDiagnosticKeys(entries map[string][]byte) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func mapValuesInOrder(entries map[string][]byte, paths []string) [][]byte {
