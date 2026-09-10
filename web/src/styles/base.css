@@ -333,10 +333,12 @@ time,
   position: absolute;
   right: 2px;
   top: 2px;
+  box-sizing: border-box;
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: #fff;
+  border: 1px solid var(--toggle-thumb-stroke);
   transition: all var(--motion-fast);
 }
 

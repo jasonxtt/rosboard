@@ -36,6 +36,8 @@
 
   /* off-state toggle track border (kept visible on both themes) */
   --toggle-off-stroke: rgba(255, 255, 255, 0.22);
+  /* thumb border: the white knob is already visible on dark tracks */
+  --toggle-thumb-stroke: transparent;
 
   /* semantic */
   --ok: #6ee7b7;
@@ -96,6 +98,8 @@
 
   /* off-state toggle on white cards needs a real outline to be visible */
   --toggle-off-stroke: rgba(23, 26, 43, 0.38);
+  /* white thumb on a white track is invisible without its own outline */
+  --toggle-thumb-stroke: rgba(23, 26, 43, 0.25);
 
   /* text tones one step darker for light surfaces */
   --ok: #047857;
