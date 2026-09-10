@@ -53,6 +53,12 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 			return
 		}
 		s.servePolicySourceSelectors(writer, request)
+	case "discovery-snapshot":
+		if request.Method != http.MethodGet {
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.servePolicyDiscoverySnapshot(writer, request)
 	case "traffic-ingress", "lan-scope":
 		s.servePolicyTrafficIngress(writer, request)
 	case "egresses":
@@ -258,6 +264,55 @@ func (s *Server) servePolicySourceSelectors(writer http.ResponseWriter, request 
 		return
 	}
 	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+// servePolicyDiscoverySnapshot is the wizard-facing read-through boundary.
+// It collects RouterOS topology once, then returns both the legacy discovery
+// and source-selector projections from that same evidence generation.
+func (s *Server) servePolicyDiscoverySnapshot(writer http.ResponseWriter, request *http.Request) {
+	device, ok := s.resolvePolicyDevice(writer, request)
+	if !ok {
+		return
+	}
+	if s.policySetupState(device.device) != "ready" {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "runtime not ready"))
+		return
+	}
+	applier := s.policy.ApplierFor(device.device.ID)
+	if applier == nil || applier.Reader == nil {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "scanner not configured"))
+		return
+	}
+	result, err := policyv2.NewScanner(applier.Reader).ScanAndSourceSelectors(request.Context(), device.device.ID)
+	if err != nil {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, err.Error()))
+		return
+	}
+	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+func unavailablePolicyDiscoverySnapshot(deviceID, reason string) policyv2.PolicyDiscoverySnapshot {
+	return policyv2.PolicyDiscoverySnapshot{
+		Discovery: policyv2.Discovery{
+			Device:         map[string]string{"id": deviceID},
+			Available:      false,
+			Reason:         reason,
+			Warnings:       []string{},
+			Snapshot:       policyv2.DiscoverySnapshot{DeviceIdentity: map[string]any{}, Capabilities: map[string]any{}},
+			WANs:           []policyv2.WANCandidate{},
+			TrafficIngress: []policyv2.TrafficIngressCandidate{},
+			ExistingPolicy: []any{},
+		},
+		SourceSelectors: policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": deviceID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               reason,
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		},
+	}
 }
 
 // ---- Traffic ingress ----

@@ -42,6 +42,7 @@ export type PolicySourceSelectors = {
   recommendationStatus: 'available' | 'partial' | 'unavailable' | string
   reason?: string
   warnings: string[]
+  snapshot: { fingerprint: string }
   interfaces: SourceSelectorInterface[]
   interfaceLists: SourceSelectorInterfaceList[]
 }
@@ -173,7 +174,8 @@ export type AccessOverview = {
 export type DiscoveryRoute = { family: string; destination: string; gateway: string; immediateGateway: string; table: string; active: boolean; proven: boolean }
 export type DiscoveryWAN = { interface: string; type: string; running: boolean; pointToPoint: boolean; proven: boolean; routes: DiscoveryRoute[] }
 export type DiscoveryCandidate = { name: string; kind: string; include: string[]; exclude: string[]; staticMembers: string[]; dynamicMembers: boolean; frozen: boolean; addresses: string[]; reason: string; coveredBy: string[]; default: boolean; dynamic: boolean; running: boolean }
-export type PolicyDiscovery = { available: boolean; reason?: string; warnings: string[]; wans: DiscoveryWAN[]; trafficIngress: DiscoveryCandidate[] }
+export type PolicyDiscovery = { available: boolean; reason?: string; warnings: string[]; snapshot: { fingerprint: string }; wans: DiscoveryWAN[]; trafficIngress: DiscoveryCandidate[] }
+export type PolicyDiscoverySnapshot = { discovery: PolicyDiscovery; sourceSelectors: PolicySourceSelectors }
 
 export type PlanIssue = { code: string; status: string; family?: string; egressID?: string; logicalID?: string; reason: string }
 export type TargetVersionPromotion = { targetListId: string; versionId: string }
@@ -365,8 +367,10 @@ function parseRoutingSourceScope(value: unknown): RoutingSourceScope | undefined
 
 function parseDiscovery(value: unknown): PolicyDiscovery {
   const object = objectValue(value)
+  const snapshot = objectValue(object.snapshot)
   return {
     available: booleanValue(object.available), reason: stringValue(object.reason) || undefined,
+    snapshot: { fingerprint: stringValue(snapshot.fingerprint) },
     warnings: stringArray(object.warnings),
     wans: Array.isArray(object.wans) ? object.wans.map((raw) => {
       const wan = objectValue(raw)
@@ -386,12 +390,14 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
 
 function parseSourceSelectors(value: unknown): PolicySourceSelectors {
   const object = objectValue(value)
+  const snapshot = objectValue(object.snapshot)
   return {
     available: booleanValue(object.available),
     factStatus: stringValue(object.factStatus) || 'unavailable',
     recommendationStatus: stringValue(object.recommendationStatus) || 'unavailable',
     reason: stringValue(object.reason) || undefined,
     warnings: stringArray(object.warnings),
+    snapshot: { fingerprint: stringValue(snapshot.fingerprint) },
     interfaces: Array.isArray(object.interfaces) ? object.interfaces.map((raw) => {
       const item = objectValue(raw)
       return {
@@ -409,6 +415,14 @@ function parseSourceSelectors(value: unknown): PolicySourceSelectors {
         reason: stringValue(item.reason), safetyCode: stringValue(item.safetyCode) || undefined,
       }
     }) : [],
+  }
+}
+
+function parsePolicyDiscoverySnapshot(value: unknown): PolicyDiscoverySnapshot {
+  const object = objectValue(value)
+  return {
+    discovery: parseDiscovery(object.discovery),
+    sourceSelectors: parseSourceSelectors(object.sourceSelectors),
   }
 }
 
@@ -485,6 +499,7 @@ export function materializeApplicationPreset(deviceID: string, id: string, previ
 
 export function fetchPolicyDiscovery(deviceID: string) { return requestJSON('/api/policy-routing/discovery', deviceID, { cache: 'no-store' }, parseDiscovery) }
 export function fetchPolicySourceSelectors(deviceID: string) { return requestJSON('/api/policy-routing/source-selectors', deviceID, { cache: 'no-store' }, parseSourceSelectors) }
+export function fetchPolicyDiscoverySnapshot(deviceID: string) { return requestJSON('/api/policy-routing/discovery-snapshot', deviceID, { cache: 'no-store' }, parsePolicyDiscoverySnapshot) }
 export function saveTrafficIngress(deviceID: string, trafficIngress: TrafficIngressScope) { return requestJSON('/api/policy-routing/traffic-ingress', deviceID, jsonInit('PUT', { trafficIngress }), (value) => { const object = objectValue(value); const scope = objectValue(object.trafficIngress ?? value); return { interfaceLists: stringArray(scope.interfaceLists), interfaces: stringArray(scope.interfaces) } }) }
 export function saveEgress(deviceID: string, egress: Egress) { return requestJSON(`/api/policy-routing/egresses${egress.id ? `/${encodeURIComponent(egress.id)}` : ''}`, deviceID, jsonInit(egress.id ? 'PUT' : 'POST', egress), parseEgress) }
 export function generatePolicyPlan(deviceID: string, kind: string, proposal?: PolicyPlanProposal) { return requestJSON('/api/policy-routing/plans', deviceID, jsonInit('POST', { kind, ...(proposal ? { proposal } : {}) }), parsePlanEnvelope) }

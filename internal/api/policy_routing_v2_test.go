@@ -145,6 +145,33 @@ func TestPolicyV2SourceSelectorEndpointReturnsRouterOSFacts(t *testing.T) {
 	}
 }
 
+func TestPolicyV2DiscoverySnapshotReturnsMatchingEvidenceFingerprints(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	response := policyV2Request(t, server, http.MethodGet, "/discovery-snapshot", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Discovery struct {
+			Snapshot struct {
+				Fingerprint string `json:"fingerprint"`
+			} `json:"snapshot"`
+		} `json:"discovery"`
+		SourceSelectors struct {
+			Snapshot struct {
+				Fingerprint string `json:"fingerprint"`
+			} `json:"snapshot"`
+		} `json:"sourceSelectors"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Discovery.Snapshot.Fingerprint == "" || payload.Discovery.Snapshot.Fingerprint != payload.SourceSelectors.Snapshot.Fingerprint {
+		t.Fatalf("snapshot projections do not share evidence fingerprint: %#v body=%s", payload, response.Body.String())
+	}
+}
+
 func TestPolicyV2NewProposalAllocatesEgressIdentity(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()

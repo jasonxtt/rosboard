@@ -104,43 +104,54 @@ func (s *Scanner) ScanWithTrace(ctx context.Context, deviceID string) (Discovery
 }
 
 func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDecision) (Discovery, error) {
-	if s == nil || s.reader == nil {
-		return Discovery{}, fmt.Errorf("policy scanner is not configured")
-	}
-	interfaces, err := s.reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{".id", "name", "type", "running", "disabled", "dynamic"})
+	evidence, err := s.collectDiscoveryEvidence(ctx)
 	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS interfaces: %w", err)
+		return Discovery{}, err
 	}
-	resource, err := s.reader.PolicyList(ctx, routeros.ReadMenuSystemResource, []string{"board-name", "platform", "version"})
-	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", err)
+	return discoveryFromEvidence(evidence, deviceID, trace)
+}
+
+func discoveryFromEvidence(evidence discoveryEvidence, deviceID string, trace *[]IngressDecision) (Discovery, error) {
+	if evidence.interfacesErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS interfaces: %w", evidence.interfacesErr)
+	}
+	if evidence.resourceErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", evidence.resourceErr)
+	}
+	if evidence.ipv4RoutesErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", evidence.ipv4RoutesErr)
 	}
 	warnings := make([]string, 0)
-	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
-	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", err)
-	}
-	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
-	if ipv6RouteErr != nil {
-		warnings = append(warnings, "IPv6 默认路由发现失败："+ipv6RouteErr.Error())
+	ipv4Routes := evidence.ipv4Routes
+	ipv6Routes := evidence.ipv6Routes
+	if evidence.ipv6RoutesErr != nil {
+		warnings = append(warnings, "IPv6 默认路由发现失败："+evidence.ipv6RoutesErr.Error())
 		ipv6Routes = nil
 	}
-	readOptional := func(menu routeros.ReadMenu, proplist []string, label string) []routeros.RouterOSObject {
-		objects, err := s.reader.PolicyList(ctx, menu, proplist)
+	appendReadWarning := func(err error, label string) {
 		if err != nil {
 			warnings = append(warnings, label+"读取失败："+err.Error())
-			return nil
 		}
-		return objects
 	}
-	ipv4DHCP := readOptional(routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv4 DHCP Client")
-	ipv6DHCP := readOptional(routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv6 DHCP Client")
-	pppoeClients := readOptional(routeros.ReadMenuPPPoEClient, []string{"interface", "disabled", "invalid", "running"}, "PPPoE Client")
-	lists := readOptional(routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"}, "interface list")
-	members := readOptional(routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"}, "interface list member")
-	bridgePorts, bridgePortsAvailable := readOptionalWithStatus(s.reader, ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"}, "bridge port", &warnings)
-	ipv4Addresses := readOptional(routeros.ReadMenuIPAddress, []string{"address", "interface", "disabled"}, "IPv4 address")
-	ipv6Addresses := readOptional(routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"}, "IPv6 address")
+	appendReadWarning(evidence.ipv4DHCPErr, "IPv4 DHCP Client")
+	appendReadWarning(evidence.ipv6DHCPErr, "IPv6 DHCP Client")
+	appendReadWarning(evidence.pppoeClientsErr, "PPPoE Client")
+	appendReadWarning(evidence.interfaceListsErr, "interface list")
+	appendReadWarning(evidence.listMembersErr, "interface list member")
+	appendReadWarning(evidence.bridgePortsErr, "bridge port")
+	appendReadWarning(evidence.ipv4AddressesErr, "IPv4 address")
+	appendReadWarning(evidence.ipv6AddressesErr, "IPv6 address")
+	interfaces := evidence.interfaces
+	resource := evidence.resource
+	ipv4DHCP := evidence.ipv4DHCP
+	ipv6DHCP := evidence.ipv6DHCP
+	pppoeClients := evidence.pppoeClients
+	lists := evidence.interfaceLists
+	members := evidence.listMembers
+	bridgePorts := evidence.bridgePorts
+	bridgePortsAvailable := evidence.bridgePortsErr == nil
+	ipv4Addresses := evidence.ipv4Addresses
+	ipv6Addresses := evidence.ipv6Addresses
 
 	routes := append(defaultRoutes(ipv4Routes, "ipv4"), defaultRoutes(ipv6Routes, "ipv6")...)
 	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
@@ -175,15 +186,6 @@ func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDec
 		TrafficIngress: lan,
 		ExistingPolicy: []any{},
 	}, nil
-}
-
-func readOptionalWithStatus(reader PolicyReader, ctx context.Context, menu routeros.ReadMenu, proplist []string, label string, warnings *[]string) ([]routeros.RouterOSObject, bool) {
-	objects, err := reader.PolicyList(ctx, menu, proplist)
-	if err != nil {
-		*warnings = append(*warnings, label+"读取失败："+err.Error())
-		return nil, false
-	}
-	return objects, true
 }
 
 func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute {

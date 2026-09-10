@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchPolicyDiscovery, fetchPolicySourceSelectors, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
+import { fetchPolicyDiscoverySnapshot, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type PolicySourceSelectors, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
 import { TargetSelector } from './Selectors'
 import { TargetListModal } from './TargetLibraryPage'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from './gateway'
@@ -93,7 +93,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   const [trafficIngress, setTrafficIngress] = useState<TrafficIngressScope>(() => ({ interfaceLists: [...(rule?.sourceScope ? [] : (rule?.ingress?.interfaceLists ?? context.trafficIngress.interfaceLists))], interfaces: [...(rule?.sourceScope ? [] : (rule?.ingress?.interfaces ?? context.trafficIngress.interfaces))] }))
   const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
   const [discoveryError, setDiscoveryError] = useState<unknown>(null)
-  const [sourceSelectors, setSourceSelectors] = useState<Awaited<ReturnType<typeof fetchPolicySourceSelectors>> | null>(null)
+  const [sourceSelectors, setSourceSelectors] = useState<Awaited<ReturnType<typeof fetchPolicyDiscoverySnapshot>>['sourceSelectors'] | null>(null)
   const [sourceSelectorError, setSourceSelectorError] = useState<string | null>(null)
   const [targetListIDs, setTargetListIDs] = useState<string[]>(() => [...(rule?.targetListIds ?? [])])
   const [targetLists, setTargetLists] = useState<TargetList[]>(() => [...context.targetLists])
@@ -114,13 +114,19 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
 
   useEffect(() => {
     let active = true
-    void fetchPolicyDiscovery(deviceID).then((value) => { if (active) { setDiscovery(value); setDiscoveryError(null) } }).catch((loadError) => { if (active) setDiscoveryError(loadError) })
-    return () => { active = false }
-  }, [deviceID])
-
-  useEffect(() => {
-    let active = true
-    void fetchPolicySourceSelectors(deviceID).then((value) => { if (active) { setSourceSelectors(value); setSourceSelectorError(null) } }).catch((loadError) => { if (active) setSourceSelectorError(loadError instanceof Error ? loadError.message : 'RouterOS 来源事实读取失败') })
+    void fetchPolicyDiscoverySnapshot(deviceID).then((value) => {
+      if (active) {
+        setDiscovery(value.discovery)
+        setDiscoveryError(null)
+        setSourceSelectors(value.sourceSelectors)
+        setSourceSelectorError(null)
+      }
+    }).catch((loadError) => {
+      if (active) {
+        setDiscoveryError(loadError)
+        setSourceSelectorError(loadError instanceof Error ? loadError.message : 'RouterOS 拓扑读取失败')
+      }
+    })
     return () => { active = false }
   }, [deviceID])
 
@@ -342,7 +348,7 @@ function StepLockedNotice({ locked }: { locked: boolean }) {
   return locked ? <PolicyNotice tone="info" title="此步骤仅供查看">请先完成前面的步骤并点击“下一步”后再编辑。</PolicyNotice> : null
 }
 
-function StrategyAndSourceStep({ ruleName, rulePriority, ruleEnabled, errors, onRuleName, onRulePriority, onRuleEnabled, sourceKind, sourceName, sourceSelectors, sourceSelectorError, discovery, ingress, subject, terminals, onKindChange, onNameChange, onIngress, onSubject }: { ruleName: string; rulePriority: string; ruleEnabled: boolean; errors: string[]; onRuleName: (name: string) => void; onRulePriority: (priority: string) => void; onRuleEnabled: (enabled: boolean) => void; sourceKind: RoutingSourceSelectionKind; sourceName: string; sourceSelectors: Awaited<ReturnType<typeof fetchPolicySourceSelectors>> | null; sourceSelectorError: string | null; discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; onKindChange: (kind: RoutingSourceSelectionKind) => void; onNameChange: (name: string) => void; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
+function StrategyAndSourceStep({ ruleName, rulePriority, ruleEnabled, errors, onRuleName, onRulePriority, onRuleEnabled, sourceKind, sourceName, sourceSelectors, sourceSelectorError, discovery, ingress, subject, terminals, onKindChange, onNameChange, onIngress, onSubject }: { ruleName: string; rulePriority: string; ruleEnabled: boolean; errors: string[]; onRuleName: (name: string) => void; onRulePriority: (priority: string) => void; onRuleEnabled: (enabled: boolean) => void; sourceKind: RoutingSourceSelectionKind; sourceName: string; sourceSelectors: PolicySourceSelectors | null; sourceSelectorError: string | null; discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; onKindChange: (kind: RoutingSourceSelectionKind) => void; onNameChange: (name: string) => void; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
   const otherErrors = errors.filter((error) => error !== '规则名称不能为空')
   return <div className="policy-wizard-stage"><section className="policy-section-card"><h4 className="policy-section-card-title">策略基础</h4><PolicyField label="策略名称" htmlFor="routing-rule-name" error={errors.find((error) => error === '规则名称不能为空')}><input id="routing-rule-name" className="settings-input" value={ruleName} onChange={(event) => onRuleName(event.target.value)} placeholder="例如：工作设备走主线路" /></PolicyField><div className="policy-form-grid"><PolicyField label="规则优先级" hint="数字越小越先评估；不用于隐式解决冲突。"><input className="settings-input" type="number" min="0" value={rulePriority} onChange={(event) => onRulePriority(event.target.value)} /></PolicyField><label className="policy-checkbox"><input type="checkbox" checked={ruleEnabled} onChange={(event) => onRuleEnabled(event.target.checked)} /><span>启用此策略</span></label></div></section><RoutingSourcePicker sourceKind={sourceKind} sourceName={sourceName} sourceSelectors={sourceSelectors} sourceSelectorError={sourceSelectorError} discovery={discovery} trafficIngress={ingress} subject={subject} terminals={terminals} busy={false} onKindChange={onKindChange} onNameChange={onNameChange} onIngress={onIngress} onSubject={onSubject} />{otherErrors.length ? <PolicyNotice tone="warn" title="策略与来源还有问题">{otherErrors.join('；')}</PolicyNotice> : null}</div>
 }

@@ -4,8 +4,7 @@ import { Field, Input } from '../../../ui/inputs'
 import { Modal } from '../../../ui/Modal'
 import { Toggle } from '../../../ui/Toggle'
 import {
-  fetchPolicyDiscovery,
-  fetchPolicySourceSelectors,
+  fetchPolicyDiscoverySnapshot,
   generatePolicyPlan,
   type ApplicationPresetSelection,
   type Egress,
@@ -118,7 +117,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
   const [draft, setDraft] = useState<Egress>(() => (initialEgress ? egressDraftFrom(initialEgress) : defaultEgressDraft()))
   const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
-  const [sourceSelectors, setSourceSelectors] = useState<Awaited<ReturnType<typeof fetchPolicySourceSelectors>> | null>(null)
+  const [sourceSelectors, setSourceSelectors] = useState<Awaited<ReturnType<typeof fetchPolicyDiscoverySnapshot>>['sourceSelectors'] | null>(null)
   const [sourceSelectorError, setSourceSelectorError] = useState<string | null>(null)
   const [targetListIDs, setTargetListIDs] = useState<string[]>(() => [...(rule?.targetListIds ?? [])])
   const [targetLists, setTargetLists] = useState<TargetList[]>(() => [...context.targetLists])
@@ -137,29 +136,21 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
 
   useEffect(() => {
     let active = true
-    fetchPolicyDiscovery(deviceID)
-      .then((value) => {
-        if (active) setDiscovery(value)
-      })
-      .catch((loadError) => {
-        if (active) setDiscoveryError(errorMessage(loadError, '设备发现读取失败'))
-      })
-    return () => {
-      active = false
-    }
-  }, [deviceID])
-
-  useEffect(() => {
-    let active = true
-    fetchPolicySourceSelectors(deviceID)
+    fetchPolicyDiscoverySnapshot(deviceID)
       .then((value) => {
         if (active) {
-          setSourceSelectors(value)
+          setDiscovery(value.discovery)
+          setDiscoveryError(null)
+          setSourceSelectors(value.sourceSelectors)
           setSourceSelectorError(null)
         }
       })
       .catch((loadError) => {
-        if (active) setSourceSelectorError(errorMessage(loadError, 'RouterOS 来源事实读取失败'))
+        if (active) {
+          const message = errorMessage(loadError, '设备拓扑读取失败')
+          setDiscoveryError(message)
+          setSourceSelectorError(message)
+        }
       })
     return () => {
       active = false
