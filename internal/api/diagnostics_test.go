@@ -2,12 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"rosboard/internal/config"
+	"rosboard/internal/store"
 )
 
 func TestDiagnosticsQuickReportIsReadOnlyAPI(t *testing.T) {
@@ -24,7 +28,13 @@ func TestDiagnosticsQuickReportIsReadOnlyAPI(t *testing.T) {
 			},
 		}},
 	}
+	storage, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer storage.Close()
 	server := NewServerWithManager(cfg, nil, nil, fsys{}, nil)
+	server.store = storage
 	request := httptest.NewRequest(http.MethodGet, "/api/diagnostics?device=router-a", nil)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
@@ -43,6 +53,9 @@ func TestDiagnosticsQuickReportIsReadOnlyAPI(t *testing.T) {
 	}
 	if payload.Mode != "quick" || payload.DeviceID != "router-a" || len(payload.Findings) == 0 {
 		t.Fatalf("unexpected diagnostics report: %#v", payload)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "devices")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("diagnostics created device directory, stat error = %v", err)
 	}
 }
 

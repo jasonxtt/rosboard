@@ -18,7 +18,10 @@ import (
 	"rosboard/internal/model"
 )
 
-var ErrTerminalNotFound = errors.New("terminal not found")
+var (
+	ErrTerminalNotFound   = errors.New("terminal not found")
+	ErrDeviceStoreNotOpen = errors.New("device store is not open")
+)
 
 type Store struct {
 	db                *sql.DB
@@ -161,6 +164,29 @@ func (s *Store) ForDevice(deviceID string) *Store {
 		return nil
 	}
 	return child
+}
+
+// ExistingDevice returns a store that the runtime has already opened without
+// creating a device directory, database, schema, or migration. Read-only
+// callers use this when probing optional device state.
+func (s *Store) ExistingDevice(deviceID string) (*Store, error) {
+	if s == nil {
+		return nil, ErrDeviceStoreNotOpen
+	}
+	if !s.owner {
+		return nil, errors.New("device stores can only be resolved from the owner store")
+	}
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" || deviceID == defaultDeviceID {
+		return &Store{db: s.db, deviceID: defaultDeviceID, closeable: false, managerInstanceID: s.managerInstanceID}, nil
+	}
+
+	s.childrenMu.Lock()
+	defer s.childrenMu.Unlock()
+	if child := s.children[deviceID]; child != nil {
+		return child, nil
+	}
+	return nil, fmt.Errorf("%w: %s", ErrDeviceStoreNotOpen, deviceID)
 }
 
 // OpenDevice opens the isolated monitoring database for one device. The

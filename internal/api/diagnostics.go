@@ -36,7 +36,7 @@ func (s *Server) serveDiagnostics(writer http.ResponseWriter, request *http.Requ
 	if s.store == nil {
 		storeErr = errors.New("device store is unavailable")
 	} else {
-		deviceStore, storeErr = s.store.OpenDevice(deviceID)
+		deviceStore, storeErr = s.store.ExistingDevice(deviceID)
 	}
 	report := diagnostics.Runner{
 		Config:     cfg,
