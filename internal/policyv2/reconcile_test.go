@@ -25,6 +25,8 @@ func TestEquivalentRouterFieldHandlesRouterOSCanonicalValues(t *testing.T) {
 		{key: "address", actual: "139.59.210.98", desired: "139.59.210.98/32", want: true},
 		{key: "address", actual: "2001:db8::1", desired: "2001:db8::1/128", want: true},
 		{key: "address", actual: "192.0.2.1/24", desired: "192.0.2.0/24", want: true},
+		{key: "dst-address", actual: "2001:db8::1", desired: "2001:db8::1/128", want: true},
+		{key: "src-address", actual: "192.0.2.1", desired: "192.0.2.1/32", want: true},
 		{key: "address", actual: "192.0.2.1", desired: "2001:db8::1/128", want: false},
 		{key: "name", actual: "139.59.210.98", desired: "139.59.210.98/32", want: false},
 	} {
@@ -158,6 +160,35 @@ func TestDiffDesiredTreatsHostAddressAndFullLengthCIDRAsEquivalent(t *testing.T)
 	operations, blockers := DiffDesired(desired, actual)
 	if len(operations) != 0 || len(blockers) != 0 {
 		t.Fatalf("host address and full-length CIDR should converge: operations=%#v blockers=%#v", operations, blockers)
+	}
+}
+
+func TestDiffDesiredTreatsHostDestinationAndFullLengthIPv6CIDRAsEquivalent(t *testing.T) {
+	desired := []DesiredObject{{
+		LogicalID: "mangle:ipv6:source",
+		Menu:      string(routeros.MenuIPv6FirewallMangle),
+		Fields: map[string]string{
+			"chain":       "prerouting",
+			"action":      "mark-routing",
+			"dst-address": "2001:db8::748a/128",
+			"comment":     "rb_test | IPv6 mangle",
+		},
+	}}
+	actual := []ActualObject{{
+		LogicalID: desired[0].LogicalID,
+		Menu:      desired[0].Menu,
+		RouterID:  "*1",
+		Fields: map[string]string{
+			"chain":       "prerouting",
+			"action":      "mark-routing",
+			"dst-address": "2001:db8::748a",
+			"comment":     "rb_test | IPv6 mangle",
+		},
+	}}
+
+	operations, blockers := DiffDesired(desired, actual)
+	if len(operations) != 0 || len(blockers) != 0 {
+		t.Fatalf("IPv6 host destination and full-length CIDR should converge: operations=%#v blockers=%#v", operations, blockers)
 	}
 }
 
