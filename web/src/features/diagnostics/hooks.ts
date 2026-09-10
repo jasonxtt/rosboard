@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { errorMessage } from '../../lib/api'
-import { fetchDeepDiagnostics, fetchDiagnostics } from './api'
+import { downloadDiagnostics, fetchDeepDiagnostics, fetchDiagnostics } from './api'
 import type { DeepDiagnosticReport, DiagnosticReport } from './types'
 
 export type DiagnosticsState = {
@@ -12,6 +12,9 @@ export type DiagnosticsState = {
   deepLoading: boolean
   deepError: string | null
   runDeep: () => Promise<void>
+  exportLoading: boolean
+  exportError: string | null
+  runExport: () => Promise<void>
 }
 
 export function useDiagnostics(deviceId: string): DiagnosticsState {
@@ -21,6 +24,8 @@ export function useDiagnostics(deviceId: string): DiagnosticsState {
   const [deepReport, setDeepReport] = useState<DeepDiagnosticReport | null>(null)
   const [deepLoading, setDeepLoading] = useState(false)
   const [deepError, setDeepError] = useState<string | null>(null)
+  const [exportLoading, setExportLoading] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!deviceId) {
@@ -38,6 +43,29 @@ export function useDiagnostics(deviceId: string): DiagnosticsState {
       setError(errorMessage(loadError, '系统诊断读取失败'))
     } finally {
       setLoading(false)
+    }
+  }, [deviceId])
+
+  const runExport = useCallback(async () => {
+    if (!deviceId) {
+      setExportError(null)
+      setExportLoading(false)
+      return
+    }
+    setExportLoading(true)
+    try {
+      const download = await downloadDiagnostics(deviceId)
+      const url = URL.createObjectURL(download.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+      setExportError(null)
+    } catch (exportLoadError) {
+      setExportError(errorMessage(exportLoadError, '诊断包导出失败'))
+    } finally {
+      setExportLoading(false)
     }
   }, [deviceId])
 
@@ -87,7 +115,9 @@ export function useDiagnostics(deviceId: string): DiagnosticsState {
     setDeepReport(null)
     setDeepError(null)
     setDeepLoading(false)
+    setExportError(null)
+    setExportLoading(false)
   }, [deviceId])
 
-  return { report, loading, error, reload, deepReport, deepLoading, deepError, runDeep }
+  return { report, loading, error, reload, deepReport, deepLoading, deepError, runDeep, exportLoading, exportError, runExport }
 }

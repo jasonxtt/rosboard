@@ -145,6 +145,16 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke));
 }
 
+.diagnostics-export-button {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--stroke));
+}
+
+.diagnostics-export-notice {
+  margin: var(--space-3) 0 0 !important;
+  color: var(--ink-3) !important;
+  font-size: var(--text-xs) !important;
+}
+
 .diagnostics-eyebrow {
   margin: 0 0 var(--space-1) !important;
   color: var(--ink-3) !important;

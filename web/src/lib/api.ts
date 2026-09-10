@@ -58,6 +58,25 @@ async function request<T>(path: string, init: RequestInit, parse?: (value: unkno
   return parse ? parse(payload) : (payload as T)
 }
 
+async function requestBlob(path: string, init: RequestInit): Promise<{ blob: Blob; filename: string | null }> {
+  let response: Response
+  try {
+    response = await fetch(path, { credentials: 'same-origin', ...init })
+  } catch {
+    throw new ApiError('网络请求失败，请检查面板连接', 0, 'network_error')
+  }
+  if (response.status === 401) dispatchAuthenticationRequired()
+  if (!response.ok) {
+    const payload = await readJson(response)
+    const envelope = safeObject(payload)
+    const message = safeString(envelope.error) || `请求失败（HTTP ${response.status}）`
+    throw new ApiError(message, response.status, safeString(envelope.code) || undefined, envelope.details)
+  }
+  const disposition = response.headers.get('content-disposition') || ''
+  const match = disposition.match(/filename="?([^";]+)"?/i)
+  return { blob: await response.blob(), filename: match?.[1] ?? null }
+}
+
 function jsonInit(method: string, body?: unknown): RequestInit {
   if (body === undefined) return { method }
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -69,6 +88,10 @@ export function apiGet<T = unknown>(path: string, parse?: (value: unknown) => T,
 
 export function apiPost<T = unknown>(path: string, body?: unknown, parse?: (value: unknown) => T): Promise<T> {
   return request(path, jsonInit('POST', body), parse)
+}
+
+export function apiPostBlob(path: string, body?: unknown): Promise<{ blob: Blob; filename: string | null }> {
+  return requestBlob(path, jsonInit('POST', body))
 }
 
 export function apiPut<T = unknown>(path: string, body?: unknown, parse?: (value: unknown) => T): Promise<T> {
