@@ -616,9 +616,11 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 	}
 	proposal := &policyv2.PolicyProposal{Egress: payload.Egress, TrafficIngress: payload.TrafficIngress, RoutingRule: payload.RoutingRule}
 	currentEgressID := ""
+	var existingRoutingRule *policyv2.RoutingRule
 	if payload.RoutingRule != nil {
 		currentEgressID = strings.TrimSpace(payload.RoutingRule.EgressID)
 		if existingRule, err := device.repository.GetRoutingRule(ctx, payload.RoutingRule.ID); err == nil {
+			existingRoutingRule = &existingRule
 			if currentEgressID == "" {
 				currentEgressID = existingRule.EgressID
 			}
@@ -715,6 +717,7 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 	}
 	if proposal.RoutingRule != nil {
 		rule := *proposal.RoutingRule
+		var err error
 		if rule.ID == "" {
 			rule.ID = uuid.NewString()
 		}
@@ -726,9 +729,12 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 		} else if rule.EgressID == "" {
 			rule.EgressID = boundEgressID
 		}
-		rule, err := s.canonicalizeRoutingRuleSubject(ctx, device, rule)
-		if err != nil {
-			return nil, err
+		canonicalSourceCompatibilityWrite := rule.SourceScope == nil && existingRoutingRule != nil && existingRoutingRule.SourceScope != nil
+		if policyv2.RoutingSourceUsesSubjectPayload(rule.SourceScope) && !canonicalSourceCompatibilityWrite {
+			rule, err = s.canonicalizeRoutingRuleSubject(ctx, device, rule)
+			if err != nil {
+				return nil, err
+			}
 		}
 		rule, err = policyv2.NormalizeRoutingRule(rule)
 		if err != nil {

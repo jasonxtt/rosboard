@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ type RoutingRule struct {
 	Name          string              `json:"name"`
 	Subject       Subject             `json:"subject"`
 	Ingress       TrafficIngressScope `json:"ingress"`
+	SourceScope   *RoutingSourceScope `json:"sourceScope,omitempty"`
 	TargetListIDs []string            `json:"targetListIds"`
 	EgressID      string              `json:"egressId"`
 	Priority      int                 `json:"priority"`
@@ -89,11 +91,42 @@ func NormalizeRoutingRule(rule RoutingRule) (RoutingRule, error) {
 	}
 	rule.TargetListIDs = targets
 	var err error
+	if rule.SourceScope != nil {
+		normalizedScope, scopeErr := NormalizeRoutingSourceScope(rule.SourceScope)
+		if scopeErr != nil {
+			return RoutingRule{}, scopeErr
+		}
+		rule.SourceScope = normalizedScope
+		if normalizedScope.Kind == RoutingSourceInterface || normalizedScope.Kind == RoutingSourceInterfaceList || normalizedScope.Kind == RoutingSourceAll {
+			// A modern typed selector may omit the compatibility projection. An
+			// explicitly supplied non-all Subject remains invalid rather than
+			// being silently discarded.
+			if strings.TrimSpace(rule.Subject.Mode) == "" && len(rule.Subject.Members) == 0 && len(rule.Subject.Prefixes) == 0 {
+				rule.Subject = Subject{Mode: SubjectModeAll}
+			}
+		}
+	}
 	rule.Subject, err = subject.Normalize(rule.Subject)
 	if err != nil {
 		return RoutingRule{}, err
 	}
 	rule.Ingress = NormalizeTrafficIngressScopeUnvalidated(rule.Ingress)
+	if rule.SourceScope != nil {
+		expectedSubject, expectedIngress, projectionErr := RoutingSourceLegacyProjection(*rule.SourceScope, rule.Subject)
+		if projectionErr != nil {
+			return RoutingRule{}, projectionErr
+		}
+		if rule.SourceScope.Kind == RoutingSourceDevice || rule.SourceScope.Kind == RoutingSourceIP {
+			rule.Ingress = TrafficIngressScope{}
+		} else {
+			if HasTrafficIngress(rule.Ingress) && !reflect.DeepEqual(rule.Ingress, expectedIngress) {
+				return RoutingRule{}, fmt.Errorf("%w: typed source projection does not match source scope", ErrRoutingSourceScopeInvalid)
+			}
+			rule.Subject = expectedSubject
+			rule.Ingress = expectedIngress
+		}
+		return rule, nil
+	}
 	if (rule.Subject.Mode == SubjectModeAll || rule.Subject.Mode == SubjectModeExcluded) && !HasTrafficIngress(rule.Ingress) {
 		return RoutingRule{}, ErrRoutingExcludedRequiresIngress
 	}

@@ -37,6 +37,11 @@ type DesiredResult struct {
 	crossDomainDesired     []DesiredObject
 	crossDomainResolutions []CrossDomainProjectionResolution
 	crossDomainConstraints []crossDomainDNSConstraint
+	// Typed routing source authority is intentionally outside the RouterOS
+	// object graph in Slice 1, but it still participates in desired identity so
+	// changing Device/IP/Interface/List/All cannot reuse a stale plan whose
+	// legacy projection happens to be unchanged.
+	routingSourceHashes []routingRuleSourceHash
 }
 
 func BuildDesired(ctx context.Context, repository Repository, reader PolicyReader) (DesiredResult, error) {
@@ -165,7 +170,7 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 			uniqueTargetIDs = append(uniqueTargetIDs, targetID)
 		}
 	}
-	result := DesiredResult{Domain: domain, Revision: state.DesiredRevision, AccessRevision: accessRevision, AccessTargetIDs: uniqueTargetIDs, InternetEgressCandidates: map[string][]accesscontrol.InternetEgressCandidate{}, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}, AccessResolutions: []accesscontrol.MemberResolution{}, TargetPromotions: []TargetVersionPromotion{}}
+	result := DesiredResult{Domain: domain, Revision: state.DesiredRevision, AccessRevision: accessRevision, AccessTargetIDs: uniqueTargetIDs, InternetEgressCandidates: map[string][]accesscontrol.InternetEgressCandidate{}, Objects: []DesiredObject{}, Blockers: []PlanIssue{}, Warnings: []PlanIssue{}, AccessResolutions: []accesscontrol.MemberResolution{}, TargetPromotions: []TargetVersionPromotion{}, routingSourceHashes: routingRuleSourceHashes(routingRules)}
 	if accessMigrationErr != nil {
 		result.Blockers = append(result.Blockers, PlanIssue{Code: "access_application_migration_required", Status: "blocker", Reason: accessMigrationErr.Error()})
 	}
@@ -496,12 +501,14 @@ func hashDesiredResult(result *DesiredResult) error {
 		CrossDomainDesired     []DesiredObject                   `json:"CrossDomainDesired,omitempty"`
 		CrossDomainResolutions []CrossDomainProjectionResolution `json:"CrossDomainResolutions,omitempty"`
 		CrossDomainConstraints []crossDomainDNSConstraint        `json:"CrossDomainConstraints,omitempty"`
+		RoutingSourceHashes    []routingRuleSourceHash           `json:"RoutingSourceHashes,omitempty"`
 	}{
 		Objects:                result.Objects,
 		AccessResolutions:      result.AccessResolutions,
 		CrossDomainDesired:     result.crossDomainDesired,
 		CrossDomainResolutions: result.crossDomainResolutions,
 		CrossDomainConstraints: result.crossDomainConstraints,
+		RoutingSourceHashes:    result.routingSourceHashes,
 	})
 	if err != nil {
 		return err

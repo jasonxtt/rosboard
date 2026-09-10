@@ -46,7 +46,31 @@ func (proposal PolicyProposal) Empty() bool {
 }
 
 func ProposalHash(proposal PolicyProposal) (string, error) {
-	payload, err := json.Marshal(proposal)
+	if proposal.RoutingRule == nil {
+		payload, err := json.Marshal(proposal)
+		if err != nil {
+			return "", err
+		}
+		digest := sha256.Sum256(payload)
+		return hex.EncodeToString(digest[:]), nil
+	}
+	// Subject identity state contains fields intentionally hidden from the
+	// public JSON API (AnchorMAC and trusted last addresses). Keep the public
+	// proposal shape stable while including the complete routing source payload
+	// in the deterministic approval identity.
+	payload, err := json.Marshal(struct {
+		Proposal    PolicyProposal         `json:"proposal"`
+		RoutingRule *routingRuleSourceHash `json:"routingRuleSource,omitempty"`
+	}{
+		Proposal: proposal,
+		RoutingRule: func() *routingRuleSourceHash {
+			if proposal.RoutingRule == nil {
+				return nil
+			}
+			value := newRoutingRuleSourceHash(*proposal.RoutingRule)
+			return &value
+		}(),
+	})
 	if err != nil {
 		return "", err
 	}

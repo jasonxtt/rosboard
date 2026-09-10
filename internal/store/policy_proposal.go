@@ -284,12 +284,16 @@ func proposalTrafficIngress(ctx context.Context, tx *sql.Tx, proposed *policyv2.
 
 func saveProposalRoutingRuleTx(ctx context.Context, tx *sql.Tx, value policyv2.RoutingRule, trafficIngress []byte, now time.Time) error {
 	var err error
-	if (value.Subject.Mode == policyv2.SubjectModeAll || value.Subject.Mode == policyv2.SubjectModeExcluded) && !policyv2.HasTrafficIngress(value.Ingress) {
+	current, err := loadRoutingRuleSourceStateTx(ctx, tx, value.ID)
+	if err != nil {
+		return err
+	}
+	if (current == nil || current.SourceScope == nil) && (value.Subject.Mode == policyv2.SubjectModeAll || value.Subject.Mode == policyv2.SubjectModeExcluded) && !policyv2.HasTrafficIngress(value.Ingress) {
 		if scope, scopeErr := policyv2.ParseTrafficIngressScope(trafficIngress); scopeErr == nil {
 			value.Ingress = scope
 		}
 	}
-	value, err = policyv2.NormalizeRoutingRule(value)
+	value, err = policyv2.PrepareRoutingRuleWrite(value, current)
 	if err != nil {
 		return err
 	}
@@ -332,7 +336,11 @@ func saveProposalRoutingRuleTx(ctx context.Context, tx *sql.Tx, value policyv2.R
 	value.UpdatedAt = now
 	ingressLists, _ := json.Marshal(value.Ingress.InterfaceLists)
 	ingressInterfaces, _ := json.Marshal(value.Ingress.Interfaces)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
+	sourceScopeJSON, err := marshalRoutingSourceScope(value.SourceScope)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
 		return fmt.Errorf("save proposed routing rule: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_routing_rule_targets WHERE rule_id = ?`, value.ID); err != nil {

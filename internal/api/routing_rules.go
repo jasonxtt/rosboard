@@ -184,12 +184,23 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 	if payload.RoutingRule.ID == "" {
 		payload.RoutingRule.ID = uuid.NewString()
 	}
-	canonical, err := s.canonicalizeRoutingRuleSubject(request.Context(), device, payload.RoutingRule)
-	if err != nil {
-		writeRoutingRuleSaveError(writer, err)
-		return
+	canonicalSourceCompatibilityWrite := false
+	if payload.RoutingRule.SourceScope == nil {
+		if current, currentErr := device.repository.GetRoutingRule(request.Context(), payload.RoutingRule.ID); currentErr == nil {
+			canonicalSourceCompatibilityWrite = current.SourceScope != nil
+		} else if !errors.Is(currentErr, policyv2.ErrRoutingRuleNotFound) {
+			writeRoutingRuleSaveError(writer, currentErr)
+			return
+		}
 	}
-	payload.RoutingRule = canonical
+	if policyv2.RoutingSourceUsesSubjectPayload(payload.RoutingRule.SourceScope) && !canonicalSourceCompatibilityWrite {
+		canonical, err := s.canonicalizeRoutingRuleSubject(request.Context(), device, payload.RoutingRule)
+		if err != nil {
+			writeRoutingRuleSaveError(writer, err)
+			return
+		}
+		payload.RoutingRule = canonical
+	}
 	rule, err := device.repository.SaveRoutingRule(request.Context(), payload.RoutingRule)
 	if err != nil {
 		writeRoutingRuleSaveError(writer, err)
@@ -266,6 +277,10 @@ func writeRoutingRuleSaveError(writer http.ResponseWriter, err error) {
 		status, code = http.StatusUnprocessableEntity, "target_list_not_found"
 	case errors.Is(err, policyv2.ErrRoutingExcludedRequiresIngress):
 		status, code = http.StatusUnprocessableEntity, "routing_excluded_requires_ingress"
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeConflict):
+		status, code = http.StatusConflict, "routing_source_scope_conflict"
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeInvalid):
+		status, code = http.StatusUnprocessableEntity, "invalid_routing_source_scope"
 	case strings.Contains(err.Error(), "database"):
 		status, code = http.StatusServiceUnavailable, "save_failed"
 	}
