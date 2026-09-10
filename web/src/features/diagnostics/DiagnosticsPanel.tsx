@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useDiagnostics } from './hooks'
-import type { DeepDiagnosticReport, DiagnosticFinding, DiagnosticStatus, IngressDecision } from './types'
+import type { DeepDiagnosticReport, DiagnosticFinding, DiagnosticStatus } from './types'
 
 const STATUS_LABELS: Record<DiagnosticStatus, string> = {
   ok: '正常',
@@ -92,13 +92,12 @@ function DeepReportSection({ report }: { report: DeepDiagnosticReport }) {
         <div>
           <p className="diagnostics-eyebrow">DEEP SNAPSHOT</p>
           <h3 id="diagnostics-deep-title">全面体检</h3>
-          <p>基于同一次只读 RouterOS 快照展示网络拓扑和策略入口决策。</p>
+          <p>基于同一次只读 RouterOS 快照展示网络拓扑和策略入口推荐分析。</p>
         </div>
         <span className={`diagnostics-deep-state diagnostics-deep-state-${report.overall}`}>{OVERALL_LABELS[report.overall]}</span>
       </div>
       {topologyFinding ? <FindingCard finding={topologyFinding} /> : null}
-      <div className="diagnostics-deep-grid">
-        <section className="diagnostics-deep-section" aria-labelledby="diagnostics-snapshot-title">
+      <section className="diagnostics-deep-section" aria-labelledby="diagnostics-snapshot-title">
           <div className="diagnostics-deep-section-head">
             <h4 id="diagnostics-snapshot-title">RouterOS 快照</h4>
             <span>{report.snapshot.endpoints.length} 个 endpoint{failedEndpoints.length ? ` · ${failedEndpoints.length} 个失败` : ''}</span>
@@ -115,41 +114,8 @@ function DeepReportSection({ report }: { report: DeepDiagnosticReport }) {
               </li>
             ))}
           </ul>
-        </section>
-        <section className="diagnostics-deep-section" aria-labelledby="diagnostics-trace-title">
-          <div className="diagnostics-deep-section-head">
-            <h4 id="diagnostics-trace-title">Ingress Decision Trace</h4>
-            <span>{report.ingressTrace.length} 条决策</span>
-          </div>
-          {report.ingressTrace.length ? (
-            <ol className="diagnostics-trace-list">
-              {report.ingressTrace.map((decision, index) => <TraceItem key={`${decision.interface}:${decision.reasonCode}:${index}`} decision={decision} />)}
-            </ol>
-          ) : <p className="diagnostics-deep-empty">本次没有可展示的策略入口决策。</p>}
-        </section>
-      </div>
+      </section>
     </section>
-  )
-}
-
-function TraceItem({ decision }: { decision: IngressDecision }) {
-  const evidence = Object.entries(decision.evidence)
-  const accepted = decision.result === 'accepted'
-  return (
-    <li className={`diagnostics-trace-item diagnostics-trace-${accepted ? 'accepted' : 'rejected'}`}>
-      <div className="diagnostics-trace-line">
-        <strong>{decision.interface || '接口列表'}</strong>
-        <span>{accepted ? '接受' : '排除'}</span>
-      </div>
-      <code>{decision.reasonCode}</code>
-      <p>{decision.reason}</p>
-      {evidence.length ? (
-        <details className="diagnostics-evidence">
-          <summary>查看证据</summary>
-          <dl>{evidence.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatEvidence(value)}</dd></div>)}</dl>
-        </details>
-      ) : null}
-    </li>
   )
 }
 

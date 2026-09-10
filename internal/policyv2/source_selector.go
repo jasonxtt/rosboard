@@ -93,7 +93,7 @@ func (s *Scanner) ScanAndSourceSelectors(ctx context.Context, deviceID string) (
 	if err != nil {
 		return PolicyDiscoverySnapshot{}, err
 	}
-	discovery, discoveryErr := discoveryFromEvidence(evidence, deviceID, nil)
+	discovery, discoveryErr := discoveryFromEvidence(evidence, deviceID)
 	if discoveryErr != nil {
 		discovery = Discovery{
 			Device:         map[string]string{"id": deviceID},
@@ -171,9 +171,8 @@ func sourceSelectorsFromEvidence(evidence discoveryEvidence, deviceID string) (S
 	pppoeParents := pppoeParentInterfaces(pppoeClients)
 	wans := buildWANCandidates(interfaces, routes, lanInterfaces)
 	addresses := append(ipv4Addresses, ipv6Addresses...)
-	trace := make([]IngressDecision, 0)
-	candidates, decisions := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts, bridgePortsOK, wans, pppoeParents, &trace)
-	trace = append(trace, decisions...)
+	candidates, decisions := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts, bridgePortsOK, wans, pppoeParents)
+	trace := decisions
 
 	result.RecommendationStatus = sourceSelectorFactAvailable
 	if !interfacesOK && !listsOK {
