@@ -54,6 +54,20 @@ type TrackedJob = { id: string; label: string; successMessage: string }
 
 function ruleSourceNodes(rule: RoutingRule, terminalByID: Map<string, PolicyTerminal>): FlowNode[] {
   const { subject } = rule
+  if (rule.sourceScope?.kind === 'interface') {
+    const names = Array.from(new Set([...(rule.sourceScope.interfaceLists ?? []), ...(rule.sourceScope.interfaces ?? []), ...(rule.sourceScope.name ? [rule.sourceScope.name] : [])]))
+    const nodes: FlowNode[] = names.map((name) => ({ label: name }))
+    const exclusions = rule.sourceScope.excludePrefixes ?? []
+    for (const prefix of exclusions.slice(0, 3)) nodes.push({ label: `排除 ${prefix}` })
+    if (exclusions.length > 3) nodes.push({ label: `排除 +${exclusions.length - 3}` })
+    return nodes.length ? nodes : [{ label: '未选择接口' }]
+  }
+  if (rule.sourceScope?.kind === 'interface-list') return [{ label: rule.sourceScope.name || '未命名' }]
+  if (rule.sourceScope?.kind === 'all') return [{ label: '全部来源（安全门延后）' }]
+  if (rule.sourceScope?.kind === 'ip' || (!rule.sourceScope && subject.mode === 'selected' && subject.prefixes.length > 0 && subject.members.length === 0)) {
+    const nodes: FlowNode[] = subject.prefixes.map((prefix) => ({ label: prefix }))
+    return nodes.length ? nodes : [{ label: '未选择来源' }]
+  }
   if (subject.mode === 'all') return [{ label: '全部终端' }]
   const names = subject.members.map((member) => terminalByID.get(member.terminalId)?.displayName || member.terminalId)
   const nodes: FlowNode[] = []
@@ -64,7 +78,8 @@ function ruleSourceNodes(rule: RoutingRule, terminalByID: Map<string, PolicyTerm
     for (const name of names.slice(0, 3)) nodes.push({ label: name })
     if (names.length > 3) nodes.push({ label: `+${names.length - 3} 台` })
   }
-  if (subject.prefixes.length) nodes.push({ label: `${subject.prefixes.length} 个网段` })
+  for (const prefix of subject.prefixes.slice(0, 3)) nodes.push({ label: prefix })
+  if (subject.prefixes.length > 3) nodes.push({ label: `+${subject.prefixes.length - 3} 个网段` })
   if (!nodes.length) nodes.push({ label: '未选择来源' })
   return nodes
 }

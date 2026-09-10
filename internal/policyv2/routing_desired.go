@@ -20,12 +20,26 @@ type routingTargetProjection struct {
 }
 
 type routingExecutionGroup struct {
-	boundary    string
-	subjectList string
-	ingressList string
-	mark        string
-	logicalID   string
-	enabled     bool
+	boundary        string
+	subjectList     string
+	ingressList     string
+	inInterface     string
+	inInterfaceList string
+	mark            string
+	logicalID       string
+	enabled         bool
+}
+
+// routingSourceMatcher is the small compiler output used by the mangle
+// materializer. It is intentionally not a public expression tree: Slice 2
+// supports one source selector per rule while preserving the legacy
+// Subject+TrafficIngress projections for old rules.
+type routingSourceMatcher struct {
+	boundary        string
+	subjectList     string
+	ingressList     string
+	inInterface     string
+	inInterfaceList string
 }
 
 type routingSubjectFamilyResolution struct {
@@ -48,6 +62,12 @@ type routingDNSStaticEntry struct {
 	logicalID string
 	label     string
 	fields    map[string]string
+}
+
+type routingConnectionOrder struct {
+	priority int
+	ruleID   string
+	ruleName string
 }
 
 func buildRoutingDesired(ctx context.Context, result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), repository Repository, reader PolicyReader, managerID, deviceID string, defaultIngress TrafficIngressScope, allowDefaultIngress bool, egresses []Egress, sources []Source, rules []RoutingRule, terminals []accesscontrol.Terminal) error {
@@ -240,6 +260,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			buildRoutingMangleFamily(result, addEgress, egress, family, ingressLists, ingressReady, table, targets, rules, terminals, disabled, managerID, deviceID)
 		}
 	}
+	reorderRoutingConnectionObjects(result)
 	sort.SliceStable(routingDNSStatics, func(i, j int) bool {
 		left, right := routingDNSStatics[i], routingDNSStatics[j]
 		if left.priority != right.priority {
@@ -272,6 +293,60 @@ func buildRoutingIngressProjections(result *DesiredResult, add func(string, rout
 	readyByRule := make(map[string]bool)
 	listByScope := make(map[string]string)
 	for _, rule := range rules {
+		if rule.Enabled && IsDeferredRoutingSource(rule.SourceScope) {
+			appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceInterfaceListAllDeferredIssue(rule.ID)})
+			continue
+		}
+		if rule.Enabled && rule.SourceScope != nil && rule.SourceScope.Kind == RoutingSourceAll {
+			appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceAllDeferredIssue(rule.ID)})
+			continue
+		}
+		if rule.SourceScope != nil {
+			if rule.SourceScope.Kind != RoutingSourceInterface {
+				// Device, IP and legacy single-list sources compile directly in
+				// buildRoutingMangleFamily. They must never create or depend on
+				// the legacy aggregate ingress list.
+				continue
+			}
+			scope, normalizeErr := NormalizeRoutingSourceScope(rule.SourceScope)
+			if normalizeErr != nil {
+				// compileRoutingSourceMatcher reports the blocker.
+				continue
+			}
+			if _, _, direct := RoutingSourceDirectSelector(scope); direct {
+				continue
+			}
+			// A multi-selector or excluding interface source shares the legacy
+			// aggregate-list mechanism: the managed list carries the selected
+			// interfaces and interface lists, and exclusions apply a negated
+			// src-address-list on top of it.
+			if !rule.Enabled {
+				continue
+			}
+			ingressScope := RoutingSourceIngressScope(scope)
+			key := TrafficIngressScopeKey(ingressScope)
+			listName := listByScope[key]
+			if listName == "" {
+				listName = ManagedIngressListName(managerID, deviceID)
+				logicalSuffix := ""
+				if key != defaultKey || !HasTrafficIngress(defaultScope) {
+					logicalSuffix = ":" + shortHash("traffic-ingress:"+key, 8)
+					listName += "_" + shortHash("traffic-ingress-list:"+key, 8)
+				}
+				fields := map[string]string{"name": listName}
+				if len(ingressScope.InterfaceLists) > 0 {
+					fields["include"] = strings.Join(ingressScope.InterfaceLists, ",")
+				}
+				add("traffic-ingress:list"+logicalSuffix, routeros.MenuInterfaceList, "foundation", "策略流量入口聚合列表", fields)
+				for _, interfaceName := range ingressScope.Interfaces {
+					add("traffic-ingress:member"+logicalSuffix+":"+interfaceName, routeros.MenuInterfaceListMember, "foundation", "策略流量入口成员 "+cleanReadableLabel(interfaceName), map[string]string{"list": listName, "interface": interfaceName})
+				}
+				listByScope[key] = listName
+			}
+			listByRule[rule.ID] = listName
+			readyByRule[rule.ID] = true
+			continue
+		}
 		if !rule.Enabled || (rule.Subject.Mode != SubjectModeAll && rule.Subject.Mode != SubjectModeExcluded) {
 			continue
 		}
@@ -482,33 +557,8 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		if len(ruleTargets) == 0 {
 			continue
 		}
-		ingressList := ingressLists[rule.ID]
-		ruleIngressReady := ingressReady[rule.ID]
-		subjectList := ""
-		boundary := "ingress"
-		switch rule.Subject.Mode {
-		case SubjectModeSelected:
-			subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
-			if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled, SubjectModeSelected) {
-				continue
-			}
-			boundary = "selected"
-		case SubjectModeExcluded:
-			if !ruleIngressReady || strings.TrimSpace(ingressList) == "" {
-				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_excluded_requires_ingress", Status: "blocker", Family: familyName, LogicalID: rule.ID, EgressID: egress.ID, Reason: "excluded source mode requires a valid TrafficIngress scope"})
-				continue
-			}
-			subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
-			if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, subjectList, egress.Enabled && rule.Enabled, SubjectModeExcluded) {
-				continue
-			}
-			boundary = "excluded"
-		case SubjectModeAll:
-			if !ruleIngressReady || strings.TrimSpace(ingressList) == "" {
-				continue
-			}
-		default:
-			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_subject_invalid", Status: "blocker", Family: familyName, LogicalID: rule.ID, EgressID: egress.ID, Reason: "routing rule has an unsupported source mode"})
+		matcher, ok := compileRoutingSourceMatcher(result, add, rule, family, ingressLists, ingressReady, terminals, egress.Enabled && rule.Enabled, managerID, deviceID)
+		if !ok {
 			continue
 		}
 		disabled := "no"
@@ -516,15 +566,15 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			disabled = "yes"
 		}
 		effectiveEnabled := egress.Enabled && rule.Enabled
-		groupKey := routingExecutionGroupKey(egress, family, table, boundary, rule, subjectList, ingressList, effectiveEnabled)
+		groupKey := routingExecutionGroupKey(egress, family, table, matcher.boundary, rule, matcher.subjectList, matcher.ingressList, effectiveEnabled)
 		group, ok := executionGroups[groupKey]
 		if !ok {
-			logicalID := "routing-rule-routing:" + egress.ID + ":" + familyName + ":" + boundary
-			if boundary != "ingress" {
+			logicalID := "routing-rule-routing:" + egress.ID + ":" + familyName + ":" + matcher.boundary
+			if matcher.boundary != "ingress" {
 				logicalID += ":" + rule.ID
 			}
-			if boundary == "ingress" || boundary == "excluded" {
-				logicalID += ":" + shortHash("ingress:"+ingressList, 8)
+			if matcher.boundary == "ingress" || matcher.boundary == "excluded" {
+				logicalID += ":" + shortHash("ingress:"+matcher.ingressList, 8)
 			}
 			executionState := "disabled"
 			if effectiveEnabled {
@@ -532,7 +582,8 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			}
 			logicalID += ":" + executionState
 			group = routingExecutionGroup{
-				boundary: boundary, subjectList: subjectList, ingressList: ingressList,
+				boundary: matcher.boundary, subjectList: matcher.subjectList, ingressList: matcher.ingressList,
+				inInterface: matcher.inInterface, inInterfaceList: matcher.inInterfaceList,
 				mark:      "rb_" + shortHash("routing-execution-mark:"+groupKey, 12),
 				logicalID: logicalID, enabled: effectiveEnabled,
 			}
@@ -540,18 +591,25 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		}
 		for _, target := range ruleTargets {
 			fields := map[string]string{"chain": "prerouting", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": target.list, "action": "mark-connection", "new-connection-mark": group.mark, "passthrough": "yes", "disabled": disabled}
-			if boundary == "ingress" || boundary == "excluded" {
-				fields["in-interface-list"] = ingressList
+			if matcher.boundary == "ingress" || matcher.boundary == "excluded" {
+				fields["in-interface-list"] = matcher.ingressList
 			}
-			if subjectList != "" {
-				if rule.Subject.Mode == SubjectModeExcluded {
-					fields["src-address-list"] = "!" + subjectList
+			if matcher.inInterface != "" {
+				fields["in-interface"] = matcher.inInterface
+			}
+			if matcher.inInterfaceList != "" {
+				fields["in-interface-list"] = matcher.inInterfaceList
+			}
+			if matcher.subjectList != "" {
+				if matcher.boundary == "excluded" {
+					fields["src-address-list"] = "!" + matcher.subjectList
 				} else {
-					fields["src-address-list"] = subjectList
+					fields["src-address-list"] = matcher.subjectList
 				}
 			}
 			logicalID := "routing-rule-connection:" + rule.ID + ":" + familyName + ":" + target.id
 			add(logicalID, mangleMenu, "activation", fields)
+			recordRoutingConnectionOrder(result, logicalID, rule)
 		}
 		if rule.Enabled {
 			for _, target := range ruleTargets {
@@ -575,6 +633,12 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		fields := map[string]string{"chain": "prerouting", "dst-address-type": "!local", "connection-mark": group.mark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled}
 		if group.boundary == "ingress" {
 			fields["in-interface-list"] = group.ingressList
+		}
+		if group.boundary == "direct-interface" {
+			fields["in-interface"] = group.inInterface
+		}
+		if group.boundary == "direct-interface-list" {
+			fields["in-interface-list"] = group.inInterfaceList
 		}
 		if group.boundary == "selected" {
 			fields["src-address-list"] = group.subjectList
@@ -605,6 +669,84 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 	add("routing-router-routing:"+egress.ID+":"+familyName, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": egressDisabled})
 }
 
+func recordRoutingConnectionOrder(result *DesiredResult, logicalID string, rule RoutingRule) {
+	if result.routingConnectionOrders == nil {
+		result.routingConnectionOrders = make(map[string]routingConnectionOrder)
+	}
+	result.routingConnectionOrders[logicalID] = routingConnectionOrder{priority: rule.Priority, ruleID: rule.ID, ruleName: rule.Name}
+}
+
+func reorderRoutingConnectionObjects(result *DesiredResult) {
+	if result == nil || len(result.routingConnectionOrders) == 0 {
+		return
+	}
+	connectionIndicesByMenu := make(map[string][]int)
+	routingIndicesByMenu := make(map[string][]int)
+	for index, object := range result.Objects {
+		if _, ok := result.routingConnectionOrders[object.LogicalID]; ok && isRoutingPreroutingConnection(object) {
+			connectionIndicesByMenu[object.Menu] = append(connectionIndicesByMenu[object.Menu], index)
+		}
+		if isRoutingPreroutingRouting(object) {
+			routingIndicesByMenu[object.Menu] = append(routingIndicesByMenu[object.Menu], index)
+		}
+	}
+	for menu, connectionIndices := range connectionIndicesByMenu {
+		connectionObjects := make([]DesiredObject, len(connectionIndices))
+		for index, objectIndex := range connectionIndices {
+			connectionObjects[index] = result.Objects[objectIndex]
+		}
+		sort.SliceStable(connectionObjects, func(i, j int) bool {
+			left := result.routingConnectionOrders[connectionObjects[i].LogicalID]
+			right := result.routingConnectionOrders[connectionObjects[j].LogicalID]
+			if left.priority != right.priority {
+				return left.priority < right.priority
+			}
+			if left.ruleID != right.ruleID {
+				return left.ruleID < right.ruleID
+			}
+			if left.ruleName != right.ruleName {
+				return left.ruleName < right.ruleName
+			}
+			return connectionObjects[i].LogicalID < connectionObjects[j].LogicalID
+		})
+
+		routingIndices := routingIndicesByMenu[menu]
+		routingObjects := make([]DesiredObject, len(routingIndices))
+		for index, objectIndex := range routingIndices {
+			routingObjects[index] = result.Objects[objectIndex]
+		}
+
+		// Keep all source connection matchers ahead of all source routing
+		// mark rules in this mangle menu. This preserves each rule's required
+		// connection -> routing sequence while still making the connection
+		// winner deterministic across egresses.
+		slots := append(append([]int{}, connectionIndices...), routingIndices...)
+		sort.Ints(slots)
+		objects := append(connectionObjects, routingObjects...)
+		for index, objectIndex := range slots {
+			objects[index].Order = result.Objects[objectIndex].Order
+			result.Objects[objectIndex] = objects[index]
+		}
+	}
+}
+
+func isRoutingPreroutingConnection(object DesiredObject) bool {
+	if object.Fields["chain"] != "prerouting" || object.Fields["action"] != "mark-connection" || object.Fields["connection-mark"] != "no-mark" {
+		return false
+	}
+	return object.Menu == string(routeros.MenuIPFirewallMangle) || object.Menu == string(routeros.MenuIPv6FirewallMangle)
+}
+
+func isRoutingPreroutingRouting(object DesiredObject) bool {
+	if object.Fields["chain"] != "prerouting" || object.Fields["action"] != "mark-routing" {
+		return false
+	}
+	if object.Menu != string(routeros.MenuIPFirewallMangle) && object.Menu != string(routeros.MenuIPv6FirewallMangle) {
+		return false
+	}
+	return strings.HasPrefix(object.LogicalID, "routing-rule-routing:")
+}
+
 func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundary string, rule RoutingRule, subjectList, ingressList string, enabled bool) string {
 	effective := "disabled"
 	if enabled {
@@ -621,7 +763,121 @@ func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundar
 	if boundary == "ingress" || boundary == "excluded" {
 		parts = append(parts, ingressList)
 	}
+	if boundary == "direct-interface" || boundary == "direct-interface-list" {
+		name := ""
+		if rule.SourceScope != nil {
+			if scope, err := NormalizeRoutingSourceScope(rule.SourceScope); err == nil {
+				if _, directName, direct := RoutingSourceDirectSelector(scope); direct {
+					name = directName
+				} else {
+					name = scope.Name
+				}
+			}
+		}
+		parts = append(parts, name)
+	}
 	return strings.Join(parts, "\x00")
+}
+
+func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), rule RoutingRule, family EgressFamily, ingressLists map[string]string, ingressReady map[string]bool, terminals []accesscontrol.Terminal, enabled bool, managerID, deviceID string) (routingSourceMatcher, bool) {
+	matcher := routingSourceMatcher{boundary: "ingress", ingressList: ingressLists[rule.ID]}
+	if rule.SourceScope != nil {
+		scope := rule.SourceScope
+		switch scope.Kind {
+		case RoutingSourceInterface:
+			normalizedScope, normalizeErr := NormalizeRoutingSourceScope(scope)
+			if normalizeErr != nil {
+				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: normalizeErr.Error()})
+				return routingSourceMatcher{}, false
+			}
+			if directKind, name, direct := RoutingSourceDirectSelector(normalizedScope); direct {
+				if directKind == RoutingSourceInterfaceList {
+					if IsDeferredRoutingSourceInterfaceListName(name) {
+						if rule.Enabled {
+							appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceInterfaceListAllDeferredIssue(rule.ID)})
+						}
+						return routingSourceMatcher{}, false
+					}
+					return routingSourceMatcher{boundary: "direct-interface-list", inInterfaceList: name}, true
+				}
+				return routingSourceMatcher{boundary: "direct-interface", inInterface: name}, true
+			}
+			matcher.boundary = "ingress"
+			matcher.ingressList = ingressLists[rule.ID]
+			if !ingressReady[rule.ID] || strings.TrimSpace(matcher.ingressList) == "" {
+				return routingSourceMatcher{}, false
+			}
+			if len(normalizedScope.ExcludePrefixes) > 0 {
+				// Exclusions are per-family: when no excluded address belongs
+				// to this family the matcher stays an unconstrained ingress
+				// boundary instead of silently dropping the family.
+				excludedRule := rule
+				excludedRule.Subject = Subject{Mode: SubjectModeExcluded, Prefixes: append([]string{}, normalizedScope.ExcludePrefixes...)}
+				resolution := resolveRoutingSubjectFamily(excludedRule, family.Family, terminals)
+				if len(resolution.addresses) > 0 {
+					matcher.boundary = "excluded"
+					matcher.subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
+					materializeRoutingSubjectList(add, excludedRule, family.Family, matcher.subjectList, enabled, resolution.addresses)
+				}
+			}
+			return matcher, true
+		case RoutingSourceInterfaceList:
+			if IsDeferredRoutingSourceInterfaceListName(scope.Name) {
+				if rule.Enabled {
+					appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceInterfaceListAllDeferredIssue(rule.ID)})
+				}
+				return routingSourceMatcher{}, false
+			}
+			if strings.TrimSpace(scope.Name) == "" {
+				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "interface-list source requires a non-empty RouterOS interface-list name"})
+				return routingSourceMatcher{}, false
+			}
+			return routingSourceMatcher{boundary: "direct-interface-list", inInterfaceList: scope.Name}, true
+		case RoutingSourceAll:
+			if rule.Enabled {
+				appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceAllDeferredIssue(rule.ID)})
+			}
+			return routingSourceMatcher{}, false
+		case RoutingSourceDevice, RoutingSourceIP:
+			matcher.boundary = "selected"
+			matcher.subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
+			if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, matcher.subjectList, enabled, SubjectModeSelected) {
+				return routingSourceMatcher{}, false
+			}
+			return matcher, true
+		default:
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule has an unsupported source kind"})
+			return routingSourceMatcher{}, false
+		}
+	}
+
+	ruleIngressReady := ingressReady[rule.ID]
+	switch rule.Subject.Mode {
+	case SubjectModeSelected:
+		matcher.boundary = "selected"
+		matcher.subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
+		if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, matcher.subjectList, enabled, SubjectModeSelected) {
+			return routingSourceMatcher{}, false
+		}
+	case SubjectModeExcluded:
+		if !ruleIngressReady || strings.TrimSpace(matcher.ingressList) == "" {
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_excluded_requires_ingress", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "excluded source mode requires a valid TrafficIngress scope"})
+			return routingSourceMatcher{}, false
+		}
+		matcher.boundary = "excluded"
+		matcher.subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
+		if !buildRoutingSubjectListForMode(result, add, rule, family.Family, terminals, matcher.subjectList, enabled, SubjectModeExcluded) {
+			return routingSourceMatcher{}, false
+		}
+	case SubjectModeAll:
+		if !ruleIngressReady || strings.TrimSpace(matcher.ingressList) == "" {
+			return routingSourceMatcher{}, false
+		}
+	default:
+		result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_subject_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule has an unsupported source mode"})
+		return routingSourceMatcher{}, false
+	}
+	return matcher, true
 }
 
 func buildRoutingSubjectList(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), rule RoutingRule, family AddressFamily, terminals []accesscontrol.Terminal, listName string, enabled bool) bool {

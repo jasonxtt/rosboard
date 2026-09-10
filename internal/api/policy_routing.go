@@ -47,6 +47,18 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 			return
 		}
 		s.servePolicyDiscovery(writer, request)
+	case "source-selectors":
+		if request.Method != http.MethodGet {
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.servePolicySourceSelectors(writer, request)
+	case "discovery-snapshot":
+		if request.Method != http.MethodGet {
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.servePolicyDiscoverySnapshot(writer, request)
 	case "traffic-ingress", "lan-scope":
 		s.servePolicyTrafficIngress(writer, request)
 	case "egresses":
@@ -204,6 +216,103 @@ func (s *Server) servePolicyDiscovery(writer http.ResponseWriter, request *http.
 		return
 	}
 	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+// ---- Source selector facts ----
+
+func (s *Server) servePolicySourceSelectors(writer http.ResponseWriter, request *http.Request) {
+	device, ok := s.resolvePolicyDevice(writer, request)
+	if !ok {
+		return
+	}
+	if s.policySetupState(device.device) != "ready" {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               "runtime not ready",
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
+		return
+	}
+	applier := s.policy.ApplierFor(device.device.ID)
+	if applier == nil || applier.Reader == nil {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               "scanner not configured",
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
+		return
+	}
+	result, err := policyv2.NewScanner(applier.Reader).SourceSelectors(request.Context(), device.device.ID)
+	if err != nil {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               err.Error(),
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
+		return
+	}
+	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+// servePolicyDiscoverySnapshot is the wizard-facing read-through boundary.
+// It collects RouterOS topology once, then returns both the legacy discovery
+// and source-selector projections from that same evidence generation.
+func (s *Server) servePolicyDiscoverySnapshot(writer http.ResponseWriter, request *http.Request) {
+	device, ok := s.resolvePolicyDevice(writer, request)
+	if !ok {
+		return
+	}
+	if s.policySetupState(device.device) != "ready" {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "runtime not ready"))
+		return
+	}
+	applier := s.policy.ApplierFor(device.device.ID)
+	if applier == nil || applier.Reader == nil {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "scanner not configured"))
+		return
+	}
+	result, err := policyv2.NewScanner(applier.Reader).ScanAndSourceSelectors(request.Context(), device.device.ID)
+	if err != nil {
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, err.Error()))
+		return
+	}
+	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+func unavailablePolicyDiscoverySnapshot(deviceID, reason string) policyv2.PolicyDiscoverySnapshot {
+	return policyv2.PolicyDiscoverySnapshot{
+		Discovery: policyv2.Discovery{
+			Device:         map[string]string{"id": deviceID},
+			Available:      false,
+			Reason:         reason,
+			Warnings:       []string{},
+			Snapshot:       policyv2.DiscoverySnapshot{DeviceIdentity: map[string]any{}, Capabilities: map[string]any{}},
+			WANs:           []policyv2.WANCandidate{},
+			TrafficIngress: []policyv2.TrafficIngressCandidate{},
+			ExistingPolicy: []any{},
+		},
+		SourceSelectors: policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": deviceID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               reason,
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		},
+	}
 }
 
 // ---- Traffic ingress ----
@@ -616,9 +725,11 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 	}
 	proposal := &policyv2.PolicyProposal{Egress: payload.Egress, TrafficIngress: payload.TrafficIngress, RoutingRule: payload.RoutingRule}
 	currentEgressID := ""
+	var existingRoutingRule *policyv2.RoutingRule
 	if payload.RoutingRule != nil {
 		currentEgressID = strings.TrimSpace(payload.RoutingRule.EgressID)
 		if existingRule, err := device.repository.GetRoutingRule(ctx, payload.RoutingRule.ID); err == nil {
+			existingRoutingRule = &existingRule
 			if currentEgressID == "" {
 				currentEgressID = existingRule.EgressID
 			}
@@ -715,6 +826,7 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 	}
 	if proposal.RoutingRule != nil {
 		rule := *proposal.RoutingRule
+		var err error
 		if rule.ID == "" {
 			rule.ID = uuid.NewString()
 		}
@@ -726,11 +838,18 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 		} else if rule.EgressID == "" {
 			rule.EgressID = boundEgressID
 		}
-		rule, err := s.canonicalizeRoutingRuleSubject(ctx, device, rule)
-		if err != nil {
-			return nil, err
+		canonicalSourceCompatibilityWrite := rule.SourceScope == nil && existingRoutingRule != nil && existingRoutingRule.SourceScope != nil
+		if policyv2.RoutingSourceUsesSubjectPayload(rule.SourceScope) && !canonicalSourceCompatibilityWrite {
+			rule, err = s.canonicalizeRoutingRuleSubject(ctx, device, rule)
+			if err != nil {
+				return nil, err
+			}
 		}
-		rule, err = policyv2.NormalizeRoutingRule(rule)
+		if existingRoutingRule != nil {
+			rule, err = policyv2.PrepareRoutingRuleWrite(rule, existingRoutingRule)
+		} else {
+			rule, err = policyv2.PrepareRoutingRuleWrite(rule, nil)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -850,7 +969,8 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 		}
 		proposal, err := s.preparePolicyPlanProposal(request.Context(), device, payload.Proposal)
 		if err != nil {
-			writePolicyJSON(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_policy_proposal", "error": err.Error()})
+			status, code := policyPlanProposalError(err)
+			writePolicyJSON(writer, status, map[string]any{"code": code, "error": err.Error()})
 			return
 		}
 		envelope, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, payload.Kind, policyv2.PlanOptions{InternetEgresses: payload.InternetEgresses, Proposal: proposal})
@@ -924,6 +1044,17 @@ func policyPlanApplyError(err error) (int, string) {
 		return http.StatusConflict, "job_conflict"
 	default:
 		return http.StatusInternalServerError, "apply_failed"
+	}
+}
+
+func policyPlanProposalError(err error) (int, string) {
+	switch {
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeConflict):
+		return http.StatusConflict, "routing_source_scope_conflict"
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeInvalid):
+		return http.StatusUnprocessableEntity, "invalid_routing_source_scope"
+	default:
+		return http.StatusUnprocessableEntity, "invalid_policy_proposal"
 	}
 }
 

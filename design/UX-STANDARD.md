@@ -118,7 +118,7 @@ UI 设计按优先级遵循：
 | 指标卡 | 玻璃卡；左上标签(12px,ink-2)、主值(26px,700,tabular)、辅值(11.5px,ink-3)；可带右侧迷你环形表或底部 sparkline |
 | 环形表 gauge | SVG 双圆：底环 `stroke: var(--stroke)` 宽 8，值环用 `--grad-brand` 系渐变、圆头、`rotate(-90)`；中心百分比 19px |
 | 徽章 badge | 圆角 999，11px 600 字重，soft 底 + 实色文字；必须含色点或文字，禁止纯底色 |
-| 开关 toggle | 38×22，开=`--grad-ok` + 右白点，关=`var(--glass-2)` + 左白点；禁用态 40% 透明 |
+| 开关 toggle | 38×22，开=`--grad-ok` + 右白点，关=`var(--glass-2)` + 左白点 + `--toggle-off-stroke` 轨道边；白点带 `--toggle-thumb-stroke` 边（亮色模式必显，否则白点消失在白轨道上）；禁用态 40% 透明 |
 | 按钮 | 主按钮：`--grad-brand` 底 + `#0b0d20` 字；次按钮：玻璃底 + `--stroke` 边；危险按钮：`--err-soft` 底 + err 字。高度 36px，圆角 md |
 | 输入 | 玻璃底、1px `--stroke`、聚焦时边框变 `--accent` 且外发光 `0 0 0 3px var(--accent-soft)`；标签在上方 12px ink-2 |
 | 表格 | 表头 11px ink-3 字母间距 .04em；行分隔 `1px var(--stroke)`；行悬停 `var(--glass-2)`；数字右对齐 tabular；空态用 EmptyState |

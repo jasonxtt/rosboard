@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPostBlob, safeArray, safeBoolean, safeNumber, safeObject, safeString, safeStringArray, scoped } from '../../lib/api'
-import type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'
+import type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus } from './types'
 
 function parseStatus(value: unknown): DiagnosticStatus {
   switch (value) {
@@ -73,19 +73,6 @@ function parseSnapshot(value: unknown): DiagnosticSnapshot {
   }
 }
 
-function parseIngressDecision(value: unknown): IngressDecision | null {
-  const item = safeObject(value)
-  const reasonCode = safeString(item.reasonCode)
-  if (!reasonCode) return null
-  return {
-    interface: safeString(item.interface),
-    result: safeString(item.result),
-    reasonCode,
-    reason: safeString(item.reason),
-    evidence: safeObject(item.evidence),
-  }
-}
-
 export function parseDiagnostics(value: unknown): DiagnosticReport {
   const item = safeObject(value)
   const findings = safeArray(item.findings).map(parseFinding).filter((finding): finding is DiagnosticFinding => finding !== null)
@@ -109,7 +96,6 @@ export function parseDeepDiagnostics(value: unknown): DeepDiagnosticReport {
     ...report,
     mode: 'deep',
     snapshot: parseSnapshot(item.snapshot),
-    ingressTrace: safeArray(item.ingressTrace).map(parseIngressDecision).filter((decision): decision is IngressDecision => decision !== null),
   }
 }
 
@@ -124,4 +110,4 @@ export function downloadDiagnostics(deviceId: string): Promise<{ blob: Blob; fil
   }))
 }
 
-export type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus, IngressDecision } from './types'
+export type { DeepDiagnosticReport, DiagnosticEndpoint, DiagnosticFinding, DiagnosticOverall, DiagnosticReport, DiagnosticSnapshot, DiagnosticStatus } from './types'

@@ -364,7 +364,7 @@ func TestDiscoveryReturnsOptionalReadWarningsWithPartialResults(t *testing.T) {
 	}
 }
 
-func TestDiscoveryTracePreservesCandidateResult(t *testing.T) {
+func TestIngressDecisionsExplainCandidateSelection(t *testing.T) {
 	reader := discoveryReader{
 		routeros.ReadMenuSystemResource: {{"board-name": "router", "version": "7.22.3"}},
 		routeros.ReadMenuInterface: {
@@ -393,17 +393,21 @@ func TestDiscoveryTracePreservesCandidateResult(t *testing.T) {
 		routeros.ReadMenuPPPoEClient:    {},
 	}
 
-	plain, err := NewScanner(reader).Scan(context.Background(), "edge")
+	discovery, err := NewScanner(reader).Scan(context.Background(), "edge")
 	if err != nil {
 		t.Fatal(err)
 	}
-	traced, decisions, err := NewScanner(reader).ScanWithTrace(context.Background(), "edge")
-	if err != nil {
-		t.Fatal(err)
+	if len(discovery.TrafficIngress) == 0 {
+		t.Fatal("scan returned no traffic ingress candidates")
 	}
-	if !reflect.DeepEqual(plain, traced) {
-		t.Fatalf("trace changed discovery candidates: plain=%#v traced=%#v", plain, traced)
-	}
+
+	interfaces := reader[routeros.ReadMenuInterface]
+	lists := reader[routeros.ReadMenuInterfaceList]
+	members := reader[routeros.ReadMenuInterfaceListMember]
+	addresses := reader[routeros.ReadMenuIPAddress]
+	routes := defaultRoutes(reader[routeros.ReadMenuIPRoute], "ipv4")
+	wans := buildWANCandidates(interfaces, routes, explicitLANInterfaceMembers(lists, members, interfaces))
+	_, decisions := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, reader[routeros.ReadMenuBridgePort], true, wans, pppoeParentInterfaces(reader[routeros.ReadMenuPPPoEClient]))
 
 	byName := make(map[string]IngressDecision, len(decisions))
 	for _, decision := range decisions {
@@ -434,7 +438,7 @@ func TestDiscoveryTracePreservesCandidateResult(t *testing.T) {
 	}
 }
 
-func TestDiscoveryTraceRecordsBridgeReadFailureWithoutChangingSafetyBehavior(t *testing.T) {
+func TestIngressDecisionRecordsBridgeReadFailure(t *testing.T) {
 	reader := discoveryErrorReader{
 		objects: map[routeros.ReadMenu][]routeros.RouterOSObject{
 			routeros.ReadMenuSystemResource:      {{"board-name": "router"}},
@@ -453,10 +457,10 @@ func TestDiscoveryTraceRecordsBridgeReadFailureWithoutChangingSafetyBehavior(t *
 			routeros.ReadMenuBridgePort: fmt.Errorf("bridge port unavailable"),
 		},
 	}
-	_, decisions, err := NewScanner(reader).ScanWithTrace(context.Background(), "edge")
-	if err != nil {
-		t.Fatal(err)
-	}
+	interfaces := reader.objects[routeros.ReadMenuInterface]
+	addresses := reader.objects[routeros.ReadMenuIPAddress]
+	wans := buildWANCandidates(interfaces, nil, nil)
+	_, decisions := buildTrafficIngressCandidatesDetailed(interfaces, nil, nil, addresses, nil, false, wans, nil)
 	for _, decision := range decisions {
 		if decision.Interface == "ether1" {
 			if decision.ReasonCode != "ingress.bridge_evidence_unavailable" || decision.Result != "rejected" {

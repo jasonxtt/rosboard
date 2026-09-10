@@ -114,7 +114,7 @@ func TestRoutingRuleProjectionUsesSubjectAndConsumerScopedTargetLists(t *testing
 	}
 	for _, object := range selectedExecution {
 		switch {
-		case strings.Contains(object.LogicalID, ":ingress:"):
+		case strings.Contains(object.LogicalID, ":ingress:") || strings.Contains(object.LogicalID, ":direct-interface-list:"):
 			if object.Fields["in-interface-list"] == "" || object.Fields["src-address-list"] != "" {
 				t.Fatalf("all execution group has the wrong source guard: %#v", object)
 			}
@@ -197,6 +197,86 @@ func TestSelectedRoutingRuleUsesSourceOnlyWithoutTrafficIngress(t *testing.T) {
 	}
 }
 
+func TestCanonicalInterfaceSourceIgnoresGlobalTrafficIngressEdits(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-canonical-interface", Name: "Canonical interface WAN", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1", RouteTable: "canonical-interface"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "canonical-interface-target", Name: "Canonical interface target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "canonical-interface-version", TargetListID: target.ID, SHA256: "canonical-interface", CompressedYAML: []byte("ip"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "canonical-interface-rule", Name: "Canonical interface", EgressID: "wan-canonical-interface", TargetListIDs: []string{target.ID}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Name: "bridge1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := policyv2.BuildDesired(ctx, repository, newPolicyV2FakeRouter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalInterfaceSourceDesired(t, before)
+	stateBefore, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This name is deliberately absent from the fake discovery candidate set.
+	// A legacy global edit must remain compatibility state and must not become a
+	// source gate for the canonical per-rule matcher.
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["false-negative"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := policyv2.BuildDesired(ctx, repository, newPolicyV2FakeRouter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalInterfaceSourceDesired(t, after)
+	stateAfter, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateAfter.DesiredRevision != stateBefore.DesiredRevision {
+		t.Fatalf("global legacy edit changed canonical desired revision: before=%d after=%d", stateBefore.DesiredRevision, stateAfter.DesiredRevision)
+	}
+	if before.Hash != after.Hash {
+		t.Fatalf("global legacy edit changed canonical desired hash: before=%s after=%s", before.Hash, after.Hash)
+	}
+}
+
+func assertCanonicalInterfaceSourceDesired(t *testing.T, desired policyv2.DesiredResult) {
+	t.Helper()
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("canonical interface source was blocked by global ingress state: %#v", desired.Blockers)
+	}
+	connections := desiredObjectsByLogicalPrefix(desired.Objects, "routing-rule-connection:canonical-interface-rule:")
+	if len(connections) != 1 || connections[0].Fields["in-interface"] != "bridge1" || connections[0].Fields["in-interface-list"] != "" {
+		t.Fatalf("canonical interface matcher was not kept direct: %#v", connections)
+	}
+	for _, object := range desired.Objects {
+		if strings.HasPrefix(object.LogicalID, "traffic-ingress:") {
+			t.Fatalf("canonical source unexpectedly created a legacy aggregate ingress object: %#v", object)
+		}
+	}
+}
+
 func TestRoutingRulesWithDifferentIngressUseDifferentExecutionGroups(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
@@ -219,8 +299,8 @@ func TestRoutingRulesWithDifferentIngressUseDifferentExecutionGroups(t *testing.
 		t.Fatal(err)
 	}
 	for _, rule := range []policyv2.RoutingRule{
-		{ID: "rule-lan", Name: "LAN policy", EgressID: "wan-per-rule-ingress", TargetListIDs: []string{target.ID}, Enabled: true, Subject: policyv2.Subject{Mode: policyv2.SubjectModeAll}, Ingress: policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN"}}},
-		{ID: "rule-vlan", Name: "VLAN policy", EgressID: "wan-per-rule-ingress", TargetListIDs: []string{target.ID}, Enabled: true, Subject: policyv2.Subject{Mode: policyv2.SubjectModeAll}, Ingress: policyv2.TrafficIngressScope{InterfaceLists: []string{"VLAN20"}}},
+		{ID: "rule-lan", Name: "LAN policy", EgressID: "wan-per-rule-ingress", TargetListIDs: []string{target.ID}, Enabled: true, SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, InterfaceLists: []string{"LAN", "GUEST"}}},
+		{ID: "rule-vlan", Name: "VLAN policy", EgressID: "wan-per-rule-ingress", TargetListIDs: []string{target.ID}, Enabled: true, SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, InterfaceLists: []string{"VLAN20", "VLAN30"}}},
 	} {
 		if _, err := repository.SaveRoutingRule(ctx, rule); err != nil {
 			t.Fatal(err)
@@ -241,7 +321,7 @@ func TestRoutingRulesWithDifferentIngressUseDifferentExecutionGroups(t *testing.
 	for _, object := range desiredObjectsByLogicalPrefix(desired.Objects, "traffic-ingress:list") {
 		ingressLists[object.Fields["name"]] = object.Fields["include"]
 	}
-	if len(ingressLists) != 2 || !containsStringValue(ingressLists, "LAN") || !containsStringValue(ingressLists, "VLAN20") {
+	if len(ingressLists) != 2 || !containsStringValue(ingressLists, "GUEST,LAN") || !containsStringValue(ingressLists, "VLAN20,VLAN30") {
 		t.Fatalf("per-rule ingress projections were not materialized independently: %#v", ingressLists)
 	}
 	for _, object := range connections {
@@ -316,12 +396,22 @@ func TestSourceOnlyRoutingRuleIgnoresStaleTrafficIngress(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The all-mode rule adopts a typed interface source at save time, so the
+	// stale list leaves the legacy TrafficIngress validator and is reported by
+	// the typed source preflight instead.
 	issues, err = policyv2.ValidateTrafficIngress(ctx, newPolicyV2FakeRouter(), repository)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasStorePlanIssue(issues, "traffic_ingress_list_not_found") {
-		t.Fatalf("all-device routing rule did not validate stale ingress: %#v", issues)
+	if len(issues) != 0 {
+		t.Fatalf("typed interface rule was revalidated by the legacy ingress validator: %#v", issues)
+	}
+	sourceBlockers, _, err := policyv2.ValidateRoutingSources(ctx, newPolicyV2FakeRouter(), repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasStorePlanIssue(sourceBlockers, "routing_source_interface_list_not_found") {
+		t.Fatalf("typed interface rule did not validate the stale interface list: %#v", sourceBlockers)
 	}
 }
 
@@ -371,11 +461,17 @@ func TestRoutingRuleDesiredBlocksOnlyProvenOverlappingIPPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The initial all-mode rules adopted a typed interface source at save time;
+	// switching the source shape requires the canonical typed payload.
 	rules[0].Subject = policyv2.Subject{Mode: policyv2.SubjectModeSelected, Prefixes: []string{"198.51.100.0/24"}}
+	rules[0].SourceScope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceIP}
+	rules[0].Ingress = policyv2.TrafficIngressScope{}
 	if _, err := repository.SaveRoutingRule(ctx, rules[0]); err != nil {
 		t.Fatal(err)
 	}
 	rules[1].Subject = policyv2.Subject{Mode: policyv2.SubjectModeSelected, Prefixes: []string{"203.0.113.0/24"}}
+	rules[1].SourceScope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceIP}
+	rules[1].Ingress = policyv2.TrafficIngressScope{}
 	if _, err := repository.SaveRoutingRule(ctx, rules[1]); err != nil {
 		t.Fatal(err)
 	}
@@ -753,5 +849,107 @@ func TestRoutingRuleDomainOverlapResolvesByPriorityAndOrdersDNSStatics(t *testin
 		if operation.Action == "move" && operation.Menu == string(routeros.MenuIPDNSStatic) {
 			t.Fatalf("DNS static ordering did not converge after move: %#v", operations)
 		}
+	}
+}
+
+func TestRoutingRuleInterfaceSourceWithExclusionsCompilesToNegatedAggregate(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-exclude", Name: "WAN exclude", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1", RouteTable: "table-exclude"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "exclude-target", Name: "Exclude target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "exclude-version", TargetListID: target.ID, SHA256: "exclude", CompressedYAML: []byte("ip"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "rule-exclude", Name: "Exclude one", EgressID: "wan-exclude", TargetListIDs: []string{target.ID}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Interfaces: []string{"bridge-lan"}, InterfaceLists: []string{"LAN"}, ExcludePrefixes: []string{"198.51.100.10"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	desired, err := policyv2.BuildRoutingDesired(ctx, repository, newPolicyV2FakeRouter(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("excluding interface source is blocked: %#v", desired.Blockers)
+	}
+	aggregate := desiredObjectsByLogicalPrefix(desired.Objects, "traffic-ingress:list")
+	if len(aggregate) != 1 || aggregate[0].Fields["include"] != "LAN" {
+		t.Fatalf("excluding interface source did not build the aggregate list: %#v", aggregate)
+	}
+	members := desiredObjectsByLogicalPrefix(desired.Objects, "traffic-ingress:member")
+	if len(members) != 1 || members[0].Fields["interface"] != "bridge-lan" {
+		t.Fatalf("excluding interface source lost the interface member: %#v", members)
+	}
+	subjectEntries := desiredObjectsByLogicalPrefix(desired.Objects, "routing-subject:rule-exclude:ipv4:")
+	if len(subjectEntries) != 1 || subjectEntries[0].Fields["address"] != "198.51.100.10/32" {
+		t.Fatalf("exclusion addresses were not materialized: %#v", subjectEntries)
+	}
+	connections := desiredObjectsByLogicalPrefix(desired.Objects, "routing-rule-connection:rule-exclude:ipv4:")
+	if len(connections) != 1 || connections[0].Fields["in-interface-list"] == "" || !strings.HasPrefix(connections[0].Fields["src-address-list"], "!") {
+		t.Fatalf("excluding matcher did not combine aggregate ingress with negated subject: %#v", connections)
+	}
+	executions := desiredObjectsByLogicalPrefix(desired.Objects, "routing-rule-routing:wan-exclude:ipv4:excluded:")
+	if len(executions) != 1 || executions[0].Fields["in-interface-list"] == "" || !strings.HasPrefix(executions[0].Fields["src-address-list"], "!") {
+		t.Fatalf("excluding execution group has the wrong source guard: %#v", executions)
+	}
+}
+
+func TestRoutingRuleMultiInterfaceSourceSharesAggregateWithoutExclusions(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-multi", Name: "WAN multi", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1", RouteTable: "table-multi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "multi-target", Name: "Multi target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "multi-version", TargetListID: target.ID, SHA256: "multi", CompressedYAML: []byte("ip"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "rule-multi", Name: "Multi", EgressID: "wan-multi", TargetListIDs: []string{target.ID}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Interfaces: []string{"bridge-lan", "wg1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	desired, err := policyv2.BuildRoutingDesired(ctx, repository, newPolicyV2FakeRouter(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("multi-interface source is blocked: %#v", desired.Blockers)
+	}
+	if members := desiredObjectsByLogicalPrefix(desired.Objects, "traffic-ingress:member"); len(members) != 2 {
+		t.Fatalf("multi-interface source did not project both members: %#v", members)
+	}
+	connections := desiredObjectsByLogicalPrefix(desired.Objects, "routing-rule-connection:rule-multi:ipv4:")
+	if len(connections) != 1 || connections[0].Fields["in-interface-list"] == "" || connections[0].Fields["src-address-list"] != "" {
+		t.Fatalf("multi-interface matcher unexpectedly narrowed by subject: %#v", connections)
+	}
+	if subjects := desiredObjectsByLogicalPrefix(desired.Objects, "routing-subject:rule-multi:"); len(subjects) != 0 {
+		t.Fatalf("multi-interface source without exclusions materialized a subject list: %#v", subjects)
 	}
 }

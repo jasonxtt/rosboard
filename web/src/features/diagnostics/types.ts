@@ -42,15 +42,6 @@ export type DiagnosticSnapshot = {
   endpoints: DiagnosticEndpoint[]
 }
 
-export type IngressDecision = {
-  interface: string
-  result: string
-  reasonCode: string
-  reason: string
-  evidence: Record<string, unknown>
-}
-
 export type DeepDiagnosticReport = DiagnosticReport & {
   snapshot: DiagnosticSnapshot
-  ingressTrace: IngressDecision[]
 }
