@@ -59,7 +59,7 @@ func TestRoutingSourceScopePersistenceReusesSubjectPayload(t *testing.T) {
 	}{
 		{id: device.ID, wantJSON: `{"kind":"device"}`, wantKind: policyv2.RoutingSourceDevice, wantSubject: device.Subject, wantIngress: policyv2.TrafficIngressScope{InterfaceLists: []string{}, Interfaces: []string{}}},
 		{id: ip.ID, wantJSON: `{"kind":"ip"}`, wantKind: policyv2.RoutingSourceIP, wantSubject: ip.Subject, wantIngress: policyv2.TrafficIngressScope{InterfaceLists: []string{}, Interfaces: []string{}}},
-		{id: interfaceRule.ID, wantJSON: `{"kind":"interface","name":"wg1"}`, wantKind: policyv2.RoutingSourceInterface, wantSubject: policyv2.Subject{Mode: policyv2.SubjectModeAll, Members: []policyv2.SubjectMember{}, Prefixes: []string{}}, wantIngress: policyv2.TrafficIngressScope{InterfaceLists: []string{}, Interfaces: []string{"wg1"}}},
+		{id: interfaceRule.ID, wantJSON: `{"kind":"interface","interfaces":["wg1"]}`, wantKind: policyv2.RoutingSourceInterface, wantSubject: policyv2.Subject{Mode: policyv2.SubjectModeAll, Members: []policyv2.SubjectMember{}, Prefixes: []string{}}, wantIngress: policyv2.TrafficIngressScope{InterfaceLists: []string{}, Interfaces: []string{"wg1"}}},
 	} {
 		var raw sql.NullString
 		if err := storage.db.QueryRow(`SELECT source_scope_json FROM policy_v2_routing_rules WHERE id = ?`, test.id).Scan(&raw); err != nil {
@@ -122,7 +122,7 @@ func TestCanonicalRoutingSourceOldClientCompatibilityAndConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("old-client non-source edit was rejected: %v", err)
 	}
-	if updated.Revision != saved.Revision+1 || updated.SourceScope == nil || updated.SourceScope.Name != "wg1" {
+	if updated.Revision != saved.Revision+1 || updated.SourceScope == nil || len(updated.SourceScope.Interfaces) != 1 || updated.SourceScope.Interfaces[0] != "wg1" {
 		t.Fatalf("old-client edit changed canonical source/revision unexpectedly: %#v", updated)
 	}
 	afterGlobal, err := repository.GetDeviceState(ctx)
@@ -144,7 +144,7 @@ func TestCanonicalRoutingSourceOldClientCompatibilityAndConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Revision != updated.Revision || current.SourceScope == nil || current.SourceScope.Name != "wg1" {
+	if current.Revision != updated.Revision || current.SourceScope == nil || len(current.SourceScope.Interfaces) != 1 || current.SourceScope.Interfaces[0] != "wg1" {
 		t.Fatalf("rejected source edit drifted persisted rule: %#v", current)
 	}
 }
@@ -264,5 +264,99 @@ func TestPolicyProposalCommitsCanonicalRoutingSourceAtomically(t *testing.T) {
 	}
 	if loaded.SourceScope == nil || loaded.SourceScope.Kind != policyv2.RoutingSourceInterfaceList || loaded.SourceScope.Name != "LAN" || loaded.Subject.Mode != policyv2.SubjectModeAll || len(loaded.Ingress.InterfaceLists) != 1 || loaded.Ingress.InterfaceLists[0] != "LAN" {
 		t.Fatalf("proposal lost canonical source or compatibility projection: %#v", loaded)
+	}
+}
+
+func TestMigrateRoutingRuleSourceScopeUpgradesLegacyRows(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{ID: "wan-migrate", Name: "WAN migrate"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "target-migrate", Name: "Target migrate", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Seed the authority marker so the typed-source migration runs on the next
+	// migration pass, then insert legacy rows directly the way a pre-typed
+	// database stored them.
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_schema_meta (key, value) VALUES (?, ?)`, policyv2.RoutingRuleAuthorityKey, policyv2.RoutingRuleAuthorityV1); err != nil {
+		t.Fatal(err)
+	}
+	insertRule := func(id, subjectMode string, sourceScope any, ingressLists, ingressInterfaces string) {
+		t.Helper()
+		if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 1, 1, 1)`,
+			id, id, "wan-migrate", subjectMode, sourceScope, ingressLists, ingressInterfaces); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_targets (rule_id, target_id, position) VALUES (?, ?, 0)`, id, "target-migrate"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertRule("legacy-all", policyv2.SubjectModeAll, nil, `["LAN"]`, `["bridge-lan"]`)
+	insertRule("legacy-excluded", policyv2.SubjectModeExcluded, nil, `["LAN"]`, `[]`)
+	insertRule("legacy-device", policyv2.SubjectModeSelected, nil, `[]`, `[]`)
+	insertRule("legacy-ip", policyv2.SubjectModeSelected, nil, `[]`, `[]`)
+	insertRule("legacy-mixed", policyv2.SubjectModeSelected, nil, `[]`, `[]`)
+	insertRule("legacy-no-ingress", policyv2.SubjectModeAll, nil, `[]`, `[]`)
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_prefixes (rule_id, prefix, position) VALUES ('legacy-excluded', '10.0.0.0/24', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_members (rule_id, terminal_id, binding, anchor_mac, pinned_ipv4_json, pinned_ipv6_json, last_ipv4_json, last_ipv6_json) VALUES ('legacy-device', 'terminal-a', 'auto', '', '[]', '[]', '[]', '[]')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_prefixes (rule_id, prefix, position) VALUES ('legacy-ip', '192.0.2.0/24', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_members (rule_id, terminal_id, binding, anchor_mac, pinned_ipv4_json, pinned_ipv6_json, last_ipv4_json, last_ipv6_json) VALUES ('legacy-mixed', 'terminal-a', 'auto', '', '[]', '[]', '[]', '[]')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.db.Exec(`INSERT INTO policy_v2_routing_rule_prefixes (rule_id, prefix, position) VALUES ('legacy-mixed', '192.0.2.0/24', 0)`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repository.EnsureRoutingRulesMigrated(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.EnsureRoutingRulesMigrated(ctx); err != nil {
+		t.Fatalf("migration replay failed: %v", err)
+	}
+	rules, err := repository.ListRoutingRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]policyv2.RoutingRule, len(rules))
+	for _, rule := range rules {
+		byID[rule.ID] = rule
+	}
+
+	all := byID["legacy-all"]
+	if all.SourceScope == nil || all.SourceScope.Kind != policyv2.RoutingSourceInterface || !reflect.DeepEqual(all.SourceScope.InterfaceLists, []string{"LAN"}) || !reflect.DeepEqual(all.SourceScope.Interfaces, []string{"bridge-lan"}) {
+		t.Fatalf("legacy all+ingress was not upgraded to an interface source: %#v", all.SourceScope)
+	}
+	excluded := byID["legacy-excluded"]
+	if excluded.SourceScope == nil || excluded.SourceScope.Kind != policyv2.RoutingSourceInterface || !reflect.DeepEqual(excluded.SourceScope.ExcludePrefixes, []string{"10.0.0.0/24"}) {
+		t.Fatalf("legacy excluded prefixes were not upgraded to interface exclusions: %#v", excluded.SourceScope)
+	}
+	if excluded.Subject.Mode != policyv2.SubjectModeExcluded || len(excluded.Subject.Prefixes) != 1 {
+		t.Fatalf("legacy excluded rule lost its compatibility projection: %#v", excluded.Subject)
+	}
+	device := byID["legacy-device"]
+	if device.SourceScope == nil || device.SourceScope.Kind != policyv2.RoutingSourceDevice || len(device.Subject.Members) != 1 {
+		t.Fatalf("legacy selected terminals were not upgraded to a device source: %#v", device.SourceScope)
+	}
+	ip := byID["legacy-ip"]
+	if ip.SourceScope == nil || ip.SourceScope.Kind != policyv2.RoutingSourceIP || len(ip.Subject.Prefixes) != 1 {
+		t.Fatalf("legacy selected prefixes were not upgraded to an ip source: %#v", ip.SourceScope)
+	}
+	if byID["legacy-mixed"].SourceScope != nil {
+		t.Fatalf("mixed legacy rule must keep its legacy source representation: %#v", byID["legacy-mixed"].SourceScope)
+	}
+	if byID["legacy-no-ingress"].SourceScope != nil {
+		t.Fatalf("ingress-less legacy all rule must keep its legacy source representation: %#v", byID["legacy-no-ingress"].SourceScope)
 	}
 }

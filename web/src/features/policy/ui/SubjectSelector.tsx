@@ -64,15 +64,15 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
     update({ members })
   }
 
-  const modeOptions = (
+  const modeOptions = selectedOnly ? null : (
     <div className="pol-choice-list pol-choice-row" role="radiogroup" aria-label="来源范围">
-      {!selectedOnly ? <label className={`pol-choice${value.mode === 'all' ? ' pol-choice-active' : ''}`}>
+      <label className={`pol-choice${value.mode === 'all' ? ' pol-choice-active' : ''}`}>
         <input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} />
         <span>
           <strong>全部终端</strong>
           <small>{allowExcluded ? '由策略入口限定范围' : '设备上的所有终端'}</small>
         </span>
-      </label> : null}
+      </label>
       <label className={`pol-choice${value.mode === 'selected' ? ' pol-choice-active' : ''}`}>
         <input type="radio" checked={value.mode === 'selected'} onChange={() => update({ mode: 'selected' })} />
         <span>
@@ -80,7 +80,7 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
           <small>只匹配下面勾选的终端和手动地址</small>
         </span>
       </label>
-      {allowExcluded && !selectedOnly ? (
+      {allowExcluded ? (
         <label className={`pol-choice${value.mode === 'excluded' ? ' pol-choice-active' : ''}${excludedDisabled ? ' pol-choice-disabled' : ''}`}>
           <input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} />
           <span>
@@ -132,17 +132,19 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
             })}
             {!visibleTerminals.length ? <p className="pol-hint">没有匹配的终端。</p> : null}
           </div>
-          <label className="pol-prefix-field">
-            <span className="field-label">{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span>
-            <Textarea
-              rows={3}
-              value={value.prefixes.join('\n')}
-              onChange={(text) => update({ prefixes: text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })}
-              placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'}
-              ariaLabel="手动地址或 CIDR"
-            />
-            <small className="faint">每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；保存时后端会执行严格校验。</small>
-          </label>
+          {!selectedOnly ? (
+            <label className="pol-prefix-field">
+              <span className="field-label">{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span>
+              <Textarea
+                rows={3}
+                value={value.prefixes.join('\n')}
+                onChange={(text) => update({ prefixes: text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })}
+                placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'}
+                ariaLabel="手动地址或 CIDR"
+              />
+              <small className="faint">每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；保存时后端会执行严格校验。</small>
+            </label>
+          ) : null}
         </>
       ) : null}
     </div>

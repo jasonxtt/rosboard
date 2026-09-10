@@ -92,11 +92,11 @@ export function SubjectSelector({
   }
 
   return <div className="canonical-selector">
-    <div className="policy-choice-list" role="radiogroup" aria-label="受控对象范围">
-      {!selectedOnly ? <label className={`policy-choice${value.mode === 'all' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} /><span><strong>全部设备</strong><small>由策略流量入口限定范围</small></span></label> : null}
+    {selectedOnly ? null : <div className="policy-choice-list" role="radiogroup" aria-label="受控对象范围">
+      <label className={`policy-choice${value.mode === 'all' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} /><span><strong>全部设备</strong><small>由策略流量入口限定范围</small></span></label>
       <label className={`policy-choice${value.mode === 'selected' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'selected'} onChange={() => update({ mode: 'selected' })} /><span><strong>仅选择的设备 / 地址</strong><small>只使用下面的终端和手动地址作为来源匹配</small></span></label>
-      {allowExcluded && !selectedOnly ? <label className={`policy-choice${value.mode === 'excluded' ? ' active' : ''}${excludedDisabled ? ' disabled' : ''}`}><input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} /><span><strong>入口内排除设备 / 地址</strong><small>{excludedDisabled ? '需要先选择有效的 TrafficIngress' : '先匹配 TrafficIngress，再排除下面的终端和地址'}</small></span></label> : null}
-    </div>
+      {allowExcluded ? <label className={`policy-choice${value.mode === 'excluded' ? ' active' : ''}${excludedDisabled ? ' disabled' : ''}`}><input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} /><span><strong>入口内排除设备 / 地址</strong><small>{excludedDisabled ? '需要先选择有效的 TrafficIngress' : '先匹配 TrafficIngress，再排除下面的终端和地址'}</small></span></label> : null}
+    </div>}
     {value.mode === 'selected' || value.mode === 'excluded' ? <>
       <p className="policy-hint">自动跟随：按可靠 MAC 识别设备，跟随其 IP 地址变化。固定当前地址：保留当前选定的 IP，后续地址变化不会自动更新。</p>
       <input className="settings-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、IP 或 MAC" aria-label="搜索受控设备" />
@@ -112,7 +112,7 @@ export function SubjectSelector({
         })}
         {!visibleTerminals.length ? <p className="policy-hint">没有匹配的终端。</p> : null}
       </div>
-      <label className="policy-field canonical-prefix-field"><span>{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span><textarea className="settings-input policy-textarea" rows={3} value={value.prefixes.join('\n')} onChange={(event) => update({ prefixes: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'} /><small>每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；后端会执行严格校验。</small></label>
+      {selectedOnly ? null : <label className="policy-field canonical-prefix-field"><span>{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span><textarea className="settings-input policy-textarea" rows={3} value={value.prefixes.join('\n')} onChange={(event) => update({ prefixes: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'} /><small>每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；后端会执行严格校验。</small></label>}
     </> : null}
   </div>
 }

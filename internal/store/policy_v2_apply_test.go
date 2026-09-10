@@ -27,6 +27,7 @@ type policyV2FakeRouter struct {
 	writes               int
 	capabilityChecks     int
 	timeCapabilityChecks int
+	interfaceLists       []string
 }
 
 // policyV2BatchFakeRouter models the contract provided by the real mutation
@@ -723,7 +724,12 @@ func newPolicyV2FakeRouter() *policyV2FakeRouter {
 
 func (r *policyV2FakeRouter) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
 	if menu == routeros.ReadMenuInterfaceList {
-		return []routeros.RouterOSObject{{"name": "LAN"}}, nil
+		names := append([]string{"LAN"}, r.interfaceLists...)
+		objects := make([]routeros.RouterOSObject, 0, len(names))
+		for _, name := range names {
+			objects = append(objects, routeros.RouterOSObject{"name": name})
+		}
+		return objects, nil
 	}
 	if menu == routeros.ReadMenuIPDNS {
 		object := routeros.RouterOSObject{}
@@ -1143,7 +1149,10 @@ func TestPolicyV2ManagerAppliesAndCommitsSingleIPv4Egress(t *testing.T) {
 	if len(routingRules) == 0 {
 		t.Fatal("expected a routing rule to mutate")
 	}
-	routingRules[0].Ingress = policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN-CHANGED"}}
+	// The migrated rule carries a typed interface source, so the mutation has
+	// to go through the canonical selector instead of the legacy ingress field.
+	routingRules[0].SourceScope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, InterfaceLists: []string{"LAN-CHANGED"}}
+	routingRules[0].Ingress = policyv2.TrafficIngressScope{}
 	if _, err := repository.SaveRoutingRule(ctx, routingRules[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -1292,7 +1301,9 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 	defer storage.Close()
 	repository := storage.PolicyRepository()
 	ctx := context.Background()
-	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+	// Two ingress lists keep the migrated rules on the shared managed aggregate
+	// list (a single-selector source now compiles to a direct matcher instead).
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN","GUEST"],"interfaces":[]}`)); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"one", "two"} {
@@ -1314,6 +1325,7 @@ func TestPolicyV2DisableAndDeletePreserveSharedPolicyObjects(t *testing.T) {
 	}
 
 	router := newPolicyV2FakeRouter()
+	router.interfaceLists = []string{"GUEST"}
 	manager := policyv2.NewManager(nil)
 	if err := manager.RegisterApplier("default", &policyv2.Applier{Reader: router, Mutation: router, Repo: repository}); err != nil {
 		t.Fatal(err)

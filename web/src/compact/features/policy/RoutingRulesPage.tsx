@@ -9,11 +9,19 @@ type EditorState = { rule: RoutingRule | null; egress: Egress | null }
 function jobID(value: { jobId?: string; job?: { id: string } }) { return value.jobId ?? value.job?.id ?? '' }
 
 function subjectLabel(rule: RoutingRule) {
-  if (rule.sourceScope?.kind === 'interface') return `接口 ${rule.sourceScope.name || '未命名'}`
-  if (rule.sourceScope?.kind === 'interface-list') return `接口列表 ${rule.sourceScope.name || '未命名'}`
+  if (rule.sourceScope?.kind === 'interface') {
+    const names = Array.from(new Set([...(rule.sourceScope.interfaceLists ?? []), ...(rule.sourceScope.interfaces ?? []), ...(rule.sourceScope.name ? [rule.sourceScope.name] : [])]))
+    const base = names.join('、') || '未选择接口'
+    const exclusions = rule.sourceScope.excludePrefixes ?? []
+    return exclusions.length ? `${base} 排除 ${exclusions.join('、')}` : base
+  }
+  if (rule.sourceScope?.kind === 'interface-list') return rule.sourceScope.name || '未命名'
   if (rule.sourceScope?.kind === 'all') return '全部来源（安全门延后）'
+  if (rule.sourceScope?.kind === 'ip') return rule.subject.prefixes.join('、') || '未填写网段'
   if (rule.subject.mode === 'all') return `${[...rule.ingress.interfaceLists, ...rule.ingress.interfaces].join('、') || '入口'} 全部`
-  const prefix = `${rule.subject.members.length} 台设备${rule.subject.prefixes.length ? ` + ${rule.subject.prefixes.length} 个地址范围` : ''}`
+  const members = rule.subject.members.length ? `${rule.subject.members.length} 台设备` : ''
+  const prefixes = rule.subject.prefixes.join('、')
+  const prefix = [members, prefixes].filter(Boolean).join(' + ')
   return rule.subject.mode === 'excluded' ? `${[...rule.ingress.interfaceLists, ...rule.ingress.interfaces].join('、') || '入口'} 排除 ${prefix}` : prefix
 }
 

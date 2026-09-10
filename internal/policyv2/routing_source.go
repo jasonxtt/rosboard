@@ -32,12 +32,21 @@ const (
 	RoutingSourceAllDeferredCode = "routing_source_all_deferred"
 )
 
-// RoutingSourceScope stores only the typed discriminator and the selector name
-// needed by interface/interface-list sources. Device and IP payloads continue
-// to use RoutingRule.Subject and its existing child-table persistence.
+// RoutingSourceScope stores only the typed discriminator and the selector
+// names needed by interface/interface-list sources. Device and IP payloads
+// continue to use RoutingRule.Subject and its existing child-table
+// persistence. An interface source may select several RouterOS interfaces and
+// interface lists at once and may exclude individual source addresses; the
+// exclusion is only meaningful while the ingress boundary is interface-based.
 type RoutingSourceScope struct {
 	Kind RoutingSourceKind `json:"kind"`
-	Name string            `json:"name,omitempty"`
+	// Name is the legacy single-selector field written by the first typed
+	// source revision. NormalizeRoutingSourceScope folds it into Interfaces
+	// (interface) or keeps it (interface-list) so old rows stay valid.
+	Name            string   `json:"name,omitempty"`
+	Interfaces      []string `json:"interfaces,omitempty"`
+	InterfaceLists  []string `json:"interfaceLists,omitempty"`
+	ExcludePrefixes []string `json:"excludePrefixes,omitempty"`
 }
 
 var (
@@ -50,7 +59,20 @@ func IsDeferredRoutingSourceInterfaceListName(name string) bool {
 }
 
 func IsDeferredRoutingSource(scope *RoutingSourceScope) bool {
-	return scope != nil && scope.Kind == RoutingSourceInterfaceList && IsDeferredRoutingSourceInterfaceListName(scope.Name)
+	if scope == nil {
+		return false
+	}
+	if scope.Kind == RoutingSourceInterfaceList && IsDeferredRoutingSourceInterfaceListName(scope.Name) {
+		return true
+	}
+	if scope.Kind == RoutingSourceInterface {
+		for _, name := range scope.InterfaceLists {
+			if IsDeferredRoutingSourceInterfaceListName(name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func routingSourceInterfaceListAllDeferredIssue(logicalID string) PlanIssue {
@@ -81,17 +103,88 @@ func NormalizeRoutingSourceScope(value *RoutingSourceScope) (*RoutingSourceScope
 	normalized := &RoutingSourceScope{Kind: RoutingSourceKind(strings.ToLower(strings.TrimSpace(string(value.Kind)))), Name: strings.TrimSpace(value.Name)}
 	switch normalized.Kind {
 	case RoutingSourceDevice, RoutingSourceIP, RoutingSourceAll:
-		if normalized.Name != "" {
-			return nil, fmt.Errorf("%w: %s source must not contain a name", ErrRoutingSourceScopeInvalid, normalized.Kind)
+		if normalized.Name != "" || len(value.Interfaces) != 0 || len(value.InterfaceLists) != 0 || len(value.ExcludePrefixes) != 0 {
+			return nil, fmt.Errorf("%w: %s source must not contain interface selectors or exclusions", ErrRoutingSourceScopeInvalid, normalized.Kind)
 		}
-	case RoutingSourceInterface, RoutingSourceInterfaceList:
+	case RoutingSourceInterfaceList:
 		if normalized.Name == "" {
 			return nil, fmt.Errorf("%w: %s source requires a name", ErrRoutingSourceScopeInvalid, normalized.Kind)
 		}
+		if len(value.Interfaces) != 0 || len(value.InterfaceLists) != 0 || len(value.ExcludePrefixes) != 0 {
+			return nil, fmt.Errorf("%w: %s source keeps a single legacy list name only", ErrRoutingSourceScopeInvalid, normalized.Kind)
+		}
+	case RoutingSourceInterface:
+		interfaces := append([]string{}, value.Interfaces...)
+		if normalized.Name != "" {
+			interfaces = append(interfaces, normalized.Name)
+		}
+		normalized.Name = ""
+		normalized.Interfaces = normalizedNames(interfaces)
+		normalized.InterfaceLists = normalizedNames(value.InterfaceLists)
+		if len(normalized.Interfaces) == 0 && len(normalized.InterfaceLists) == 0 {
+			return nil, fmt.Errorf("%w: interface source requires at least one interface or interface list", ErrRoutingSourceScopeInvalid)
+		}
+		exclusions, err := normalizeRoutingSourceExclusions(value.ExcludePrefixes)
+		if err != nil {
+			return nil, err
+		}
+		normalized.ExcludePrefixes = exclusions
 	default:
 		return nil, fmt.Errorf("%w: unsupported source kind %q", ErrRoutingSourceScopeInvalid, value.Kind)
 	}
 	return normalized, nil
+}
+
+// normalizeRoutingSourceExclusions canonicalizes the optional per-source
+// address exclusions. Every entry accepts a plain IP or a CIDR, exactly like
+// subject prefixes.
+func normalizeRoutingSourceExclusions(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		canonical, err := subject.NormalizePrefix(value)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid excluded source address %q", ErrRoutingSourceScopeInvalid, strings.TrimSpace(value))
+		}
+		result = append(result, canonical)
+	}
+	sort.Strings(result)
+	unique := result[:0]
+	for _, value := range result {
+		if len(unique) == 0 || unique[len(unique)-1] != value {
+			unique = append(unique, value)
+		}
+	}
+	return unique, nil
+}
+
+// RoutingSourceDirectSelector reports the single-name direct matcher for an
+// interface source: exactly one interface or exactly one list and no
+// exclusions compile to a plain in-interface / in-interface-list matcher
+// without the managed aggregate list.
+func RoutingSourceDirectSelector(scope *RoutingSourceScope) (kind RoutingSourceKind, name string, ok bool) {
+	if scope == nil || scope.Kind != RoutingSourceInterface || len(scope.ExcludePrefixes) != 0 {
+		return "", "", false
+	}
+	if len(scope.InterfaceLists) == 0 && len(scope.Interfaces) == 1 {
+		return RoutingSourceInterface, scope.Interfaces[0], true
+	}
+	if len(scope.Interfaces) == 0 && len(scope.InterfaceLists) == 1 {
+		return RoutingSourceInterfaceList, scope.InterfaceLists[0], true
+	}
+	return "", "", false
+}
+
+// RoutingSourceIngressScope derives the interface boundary of an interface
+// source as a TrafficIngressScope so the planner can reuse the managed
+// aggregate-list projection.
+func RoutingSourceIngressScope(scope *RoutingSourceScope) TrafficIngressScope {
+	if scope == nil || scope.Kind != RoutingSourceInterface {
+		return TrafficIngressScope{}
+	}
+	return NormalizeTrafficIngressScopeUnvalidated(TrafficIngressScope{Interfaces: scope.Interfaces, InterfaceLists: scope.InterfaceLists})
 }
 
 // RoutingSourceUsesSubjectPayload tells API boundaries whether the shared
@@ -120,7 +213,11 @@ func RoutingSourceLegacyProjection(scope RoutingSourceScope, source Subject) (Su
 	case RoutingSourceDevice, RoutingSourceIP:
 		return normalizedSubject, NormalizeTrafficIngressScopeUnvalidated(TrafficIngressScope{}), nil
 	case RoutingSourceInterface:
-		return Subject{Mode: SubjectModeAll}, NormalizeTrafficIngressScopeUnvalidated(TrafficIngressScope{Interfaces: []string{normalizedScope.Name}}), nil
+		ingress := RoutingSourceIngressScope(normalizedScope)
+		if len(normalizedScope.ExcludePrefixes) > 0 {
+			return Subject{Mode: SubjectModeExcluded, Prefixes: append([]string{}, normalizedScope.ExcludePrefixes...)}, ingress, nil
+		}
+		return Subject{Mode: SubjectModeAll}, ingress, nil
 	case RoutingSourceInterfaceList:
 		return Subject{Mode: SubjectModeAll}, NormalizeTrafficIngressScopeUnvalidated(TrafficIngressScope{InterfaceLists: []string{normalizedScope.Name}}), nil
 	case RoutingSourceAll:
@@ -144,7 +241,24 @@ func normalizeRoutingSubjectForSource(scope RoutingSourceScope, source Subject) 
 		if normalized.Mode != SubjectModeSelected || len(normalized.Members) != 0 || len(normalized.Prefixes) == 0 {
 			return Subject{}, fmt.Errorf("%w: ip source requires selected IP prefixes only", ErrRoutingSourceScopeInvalid)
 		}
-	case RoutingSourceInterface, RoutingSourceInterfaceList, RoutingSourceAll:
+	case RoutingSourceInterface:
+		if len(scope.ExcludePrefixes) == 0 {
+			if normalized.Mode != SubjectModeAll || len(normalized.Members) != 0 || len(normalized.Prefixes) != 0 {
+				return Subject{}, fmt.Errorf("%w: %s source uses an all-subject compatibility projection", ErrRoutingSourceScopeInvalid, scope.Kind)
+			}
+			return normalized, nil
+		}
+		// An interface source with exclusions projects to an excluded subject
+		// over the exclusion prefixes. Clients may still submit the empty/all
+		// placeholder; the projection fills the exclusion in.
+		if normalized.Mode == SubjectModeAll && len(normalized.Members) == 0 && len(normalized.Prefixes) == 0 {
+			return normalized, nil
+		}
+		if normalized.Mode != SubjectModeExcluded || len(normalized.Members) != 0 || !reflect.DeepEqual(normalized.Prefixes, scope.ExcludePrefixes) {
+			return Subject{}, fmt.Errorf("%w: interface source with exclusions requires the matching excluded-subject projection", ErrRoutingSourceScopeInvalid)
+		}
+		return normalized, nil
+	case RoutingSourceInterfaceList, RoutingSourceAll:
 		if normalized.Mode != SubjectModeAll || len(normalized.Members) != 0 || len(normalized.Prefixes) != 0 {
 			return Subject{}, fmt.Errorf("%w: %s source uses an all-subject compatibility projection", ErrRoutingSourceScopeInvalid, scope.Kind)
 		}
@@ -238,6 +352,45 @@ func LegacyRoutingSourceProjectionMatches(canonical, incoming RoutingRule) (bool
 	return reflect.DeepEqual(actualLegacySubject, expectedLegacySubject) && reflect.DeepEqual(actualIngress, expectedIngress), nil
 }
 
+// UpgradeLegacyRoutingSource converts a legacy Subject+Ingress-only rule to
+// its typed source scope when the shape maps one-to-one:
+//
+//	all + ingress                -> interface source over the same selectors
+//	excluded with prefixes only  -> interface source with excluded addresses
+//	selected with terminals only -> device source
+//	selected with prefixes only  -> ip source
+//
+// Mixed selected rows, member-based exclusions and ingress-less all rows have
+// no typed equivalent and keep the legacy representation. The mapping is
+// semantics-preserving: RoutingSourceLegacyProjection of the result yields
+// exactly the original Subject and Ingress.
+func UpgradeLegacyRoutingSource(rule RoutingRule) RoutingRule {
+	if rule.SourceScope != nil {
+		return rule
+	}
+	ingress := NormalizeTrafficIngressScopeUnvalidated(rule.Ingress)
+	switch strings.TrimSpace(rule.Subject.Mode) {
+	case SubjectModeAll:
+		if !HasTrafficIngress(ingress) {
+			return rule
+		}
+		rule.SourceScope = &RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: ingress.Interfaces, InterfaceLists: ingress.InterfaceLists}
+	case SubjectModeExcluded:
+		if len(rule.Subject.Members) != 0 || len(rule.Subject.Prefixes) == 0 || !HasTrafficIngress(ingress) {
+			return rule
+		}
+		rule.SourceScope = &RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: ingress.Interfaces, InterfaceLists: ingress.InterfaceLists, ExcludePrefixes: append([]string{}, rule.Subject.Prefixes...)}
+	case SubjectModeSelected:
+		switch {
+		case len(rule.Subject.Members) > 0 && len(rule.Subject.Prefixes) == 0:
+			rule.SourceScope = &RoutingSourceScope{Kind: RoutingSourceDevice}
+		case len(rule.Subject.Members) == 0 && len(rule.Subject.Prefixes) > 0:
+			rule.SourceScope = &RoutingSourceScope{Kind: RoutingSourceIP}
+		}
+	}
+	return rule
+}
+
 // PrepareRoutingRuleWrite applies the canonical-write compatibility rule and
 // then performs the normal routing-rule normalization. Store callers pass the
 // current row when one exists so this decision is made before any mutation.
@@ -253,9 +406,19 @@ func PrepareRoutingRuleWrite(value RoutingRule, current *RoutingRule) (RoutingRu
 		// Preserve the canonical source payload wholesale for old-client
 		// non-source edits. This also preserves hidden identity state such as
 		// AnchorMAC and last trusted addresses when those fields were omitted.
-		value.SourceScope = &RoutingSourceScope{Kind: current.SourceScope.Kind, Name: current.SourceScope.Name}
+		scopeCopy := *current.SourceScope
+		scopeCopy.Interfaces = append([]string(nil), current.SourceScope.Interfaces...)
+		scopeCopy.InterfaceLists = append([]string(nil), current.SourceScope.InterfaceLists...)
+		scopeCopy.ExcludePrefixes = append([]string(nil), current.SourceScope.ExcludePrefixes...)
+		value.SourceScope = &scopeCopy
 		value.Subject = current.Subject
 		value.Ingress = current.Ingress
+	}
+	if value.SourceScope == nil && (current == nil || current.SourceScope == nil) {
+		// Rules written through a legacy payload adopt the typed source
+		// immediately, so the stored shape and any plan overlay stay identical
+		// before and after commit. Unconvertible legacy shapes are untouched.
+		value = UpgradeLegacyRoutingSource(value)
 	}
 	return NormalizeRoutingRule(value)
 }
