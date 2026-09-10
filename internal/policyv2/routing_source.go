@@ -21,6 +21,12 @@ const (
 	RoutingSourceInterface     RoutingSourceKind = "interface"
 	RoutingSourceInterfaceList RoutingSourceKind = "interface-list"
 	RoutingSourceAll           RoutingSourceKind = "all"
+
+	// RoutingSourceInterfaceListAllDeferredCode is the stable plan blocker for
+	// the built-in `all` interface-list. The typed model may persist it so the
+	// fact remains visible, but the current aggregate-list materializer must
+	// not turn it into a broad executable ingress matcher.
+	RoutingSourceInterfaceListAllDeferredCode = "routing_source_interface_list_all_deferred"
 )
 
 // RoutingSourceScope stores only the typed discriminator and the selector name
@@ -35,6 +41,23 @@ var (
 	ErrRoutingSourceScopeInvalid  = errors.New("invalid routing source scope")
 	ErrRoutingSourceScopeConflict = errors.New("routing source scope conflicts with legacy projection")
 )
+
+func IsDeferredRoutingSourceInterfaceListName(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "all")
+}
+
+func IsDeferredRoutingSource(scope *RoutingSourceScope) bool {
+	return scope != nil && scope.Kind == RoutingSourceInterfaceList && IsDeferredRoutingSourceInterfaceListName(scope.Name)
+}
+
+func routingSourceInterfaceListAllDeferredIssue(logicalID string) PlanIssue {
+	return PlanIssue{
+		Code:      RoutingSourceInterfaceListAllDeferredCode,
+		Status:    "blocker",
+		LogicalID: logicalID,
+		Reason:    `InterfaceList("all") as a routing source is deferred until a safe matcher implementation is available`,
+	}
+}
 
 // NormalizeRoutingSourceScope validates the small canonical selector payload.
 // A nil value means that the row is still using the legacy Subject+Ingress

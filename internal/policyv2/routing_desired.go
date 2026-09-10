@@ -272,6 +272,10 @@ func buildRoutingIngressProjections(result *DesiredResult, add func(string, rout
 	readyByRule := make(map[string]bool)
 	listByScope := make(map[string]string)
 	for _, rule := range rules {
+		if rule.Enabled && IsDeferredRoutingSource(rule.SourceScope) {
+			result.Blockers = append(result.Blockers, routingSourceInterfaceListAllDeferredIssue(rule.ID))
+			continue
+		}
 		if !rule.Enabled || (rule.Subject.Mode != SubjectModeAll && rule.Subject.Mode != SubjectModeExcluded) {
 			continue
 		}

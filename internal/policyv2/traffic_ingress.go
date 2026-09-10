@@ -174,7 +174,9 @@ func ValidateTrafficIngress(ctx context.Context, reader PolicyReader, repository
 	issues := make([]PlanIssue, 0)
 	for _, item := range scopes {
 		for _, name := range item.Scope.InterfaceLists {
-			if !existingLists[name] {
+			if IsDeferredRoutingSourceInterfaceListName(name) {
+				issues = append(issues, routingSourceInterfaceListAllDeferredIssue(item.LogicalID))
+			} else if !existingLists[name] {
 				issues = append(issues, PlanIssue{Code: "traffic_ingress_list_not_found", Status: "blocker", LogicalID: item.LogicalID, Reason: "策略流量入口列表不存在：" + name})
 			}
 		}
