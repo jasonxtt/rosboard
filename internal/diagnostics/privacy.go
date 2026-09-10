@@ -25,8 +25,12 @@ func normalizedJSONKey(key string) string {
 	return strings.ToLower(strings.NewReplacer("-", "", "_", "", " ", "", ".", "").Replace(key))
 }
 
-func sanitizeExportString(value string) string {
-	return redactNetworkPrivacy(redactSensitiveText(value))
+func sanitizeExportString(value, deviceID string) string {
+	value = redactSensitiveText(value)
+	if deviceID != "" {
+		value = strings.ReplaceAll(value, deviceID, redactedDeviceID)
+	}
+	return redactNetworkPrivacy(value)
 }
 
 func redactDataDir(value string) string {
@@ -150,11 +154,11 @@ func maskNetworkToken(token string) (string, bool) {
 	}
 	addressText, prefixLength, hasPrefix, ok := splitNetworkToken(token)
 	if !ok {
-		return token, false
+		return maskEmbeddedIPv4Token(token)
 	}
 	address, err := netip.ParseAddr(addressText)
 	if err != nil {
-		return token, false
+		return maskEmbeddedIPv4Token(token)
 	}
 	if address.Is4() && !strings.Contains(addressText, ".") {
 		return token, false
@@ -163,6 +167,25 @@ func maskNetworkToken(token string) (string, bool) {
 		return token, false
 	}
 	return maskNetworkAddress(token, address, prefixLength, hasPrefix), true
+}
+
+func maskEmbeddedIPv4Token(token string) (string, bool) {
+	addressEnd := 0
+	for addressEnd < len(token) && ((token[addressEnd] >= '0' && token[addressEnd] <= '9') || token[addressEnd] == '.') {
+		addressEnd++
+	}
+	if addressEnd == 0 || addressEnd == len(token) {
+		return token, false
+	}
+	address, err := netip.ParseAddr(token[:addressEnd])
+	if err != nil || !address.Is4() {
+		return token, false
+	}
+	suffix := token[addressEnd:]
+	if suffix[0] != ':' && suffix[0] != '%' && suffix[0] != '/' {
+		return token, false
+	}
+	return maskNetworkAddress(token[:addressEnd], address, 0, false) + suffix, true
 }
 
 func splitNetworkToken(token string) (string, int, bool, bool) {

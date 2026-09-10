@@ -59,15 +59,15 @@ func BuildDiagnosticExport(report DeepReport, recentLogs string) ([]byte, string
 	}
 
 	files := []exportFile{
-		{path: "health-report.json", data: mustSanitizedJSON(report.Report)},
-		{path: "routeros/snapshot.json", data: mustSanitizedJSON(report.Snapshot)},
-		{path: "routeros/ingress-decision-trace.json", data: mustSanitizedJSON(report.IngressTrace)},
-		{path: "monitor/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "routeros.connection", "monitor.freshness"))},
-		{path: "policy/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "policy.state"))},
-		{path: "access/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "access.state"))},
-		{path: "recognition/mosdns.json", data: mustSanitizedJSON(componentDocument(report.Report, "recognition.mosdns"))},
-		{path: "update/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "update.state"))},
-		{path: "logs/recent.log", data: []byte(boundRecentLog(recentLogs))},
+		{path: "health-report.json", data: mustSanitizedJSON(report.Report, report.DeviceID)},
+		{path: "routeros/snapshot.json", data: mustSanitizedJSON(report.Snapshot, report.DeviceID)},
+		{path: "routeros/ingress-decision-trace.json", data: mustSanitizedJSON(report.IngressTrace, report.DeviceID)},
+		{path: "monitor/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "routeros.connection", "monitor.freshness"), report.DeviceID)},
+		{path: "policy/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "policy.state"), report.DeviceID)},
+		{path: "access/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "access.state"), report.DeviceID)},
+		{path: "recognition/mosdns.json", data: mustSanitizedJSON(componentDocument(report.Report, "recognition.mosdns"), report.DeviceID)},
+		{path: "update/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "update.state"), report.DeviceID)},
+		{path: "logs/recent.log", data: []byte(boundRecentLog(recentLogs, report.DeviceID))},
 	}
 
 	manifest := ExportManifest{
@@ -102,7 +102,7 @@ func BuildDiagnosticExport(report DeepReport, recentLogs string) ([]byte, string
 		digest := sha256.Sum256(file.data)
 		manifest.Files = append(manifest.Files, ExportEntry{Path: file.path, Bytes: len(file.data), SHA256: hex.EncodeToString(digest[:])})
 	}
-	manifestData := mustSanitizedJSON(manifest)
+	manifestData := mustSanitizedJSON(manifest, report.DeviceID)
 
 	files = append([]exportFile{{path: "manifest.json", data: manifestData}}, files...)
 	output := &boundedBuffer{max: maxExportZipBytes}
@@ -141,15 +141,15 @@ func componentDocument(report Report, ids ...string) map[string]any {
 	}
 }
 
-func mustSanitizedJSON(value any) []byte {
-	data, err := marshalSanitizedJSON(value)
+func mustSanitizedJSON(value any, deviceID string) []byte {
+	data, err := marshalSanitizedJSON(value, deviceID)
 	if err != nil {
 		return []byte("{\"error\":\"failed to serialize diagnostic evidence\"}\n")
 	}
 	return data
 }
 
-func marshalSanitizedJSON(value any) ([]byte, error) {
+func marshalSanitizedJSON(value any, deviceID string) ([]byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func marshalSanitizedJSON(value any) ([]byte, error) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, err
 	}
-	clean := sanitizeJSONValue("", decoded)
+	clean := sanitizeJSONValue("", decoded, deviceID)
 	data, err := json.MarshalIndent(clean, "", "  ")
 	if err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func marshalSanitizedJSON(value any) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-func sanitizeJSONValue(key string, value any) any {
+func sanitizeJSONValue(key string, value any, deviceID string) any {
 	normalizedKey := normalizedJSONKey(key)
 	if normalizedKey == "deviceid" {
 		return "[REDACTED_DEVICE_ID]"
@@ -184,17 +184,17 @@ func sanitizeJSONValue(key string, value any) any {
 	case map[string]any:
 		clean := make(map[string]any, len(typed))
 		for childKey, childValue := range typed {
-			clean[childKey] = sanitizeJSONValue(childKey, childValue)
+			clean[childKey] = sanitizeJSONValue(childKey, childValue, deviceID)
 		}
 		return clean
 	case []any:
 		clean := make([]any, len(typed))
 		for index, childValue := range typed {
-			clean[index] = sanitizeJSONValue("", childValue)
+			clean[index] = sanitizeJSONValue("", childValue, deviceID)
 		}
 		return clean
 	case string:
-		return sanitizeExportString(typed)
+		return sanitizeExportString(typed, deviceID)
 	default:
 		return value
 	}
@@ -241,8 +241,8 @@ func redactSensitiveText(value string) string {
 	return assignmentPattern.ReplaceAllString(value, "$1$2[REDACTED]")
 }
 
-func boundRecentLog(value string) string {
-	value = sanitizeExportString(value)
+func boundRecentLog(value, deviceID string) string {
+	value = sanitizeExportString(value, deviceID)
 	lines := strings.Split(value, "\n")
 	if len(lines) > maxExportLogLines {
 		lines = lines[len(lines)-maxExportLogLines:]
