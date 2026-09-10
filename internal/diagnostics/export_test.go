@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"rosboard/internal/policyv2"
 )
 
 func TestBuildDiagnosticExportRedactsSensitiveValuesAndIncludesExpectedTree(t *testing.T) {
@@ -51,12 +50,6 @@ func TestBuildDiagnosticExportRedactsSensitiveValuesAndIncludesExpectedTree(t *t
 				}},
 			}},
 		},
-		IngressTrace: []policyv2.IngressDecision{{
-			Interface:  "bridge-lan",
-			Result:     "accepted",
-			ReasonCode: "ingress.accepted",
-			Evidence:   map[string]any{"cookie": "cookie123", "address": "192.0.2.1"},
-		}},
 	}
 	recentLogs := strings.Join([]string{
 		"password=abc123",
@@ -78,7 +71,6 @@ func TestBuildDiagnosticExportRedactsSensitiveValuesAndIncludesExpectedTree(t *t
 		"manifest.json",
 		"health-report.json",
 		"routeros/snapshot.json",
-		"routeros/ingress-decision-trace.json",
 		"monitor/status.json",
 		"policy/status.json",
 		"access/status.json",
@@ -164,16 +156,6 @@ func TestBuildDiagnosticExportRedactsNetworkAndIdentityPrivacy(t *testing.T) {
 				}},
 			}},
 		},
-		IngressTrace: []policyv2.IngressDecision{{
-			Interface:  "ether2",
-			Result:     "accepted",
-			ReasonCode: "ingress.accepted",
-			Evidence: map[string]any{
-				"client":  "2409:8a6c:6910:3e0::/64",
-				"gateway": "123.45.67.89",
-				"peer":    "fe80::1234:5678%ether2",
-			},
-		}},
 	}
 	recentLogs := strings.Join([]string{
 		"client=2409:8a6c:6910:3e0::/64 gateway=123.45.67.89",
@@ -193,7 +175,6 @@ func TestBuildDiagnosticExportRedactsNetworkAndIdentityPrivacy(t *testing.T) {
 		"manifest.json",
 		"health-report.json",
 		"routeros/snapshot.json",
-		"routeros/ingress-decision-trace.json",
 		"monitor/status.json",
 		"policy/status.json",
 		"access/status.json",

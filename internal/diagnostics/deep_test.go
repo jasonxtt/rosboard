@@ -108,9 +108,6 @@ func TestDeepSnapshotReadsEachEndpointOnce(t *testing.T) {
 			t.Fatalf("source read count for %s = %d, want 1", endpoint.Endpoint, reader.counts[routeros.ReadMenu(endpoint.Endpoint)])
 		}
 	}
-	if len(report.IngressTrace) == 0 {
-		t.Fatal("deep report has no ingress decision trace")
-	}
 	for _, finding := range report.Findings {
 		if finding.ID == "topology.deep" {
 			if finding.Status != StatusOK {

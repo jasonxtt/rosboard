@@ -264,8 +264,7 @@
 }
 
 .diagnostics-deep-header p:not(.diagnostics-eyebrow),
-.diagnostics-deep-meta,
-.diagnostics-deep-empty {
+.diagnostics-deep-meta {
   margin: var(--space-1) 0 0;
   color: var(--ink-2);
 }
@@ -281,12 +280,6 @@
 .diagnostics-deep-state-warning { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .diagnostics-deep-state-error { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
 
-.diagnostics-deep-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
 .diagnostics-deep-section {
   min-width: 0;
   padding: var(--space-3);
@@ -301,8 +294,7 @@
   font-size: var(--text-sm);
 }
 
-.diagnostics-endpoint-list,
-.diagnostics-trace-list {
+.diagnostics-endpoint-list {
   display: grid;
   gap: var(--space-2);
   margin: var(--space-3) 0 0;
@@ -310,8 +302,7 @@
   list-style: none;
 }
 
-.diagnostics-endpoint-list li,
-.diagnostics-trace-item {
+.diagnostics-endpoint-list li {
   padding: var(--space-2);
   border: 1px solid var(--stroke);
   border-radius: var(--r-md);
@@ -343,38 +334,6 @@
 
 .diagnostics-endpoint-error {
   border-color: color-mix(in srgb, var(--err) 45%, var(--stroke)) !important;
-}
-
-.diagnostics-trace-item {
-  border-left: 3px solid var(--ink-3);
-}
-
-.diagnostics-trace-accepted { border-left-color: var(--ok); }
-.diagnostics-trace-rejected { border-left-color: var(--warn); }
-
-.diagnostics-trace-line {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.diagnostics-trace-line span {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-
-.diagnostics-trace-item code {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-.diagnostics-trace-item > p {
-  margin: var(--space-1) 0 0;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
 }
 
 .diagnostics-group h3 {
@@ -450,5 +409,4 @@
   .diagnostics-deep-header,
   .diagnostics-deep-section-head,
   .diagnostics-endpoint-list li { align-items: flex-start; flex-direction: column; }
-  .diagnostics-deep-grid { grid-template-columns: minmax(0, 1fr); }
 }

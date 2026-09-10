@@ -61,7 +61,6 @@ func BuildDiagnosticExport(report DeepReport, recentLogs string) ([]byte, string
 	files := []exportFile{
 		{path: "health-report.json", data: mustSanitizedJSON(report.Report, report.DeviceID)},
 		{path: "routeros/snapshot.json", data: mustSanitizedJSON(report.Snapshot, report.DeviceID)},
-		{path: "routeros/ingress-decision-trace.json", data: mustSanitizedJSON(report.IngressTrace, report.DeviceID)},
 		{path: "monitor/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "routeros.connection", "monitor.freshness"), report.DeviceID)},
 		{path: "policy/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "policy.state"), report.DeviceID)},
 		{path: "access/status.json", data: mustSanitizedJSON(componentDocument(report.Report, "access.state"), report.DeviceID)},

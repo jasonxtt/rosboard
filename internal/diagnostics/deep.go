@@ -42,7 +42,6 @@ type EvidenceSnapshot struct {
 type DeepReport struct {
 	Report
 	Snapshot     EvidenceSnapshot           `json:"snapshot"`
-	IngressTrace []policyv2.IngressDecision `json:"ingressTrace"`
 }
 
 type endpointRead struct {
@@ -185,15 +184,15 @@ func endpointSharedBy(menu routeros.ReadMenu) []string {
 	case routeros.ReadMenuSystemResource:
 		return []string{"topology.discovery", "deep-report"}
 	case routeros.ReadMenuInterface:
-		return []string{"wan-discovery", "traffic-ingress-discovery", "ingress-decision-trace"}
+		return []string{"wan-discovery", "traffic-ingress-discovery"}
 	case routeros.ReadMenuInterfaceList, routeros.ReadMenuInterfaceListMember:
-		return []string{"wan-discovery", "traffic-ingress-discovery", "ingress-decision-trace"}
+		return []string{"wan-discovery", "traffic-ingress-discovery"}
 	case routeros.ReadMenuBridgePort:
-		return []string{"traffic-ingress-discovery", "ingress-decision-trace"}
+		return []string{"traffic-ingress-discovery"}
 	case routeros.ReadMenuIPAddress, routeros.ReadMenuIPv6Address:
-		return []string{"traffic-ingress-discovery", "ingress-decision-trace"}
+		return []string{"traffic-ingress-discovery"}
 	case routeros.ReadMenuIPRoute, routeros.ReadMenuIPv6Route, routeros.ReadMenuIPDHCPClient, routeros.ReadMenuIPv6DHCPClient, routeros.ReadMenuPPPoEClient:
-		return []string{"wan-discovery", "ingress-decision-trace"}
+		return []string{"wan-discovery"}
 	default:
 		return []string{"topology.discovery"}
 	}
@@ -208,7 +207,7 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 
 	quick := r.Quick(deepCtx)
 	quick.Mode = ModeDeep
-	report := DeepReport{Report: quick, IngressTrace: []policyv2.IngressDecision{}}
+	report := DeepReport{Report: quick}
 
 	generatedAt := quick.GeneratedAt
 	if generatedAt.IsZero() {
@@ -243,8 +242,7 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 	}
 
 	reader := newSnapshotReader(r.PolicyReader)
-	discovery, trace, scanErr := policyv2.NewScanner(reader).ScanWithTrace(deepCtx, r.Device.ID)
-	report.IngressTrace = trace
+	discovery, scanErr := policyv2.NewScanner(reader).Scan(deepCtx, r.Device.ID)
 	report.Snapshot = reader.evidence(generatedAt, discovery.Snapshot.Fingerprint)
 
 	finding := Finding{
@@ -258,7 +256,6 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 			"warnings":                 append([]string(nil), discovery.Warnings...),
 			"trafficIngressCandidates": discovery.TrafficIngress,
 			"wanCandidates":            discovery.WANs,
-			"ingressDecisionCount":     len(trace),
 		},
 	}
 	if scanErr != nil {
@@ -275,11 +272,11 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 		case len(discovery.Warnings) > 0:
 			finding.Status = StatusWarning
 			finding.Summary = "网络拓扑已读取，但部分可选 RouterOS 证据读取失败。"
-			finding.Recommendation = "查看快照读取错误和 Decision Trace，确认是否需要补充 RouterOS 权限。"
+			finding.Recommendation = "查看快照读取错误，确认是否需要补充 RouterOS 权限。"
 		case len(discovery.TrafficIngress) == 0:
 			finding.Status = StatusWarning
 			finding.Summary = "当前没有可推荐的策略入口；这不等于策略路由不可用。"
-			finding.Recommendation = "查看每个接口的 Decision Trace，确认接口列表、Bridge 和 WAN 路由证据；创建新规则时仍可直接选择 RouterOS 来源事实。"
+			finding.Recommendation = "创建规则时可直接选择任意 RouterOS 接口或接口列表，推荐分析只作提示，应用前会再次执行 fresh preflight。"
 		case onlyWireGuard:
 			finding.Status = StatusWarning
 			finding.Summary = "当前 rosboard 推荐的策略入口只有 WireGuard，可能表示拓扑识别异常；这不等于策略路由不可用。"
