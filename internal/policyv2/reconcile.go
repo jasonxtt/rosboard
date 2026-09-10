@@ -623,7 +623,7 @@ func equivalentRouterField(key, left, right string) bool {
 		}
 	}
 	switch strings.ToLower(strings.TrimSpace(key)) {
-	case "address", "src-address", "dst-address":
+	case "address", "src-address", "dst-address", "to-address", "to-addresses":
 		if equivalentRouterAddress(left, right) {
 			return true
 		}

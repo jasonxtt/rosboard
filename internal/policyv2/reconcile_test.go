@@ -27,6 +27,8 @@ func TestEquivalentRouterFieldHandlesRouterOSCanonicalValues(t *testing.T) {
 		{key: "address", actual: "192.0.2.1/24", desired: "192.0.2.0/24", want: true},
 		{key: "dst-address", actual: "2001:db8::1", desired: "2001:db8::1/128", want: true},
 		{key: "src-address", actual: "192.0.2.1", desired: "192.0.2.1/32", want: true},
+		{key: "to-address", actual: "2001:4860:4860::8888/128", desired: "2001:4860:4860::8888", want: true},
+		{key: "to-addresses", actual: "192.0.2.1", desired: "192.0.2.1/32", want: true},
 		{key: "address", actual: "192.0.2.1", desired: "2001:db8::1/128", want: false},
 		{key: "name", actual: "139.59.210.98", desired: "139.59.210.98/32", want: false},
 	} {
