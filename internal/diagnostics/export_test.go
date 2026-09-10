@@ -179,6 +179,7 @@ func TestBuildDiagnosticExportRedactsNetworkAndIdentityPrivacy(t *testing.T) {
 		"client=2409:8a6c:6910:3e0::/64 gateway=123.45.67.89",
 		"peer=fe80::1234:5678%ether2 ula=fd86:1234:5678::abcd/64",
 		"dataDir=/home/alice/rosboard/data deviceId=customer-secret-device-uuid",
+		"rosboard 2026/09/10 12:05:51 serving on 0.0.0.0:80 using data dir /home/alice/rosboard/data",
 		"device customer-secret-device-uuid background refresh failed: dial tcp 123.45.67.89:8728",
 		"password=privacy-password-fixture Authorization: Bearer privacy-authorization-fixture Cookie: session=privacy-cookie-fixture token=privacy-token-fixture secret=privacy-secret-fixture private-key=privacy-private-key-fixture credential=privacy-credential-fixture",
 	}, "\n")
@@ -248,6 +249,9 @@ func TestBuildDiagnosticExportRedactsNetworkAndIdentityPrivacy(t *testing.T) {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("archive is missing expected sanitized value %q", expected)
 		}
+	}
+	if !strings.Contains(string(entries["logs/recent.log"]), "using data dir [REDACTED_PATH]/data") {
+		t.Fatalf("recent log did not redact natural-language data dir: %s", entries["logs/recent.log"])
 	}
 	if !strings.Contains(joined, "version=1.2.3.4") || !strings.Contains(joined, "timestamp=2026-09-10T08:09:10Z") {
 		t.Fatalf("archive changed version or timestamp metadata: %s", joined)
