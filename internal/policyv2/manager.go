@@ -499,7 +499,12 @@ func appendRoutingValidation(ctx context.Context, reader PolicyReader, repositor
 	if err != nil {
 		return err
 	}
-	desired.Blockers = append(desired.Blockers, ingressBlockers...)
+	sourceBlockers, sourceWarnings, err := ValidateRoutingSources(ctx, reader, repository)
+	if err != nil {
+		return err
+	}
+	appendUniquePlanIssues(&desired.Blockers, ingressBlockers, sourceBlockers)
+	appendUniquePlanIssues(&desired.Warnings, sourceWarnings)
 	return nil
 }
 
@@ -962,7 +967,11 @@ func validatePlanRepository(ctx context.Context, applier *Applier, repository Re
 	if err != nil {
 		return err
 	}
-	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 {
+	sourceBlockers, _, err := ValidateRoutingSources(ctx, applier.Reader, repository)
+	if err != nil {
+		return err
+	}
+	if len(aliasBlockers) > 0 || len(tableBlockers) > 0 || len(ingressBlockers) > 0 || len(sourceBlockers) > 0 {
 		return ErrPlanStale
 	}
 	return nil

@@ -213,6 +213,105 @@ func TestRoutingIPv4SubjectDoesNotBlockOtherEgressFamily(t *testing.T) {
 	}
 }
 
+func TestRoutingTypedInterfaceSourcesCompileDirectMatchers(t *testing.T) {
+	target := &routingTargetProjection{
+		id: "youtube", list: "target-youtube", source: Source{ID: "youtube", Kind: KindDomain},
+		rules: []SourceRule{{RuleType: "DOMAIN-SUFFIX", Domain: "youtube.example"}},
+	}
+	for _, test := range []struct {
+		name       string
+		scope      *RoutingSourceScope
+		field      string
+		want       string
+		boundary   string
+		logicalKey string
+	}{
+		{name: "interface", scope: &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, field: "in-interface", want: "wg1", boundary: "direct-interface", logicalKey: "routing-rule-routing:wan-a:ipv4:direct-interface:rule-interface"},
+		{name: "interface-list", scope: &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, field: "in-interface-list", want: "LAN", boundary: "direct-interface-list", logicalKey: "routing-rule-routing:wan-a:ipv4:direct-interface-list:rule-interface-list"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := DesiredResult{}
+			add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+				result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+			}
+			rule := RoutingRule{ID: "rule-" + test.name, EgressID: "wan-a", TargetListIDs: []string{"youtube"}, Enabled: true, SourceScope: test.scope, Subject: Subject{Mode: SubjectModeAll}}
+			projectionResult := DesiredResult{}
+			lists, ready := buildRoutingIngressProjections(&projectionResult, nil, "manager", "device", TrafficIngressScope{}, false, []RoutingRule{rule})
+			if len(lists) != 0 || len(ready) != 0 || len(projectionResult.Blockers) != 0 {
+				t.Fatalf("typed direct source was routed through legacy ingress projection: lists=%#v ready=%#v blockers=%#v", lists, ready, projectionResult.Blockers)
+			}
+			buildRoutingMangleFamily(&result, add, Egress{ID: "wan-a", Enabled: true}, EgressFamily{Family: FamilyIPv4}, map[string]string{}, map[string]bool{}, "wan-a-table", []*routingTargetProjection{target}, []RoutingRule{rule}, nil, "no", "manager", "device")
+			if len(result.Blockers) != 0 {
+				t.Fatalf("typed source produced blockers: %#v", result.Blockers)
+			}
+			var connection, routing *DesiredObject
+			for index := range result.Objects {
+				object := &result.Objects[index]
+				if object.LogicalID == "routing-rule-connection:"+rule.ID+":ipv4:youtube" {
+					connection = object
+				}
+				if object.LogicalID == test.logicalKey+":enabled" {
+					routing = object
+				}
+				if object.Menu == string(routeros.MenuInterfaceList) || object.Menu == string(routeros.MenuInterfaceListMember) {
+					t.Fatalf("typed direct source created legacy ingress object: %#v", object)
+				}
+			}
+			if connection == nil || connection.Fields[test.field] != test.want || connection.Fields["in-interface-list"] != func() string {
+				if test.field == "in-interface-list" {
+					return test.want
+				}
+				return ""
+			}() {
+				t.Fatalf("connection matcher=%#v, want %s=%q", connection, test.field, test.want)
+			}
+			if test.field == "in-interface" && connection.Fields["in-interface-list"] != "" {
+				t.Fatalf("interface source leaked interface-list matcher: %#v", connection.Fields)
+			}
+			if routing == nil || routing.Fields[test.field] != test.want {
+				t.Fatalf("routing matcher=%#v, want %s=%q", routing, test.field, test.want)
+			}
+		})
+	}
+}
+
+func TestRoutingTypedIPSourceUsesFamilySpecificAddressMatcherWithoutIngress(t *testing.T) {
+	target := &routingTargetProjection{
+		id: "youtube", list: "target-youtube", source: Source{ID: "youtube", Kind: KindDomain},
+		rules: []SourceRule{{RuleType: "DOMAIN", Domain: "youtube.example"}},
+	}
+	rule := RoutingRule{ID: "rule-ip", EgressID: "wan-a", TargetListIDs: []string{"youtube"}, Enabled: true, SourceScope: &RoutingSourceScope{Kind: RoutingSourceIP}, Subject: Subject{Mode: SubjectModeSelected, Prefixes: []string{"10.0.0.0/24", "fd86::/64"}}}
+	for _, family := range []struct {
+		family AddressFamily
+		field  string
+		value  string
+	}{
+		{family: FamilyIPv4, field: "src-address-list", value: RoutingSubjectListName("manager", "device", rule.ID, FamilyIPv4)},
+		{family: FamilyIPv6, field: "src-address-list", value: RoutingSubjectListName("manager", "device", rule.ID, FamilyIPv6)},
+	} {
+		t.Run(string(family.family), func(t *testing.T) {
+			result := DesiredResult{}
+			add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+				result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+			}
+			buildRoutingMangleFamily(&result, add, Egress{ID: "wan-a", Enabled: true}, EgressFamily{Family: family.family}, map[string]string{}, map[string]bool{}, "wan-a-table", []*routingTargetProjection{target}, []RoutingRule{rule}, nil, "no", "manager", "device")
+			if len(result.Blockers) != 0 {
+				t.Fatalf("IP source produced blockers: %#v", result.Blockers)
+			}
+			connectionID := "routing-rule-connection:rule-ip:" + string(family.family) + ":youtube"
+			for _, object := range result.Objects {
+				if object.LogicalID == connectionID {
+					if object.Fields[family.field] != family.value || object.Fields["in-interface"] != "" || object.Fields["in-interface-list"] != "" {
+						t.Fatalf("IP source matcher=%#v, want only family address list %q", object.Fields, family.value)
+					}
+					return
+				}
+			}
+			t.Fatalf("missing IP source connection object: %#v", result.Objects)
+		})
+	}
+}
+
 func TestRoutingAutoSubjectProjectsOnlyUsableIPv6(t *testing.T) {
 	terminals := RoutingUsableTerminals([]accesscontrol.Terminal{{
 		ID: "terminal-a", MACAddress: "AA:BB:CC:DD:EE:FF", IPv6: []string{"2001:db8::20", "fe80::20"},
