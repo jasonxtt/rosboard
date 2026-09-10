@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -145,6 +146,68 @@ func TestCanonicalRoutingSourceOldClientCompatibilityAndConflict(t *testing.T) {
 	}
 	if current.Revision != updated.Revision || current.SourceScope == nil || current.SourceScope.Name != "wg1" {
 		t.Fatalf("rejected source edit drifted persisted rule: %#v", current)
+	}
+}
+
+func TestCanonicalDeviceOldClientJSONRoundTripPreservesIdentity(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{ID: "wan-device-roundtrip", Name: "WAN device roundtrip"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "target-device-roundtrip", Name: "Target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "device-roundtrip", Name: "Device", EgressID: "wan-device-roundtrip", TargetListIDs: []string{"target-device-roundtrip"}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceDevice},
+		Subject: policyv2.Subject{Mode: policyv2.SubjectModeSelected, Members: []policyv2.SubjectMember{{
+			TerminalID: "terminal-a", Binding: "auto", AnchorMAC: "AA:BB:CC:DD:EE:FF", LastIPv4: []string{"10.0.0.10"}, LastIPv6: []string{"2001:db8::10"},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy policyv2.RoutingRule
+	if err := json.Unmarshal(payload, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.SourceScope = nil
+	legacy.Name = "Device renamed"
+	updated, err := repository.SaveRoutingRule(ctx, legacy)
+	if err != nil {
+		t.Fatalf("old-client device non-source edit was rejected: %v", err)
+	}
+	if updated.Revision != saved.Revision+1 || updated.Name != "Device renamed" || updated.SourceScope == nil {
+		t.Fatalf("old-client device edit did not preserve canonical rule: %#v", updated)
+	}
+	if member := updated.Subject.Members[0]; member.AnchorMAC != "AA:BB:CC:DD:EE:FF" || !reflect.DeepEqual(member.LastIPv4, []string{"10.0.0.10"}) || !reflect.DeepEqual(member.LastIPv6, []string{"2001:db8::10"}) {
+		t.Fatalf("old-client device edit lost hidden identity: %#v", member)
+	}
+
+	changed := updated
+	changed.SourceScope = nil
+	changed.Subject.Members = append([]policyv2.SubjectMember(nil), updated.Subject.Members...)
+	changed.Subject.Members[0].TerminalID = "terminal-b"
+	if _, err := repository.SaveRoutingRule(ctx, changed); !errors.Is(err, policyv2.ErrRoutingSourceScopeConflict) {
+		t.Fatalf("changed device source error=%v, want canonical source conflict", err)
+	}
+	current, err := repository.GetRoutingRule(ctx, updated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Revision != updated.Revision || current.Subject.Members[0].TerminalID != "terminal-a" || current.Subject.Members[0].AnchorMAC != "AA:BB:CC:DD:EE:FF" {
+		t.Fatalf("rejected device source edit drifted persisted rule: %#v", current)
 	}
 }
 

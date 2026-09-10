@@ -125,6 +125,43 @@ func IsLegacyRoutingSourceProjectionOmitted(rule RoutingRule) bool {
 	return strings.TrimSpace(rule.Subject.Mode) == "" && len(rule.Subject.Members) == 0 && len(rule.Subject.Prefixes) == 0 && !HasTrafficIngress(rule.Ingress)
 }
 
+// routingSourceLegacySubject is the portion of Subject that an old client can
+// express. AnchorMAC and last trusted addresses are deliberately excluded:
+// they are server-managed identity state and are hidden from the JSON API.
+type routingSourceLegacySubject struct {
+	Mode     string                             `json:"mode"`
+	Members  []routingSourceLegacySubjectMember `json:"members,omitempty"`
+	Prefixes []string                           `json:"prefixes,omitempty"`
+}
+
+type routingSourceLegacySubjectMember struct {
+	TerminalID string   `json:"terminalId"`
+	Binding    string   `json:"binding"`
+	PinnedIPv4 []string `json:"pinnedIpv4,omitempty"`
+	PinnedIPv6 []string `json:"pinnedIpv6,omitempty"`
+}
+
+func routingSourceLegacySubjectValue(value Subject) (routingSourceLegacySubject, error) {
+	normalized, err := subject.Normalize(value)
+	if err != nil {
+		return routingSourceLegacySubject{}, err
+	}
+	result := routingSourceLegacySubject{
+		Mode:     normalized.Mode,
+		Members:  make([]routingSourceLegacySubjectMember, 0, len(normalized.Members)),
+		Prefixes: append([]string(nil), normalized.Prefixes...),
+	}
+	for _, member := range normalized.Members {
+		result.Members = append(result.Members, routingSourceLegacySubjectMember{
+			TerminalID: member.TerminalID,
+			Binding:    member.Binding,
+			PinnedIPv4: append([]string(nil), member.PinnedIPv4...),
+			PinnedIPv6: append([]string(nil), member.PinnedIPv6...),
+		})
+	}
+	return result, nil
+}
+
 // LegacyRoutingSourceProjectionMatches compares the effective legacy source
 // semantics of an old-client payload with a canonical typed rule.
 func LegacyRoutingSourceProjectionMatches(canonical, incoming RoutingRule) (bool, error) {
@@ -153,9 +190,17 @@ func LegacyRoutingSourceProjectionMatches(canonical, incoming RoutingRule) (bool
 		// source-only and ignore an attached ingress compatibility field.
 		actualIngress = TrafficIngressScope{}
 	}
-	expectedSubject, _ = subject.Normalize(expectedSubject)
+	expectedLegacySubject, err := routingSourceLegacySubjectValue(expectedSubject)
+	if err != nil {
+		return false, fmt.Errorf("%w: %v", ErrRoutingSourceScopeConflict, err)
+	}
+	actualLegacySubject, err := routingSourceLegacySubjectValue(actualSubject)
+	if err != nil {
+		return false, fmt.Errorf("%w: %v", ErrRoutingSourceScopeConflict, err)
+	}
 	expectedIngress = NormalizeTrafficIngressScopeUnvalidated(expectedIngress)
-	return reflect.DeepEqual(actualSubject, expectedSubject) && reflect.DeepEqual(actualIngress, expectedIngress), nil
+	actualIngress = NormalizeTrafficIngressScopeUnvalidated(actualIngress)
+	return reflect.DeepEqual(actualLegacySubject, expectedLegacySubject) && reflect.DeepEqual(actualIngress, expectedIngress), nil
 }
 
 // PrepareRoutingRuleWrite applies the canonical-write compatibility rule and
