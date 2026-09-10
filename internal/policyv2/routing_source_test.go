@@ -72,6 +72,22 @@ func TestNormalizeRoutingSourceScopeAndTypedRuleProjection(t *testing.T) {
 	}
 }
 
+func TestDeferredInterfaceListAllBlocksIngressProjection(t *testing.T) {
+	result := DesiredResult{}
+	lists, ready := buildRoutingIngressProjections(&result, nil, "manager", "device", TrafficIngressScope{}, false, []RoutingRule{{
+		ID: "rule-all-list", Enabled: true,
+		SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: " ALL "},
+		Subject:     Subject{Mode: SubjectModeAll},
+		Ingress:     TrafficIngressScope{InterfaceLists: []string{"all"}},
+	}})
+	if len(result.Blockers) != 1 || result.Blockers[0].Code != RoutingSourceInterfaceListAllDeferredCode || result.Blockers[0].LogicalID != "rule-all-list" {
+		t.Fatalf("deferred source blockers=%#v, want one stable blocker", result.Blockers)
+	}
+	if len(lists) != 0 || len(ready) != 0 {
+		t.Fatalf("deferred source created executable ingress projection: lists=%#v ready=%#v", lists, ready)
+	}
+}
+
 func TestCanonicalRoutingSourceRejectsChangedLegacyProjection(t *testing.T) {
 	canonical := RoutingRule{
 		ID: "rule", SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"},

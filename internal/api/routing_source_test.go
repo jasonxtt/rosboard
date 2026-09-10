@@ -8,7 +8,40 @@ import (
 	"testing"
 
 	"rosboard/internal/policyv2"
+	"rosboard/internal/routeros"
 )
+
+type countingPolicyV2Router struct {
+	policyV2Router
+	creates int
+	patches int
+	deletes int
+	moves   int
+}
+
+func (r *countingPolicyV2Router) Create(ctx context.Context, menu routeros.MutationMenu, fields routeros.RouterOSFields) (routeros.RouterOSObject, error) {
+	r.creates++
+	return r.policyV2Router.Create(ctx, menu, fields)
+}
+
+func (r *countingPolicyV2Router) Patch(ctx context.Context, menu routeros.MutationMenu, id string, fields routeros.RouterOSFields) (routeros.RouterOSObject, error) {
+	r.patches++
+	return r.policyV2Router.Patch(ctx, menu, id, fields)
+}
+
+func (r *countingPolicyV2Router) Delete(ctx context.Context, menu routeros.MutationMenu, id string) error {
+	r.deletes++
+	return r.policyV2Router.Delete(ctx, menu, id)
+}
+
+func (r *countingPolicyV2Router) Move(ctx context.Context, menu routeros.MutationMenu, request routeros.MoveRequest) (routeros.MutationResponse, error) {
+	r.moves++
+	return r.policyV2Router.Move(ctx, menu, request)
+}
+
+func (r *countingPolicyV2Router) mutationCount() int {
+	return r.creates + r.patches + r.deletes + r.moves
+}
 
 func TestRoutingSourceScopeConflictUsesStableAPIError(t *testing.T) {
 	response := httptest.NewRecorder()
@@ -173,5 +206,78 @@ func TestCanonicalDevicePlanAPIUsesLegacyAuthorityGuard(t *testing.T) {
 	}
 	if payloadError["code"] != "routing_source_scope_conflict" {
 		t.Fatalf("changed legacy plan code=%v, want routing_source_scope_conflict", payloadError["code"])
+	}
+}
+
+func TestCanonicalInterfaceListAllPlanBlocksAndDirectApplyDoesNotMutate(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "all-list-egress", Name: "All list egress", ListMode: policyv2.ListModeShared, ListName: "all-list", DNSUpstream: "1.1.1.1", FakeAlias: "192.0.2.72", FailureMode: "strict", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, WANInterface: "lan", Gateway: "198.51.100.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "all-list-target", Name: "All list target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "all-list-rule", Name: "All list rule", EgressID: "all-list-egress", TargetListIDs: []string{"all-list-target"}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterfaceList, Name: "all"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	preview := policyV2Request(t, server, http.MethodPost, "/plans", `{"kind":"initial"}`)
+	if preview.Code != http.StatusCreated {
+		t.Fatalf("all-list plan status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	var envelope policyv2.PlanEnvelope
+	if err := json.Unmarshal(preview.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Plan.State != "blocked" {
+		t.Fatalf("all-list plan state=%q, want blocked: %#v", envelope.Plan.State, envelope.Plan.Blockers)
+	}
+	foundBlocker := false
+	for _, blocker := range envelope.Plan.Blockers {
+		if blocker.Code == policyv2.RoutingSourceInterfaceListAllDeferredCode && blocker.LogicalID == "all-list-rule" {
+			foundBlocker = true
+		}
+	}
+	if !foundBlocker {
+		t.Fatalf("all-list plan lost stable safety blocker: %#v", envelope.Plan.Blockers)
+	}
+	loaded, err := repository.GetRoutingRule(ctx, "all-list-rule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.SourceScope == nil || loaded.SourceScope.Kind != policyv2.RoutingSourceInterfaceList || loaded.SourceScope.Name != "all" {
+		t.Fatalf("canonical all-list source was not persisted: %#v", loaded)
+	}
+
+	countingRouter := &countingPolicyV2Router{}
+	if err := server.policy.RegisterApplier("edge", &policyv2.Applier{Reader: countingRouter, Mutation: countingRouter, Repo: deviceStore.PolicyRepository(), Access: deviceStore.AccessRepository()}); err != nil {
+		t.Fatal(err)
+	}
+	deferApply := policyV2Request(t, server, http.MethodPut, "/rules/all-list-rule", `{"name":"All list direct edit","sourceScope":{"kind":"interface-list","name":"all"},"targetListIds":["all-list-target"],"egressId":"all-list-egress","enabled":true,"revision":1}`)
+	if deferApply.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("all-list direct auto-apply status=%d body=%s", deferApply.Code, deferApply.Body.String())
+	}
+	var applyError map[string]any
+	if err := json.Unmarshal(deferApply.Body.Bytes(), &applyError); err != nil {
+		t.Fatal(err)
+	}
+	if applyError["code"] != "plan_blocked" {
+		t.Fatalf("all-list direct auto-apply code=%v, want plan_blocked", applyError["code"])
+	}
+	if countingRouter.mutationCount() != 0 {
+		t.Fatalf("blocked all-list direct save mutated RouterOS: creates=%d patches=%d deletes=%d moves=%d", countingRouter.creates, countingRouter.patches, countingRouter.deletes, countingRouter.moves)
 	}
 }
