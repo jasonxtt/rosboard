@@ -2,6 +2,7 @@ package policyv2
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"rosboard/internal/routeros"
@@ -9,9 +10,13 @@ import (
 
 type routingSourcePreflightReader struct {
 	objects map[routeros.ReadMenu][]routeros.RouterOSObject
+	errors  map[routeros.ReadMenu]error
 }
 
 func (r *routingSourcePreflightReader) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
+	if err := r.errors[menu]; err != nil {
+		return nil, err
+	}
 	return r.objects[menu], nil
 }
 
@@ -108,5 +113,67 @@ func TestValidateRoutingSourcesKeepsAllDeferredWithoutRouterOSRead(t *testing.T)
 	}
 	if len(warnings) != 0 || len(blockers) != 1 || blockers[0].Code != RoutingSourceAllDeferredCode {
 		t.Fatalf("all source preflight=%#v warnings=%#v, want one stable deferred blocker", blockers, warnings)
+	}
+}
+
+func TestValidateRoutingSourcesReadsOnlySelectorMenusUsedByRules(t *testing.T) {
+	tests := []struct {
+		name       string
+		rule       RoutingRule
+		objects    map[routeros.ReadMenu][]routeros.RouterOSObject
+		irrelevant routeros.ReadMenu
+	}{
+		{
+			name: "interface source does not require interface-list read",
+			rule: RoutingRule{
+				ID: "interface-rule", Name: "Interface", EgressID: "wan", TargetListIDs: []string{"target"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, Subject: Subject{Mode: SubjectModeAll},
+			},
+			objects: map[routeros.ReadMenu][]routeros.RouterOSObject{
+				routeros.ReadMenuInterface: {{"name": "wg1", "type": "wireguard", "running": "true"}},
+			},
+			irrelevant: routeros.ReadMenuInterfaceList,
+		},
+		{
+			name: "interface-list source does not require interface read",
+			rule: RoutingRule{
+				ID: "list-rule", Name: "List", EgressID: "wan", TargetListIDs: []string{"target"}, Enabled: true,
+				SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, Subject: Subject{Mode: SubjectModeAll},
+			},
+			objects: map[routeros.ReadMenu][]routeros.RouterOSObject{
+				routeros.ReadMenuInterfaceList: {{"name": "LAN"}},
+			},
+			irrelevant: routeros.ReadMenuInterface,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &routingSourcePreflightRepository{rules: []RoutingRule{test.rule}}
+			reader := &routingSourcePreflightReader{
+				objects: test.objects,
+				errors:  map[routeros.ReadMenu]error{test.irrelevant: errors.New("unrelated selector read failed")},
+			}
+			blockers, warnings, err := ValidateRoutingSources(context.Background(), reader, repository)
+			if err != nil {
+				t.Fatalf("unrelated selector read should not fail preflight: %v", err)
+			}
+			if len(blockers) != 0 {
+				t.Fatalf("selector-only preflight blockers=%#v warnings=%#v", blockers, warnings)
+			}
+		})
+	}
+}
+
+func TestValidateRoutingSourcesFailsClosedWhenUsedSelectorReadFails(t *testing.T) {
+	rule := RoutingRule{
+		ID: "interface-rule", Name: "Interface", EgressID: "wan", TargetListIDs: []string{"target"}, Enabled: true,
+		SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, Subject: Subject{Mode: SubjectModeAll},
+	}
+	repository := &routingSourcePreflightRepository{rules: []RoutingRule{rule}}
+	reader := &routingSourcePreflightReader{errors: map[routeros.ReadMenu]error{
+		routeros.ReadMenuInterface: errors.New("authoritative selector read failed"),
+	}}
+	if _, _, err := ValidateRoutingSources(context.Background(), reader, repository); err == nil {
+		t.Fatal("used selector read failure must fail closed")
 	}
 }

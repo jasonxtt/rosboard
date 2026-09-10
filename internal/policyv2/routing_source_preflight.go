@@ -77,37 +77,45 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		return nil, nil, errors.New("routing source preflight reader is unavailable")
 	}
 
-	interfaces, err := reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{"name", "type", "running", "disabled", "dynamic"})
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: scan RouterOS interfaces: %w", routingSourcePreflightUnavailableCode, err)
-	}
-	lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: scan RouterOS interface lists: %w", routingSourcePreflightUnavailableCode, err)
-	}
-	interfaceByName := make(map[string]routeros.RouterOSObject, len(interfaces))
-	for _, object := range interfaces {
-		if name := strings.TrimSpace(object["name"]); name != "" {
-			interfaceByName[name] = object
+	interfaceByName := make(map[string]routeros.RouterOSObject)
+	if len(interfaceRules) > 0 {
+		interfaces, err := reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{"name", "type", "running", "disabled", "dynamic"})
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: scan RouterOS interfaces: %w", routingSourcePreflightUnavailableCode, err)
+		}
+		interfaceByName = make(map[string]routeros.RouterOSObject, len(interfaces))
+		for _, object := range interfaces {
+			if name := strings.TrimSpace(object["name"]); name != "" {
+				interfaceByName[name] = object
+			}
 		}
 	}
-	interfaceListNames := make(map[string]bool, len(lists))
-	for _, object := range lists {
-		if name := strings.TrimSpace(object["name"]); name != "" {
-			interfaceListNames[name] = true
+	interfaceListNames := make(map[string]bool)
+	if len(interfaceListRules) > 0 {
+		lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: scan RouterOS interface lists: %w", routingSourcePreflightUnavailableCode, err)
+		}
+		interfaceListNames = make(map[string]bool, len(lists))
+		for _, object := range lists {
+			if name := strings.TrimSpace(object["name"]); name != "" {
+				interfaceListNames[name] = true
+			}
 		}
 	}
 
 	wanInterfaces := make(map[string]bool)
-	egresses, err := repository.ListEgresses(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, egress := range egresses {
-		for _, family := range egress.Families {
-			if family.Enabled {
-				if name := strings.TrimSpace(family.WANInterface); name != "" {
-					wanInterfaces[name] = true
+	if len(interfaceRules) > 0 {
+		egresses, err := repository.ListEgresses(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, egress := range egresses {
+			for _, family := range egress.Families {
+				if family.Enabled {
+					if name := strings.TrimSpace(family.WANInterface); name != "" {
+						wanInterfaces[name] = true
+					}
 				}
 			}
 		}
