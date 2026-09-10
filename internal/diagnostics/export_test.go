@@ -60,7 +60,7 @@ func TestBuildDiagnosticExportRedactsSensitiveValuesAndIncludesExpectedTree(t *t
 		"Authorization: Bearer xxx",
 		"Cookie: session=cookie123",
 		"private-key=wg-private",
-		"token=token123 secret=secret123",
+		"token=token123 secret=secret123 credential=credential123",
 	}, "\n")
 
 	archiveData, filename, err := BuildDiagnosticExport(report, recentLogs)
@@ -89,7 +89,7 @@ func TestBuildDiagnosticExportRedactsSensitiveValuesAndIncludesExpectedTree(t *t
 		}
 	}
 	joined := string(bytes.Join(mapValuesInOrder(entries, wantPaths), []byte("\n")))
-	for _, forbidden := range []string{"abc123", "xxx", "cookie123", "wg-private", "token123", "secret123"} {
+	for _, forbidden := range []string{"abc123", "xxx", "cookie123", "wg-private", "token123", "secret123", "credential123"} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("archive contains forbidden fixture value %q", forbidden)
 		}
