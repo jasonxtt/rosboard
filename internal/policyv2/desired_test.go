@@ -363,10 +363,16 @@ func TestRoutingConnectionOrderUsesRulePriorityAcrossEgresses(t *testing.T) {
 
 			connectionIDs := make([]string, 0, 2)
 			connectionOrders := make([]int, 0, 2)
+			connectionsByMark := make(map[string]DesiredObject)
+			routingByMark := make(map[string]DesiredObject)
 			for _, object := range result.Objects {
 				if isRoutingPreroutingConnection(object) {
 					connectionIDs = append(connectionIDs, object.LogicalID)
 					connectionOrders = append(connectionOrders, object.Order)
+					connectionsByMark[object.Fields["new-connection-mark"]] = object
+				}
+				if isRoutingPreroutingRouting(object) {
+					routingByMark[object.Fields["connection-mark"]] = object
 				}
 			}
 			if len(connectionIDs) != 2 {
@@ -378,6 +384,37 @@ func TestRoutingConnectionOrderUsesRulePriorityAcrossEgresses(t *testing.T) {
 			}
 			if connectionOrders[0] >= connectionOrders[1] {
 				t.Fatalf("connection desired orders=%#v, want strictly increasing RouterOS order", connectionOrders)
+			}
+			if len(routingByMark) != len(connectionsByMark) {
+				t.Fatalf("routing mark objects=%#v, connection marks=%#v, want one paired routing rule per source matcher", routingByMark, connectionsByMark)
+			}
+			for mark, connection := range connectionsByMark {
+				routing, ok := routingByMark[mark]
+				if !ok {
+					t.Fatalf("connection mark %q has no routing rule: %#v", mark, result.Objects)
+				}
+				if connection.Order >= routing.Order {
+					t.Fatalf("source connection %q order=%d is not before its routing rule order=%d", connection.LogicalID, connection.Order, routing.Order)
+				}
+			}
+
+			// Model a packet that matches only the lower-priority IP source. Its
+			// connection mark must still reach the paired routing mark after the
+			// cross-egress reorder; this catches routing-before-connection gaps.
+			lowConnectionID := "routing-rule-connection:" + test.secondRule.ID + ":ipv4:youtube"
+			connectionMark := "no-mark"
+			routingMark := ""
+			for _, object := range result.Objects {
+				if isRoutingPreroutingConnection(object) && object.LogicalID == lowConnectionID && connectionMark == "no-mark" {
+					connectionMark = object.Fields["new-connection-mark"]
+					continue
+				}
+				if isRoutingPreroutingRouting(object) && object.Fields["connection-mark"] == connectionMark {
+					routingMark = object.Fields["new-routing-mark"]
+				}
+			}
+			if routingMark == "" {
+				t.Fatalf("low-priority source did not reach its routing mark after desired reorder: %#v", result.Objects)
 			}
 		})
 	}
