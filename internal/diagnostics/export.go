@@ -201,7 +201,7 @@ func sensitiveKey(key string) bool {
 var (
 	bearerPattern     = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
 	basicPattern      = regexp.MustCompile(`(?i)\bBasic\s+[A-Za-z0-9+/=]+`)
-	assignmentPattern = regexp.MustCompile(`(?i)(password|passwd|passphrase|authorization|cookie|session|token|secret|private[-_ ]?key|preshared[-_ ]?key|api[-_ ]?key)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
+	assignmentPattern = regexp.MustCompile(`(?i)(password|passwd|passphrase|authorization|cookie|session|token|secret|private[-_ ]?key|preshared[-_ ]?key|api[-_ ]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
 )
 
 func redactSensitiveText(value string) string {
