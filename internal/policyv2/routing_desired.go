@@ -301,9 +301,50 @@ func buildRoutingIngressProjections(result *DesiredResult, add func(string, rout
 			appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceAllDeferredIssue(rule.ID)})
 			continue
 		}
-		if rule.SourceScope != nil && (rule.SourceScope.Kind == RoutingSourceInterface || rule.SourceScope.Kind == RoutingSourceInterfaceList || rule.SourceScope.Kind == RoutingSourceDevice || rule.SourceScope.Kind == RoutingSourceIP) {
-			// Typed sources compile directly in buildRoutingMangleFamily. They
-			// must never create or depend on the legacy aggregate ingress list.
+		if rule.SourceScope != nil {
+			if rule.SourceScope.Kind != RoutingSourceInterface {
+				// Device, IP and legacy single-list sources compile directly in
+				// buildRoutingMangleFamily. They must never create or depend on
+				// the legacy aggregate ingress list.
+				continue
+			}
+			scope, normalizeErr := NormalizeRoutingSourceScope(rule.SourceScope)
+			if normalizeErr != nil {
+				// compileRoutingSourceMatcher reports the blocker.
+				continue
+			}
+			if _, _, direct := RoutingSourceDirectSelector(scope); direct {
+				continue
+			}
+			// A multi-selector or excluding interface source shares the legacy
+			// aggregate-list mechanism: the managed list carries the selected
+			// interfaces and interface lists, and exclusions apply a negated
+			// src-address-list on top of it.
+			if !rule.Enabled {
+				continue
+			}
+			ingressScope := RoutingSourceIngressScope(scope)
+			key := TrafficIngressScopeKey(ingressScope)
+			listName := listByScope[key]
+			if listName == "" {
+				listName = ManagedIngressListName(managerID, deviceID)
+				logicalSuffix := ""
+				if key != defaultKey || !HasTrafficIngress(defaultScope) {
+					logicalSuffix = ":" + shortHash("traffic-ingress:"+key, 8)
+					listName += "_" + shortHash("traffic-ingress-list:"+key, 8)
+				}
+				fields := map[string]string{"name": listName}
+				if len(ingressScope.InterfaceLists) > 0 {
+					fields["include"] = strings.Join(ingressScope.InterfaceLists, ",")
+				}
+				add("traffic-ingress:list"+logicalSuffix, routeros.MenuInterfaceList, "foundation", "策略流量入口聚合列表", fields)
+				for _, interfaceName := range ingressScope.Interfaces {
+					add("traffic-ingress:member"+logicalSuffix+":"+interfaceName, routeros.MenuInterfaceListMember, "foundation", "策略流量入口成员 "+cleanReadableLabel(interfaceName), map[string]string{"list": listName, "interface": interfaceName})
+				}
+				listByScope[key] = listName
+			}
+			listByRule[rule.ID] = listName
+			readyByRule[rule.ID] = true
 			continue
 		}
 		if !rule.Enabled || (rule.Subject.Mode != SubjectModeAll && rule.Subject.Mode != SubjectModeExcluded) {
@@ -560,7 +601,7 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 				fields["in-interface-list"] = matcher.inInterfaceList
 			}
 			if matcher.subjectList != "" {
-				if rule.Subject.Mode == SubjectModeExcluded {
+				if matcher.boundary == "excluded" {
 					fields["src-address-list"] = "!" + matcher.subjectList
 				} else {
 					fields["src-address-list"] = matcher.subjectList
@@ -725,7 +766,13 @@ func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundar
 	if boundary == "direct-interface" || boundary == "direct-interface-list" {
 		name := ""
 		if rule.SourceScope != nil {
-			name = rule.SourceScope.Name
+			if scope, err := NormalizeRoutingSourceScope(rule.SourceScope); err == nil {
+				if _, directName, direct := RoutingSourceDirectSelector(scope); direct {
+					name = directName
+				} else {
+					name = scope.Name
+				}
+			}
 		}
 		parts = append(parts, name)
 	}
@@ -738,11 +785,42 @@ func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routero
 		scope := rule.SourceScope
 		switch scope.Kind {
 		case RoutingSourceInterface:
-			if strings.TrimSpace(scope.Name) == "" {
-				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "interface source requires a non-empty RouterOS interface name"})
+			normalizedScope, normalizeErr := NormalizeRoutingSourceScope(scope)
+			if normalizeErr != nil {
+				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: normalizeErr.Error()})
 				return routingSourceMatcher{}, false
 			}
-			return routingSourceMatcher{boundary: "direct-interface", inInterface: scope.Name}, true
+			if directKind, name, direct := RoutingSourceDirectSelector(normalizedScope); direct {
+				if directKind == RoutingSourceInterfaceList {
+					if IsDeferredRoutingSourceInterfaceListName(name) {
+						if rule.Enabled {
+							appendUniquePlanIssues(&result.Blockers, []PlanIssue{routingSourceInterfaceListAllDeferredIssue(rule.ID)})
+						}
+						return routingSourceMatcher{}, false
+					}
+					return routingSourceMatcher{boundary: "direct-interface-list", inInterfaceList: name}, true
+				}
+				return routingSourceMatcher{boundary: "direct-interface", inInterface: name}, true
+			}
+			matcher.boundary = "ingress"
+			matcher.ingressList = ingressLists[rule.ID]
+			if !ingressReady[rule.ID] || strings.TrimSpace(matcher.ingressList) == "" {
+				return routingSourceMatcher{}, false
+			}
+			if len(normalizedScope.ExcludePrefixes) > 0 {
+				// Exclusions are per-family: when no excluded address belongs
+				// to this family the matcher stays an unconstrained ingress
+				// boundary instead of silently dropping the family.
+				excludedRule := rule
+				excludedRule.Subject = Subject{Mode: SubjectModeExcluded, Prefixes: append([]string{}, normalizedScope.ExcludePrefixes...)}
+				resolution := resolveRoutingSubjectFamily(excludedRule, family.Family, terminals)
+				if len(resolution.addresses) > 0 {
+					matcher.boundary = "excluded"
+					matcher.subjectList = RoutingSubjectListName(managerID, deviceID, rule.ID, family.Family)
+					materializeRoutingSubjectList(add, excludedRule, family.Family, matcher.subjectList, enabled, resolution.addresses)
+				}
+			}
+			return matcher, true
 		case RoutingSourceInterfaceList:
 			if IsDeferredRoutingSourceInterfaceListName(scope.Name) {
 				if rule.Enabled {

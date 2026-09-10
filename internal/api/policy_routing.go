@@ -848,7 +848,7 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 		if existingRoutingRule != nil {
 			rule, err = policyv2.PrepareRoutingRuleWrite(rule, existingRoutingRule)
 		} else {
-			rule, err = policyv2.NormalizeRoutingRule(rule)
+			rule, err = policyv2.PrepareRoutingRuleWrite(rule, nil)
 		}
 		if err != nil {
 			return nil, err

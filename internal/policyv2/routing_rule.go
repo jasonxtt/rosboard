@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -238,16 +239,17 @@ type routingSourceOverlapKind string
 const (
 	routingSourceOverlapAddress   routingSourceOverlapKind = "address"
 	routingSourceOverlapInterface routingSourceOverlapKind = "interface"
-	routingSourceOverlapList      routingSourceOverlapKind = "interface-list"
 	routingSourceOverlapIngress   routingSourceOverlapKind = "legacy-ingress"
 	routingSourceOverlapAll       routingSourceOverlapKind = "all"
 )
 
 type routingSourceDescriptor struct {
-	kind    routingSourceOverlapKind
-	name    string
-	subject Subject
-	ingress TrafficIngressScope
+	kind      routingSourceOverlapKind
+	name      string
+	names     []string
+	listNames []string
+	subject   Subject
+	ingress   TrafficIngressScope
 }
 
 func routingSourceDescriptorForRule(rule RoutingRule) routingSourceDescriptor {
@@ -258,9 +260,9 @@ func routingSourceDescriptorForRule(rule RoutingRule) routingSourceDescriptor {
 			case RoutingSourceDevice, RoutingSourceIP:
 				return routingSourceDescriptor{kind: routingSourceOverlapAddress, subject: rule.Subject}
 			case RoutingSourceInterface:
-				return routingSourceDescriptor{kind: routingSourceOverlapInterface, name: scope.Name}
+				return routingSourceDescriptor{kind: routingSourceOverlapInterface, names: scope.Interfaces, listNames: scope.InterfaceLists}
 			case RoutingSourceInterfaceList:
-				return routingSourceDescriptor{kind: routingSourceOverlapList, name: scope.Name}
+				return routingSourceDescriptor{kind: routingSourceOverlapInterface, listNames: []string{scope.Name}, name: scope.Name}
 			case RoutingSourceAll:
 				return routingSourceDescriptor{kind: routingSourceOverlapAll}
 			}
@@ -275,7 +277,7 @@ func routingSourceDescriptorForRule(rule RoutingRule) routingSourceDescriptor {
 
 func routingSourceUsesInterfaceMatcher(rule RoutingRule) bool {
 	descriptor := routingSourceDescriptorForRule(rule)
-	return descriptor.kind == routingSourceOverlapInterface || descriptor.kind == routingSourceOverlapList || descriptor.kind == routingSourceOverlapIngress
+	return descriptor.kind == routingSourceOverlapInterface || descriptor.kind == routingSourceOverlapIngress
 }
 
 func routingSourcesOverlap(left, right RoutingRule) (overlap, indeterminate bool) {
@@ -288,13 +290,15 @@ func routingSourcesOverlap(left, right RoutingRule) (overlap, indeterminate bool
 		return SubjectsOverlap(leftSource.subject, rightSource.subject)
 	}
 	if leftSource.kind == routingSourceOverlapInterface && rightSource.kind == routingSourceOverlapInterface {
-		return leftSource.name == rightSource.name, false
-	}
-	if leftSource.kind == routingSourceOverlapList && rightSource.kind == routingSourceOverlapList {
-		if leftSource.name == rightSource.name {
+		if routingSourceNamesIntersect(leftSource.names, rightSource.names) || routingSourceNamesIntersect(leftSource.listNames, rightSource.listNames) {
 			return true, false
 		}
-		return false, true
+		// An interface list may still contain the other side's interfaces;
+		// membership is live RouterOS state and stays a warning boundary.
+		if len(leftSource.listNames) > 0 || len(rightSource.listNames) > 0 {
+			return false, true
+		}
+		return false, false
 	}
 	if leftSource.kind == routingSourceOverlapIngress && rightSource.kind == routingSourceOverlapIngress {
 		return SubjectsOverlap(leftSource.subject, rightSource.subject)
@@ -315,14 +319,12 @@ func routingLegacyIngressMatchesDirect(ingress TrafficIngressScope, direct routi
 	switch direct.kind {
 	case routingSourceOverlapInterface:
 		for _, name := range ingress.Interfaces {
-			if name == direct.name {
+			if slices.Contains(direct.names, name) {
 				return true, false
 			}
 		}
-		return false, true
-	case routingSourceOverlapList:
 		for _, name := range ingress.InterfaceLists {
-			if name == direct.name {
+			if slices.Contains(direct.listNames, name) {
 				return true, false
 			}
 		}
@@ -330,6 +332,15 @@ func routingLegacyIngressMatchesDirect(ingress TrafficIngressScope, direct routi
 	default:
 		return false, true
 	}
+}
+
+func routingSourceNamesIntersect(left, right []string) bool {
+	for _, name := range left {
+		if slices.Contains(right, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func SubjectsOverlap(left, right Subject) (overlap, indeterminate bool) {

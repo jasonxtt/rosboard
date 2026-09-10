@@ -37,8 +37,8 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		return nil, nil, err
 	}
 
-	interfaceRules := make([]RoutingRule, 0)
-	interfaceListRules := make([]RoutingRule, 0)
+	interfaceRefs := make([]routingSourceNameRef, 0)
+	interfaceListRefs := make([]routingSourceNameRef, 0)
 	blockers := make([]PlanIssue, 0)
 	warnings := make([]PlanIssue, 0)
 	for _, rule := range rules {
@@ -58,19 +58,28 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		case RoutingSourceAll:
 			blockers = append(blockers, routingSourceAllDeferredIssue(rule.ID))
 		case RoutingSourceInterface:
-			interfaceRules = append(interfaceRules, rule)
+			for _, name := range scope.Interfaces {
+				interfaceRefs = append(interfaceRefs, routingSourceNameRef{rule: rule, name: name})
+			}
+			for _, name := range scope.InterfaceLists {
+				if IsDeferredRoutingSourceInterfaceListName(name) {
+					blockers = append(blockers, routingSourceInterfaceListAllDeferredIssue(rule.ID))
+				} else {
+					interfaceListRefs = append(interfaceListRefs, routingSourceNameRef{rule: rule, name: name})
+				}
+			}
 		case RoutingSourceInterfaceList:
 			if IsDeferredRoutingSourceInterfaceListName(scope.Name) {
 				blockers = append(blockers, routingSourceInterfaceListAllDeferredIssue(rule.ID))
 			} else {
-				interfaceListRules = append(interfaceListRules, rule)
+				interfaceListRefs = append(interfaceListRefs, routingSourceNameRef{rule: rule, name: scope.Name})
 			}
 		case RoutingSourceDevice, RoutingSourceIP:
 			// Device and IP sources are self-contained address matchers. Their
 			// identity/IP resolution is handled by the existing source compiler.
 		}
 	}
-	if len(interfaceRules) == 0 && len(interfaceListRules) == 0 {
+	if len(interfaceRefs) == 0 && len(interfaceListRefs) == 0 {
 		return blockers, warnings, nil
 	}
 	if reader == nil {
@@ -78,7 +87,7 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 	}
 
 	interfaceByName := make(map[string]routeros.RouterOSObject)
-	if len(interfaceRules) > 0 {
+	if len(interfaceRefs) > 0 {
 		interfaces, err := reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{"name", "type", "running", "disabled", "dynamic"})
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: scan RouterOS interfaces: %w", routingSourcePreflightUnavailableCode, err)
@@ -91,7 +100,7 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		}
 	}
 	interfaceListNames := make(map[string]bool)
-	if len(interfaceListRules) > 0 {
+	if len(interfaceListRefs) > 0 {
 		lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: scan RouterOS interface lists: %w", routingSourcePreflightUnavailableCode, err)
@@ -105,7 +114,7 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 	}
 
 	wanInterfaces := make(map[string]bool)
-	if len(interfaceRules) > 0 {
+	if len(interfaceRefs) > 0 {
 		egresses, err := repository.ListEgresses(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -121,22 +130,25 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		}
 	}
 
-	for _, rule := range interfaceRules {
-		scopeName := strings.TrimSpace(rule.SourceScope.Name)
-		object, exists := interfaceByName[scopeName]
+	for _, ref := range interfaceRefs {
+		object, exists := interfaceByName[ref.name]
 		if !exists {
-			blockers = append(blockers, routingSourcePreflightIssue(rule, routingSourceInterfaceNotFoundCode, "selected RouterOS interface does not exist: "+scopeName))
+			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceNotFoundCode, "selected RouterOS interface does not exist: "+ref.name))
 			continue
 		}
-		appendRoutingSourceInterfaceWarnings(&warnings, rule, scopeName, object, wanInterfaces)
+		appendRoutingSourceInterfaceWarnings(&warnings, ref.rule, ref.name, object, wanInterfaces)
 	}
-	for _, rule := range interfaceListRules {
-		scopeName := strings.TrimSpace(rule.SourceScope.Name)
-		if !interfaceListNames[scopeName] {
-			blockers = append(blockers, routingSourcePreflightIssue(rule, routingSourceInterfaceListNotFoundCode, "selected RouterOS interface-list does not exist: "+scopeName))
+	for _, ref := range interfaceListRefs {
+		if !interfaceListNames[ref.name] {
+			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceListNotFoundCode, "selected RouterOS interface-list does not exist: "+ref.name))
 		}
 	}
 	return blockers, warnings, nil
+}
+
+type routingSourceNameRef struct {
+	rule RoutingRule
+	name string
 }
 
 func routingSourcePreflightIssue(rule RoutingRule, code, reason string) PlanIssue {

@@ -213,3 +213,141 @@ func TestRoutingSourcePayloadParticipatesInProposalAndDesiredHash(t *testing.T) 
 		t.Fatal("desired hash ignored canonical routing source kind/payload")
 	}
 }
+
+func TestNormalizeRoutingSourceScopeInterfaceMultiSelectorAndExclusions(t *testing.T) {
+	// The legacy single-name payload folds into the multi-selector form.
+	folded, err := NormalizeRoutingSourceScope(&RoutingSourceScope{Kind: RoutingSourceInterface, Name: " wg1 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folded.Name != "" || len(folded.Interfaces) != 1 || folded.Interfaces[0] != "wg1" {
+		t.Fatalf("legacy interface name was not folded into interfaces: %#v", folded)
+	}
+
+	normalized, err := NormalizeRoutingSourceScope(&RoutingSourceScope{
+		Kind: RoutingSourceInterface, Interfaces: []string{" wg1 ", "bridge"}, InterfaceLists: []string{"LAN"},
+		ExcludePrefixes: []string{"10.0.0.2", "10.0.0.0/24", "10.0.0.2", "fd86::/64"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized.Interfaces) != 2 || normalized.Interfaces[0] != "bridge" || normalized.Interfaces[1] != "wg1" {
+		t.Fatalf("interfaces were not normalized: %#v", normalized.Interfaces)
+	}
+	if len(normalized.InterfaceLists) != 1 || normalized.InterfaceLists[0] != "LAN" {
+		t.Fatalf("interface lists were not normalized: %#v", normalized.InterfaceLists)
+	}
+	wantExclusions := []string{"10.0.0.0/24", "10.0.0.2/32", "fd86::/64"}
+	if len(normalized.ExcludePrefixes) != len(wantExclusions) {
+		t.Fatalf("exclusions were not canonicalized: %#v", normalized.ExcludePrefixes)
+	}
+	for index, want := range wantExclusions {
+		if normalized.ExcludePrefixes[index] != want {
+			t.Fatalf("exclusions were not canonicalized: %#v, want %#v", normalized.ExcludePrefixes, wantExclusions)
+		}
+	}
+
+	for _, scope := range []*RoutingSourceScope{
+		{Kind: RoutingSourceInterface},
+		{Kind: RoutingSourceInterface, ExcludePrefixes: []string{"10.0.0.2"}},
+		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"not-an-ip"}},
+		{Kind: RoutingSourceInterfaceList, Name: "LAN", ExcludePrefixes: []string{"10.0.0.2"}},
+		{Kind: RoutingSourceDevice, Interfaces: []string{"wg1"}},
+		{Kind: RoutingSourceIP, ExcludePrefixes: []string{"10.0.0.2"}},
+		{Kind: RoutingSourceAll, InterfaceLists: []string{"LAN"}},
+	} {
+		if _, err := NormalizeRoutingSourceScope(scope); !errors.Is(err, ErrRoutingSourceScopeInvalid) {
+			t.Fatalf("scope %#v error=%v, want invalid source scope", scope, err)
+		}
+	}
+}
+
+func TestInterfaceSourceExclusionProjection(t *testing.T) {
+	scope := &RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, InterfaceLists: []string{"LAN"}, ExcludePrefixes: []string{"10.0.0.2"}}
+	subjectProjection, ingress, err := RoutingSourceLegacyProjection(*scope, Subject{Mode: SubjectModeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subjectProjection.Mode != SubjectModeExcluded || len(subjectProjection.Prefixes) != 1 || subjectProjection.Prefixes[0] != "10.0.0.2/32" {
+		t.Fatalf("exclusion projection subject=%#v, want excluded 10.0.0.2/32", subjectProjection)
+	}
+	if len(ingress.Interfaces) != 1 || ingress.Interfaces[0] != "wg1" || len(ingress.InterfaceLists) != 1 || ingress.InterfaceLists[0] != "LAN" {
+		t.Fatalf("exclusion projection ingress=%#v, want wg1 + LAN", ingress)
+	}
+
+	rule, err := NormalizeRoutingRule(RoutingRule{
+		ID: "rule", Name: "Rule", EgressID: "egress", TargetListIDs: []string{"target"}, Enabled: true,
+		SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"10.0.0.2"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rule.Subject.Mode != SubjectModeExcluded || len(rule.Subject.Prefixes) != 1 {
+		t.Fatalf("interface exclusion rule did not derive the excluded projection: %#v", rule)
+	}
+
+	if _, err := NormalizeRoutingRule(RoutingRule{
+		ID: "rule", Name: "Rule", EgressID: "egress", TargetListIDs: []string{"target"},
+		SourceScope: &RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"10.0.0.2"}},
+		Subject:     Subject{Mode: SubjectModeExcluded, Prefixes: []string{"10.0.0.3"}},
+	}); !errors.Is(err, ErrRoutingSourceScopeInvalid) {
+		t.Fatalf("mismatched exclusion echo error=%v, want invalid source scope", err)
+	}
+}
+
+func TestRoutingSourceDirectSelector(t *testing.T) {
+	if kind, name, ok := RoutingSourceDirectSelector(&RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}}); !ok || kind != RoutingSourceInterface || name != "wg1" {
+		t.Fatalf("single interface selector=%q %q %v", kind, name, ok)
+	}
+	if kind, name, ok := RoutingSourceDirectSelector(&RoutingSourceScope{Kind: RoutingSourceInterface, InterfaceLists: []string{"LAN"}}); !ok || kind != RoutingSourceInterfaceList || name != "LAN" {
+		t.Fatalf("single interface-list selector=%q %q %v", kind, name, ok)
+	}
+	for _, scope := range []*RoutingSourceScope{
+		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1", "wg2"}},
+		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, InterfaceLists: []string{"LAN"}},
+		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"10.0.0.2/32"}},
+	} {
+		if _, _, ok := RoutingSourceDirectSelector(scope); ok {
+			t.Fatalf("multi-selector or excluding scope %#v compiled to a direct matcher", scope)
+		}
+	}
+}
+
+func TestUpgradeLegacyRoutingSource(t *testing.T) {
+	typed := UpgradeLegacyRoutingSource(RoutingRule{
+		Subject: Subject{Mode: SubjectModeAll},
+		Ingress: TrafficIngressScope{InterfaceLists: []string{"LAN"}, Interfaces: []string{"bridge"}},
+	})
+	if typed.SourceScope == nil || typed.SourceScope.Kind != RoutingSourceInterface || len(typed.SourceScope.Interfaces) != 1 || len(typed.SourceScope.InterfaceLists) != 1 {
+		t.Fatalf("all+ingress did not upgrade to an interface source: %#v", typed.SourceScope)
+	}
+
+	excluded := UpgradeLegacyRoutingSource(RoutingRule{
+		Subject: Subject{Mode: SubjectModeExcluded, Prefixes: []string{"10.0.0.0/24"}},
+		Ingress: TrafficIngressScope{InterfaceLists: []string{"LAN"}},
+	})
+	if excluded.SourceScope == nil || excluded.SourceScope.Kind != RoutingSourceInterface || len(excluded.SourceScope.ExcludePrefixes) != 1 {
+		t.Fatalf("excluded prefixes did not upgrade to an interface source with exclusions: %#v", excluded.SourceScope)
+	}
+
+	device := UpgradeLegacyRoutingSource(RoutingRule{Subject: Subject{Mode: SubjectModeSelected, Members: []SubjectMember{{TerminalID: "terminal-a", Binding: "auto"}}}})
+	if device.SourceScope == nil || device.SourceScope.Kind != RoutingSourceDevice {
+		t.Fatalf("selected terminals did not upgrade to a device source: %#v", device.SourceScope)
+	}
+
+	ip := UpgradeLegacyRoutingSource(RoutingRule{Subject: Subject{Mode: SubjectModeSelected, Prefixes: []string{"10.0.0.0/24"}}})
+	if ip.SourceScope == nil || ip.SourceScope.Kind != RoutingSourceIP {
+		t.Fatalf("selected prefixes did not upgrade to an ip source: %#v", ip.SourceScope)
+	}
+
+	for _, rule := range []RoutingRule{
+		{Subject: Subject{Mode: SubjectModeAll}},
+		{Subject: Subject{Mode: SubjectModeExcluded, Members: []SubjectMember{{TerminalID: "terminal-a", Binding: "auto"}}, Prefixes: []string{"10.0.0.0/24"}}, Ingress: TrafficIngressScope{InterfaceLists: []string{"LAN"}}},
+		{Subject: Subject{Mode: SubjectModeSelected, Members: []SubjectMember{{TerminalID: "terminal-a", Binding: "auto"}}, Prefixes: []string{"10.0.0.0/24"}}},
+		{SourceScope: &RoutingSourceScope{Kind: RoutingSourceDevice}},
+	} {
+		if upgraded := UpgradeLegacyRoutingSource(rule); upgraded.SourceScope != rule.SourceScope {
+			t.Fatalf("unconvertible or typed rule changed its source scope: %#v -> %#v", rule.SourceScope, upgraded.SourceScope)
+		}
+	}
+}

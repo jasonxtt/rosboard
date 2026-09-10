@@ -8,7 +8,17 @@ export type { AccessSchedule, AccessScheduleMode, AccessTimeWindow, AccessWeekda
 export type TrafficIngressScope = { interfaceLists: string[]; interfaces: string[] }
 
 export type RoutingSourceKind = 'device' | 'ip' | 'interface' | 'interface-list' | 'all'
-export type RoutingSourceScope = { kind: RoutingSourceKind; name?: string }
+export type RoutingSourceScope = {
+  kind: RoutingSourceKind
+  /** 旧版单选字段；读取时由后端折叠进 interfaces，前端只在兼容旧数据时回退使用 */
+  name?: string
+  /** kind === 'interface'：命中的 RouterOS 接口（可多选） */
+  interfaces?: string[]
+  /** kind === 'interface'：命中的 RouterOS 接口列表（可多选） */
+  interfaceLists?: string[]
+  /** 仅 kind === 'interface'：在接口边界内排除的来源 IP/CIDR */
+  excludePrefixes?: string[]
+}
 
 export type SourceSelectorInterface = {
   name: string
@@ -362,7 +372,15 @@ function parseRoutingSourceScope(value: unknown): RoutingSourceScope | undefined
   const kind = stringValue(object.kind)
   if (!['device', 'ip', 'interface', 'interface-list', 'all'].includes(kind)) return undefined
   const name = stringValue(object.name).trim()
-  return name ? { kind: kind as RoutingSourceKind, name } : { kind: kind as RoutingSourceKind }
+  const interfaces = stringArray(object.interfaces)
+  const interfaceLists = stringArray(object.interfaceLists)
+  const excludePrefixes = stringArray(object.excludePrefixes)
+  const scope: RoutingSourceScope = { kind: kind as RoutingSourceKind }
+  if (name) scope.name = name
+  if (interfaces.length) scope.interfaces = interfaces
+  if (interfaceLists.length) scope.interfaceLists = interfaceLists
+  if (excludePrefixes.length) scope.excludePrefixes = excludePrefixes
+  return scope
 }
 
 function parseDiscovery(value: unknown): PolicyDiscovery {
