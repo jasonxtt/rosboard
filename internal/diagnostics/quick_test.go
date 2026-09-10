@@ -1,15 +1,20 @@
 package diagnostics
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"rosboard/internal/accesscontrol"
+	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
 	"rosboard/internal/model"
 	"rosboard/internal/policyv2"
 	"rosboard/internal/store"
 	"rosboard/internal/subject"
+	"rosboard/internal/update"
 )
 
 func TestLatestRefreshFailureIgnoresUnrelatedAlerts(t *testing.T) {
@@ -143,4 +148,39 @@ func TestAccessJobFailureStaysVisibleWhenMonitorUnavailable(t *testing.T) {
 		}
 	}
 	t.Fatal("access.state finding not found")
+}
+
+func TestUpdateFindingFailedJobIsError(t *testing.T) {
+	finding := updateFindingForStage(t, "failed")
+	if finding.Status != StatusError {
+		t.Fatalf("update status = %q, want %q: %#v", finding.Status, StatusError, finding)
+	}
+}
+
+func TestUpdateFindingRolledBackJobIsWarning(t *testing.T) {
+	finding := updateFindingForStage(t, "rolled_back")
+	if finding.Status != StatusWarning {
+		t.Fatalf("update status = %q, want %q: %#v", finding.Status, StatusWarning, finding)
+	}
+}
+
+func TestUpdateFindingRecoveryRequiredJobIsError(t *testing.T) {
+	finding := updateFindingForStage(t, "recovery_required")
+	if finding.Status != StatusError {
+		t.Fatalf("update status = %q, want %q: %#v", finding.Status, StatusError, finding)
+	}
+}
+
+func updateFindingForStage(t *testing.T, stage string) Finding {
+	t.Helper()
+	stateDir := t.TempDir()
+	payload, err := json.Marshal(update.Job{ID: "job-a", Stage: stage, Message: "fixture"})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "job.json"), payload, 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	manager := update.NewManager(t.Context(), update.Paths{State: stateDir}, buildinfo.Info{Version: "0.1.0", OS: "linux", Arch: "amd64"}, nil, nil)
+	return (Runner{Updater: manager}).updateFinding()
 }

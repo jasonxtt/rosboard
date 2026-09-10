@@ -563,12 +563,39 @@ func (r Runner) updateFinding() Finding {
 	if status.Job != nil {
 		finding.Evidence["jobStage"] = status.Job.Stage
 		finding.Evidence["jobId"] = status.Job.ID
+		if status.Job.Message != "" {
+			finding.Evidence["jobMessage"] = status.Job.Message
+		}
+	}
+	if status.Job != nil {
+		switch status.Job.Stage {
+		case "recovery_required":
+			finding.Status = StatusError
+			finding.Summary = "更新状态需要恢复处理。"
+			finding.Recommendation = "检查更新目录和服务日志，完成恢复后再重试。"
+			return finding
+		case "failed":
+			finding.Status = StatusError
+			finding.Summary = "最近一次更新任务失败。"
+			finding.Recommendation = "检查更新任务详情和服务日志，确认后再重试。"
+			return finding
+		case "rolled_back":
+			finding.Status = StatusWarning
+			finding.Summary = "更新任务失败后已回滚到原版本。"
+			finding.Recommendation = "检查更新任务详情和服务日志，确认原因后再重试。"
+			return finding
+		case "succeeded":
+			// Continue with the normal update status checks below.
+		default:
+			if status.Job.Active() {
+				finding.Status = StatusWarning
+				finding.Summary = "更新任务正在进行。"
+				finding.Recommendation = "等待更新任务完成，不要重复操作。"
+				return finding
+			}
+		}
 	}
 	switch {
-	case status.Job != nil && status.Job.Active():
-		finding.Status = StatusWarning
-		finding.Summary = "更新任务正在进行。"
-		finding.Recommendation = "等待更新任务完成，不要重复操作。"
 	case status.CheckError != "":
 		finding.Status = StatusWarning
 		finding.Summary = "最近一次更新检查失败。"
