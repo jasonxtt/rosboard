@@ -636,40 +636,56 @@ func recordRoutingConnectionOrder(result *DesiredResult, logicalID string, rule 
 }
 
 func reorderRoutingConnectionObjects(result *DesiredResult) {
-	if result == nil || len(result.routingConnectionOrders) < 2 {
+	if result == nil || len(result.routingConnectionOrders) == 0 {
 		return
 	}
-	indices := make([]int, 0, len(result.routingConnectionOrders))
+	connectionIndicesByMenu := make(map[string][]int)
+	routingIndicesByMenu := make(map[string][]int)
 	for index, object := range result.Objects {
-		if _, ok := result.routingConnectionOrders[object.LogicalID]; !ok || !isRoutingPreroutingConnection(object) {
-			continue
+		if _, ok := result.routingConnectionOrders[object.LogicalID]; ok && isRoutingPreroutingConnection(object) {
+			connectionIndicesByMenu[object.Menu] = append(connectionIndicesByMenu[object.Menu], index)
 		}
-		indices = append(indices, index)
+		if isRoutingPreroutingRouting(object) {
+			routingIndicesByMenu[object.Menu] = append(routingIndicesByMenu[object.Menu], index)
+		}
 	}
-	if len(indices) < 2 {
-		return
-	}
-	objects := make([]DesiredObject, len(indices))
-	for index, objectIndex := range indices {
-		objects[index] = result.Objects[objectIndex]
-	}
-	sort.SliceStable(objects, func(i, j int) bool {
-		left := result.routingConnectionOrders[objects[i].LogicalID]
-		right := result.routingConnectionOrders[objects[j].LogicalID]
-		if left.priority != right.priority {
-			return left.priority < right.priority
+	for menu, connectionIndices := range connectionIndicesByMenu {
+		connectionObjects := make([]DesiredObject, len(connectionIndices))
+		for index, objectIndex := range connectionIndices {
+			connectionObjects[index] = result.Objects[objectIndex]
 		}
-		if left.ruleID != right.ruleID {
-			return left.ruleID < right.ruleID
+		sort.SliceStable(connectionObjects, func(i, j int) bool {
+			left := result.routingConnectionOrders[connectionObjects[i].LogicalID]
+			right := result.routingConnectionOrders[connectionObjects[j].LogicalID]
+			if left.priority != right.priority {
+				return left.priority < right.priority
+			}
+			if left.ruleID != right.ruleID {
+				return left.ruleID < right.ruleID
+			}
+			if left.ruleName != right.ruleName {
+				return left.ruleName < right.ruleName
+			}
+			return connectionObjects[i].LogicalID < connectionObjects[j].LogicalID
+		})
+
+		routingIndices := routingIndicesByMenu[menu]
+		routingObjects := make([]DesiredObject, len(routingIndices))
+		for index, objectIndex := range routingIndices {
+			routingObjects[index] = result.Objects[objectIndex]
 		}
-		if left.ruleName != right.ruleName {
-			return left.ruleName < right.ruleName
+
+		// Keep all source connection matchers ahead of all source routing
+		// mark rules in this mangle menu. This preserves each rule's required
+		// connection -> routing sequence while still making the connection
+		// winner deterministic across egresses.
+		slots := append(append([]int{}, connectionIndices...), routingIndices...)
+		sort.Ints(slots)
+		objects := append(connectionObjects, routingObjects...)
+		for index, objectIndex := range slots {
+			objects[index].Order = result.Objects[objectIndex].Order
+			result.Objects[objectIndex] = objects[index]
 		}
-		return objects[i].LogicalID < objects[j].LogicalID
-	})
-	for index, objectIndex := range indices {
-		objects[index].Order = result.Objects[objectIndex].Order
-		result.Objects[objectIndex] = objects[index]
 	}
 }
 
@@ -678,6 +694,16 @@ func isRoutingPreroutingConnection(object DesiredObject) bool {
 		return false
 	}
 	return object.Menu == string(routeros.MenuIPFirewallMangle) || object.Menu == string(routeros.MenuIPv6FirewallMangle)
+}
+
+func isRoutingPreroutingRouting(object DesiredObject) bool {
+	if object.Fields["chain"] != "prerouting" || object.Fields["action"] != "mark-routing" {
+		return false
+	}
+	if object.Menu != string(routeros.MenuIPFirewallMangle) && object.Menu != string(routeros.MenuIPv6FirewallMangle) {
+		return false
+	}
+	return strings.HasPrefix(object.LogicalID, "routing-rule-routing:")
 }
 
 func routingExecutionGroupKey(egress Egress, family EgressFamily, table, boundary string, rule RoutingRule, subjectList, ingressList string, enabled bool) string {
