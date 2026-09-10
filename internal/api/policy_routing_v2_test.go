@@ -121,6 +121,57 @@ func TestPolicyV2OverviewContractUsesNonNullCollections(t *testing.T) {
 	}
 }
 
+func TestPolicyV2SourceSelectorEndpointReturnsRouterOSFacts(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	response := policyV2Request(t, server, http.MethodGet, "/source-selectors", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Available      bool             `json:"available"`
+		FactStatus     string           `json:"factStatus"`
+		Interfaces     []map[string]any `json:"interfaces"`
+		InterfaceLists []map[string]any `json:"interfaceLists"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Available || payload.FactStatus != "available" || len(payload.Interfaces) != 1 || len(payload.InterfaceLists) != 1 {
+		t.Fatalf("unexpected source selector payload: %#v body=%s", payload, response.Body.String())
+	}
+	if payload.Interfaces[0]["name"] != "lan" || payload.InterfaceLists[0]["name"] != "LAN" {
+		t.Fatalf("unexpected source selector facts: %#v", payload)
+	}
+}
+
+func TestPolicyV2DiscoverySnapshotReturnsMatchingEvidenceFingerprints(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	response := policyV2Request(t, server, http.MethodGet, "/discovery-snapshot", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Discovery struct {
+			Snapshot struct {
+				Fingerprint string `json:"fingerprint"`
+			} `json:"snapshot"`
+		} `json:"discovery"`
+		SourceSelectors struct {
+			Snapshot struct {
+				Fingerprint string `json:"fingerprint"`
+			} `json:"snapshot"`
+		} `json:"sourceSelectors"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Discovery.Snapshot.Fingerprint == "" || payload.Discovery.Snapshot.Fingerprint != payload.SourceSelectors.Snapshot.Fingerprint {
+		t.Fatalf("snapshot projections do not share evidence fingerprint: %#v body=%s", payload, response.Body.String())
+	}
+}
+
 func TestPolicyV2NewProposalAllocatesEgressIdentity(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
@@ -312,7 +363,7 @@ func TestPolicyV2RoutingRuleCRUDUsesCanonicalTargetReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	updatedBody, err := json.Marshal(map[string]any{
-		"name": "Rule renamed", "subject": loaded.Subject, "targetListIds": loaded.TargetListIDs,
+		"name": "Rule renamed", "subject": loaded.Subject, "ingress": loaded.Ingress, "targetListIds": loaded.TargetListIDs,
 		"egressId": loaded.EgressID, "priority": loaded.Priority, "enabled": loaded.Enabled,
 		"revision": loaded.Revision, "deferApply": true,
 	})
@@ -510,8 +561,11 @@ func TestPolicyV2RoutingRuleSaveCanonicalizesTerminalSubjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The rule adopted a typed device source at save time, so the repair now
+	// flows through the canonical typed payload (identity refresh runs on every
+	// subject-carrying write).
 	legacyNoMACBody, err := json.Marshal(map[string]any{
-		"name": legacyNoMAC.Name, "subject": legacyNoMAC.Subject, "targetListIds": legacyNoMAC.TargetListIDs,
+		"name": legacyNoMAC.Name, "subject": legacyNoMAC.Subject, "sourceScope": legacyNoMAC.SourceScope, "targetListIds": legacyNoMAC.TargetListIDs,
 		"egressId": legacyNoMAC.EgressID, "priority": legacyNoMAC.Priority, "enabled": legacyNoMAC.Enabled, "revision": legacyNoMAC.Revision, "deferApply": true,
 	})
 	if err != nil {
@@ -550,7 +604,7 @@ func TestPolicyV2RoutingRuleSaveCanonicalizesTerminalSubjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	updateBody, err := json.Marshal(map[string]any{
-		"name": bad.Name, "subject": bad.Subject, "targetListIds": bad.TargetListIDs,
+		"name": bad.Name, "subject": bad.Subject, "sourceScope": bad.SourceScope, "targetListIds": bad.TargetListIDs,
 		"egressId": bad.EgressID, "priority": bad.Priority, "enabled": bad.Enabled, "revision": bad.Revision, "deferApply": true,
 	})
 	if err != nil {

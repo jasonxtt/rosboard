@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchPolicyDiscovery, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type RoutingRule, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
-import { SubjectSelector, TargetSelector } from './Selectors'
+import { fetchPolicyDiscoverySnapshot, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type PolicySourceSelectors, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
+import { TargetSelector } from './Selectors'
 import { TargetListModal } from './TargetLibraryPage'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from './gateway'
 import { PolicyPlanPreview, type PolicyPlanSummary } from './PolicyPlanPreview'
-import { hasTrafficIngress, requiresTrafficIngress, sourceIsValid } from './source'
+import { hasTrafficIngress, parseSourcePrefixLines, sourceIsValid, typedSourceIsValid, type RoutingInterfaceSource } from './source'
+import { RoutingSourcePicker, type RoutingSourceSelectionKind } from './RoutingSourcePicker'
 import { PolicyErrorDisplay, PolicyField, PolicyModal, PolicyNotice, PolicyWizardSteps } from '../policy-routing/components'
 
 const nextHopValue = '__rosboard_next_hop__'
@@ -24,7 +25,40 @@ function draftFromEgress(egress: Egress): Egress {
 }
 
 function subjectForRule(rule: RoutingRule | null): Subject {
-  return rule?.subject ?? { mode: 'all', members: [], prefixes: [] }
+  return rule?.subject ?? { mode: 'selected', members: [], prefixes: [] }
+}
+
+function sourceSummary(kind: RoutingSourceSelectionKind, interfaceSource: RoutingInterfaceSource, subject: Subject, ingress: TrafficIngressScope) {
+  if (kind === 'legacy') return [...ingress.interfaceLists, ...ingress.interfaces].join('、') || '旧规则仅来源匹配'
+  if (kind === 'interface') {
+    const names = [...interfaceSource.interfaceLists, ...interfaceSource.interfaces].join('、') || '未选择'
+    return interfaceSource.excludePrefixes.length ? `${names}（排除 ${interfaceSource.excludePrefixes.join('、')}）` : names
+  }
+  if (kind === 'ip') return subject.prefixes.join('、') || '未填写'
+  if (kind === 'device') return `${subject.members.length} 台指定终端`
+  return '未选择来源'
+}
+
+function initialSourceKind(rule: RoutingRule | null): RoutingSourceSelectionKind {
+  const scope = rule?.sourceScope
+  if (!scope) return rule ? 'legacy' : 'interface'
+  // interface-list 并入「指定接口」；已延后的 all 打开时要求重新选择接口。
+  if (scope.kind === 'interface-list' || scope.kind === 'all') return 'interface'
+  return scope.kind
+}
+
+function initialSourceInterfaces(rule: RoutingRule | null): string[] {
+  const scope = rule?.sourceScope
+  if (!scope || scope.kind !== 'interface') return []
+  return Array.from(new Set([...(scope.interfaces ?? []), ...(scope.name ? [scope.name] : [])]))
+}
+
+function initialSourceInterfaceLists(rule: RoutingRule | null): string[] {
+  const scope = rule?.sourceScope
+  if (!scope) return []
+  const lists = [...(scope.interfaceLists ?? [])]
+  if (scope.kind === 'interface-list' && scope.name) lists.push(scope.name)
+  return Array.from(new Set(lists))
 }
 
 function egressErrors(draft: Egress, discovery: PolicyDiscovery | null): string[] {
@@ -79,9 +113,16 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   const [draft, setDraft] = useState<Egress>(() => initialEgress ? draftFromEgress(initialEgress) : defaultEgress())
   const [ruleName, setRuleName] = useState(rule?.name ?? '')
   const [subject, setSubject] = useState<Subject>(() => subjectForRule(rule))
-  const [trafficIngress, setTrafficIngress] = useState<TrafficIngressScope>(() => ({ interfaceLists: [...(rule?.ingress?.interfaceLists ?? context.trafficIngress.interfaceLists)], interfaces: [...(rule?.ingress?.interfaces ?? context.trafficIngress.interfaces)] }))
+  const [sourceKind, setSourceKind] = useState<RoutingSourceSelectionKind>(() => initialSourceKind(rule))
+  const [sourceInterfaces, setSourceInterfaces] = useState<string[]>(() => initialSourceInterfaces(rule))
+  const [sourceInterfaceLists, setSourceInterfaceLists] = useState<string[]>(() => initialSourceInterfaceLists(rule))
+  const [excludeText, setExcludeText] = useState(() => (rule?.sourceScope?.excludePrefixes ?? []).join('\n'))
+  const [ipText, setIpText] = useState(() => (rule?.sourceScope?.kind === 'ip' ? rule.subject.prefixes.join('\n') : ''))
+  const [trafficIngress, setTrafficIngress] = useState<TrafficIngressScope>(() => ({ interfaceLists: [...(rule?.sourceScope ? [] : (rule?.ingress?.interfaceLists ?? context.trafficIngress.interfaceLists))], interfaces: [...(rule?.sourceScope ? [] : (rule?.ingress?.interfaces ?? context.trafficIngress.interfaces))] }))
   const [discovery, setDiscovery] = useState<PolicyDiscovery | null>(null)
   const [discoveryError, setDiscoveryError] = useState<unknown>(null)
+  const [sourceSelectors, setSourceSelectors] = useState<Awaited<ReturnType<typeof fetchPolicyDiscoverySnapshot>>['sourceSelectors'] | null>(null)
+  const [sourceSelectorError, setSourceSelectorError] = useState<string | null>(null)
   const [targetListIDs, setTargetListIDs] = useState<string[]>(() => [...(rule?.targetListIds ?? [])])
   const [targetLists, setTargetLists] = useState<TargetList[]>(() => [...context.targetLists])
   const [creatingTargetKind, setCreatingTargetKind] = useState<'domain' | 'ip' | null>(null)
@@ -101,12 +142,24 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
 
   useEffect(() => {
     let active = true
-    void fetchPolicyDiscovery(deviceID).then((value) => { if (active) { setDiscovery(value); setDiscoveryError(null) } }).catch((loadError) => { if (active) setDiscoveryError(loadError) })
+    void fetchPolicyDiscoverySnapshot(deviceID).then((value) => {
+      if (active) {
+        setDiscovery(value.discovery)
+        setDiscoveryError(null)
+        setSourceSelectors(value.sourceSelectors)
+        setSourceSelectorError(null)
+      }
+    }).catch((loadError) => {
+      if (active) {
+        setDiscoveryError(loadError)
+        setSourceSelectorError(loadError instanceof Error ? loadError.message : 'RouterOS 拓扑读取失败')
+      }
+    })
     return () => { active = false }
   }, [deviceID])
 
   useEffect(() => {
-    if (ingressDefaulted || !discovery?.available || subject.mode === 'selected') return
+    if (sourceKind !== 'legacy' || ingressDefaulted || !discovery?.available || subject.mode === 'selected') return
     setIngressDefaulted(true)
     if (hasTrafficIngress(trafficIngress)) return
     const defaultList = discovery.trafficIngress.find((candidate) => candidate.kind === 'interface-list' && candidate.default)
@@ -114,14 +167,16 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
       const next = { interfaceLists: [defaultList.name], interfaces: [] }
       setTrafficIngress(next)
     }
-  }, [discovery, ingressDefaulted, subject.mode, trafficIngress])
+  }, [discovery, ingressDefaulted, sourceKind, subject.mode, trafficIngress])
 
   const strategyErrors = useMemo(() => {
     const next: string[] = []
     if (!ruleName.trim()) next.push('规则名称不能为空')
-    if (!sourceIsValid(subject, trafficIngress)) next.push('来源范围配置不完整，请选择有效入口或来源设备/地址')
+    const interfaceSource: RoutingInterfaceSource = { interfaces: sourceInterfaces, interfaceLists: sourceInterfaceLists, excludePrefixes: parseSourcePrefixLines(excludeText) }
+    const typedSubject = sourceKind === 'ip' ? { mode: 'selected' as const, members: [], prefixes: parseSourcePrefixLines(ipText) } : subject
+    if (sourceKind === 'legacy' ? !sourceIsValid(subject, trafficIngress) : !typedSourceIsValid(sourceKind, interfaceSource, typedSubject)) next.push('来源范围配置不完整，请选择有效的来源类型与值')
     return next
-  }, [ruleName, subject, trafficIngress])
+  }, [ruleName, sourceKind, sourceInterfaces, sourceInterfaceLists, excludeText, ipText, subject, trafficIngress])
   const invalidTargetIDs = useMemo(() => {
     const targetByID = new Map(targetLists.map((target) => [target.id, target]))
     return targetListIDs.filter((id) => !id.startsWith('preset:') && (!targetByID.get(id) || targetByID.get(id)?.pendingDeletion))
@@ -131,7 +186,6 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     return invalidTargetIDs.length ? [`以下访问目标已不可用，请重新选择：${invalidTargetIDs.join('、')}`] : []
   }, [invalidTargetIDs, targetListIDs.length])
   const errors = useMemo(() => egressErrors(draft, discovery), [discovery, draft])
-  const hasIngress = hasTrafficIngress(trafficIngress)
   const busy = generating || applying
   const planFresh = Boolean(plan && planDraftRevision === draftRevision)
   const stepLocked = activeStep < 3 && activeStep > maxUnlockedStep
@@ -188,6 +242,21 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     setTrafficIngress((current) => ({ ...current, interfaces: current.interfaces.includes(candidate.name) ? current.interfaces.filter((name) => name !== candidate.name) : [...current.interfaces, candidate.name] }))
   }
 
+  const changeSourceKind = (next: RoutingSourceSelectionKind) => {
+    markDraftChanged()
+    setSourceKind(next)
+    if (next === 'legacy') return
+    if (next === 'device') {
+      setSubject({ mode: 'selected', members: sourceKind === 'device' ? subject.members : [], prefixes: [] })
+      return
+    }
+    if (next === 'ip') {
+      setSubject({ mode: 'selected', members: [], prefixes: [] })
+      return
+    }
+    setSubject({ mode: 'all', members: [], prefixes: [] })
+  }
+
   const updateTargetLists = (next: string[]) => {
     markDraftChanged()
     setTargetListIDs(next)
@@ -215,9 +284,23 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     }
 
     const requestRevision = draftRevisionRef.current
+    const excludePrefixes = parseSourcePrefixLines(excludeText)
+    const interfaceSource: RoutingInterfaceSource = { interfaces: sourceInterfaces, interfaceLists: sourceInterfaceLists, excludePrefixes }
+    // 接口来源的 subject 由后端按 scope 推导（含排除投影），前端始终发送 all 占位。
+    const effectiveSubject: Subject = sourceKind === 'ip' ? { mode: 'selected', members: [], prefixes: parseSourcePrefixLines(ipText) } : sourceKind === 'interface' ? { mode: 'all', members: [], prefixes: [] } : subject
+    const sourceScope = sourceKind === 'legacy'
+      ? undefined
+      : sourceKind === 'interface'
+        ? {
+            kind: 'interface' as RoutingSourceKind,
+            ...(sourceInterfaces.length ? { interfaces: [...sourceInterfaces].sort() } : {}),
+            ...(sourceInterfaceLists.length ? { interfaceLists: [...sourceInterfaceLists].sort() } : {}),
+            ...(excludePrefixes.length ? { excludePrefixes } : {}),
+          }
+        : { kind: sourceKind as RoutingSourceKind }
     const proposal: PolicyPlanProposal = {
       egress: draft,
-      routingRule: { id: rule?.id ?? '', name: ruleName.trim(), subject, ingress: trafficIngress, targetListIds: targetListIDs, egressId: draft.id, priority: Number(rulePriority) || 0, enabled, revision: rule?.revision ?? 0 },
+      routingRule: { id: rule?.id ?? '', name: ruleName.trim(), subject: effectiveSubject, ingress: sourceKind === 'legacy' ? trafficIngress : { interfaceLists: [], interfaces: [] }, ...(sourceScope ? { sourceScope } : {}), targetListIds: targetListIDs, egressId: draft.id, priority: Number(rulePriority) || 0, enabled, revision: rule?.revision ?? 0 },
       ...(presetPresentations.some((selection) => selection.previewId) ? { presetSelections: presetPresentations.filter((selection) => selection.previewId) } : {}),
     }
 
@@ -231,7 +314,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
         setError(new Error('配置在生成期间发生变化，请重新生成预览。'))
         return
       }
-      setPlanSummary({ entries: planSummaryEntries(draft, discovery, trafficIngress, subject, targetListIDs, targetLists, presetPresentations, rulePriority, enabled) })
+      setPlanSummary({ entries: planSummaryEntries(draft, discovery, trafficIngress, effectiveSubject, targetListIDs, targetLists, presetPresentations, rulePriority, enabled, sourceKind, interfaceSource) })
       setPlan(envelope)
       setPlanDraftRevision(requestRevision)
       setMaxUnlockedStep(3)
@@ -295,7 +378,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     {activeStep < 3 && discovery?.warnings.length ? <PolicyNotice tone="warn" title="设备发现警告">{discovery.warnings.join('；')}</PolicyNotice> : null}
     {activeStep === 3 && (!planFresh || generating) ? <PolicyNotice tone={previewReachable ? 'warn' : 'info'} title={generating ? '正在生成预览' : previewReachable ? '预览需要更新' : '完成前面的步骤后才能生成预览'}>{previewReachable ? (generating ? '正在根据当前草稿生成预览…' : '草稿已修改，点击“预览并应用”标题会重新校验并刷新预览。') : '请先完成当前步骤并点击“生成变更计划”。'}</PolicyNotice> : null}
     {isPreview ? <PolicyPlanPreview deviceID={deviceID} envelope={plan!} summary={planSummary ?? undefined} onBusyChange={setApplying} onBack={() => setActiveStep(2)} onApplied={async () => { await onSaved(); onClose() }} /> : null}
-    {activeStep === 0 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><StrategyAndSourceStep ruleName={ruleName} rulePriority={rulePriority} ruleEnabled={enabled} errors={strategyErrors} onRuleName={updateRuleName} onRulePriority={updateRulePriority} onRuleEnabled={updateEnabled} discovery={discovery} ingress={trafficIngress} subject={subject} terminals={context.terminals} hasIngress={hasIngress} onIngress={toggleIngress} onSubject={updateSubject} /></fieldset></> : null}
+    {activeStep === 0 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><StrategyAndSourceStep ruleName={ruleName} rulePriority={rulePriority} ruleEnabled={enabled} errors={strategyErrors} onRuleName={updateRuleName} onRulePriority={updateRulePriority} onRuleEnabled={updateEnabled} sourceKind={sourceKind} interfaceSource={{ interfaces: sourceInterfaces, interfaceLists: sourceInterfaceLists, excludePrefixes: parseSourcePrefixLines(excludeText) }} excludeText={excludeText} ipText={ipText} sourceSelectors={sourceSelectors} sourceSelectorError={sourceSelectorError} discovery={discovery} ingress={trafficIngress} subject={subject} terminals={context.terminals} onKindChange={changeSourceKind} onInterfaceSource={(next) => { markDraftChanged(); setSourceInterfaces(next.interfaces); setSourceInterfaceLists(next.interfaceLists) }} onExcludeText={(text) => { markDraftChanged(); setExcludeText(text) }} onIpText={(text) => { markDraftChanged(); setIpText(text) }} onIngress={toggleIngress} onSubject={updateSubject} /></fieldset></> : null}
     {activeStep === 1 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><TargetStep deviceID={deviceID} targetLists={targetLists} targetListIDs={targetListIDs} onTargetLists={updateTargetLists} onRemoveTarget={(id) => updateTargetLists(targetListIDs.filter((targetID) => targetID !== id))} onPresetPresentation={updatePresetPresentations} onCreateTargetList={setCreatingTargetKind} errors={targetErrors} invalidTargetIDs={invalidTargetIDs} /></fieldset></> : null}
     {activeStep === 2 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><EgressStep draft={draft} discovery={discovery} errors={errors} onDraft={updateDraft} onFamily={updateFamily} readOnly={busy || stepLocked} /></fieldset></> : null}
   </PolicyModal>
@@ -307,9 +390,9 @@ function StepLockedNotice({ locked }: { locked: boolean }) {
   return locked ? <PolicyNotice tone="info" title="此步骤仅供查看">请先完成前面的步骤并点击“下一步”后再编辑。</PolicyNotice> : null
 }
 
-function StrategyAndSourceStep({ ruleName, rulePriority, ruleEnabled, errors, onRuleName, onRulePriority, onRuleEnabled, discovery, ingress, subject, terminals, hasIngress, onIngress, onSubject }: { ruleName: string; rulePriority: string; ruleEnabled: boolean; errors: string[]; onRuleName: (name: string) => void; onRulePriority: (priority: string) => void; onRuleEnabled: (enabled: boolean) => void; discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; hasIngress: boolean; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
+function StrategyAndSourceStep({ ruleName, rulePriority, ruleEnabled, errors, onRuleName, onRulePriority, onRuleEnabled, sourceKind, interfaceSource, excludeText, ipText, sourceSelectors, sourceSelectorError, discovery, ingress, subject, terminals, onKindChange, onInterfaceSource, onExcludeText, onIpText, onIngress, onSubject }: { ruleName: string; rulePriority: string; ruleEnabled: boolean; errors: string[]; onRuleName: (name: string) => void; onRulePriority: (priority: string) => void; onRuleEnabled: (enabled: boolean) => void; sourceKind: RoutingSourceSelectionKind; interfaceSource: RoutingInterfaceSource; excludeText: string; ipText: string; sourceSelectors: PolicySourceSelectors | null; sourceSelectorError: string | null; discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; onKindChange: (kind: RoutingSourceSelectionKind) => void; onInterfaceSource: (next: RoutingInterfaceSource) => void; onExcludeText: (text: string) => void; onIpText: (text: string) => void; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
   const otherErrors = errors.filter((error) => error !== '规则名称不能为空')
-  return <div className="policy-wizard-stage"><section className="policy-section-card"><h4 className="policy-section-card-title">策略基础</h4><PolicyField label="策略名称" htmlFor="routing-rule-name" error={errors.find((error) => error === '规则名称不能为空')}><input id="routing-rule-name" className="settings-input" value={ruleName} onChange={(event) => onRuleName(event.target.value)} placeholder="例如：工作设备走主线路" /></PolicyField><div className="policy-form-grid"><PolicyField label="规则优先级" hint="数字越小越先评估；不用于隐式解决冲突。"><input className="settings-input" type="number" min="0" value={rulePriority} onChange={(event) => onRulePriority(event.target.value)} /></PolicyField><label className="policy-checkbox"><input type="checkbox" checked={ruleEnabled} onChange={(event) => onRuleEnabled(event.target.checked)} /><span>启用此策略</span></label></div></section><SourceStep discovery={discovery} ingress={ingress} subject={subject} terminals={terminals} hasIngress={hasIngress} onIngress={onIngress} onSubject={onSubject} />{otherErrors.length ? <PolicyNotice tone="warn" title="策略与来源还有问题">{otherErrors.join('；')}</PolicyNotice> : null}</div>
+  return <div className="policy-wizard-stage"><section className="policy-section-card"><h4 className="policy-section-card-title">策略基础</h4><PolicyField label="策略名称" htmlFor="routing-rule-name" error={errors.find((error) => error === '规则名称不能为空')}><input id="routing-rule-name" className="settings-input" value={ruleName} onChange={(event) => onRuleName(event.target.value)} placeholder="例如：工作设备走主线路" /></PolicyField><div className="policy-form-grid"><PolicyField label="规则优先级" hint="数字越小越先评估；不用于隐式解决冲突。"><input className="settings-input" type="number" min="0" value={rulePriority} onChange={(event) => onRulePriority(event.target.value)} /></PolicyField><label className="policy-checkbox"><input type="checkbox" checked={ruleEnabled} onChange={(event) => onRuleEnabled(event.target.checked)} /><span>启用此策略</span></label></div></section><RoutingSourcePicker sourceKind={sourceKind} interfaceSource={interfaceSource} excludeText={excludeText} ipText={ipText} sourceSelectors={sourceSelectors} sourceSelectorError={sourceSelectorError} discovery={discovery} trafficIngress={ingress} subject={subject} terminals={terminals} busy={false} onKindChange={onKindChange} onInterfaceSource={onInterfaceSource} onExcludeText={onExcludeText} onIpText={onIpText} onIngress={onIngress} onSubject={onSubject} />{otherErrors.length ? <PolicyNotice tone="warn" title="策略与来源还有问题">{otherErrors.join('；')}</PolicyNotice> : null}</div>
 }
 
 function EgressStep({ draft, discovery, errors, onDraft, onFamily, readOnly }: { draft: Egress; discovery: PolicyDiscovery | null; errors: string[]; onDraft: (patch: Partial<Egress>) => void; onFamily: (family: EgressFamily) => void; readOnly: boolean }) {
@@ -367,12 +450,6 @@ function FamilyEditor({ family, value, enabled, discovery, readOnly, onEnabled, 
   return <div className="policy-family-block"><label className="policy-family-head checkbox-label"><input type="checkbox" checked={enabled} onChange={(event) => onEnabled(event.target.checked)} /><span>启用 {family.toUpperCase()}</span></label>{enabled ? <div className="policy-form-grid"><PolicyField label="策略 WAN 接口"><select className="select-control" value={selectValue} onChange={(event) => selectInterface(event.target.value)}><option value="">选择已发现接口</option>{!wans.some((wan) => wan.interface === value.wanInterface) && value.wanInterface ? <option value={value.wanInterface}>{value.wanInterface}（当前未发现）</option> : null}{wans.map((wan) => <option key={wan.interface} value={wan.interface}>{wan.interface}（{wan.type || '未知'}{wan.running ? '，运行中' : ''}）</option>)}<option value={nextHopValue}>下一跳网关</option></select></PolicyField><PolicyField label={`下一跳网关（${family.toUpperCase()}）`} hint={gatewayHint}><input className="settings-input" required={gatewayRequired} value={value.gateway} list={`routing-gateway-${family}`} onChange={(event) => { setGatewayManuallyEdited(true); onChange({ gateway: event.target.value }) }} placeholder={gatewayRequired ? '填写网关 IP' : '点对点接口无需填写'} /><datalist id={`routing-gateway-${family}`}>{gatewayCandidates.map((gateway) => <option key={gateway} value={gateway} />)}</datalist>{gatewayManuallyEdited && !nextHop ? <p className="policy-hint"><button type="button" className="link-button" onClick={() => { setGatewayManuallyEdited(false); onChange({ gateway: suggestedGateway }) }}>恢复自动发现</button></p> : null}{gatewayRequired && !value.gateway.trim() ? <p className="policy-field-error">{nextHop ? '下一跳模式必须填写网关 IP。' : '普通接口未发现唯一网关，请填写下一跳 IP。'}</p> : null}</PolicyField></div> : null}</div>
 }
 
-function SourceStep({ discovery, ingress, subject, terminals, hasIngress, onIngress, onSubject }: { discovery: PolicyDiscovery | null; ingress: TrafficIngressScope; subject: Subject; terminals: PolicyTerminal[]; hasIngress: boolean; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void; onSubject: (subject: Subject) => void }) {
-  const kindLabel: Record<string, string> = { 'interface-list': '接口列表', bridge: 'Bridge', vlan: 'VLAN', wireguard: 'WireGuard', vpn: 'VPN', tunnel: '隧道', physical: '物理接口' }
-  const selectedLists = new Set(ingress.interfaceLists)
-  return <div className="policy-wizard-stage"><section className="policy-section-card"><h4 className="policy-section-card-title">策略入口</h4><p className="policy-hint">入口属于当前策略。选择接口列表优先；被列表覆盖的成员不再重复添加。仅选择设备或手动地址时，入口可留空。</p><div className="policy-choice-list">{(discovery?.trafficIngress ?? []).map((candidate) => { const selected = candidate.kind === 'interface-list' ? ingress.interfaceLists.includes(candidate.name) : ingress.interfaces.includes(candidate.name); const covered = candidate.kind !== 'interface-list' && candidate.coveredBy.some((name) => selectedLists.has(name)); return <label key={`${candidate.kind}:${candidate.name}`} className={`policy-choice${selected || covered ? ' active' : ''}${covered ? ' policy-choice-disabled' : ''}`}><input type="checkbox" checked={selected || covered} disabled={covered} onChange={() => onIngress(candidate)} /><span><strong>{candidate.name}</strong><small>{kindLabel[candidate.kind] ?? candidate.kind}{candidate.addresses.length ? ` · ${candidate.addresses.join(', ')}` : ''}{candidate.reason ? ` · ${candidate.reason}` : ''}</small></span></label> })}</div>{!hasIngress && requiresTrafficIngress(subject) ? <PolicyNotice tone="warn">尚未选择入口。全部设备与排除模式必须先选择入口。</PolicyNotice> : null}</section><section className="policy-section-card"><h4 className="policy-section-card-title">来源范围</h4><SubjectSelector terminals={terminals} value={subject} allowExcluded excludedDisabled={!hasIngress} requireObservedAddress onChange={onSubject} /></section></div>
-}
-
 function TargetStep({ deviceID, targetLists, targetListIDs, onTargetLists, onRemoveTarget, onPresetPresentation, onCreateTargetList, errors, invalidTargetIDs }: { deviceID: string; targetLists: TargetList[]; targetListIDs: string[]; onTargetLists: (ids: string[]) => void; onRemoveTarget: (id: string) => void; onPresetPresentation: (value: PresetPresentation[]) => void; onCreateTargetList: (kind: 'domain' | 'ip') => void; errors: string[]; invalidTargetIDs: string[] }) {
   return <div className="policy-wizard-stage"><section className="policy-section-card"><h4>访问目标</h4><p className="policy-hint">普通目标列表和应用规则从这里复用。应用规则按域名 / IP 独立准备，Target Library 不会显示 backing rows。</p><TargetSelector deviceID={deviceID} targetLists={targetLists} selectedIDs={targetListIDs} onChange={onTargetLists} onPresetPresentationChange={onPresetPresentation} onCreateTargetList={onCreateTargetList} />{errors.length ? <PolicyNotice tone="warn" title="访问目标校验未通过"><span>{errors.join('；')}</span>{invalidTargetIDs.length ? <span className="policy-invalid-targets">{invalidTargetIDs.map((id) => <button key={id} type="button" className="link-button" onClick={() => onRemoveTarget(id)}>移除失效目标：{id}</button>)}</span> : null}</PolicyNotice> : null}</section></div>
 }
@@ -403,12 +480,11 @@ function targetNamesForReview(targetListIDs: string[], targetLists: TargetList[]
   return names.join('、')
 }
 
-function planSummaryEntries(draft: Egress, discovery: PolicyDiscovery | null, ingress: TrafficIngressScope, subject: Subject, targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[], rulePriority: string, ruleEnabled: boolean): Array<[string, string]> {
+function planSummaryEntries(draft: Egress, discovery: PolicyDiscovery | null, ingress: TrafficIngressScope, subject: Subject, targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[], rulePriority: string, ruleEnabled: boolean, sourceKind: RoutingSourceSelectionKind, interfaceSource: RoutingInterfaceSource): Array<[string, string]> {
   const entries: Array<[string, string]> = [
     ['地址族', draft.families.filter((family) => family.enabled).map((family) => family.family.toUpperCase()).join('/') || '无地址族'],
     ['WAN / 下一跳', draft.families.filter((family) => family.enabled).map((family) => egressFamilySummary(family, draft, discovery)).join('；') || '—'],
-    ['TrafficIngress', [...ingress.interfaceLists, ...ingress.interfaces].join('、') || 'source-only / 未设置'],
-    ['来源', subject.mode === 'all' ? '全部设备' : subject.mode === 'excluded' ? `入口内排除 ${subject.members.length} 台设备 / ${subject.prefixes.length} 个地址范围` : `${subject.members.length} 台设备 / ${subject.prefixes.length} 个地址范围`],
+    ['来源', sourceSummary(sourceKind, interfaceSource, subject, ingress)],
   ]
   entries.push(['规则', `${ruleEnabled ? '启用' : '停用'} · Priority ${rulePriority}`], ['目标', targetNamesForReview(targetListIDs, targetLists, presetPresentations) || '—'])
   return entries

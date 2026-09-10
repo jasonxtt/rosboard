@@ -88,7 +88,7 @@ func TestDiagnosticsRequiresDeviceAndGet(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsDeepEndpointReturnsSnapshotAndTrace(t *testing.T) {
+func TestDiagnosticsDeepEndpointReturnsSnapshot(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
 
@@ -107,9 +107,6 @@ func TestDiagnosticsDeepEndpointReturnsSnapshotAndTrace(t *testing.T) {
 				ReadCount int    `json:"readCount"`
 			} `json:"endpoints"`
 		} `json:"snapshot"`
-		IngressTrace []struct {
-			ReasonCode string `json:"reasonCode"`
-		} `json:"ingressTrace"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode deep report: %v", err)
@@ -117,8 +114,8 @@ func TestDiagnosticsDeepEndpointReturnsSnapshotAndTrace(t *testing.T) {
 	if payload.Mode != "deep" || payload.DeviceID != "edge" {
 		t.Fatalf("unexpected deep report identity: %#v", payload)
 	}
-	if len(payload.Snapshot.Endpoints) != 12 || len(payload.IngressTrace) == 0 {
-		t.Fatalf("deep report lacks snapshot/trace: %#v", payload)
+	if len(payload.Snapshot.Endpoints) != 12 {
+		t.Fatalf("deep report lacks snapshot: %#v", payload)
 	}
 	for _, endpoint := range payload.Snapshot.Endpoints {
 		if endpoint.ReadCount != 1 {
@@ -178,7 +175,7 @@ func TestDiagnosticsExportReturnsSanitizedZipFromCachedDeepReport(t *testing.T) 
 			t.Fatalf("export entry %s contains a forbidden fixture value", file.Name)
 		}
 	}
-	for _, path := range []string{"manifest.json", "health-report.json", "routeros/snapshot.json", "routeros/ingress-decision-trace.json", "monitor/status.json", "policy/status.json", "access/status.json", "recognition/mosdns.json", "update/status.json", "logs/recent.log"} {
+	for _, path := range []string{"manifest.json", "health-report.json", "routeros/snapshot.json", "monitor/status.json", "policy/status.json", "access/status.json", "recognition/mosdns.json", "update/status.json", "logs/recent.log"} {
 		if !paths[path] {
 			t.Fatalf("export missing %s: %#v", path, paths)
 		}

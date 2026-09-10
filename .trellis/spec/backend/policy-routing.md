@@ -129,9 +129,22 @@ TargetList` aggregate is sufficient, and no duplicate persistent
 
 RoutingRule owns a narrow per-rule ingress scope. `all` and `excluded` require
 an ingress guard; `selected` is source-only and may omit ingress. Existing
-device-global TrafficIngress is migration/default compatibility only and must
-not remain a second writable runtime authority. Execution groups must include
-normalized ingress scope in their grouping boundary.
+device-global TrafficIngress is migration/default compatibility state only and
+must not remain a second writable runtime authority. Its legacy read/write
+endpoint may remain for old clients, but changing that global value must not
+rewrite or block a canonical per-rule `sourceScope`; typed rules use their own
+source matcher and live preflight. Execution groups must include normalized
+ingress scope in their grouping boundary.
+
+The typed `interface` source selects several RouterOS interfaces and interface
+lists at once (`interfaces` + `interfaceLists`) and may add per-source address
+exclusions (`excludePrefixes`, interface sources only). A single-selector,
+non-excluding interface source compiles to a direct `in-interface[-list]`
+matcher; multi-selector or excluding sources reuse the managed aggregate
+ingress list plus a negated `src-address-list`. Convertible legacy
+Subject+Ingress rows upgrade to the typed scope once at store migration and at
+every write boundary (`UpgradeLegacyRoutingSource`); unconvertible shapes keep
+the legacy representation and editor.
 
 Routing and Access are separate execution domains. Implementers must use
 domain facts, not an operation classifier over a combined desired graph:

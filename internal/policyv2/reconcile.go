@@ -622,8 +622,11 @@ func equivalentRouterField(key, left, right string) bool {
 			return true
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(key), "address") && equivalentRouterAddress(left, right) {
-		return true
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "address", "src-address", "dst-address", "to-address", "to-addresses":
+		if equivalentRouterAddress(left, right) {
+			return true
+		}
 	}
 	return equivalentRouterValue(left, right)
 }

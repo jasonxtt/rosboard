@@ -70,10 +70,10 @@ type TrafficIngressCandidate struct {
 	Running        bool     `json:"running"`
 }
 
-// IngressDecision explains the existing traffic-ingress candidate decision
-// for one RouterOS interface or interface list. It is diagnostic evidence,
-// not a second candidate-selection algorithm: ScanWithTrace uses the same
-// builder as Scan and only records the branch that the builder already took.
+// IngressDecision records why the traffic-ingress candidate builder accepted
+// or rejected one RouterOS interface or interface list. It is not a second
+// candidate-selection algorithm: the source-selector recommendation layer
+// reads these decisions to annotate otherwise free-form selector facts.
 type IngressDecision struct {
 	Interface  string         `json:"interface"`
 	Result     string         `json:"result"`
@@ -89,58 +89,59 @@ type Scanner struct {
 func NewScanner(reader PolicyReader) *Scanner { return &Scanner{reader: reader} }
 
 func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) {
-	discovery, err := s.scan(ctx, deviceID, nil)
+	discovery, err := s.scan(ctx, deviceID)
 	return discovery, err
 }
 
-// ScanWithTrace returns the normal discovery result plus the decisions made
-// by the same traffic-ingress candidate builder. Keeping the trace beside the
-// existing builder makes it possible to inspect a live decision without
-// changing the business candidate result.
-func (s *Scanner) ScanWithTrace(ctx context.Context, deviceID string) (Discovery, []IngressDecision, error) {
-	trace := make([]IngressDecision, 0)
-	discovery, err := s.scan(ctx, deviceID, &trace)
-	return discovery, trace, err
+func (s *Scanner) scan(ctx context.Context, deviceID string) (Discovery, error) {
+	evidence, err := s.collectDiscoveryEvidence(ctx)
+	if err != nil {
+		return Discovery{}, err
+	}
+	return discoveryFromEvidence(evidence, deviceID)
 }
 
-func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDecision) (Discovery, error) {
-	if s == nil || s.reader == nil {
-		return Discovery{}, fmt.Errorf("policy scanner is not configured")
+func discoveryFromEvidence(evidence discoveryEvidence, deviceID string) (Discovery, error) {
+	if evidence.interfacesErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS interfaces: %w", evidence.interfacesErr)
 	}
-	interfaces, err := s.reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{".id", "name", "type", "running", "disabled", "dynamic"})
-	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS interfaces: %w", err)
+	if evidence.resourceErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", evidence.resourceErr)
 	}
-	resource, err := s.reader.PolicyList(ctx, routeros.ReadMenuSystemResource, []string{"board-name", "platform", "version"})
-	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", err)
+	if evidence.ipv4RoutesErr != nil {
+		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", evidence.ipv4RoutesErr)
 	}
 	warnings := make([]string, 0)
-	ipv4Routes, err := s.reader.PolicyList(ctx, routeros.ReadMenuIPRoute, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
-	if err != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", err)
-	}
-	ipv6Routes, ipv6RouteErr := s.reader.PolicyList(ctx, routeros.ReadMenuIPv6Route, []string{".id", "dst-address", "gateway", "immediate-gw", "immediate-interface", "routing-table", "distance", "active", "disabled", "dynamic", "comment"})
-	if ipv6RouteErr != nil {
-		warnings = append(warnings, "IPv6 默认路由发现失败："+ipv6RouteErr.Error())
+	ipv4Routes := evidence.ipv4Routes
+	ipv6Routes := evidence.ipv6Routes
+	if evidence.ipv6RoutesErr != nil {
+		warnings = append(warnings, "IPv6 默认路由发现失败："+evidence.ipv6RoutesErr.Error())
 		ipv6Routes = nil
 	}
-	readOptional := func(menu routeros.ReadMenu, proplist []string, label string) []routeros.RouterOSObject {
-		objects, err := s.reader.PolicyList(ctx, menu, proplist)
+	appendReadWarning := func(err error, label string) {
 		if err != nil {
 			warnings = append(warnings, label+"读取失败："+err.Error())
-			return nil
 		}
-		return objects
 	}
-	ipv4DHCP := readOptional(routeros.ReadMenuIPDHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv4 DHCP Client")
-	ipv6DHCP := readOptional(routeros.ReadMenuIPv6DHCPClient, []string{"interface", "status", "disabled", "gateway"}, "IPv6 DHCP Client")
-	pppoeClients := readOptional(routeros.ReadMenuPPPoEClient, []string{"interface", "disabled", "invalid", "running"}, "PPPoE Client")
-	lists := readOptional(routeros.ReadMenuInterfaceList, []string{".id", "name", "include", "exclude", "comment"}, "interface list")
-	members := readOptional(routeros.ReadMenuInterfaceListMember, []string{"list", "interface", "dynamic", "disabled"}, "interface list member")
-	bridgePorts, bridgePortsAvailable := readOptionalWithStatus(s.reader, ctx, routeros.ReadMenuBridgePort, []string{"interface", "bridge", "disabled"}, "bridge port", &warnings)
-	ipv4Addresses := readOptional(routeros.ReadMenuIPAddress, []string{"address", "interface", "disabled"}, "IPv4 address")
-	ipv6Addresses := readOptional(routeros.ReadMenuIPv6Address, []string{"address", "interface", "disabled"}, "IPv6 address")
+	appendReadWarning(evidence.ipv4DHCPErr, "IPv4 DHCP Client")
+	appendReadWarning(evidence.ipv6DHCPErr, "IPv6 DHCP Client")
+	appendReadWarning(evidence.pppoeClientsErr, "PPPoE Client")
+	appendReadWarning(evidence.interfaceListsErr, "interface list")
+	appendReadWarning(evidence.listMembersErr, "interface list member")
+	appendReadWarning(evidence.bridgePortsErr, "bridge port")
+	appendReadWarning(evidence.ipv4AddressesErr, "IPv4 address")
+	appendReadWarning(evidence.ipv6AddressesErr, "IPv6 address")
+	interfaces := evidence.interfaces
+	resource := evidence.resource
+	ipv4DHCP := evidence.ipv4DHCP
+	ipv6DHCP := evidence.ipv6DHCP
+	pppoeClients := evidence.pppoeClients
+	lists := evidence.interfaceLists
+	members := evidence.listMembers
+	bridgePorts := evidence.bridgePorts
+	bridgePortsAvailable := evidence.bridgePortsErr == nil
+	ipv4Addresses := evidence.ipv4Addresses
+	ipv6Addresses := evidence.ipv6Addresses
 
 	routes := append(defaultRoutes(ipv4Routes, "ipv4"), defaultRoutes(ipv6Routes, "ipv6")...)
 	routes = append(routes, dhcpClientRoutes(ipv4DHCP, "ipv4")...)
@@ -148,10 +149,7 @@ func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDec
 	lanInterfaces := explicitLANInterfaceMembers(lists, members, interfaces)
 	pppoeParents := pppoeParentInterfaces(pppoeClients)
 	wans := buildWANCandidates(interfaces, routes, lanInterfaces)
-	lan, decisions := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans, pppoeParents, trace)
-	if trace != nil {
-		*trace = append(*trace, decisions...)
-	}
+	lan, _ := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans, pppoeParents)
 	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, pppoeClients, lists, members, bridgePorts)
 	if err != nil {
 		return Discovery{}, err
@@ -175,15 +173,6 @@ func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDec
 		TrafficIngress: lan,
 		ExistingPolicy: []any{},
 	}, nil
-}
-
-func readOptionalWithStatus(reader PolicyReader, ctx context.Context, menu routeros.ReadMenu, proplist []string, label string, warnings *[]string) ([]routeros.RouterOSObject, bool) {
-	objects, err := reader.PolicyList(ctx, menu, proplist)
-	if err != nil {
-		*warnings = append(*warnings, label+"读取失败："+err.Error())
-		return nil, false
-	}
-	return objects, true
 }
 
 func defaultRoutes(objects []routeros.RouterOSObject, family string) []WANRoute {
@@ -377,12 +366,7 @@ func ingressUsableAddress(value string) bool {
 	return !address.IsLinkLocalUnicast() && !address.IsLoopback()
 }
 
-func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool) []TrafficIngressCandidate {
-	result, _ := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts, bridgePortsAvailable, wans, nonIngress, nil)
-	return result
-}
-
-func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool, trace *[]IngressDecision) ([]TrafficIngressCandidate, []IngressDecision) {
+func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool) ([]TrafficIngressCandidate, []IngressDecision) {
 	membersByList := make(map[string][]string)
 	dynamicByList := make(map[string]bool)
 	for _, member := range members {
@@ -410,14 +394,14 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 	for _, list := range lists {
 		name := strings.TrimSpace(list["name"])
 		if name == "" {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Result: "rejected", ReasonCode: "ingress.empty_interface_list",
 				Reason: "接口列表没有名称，因此不能作为策略入口候选。",
 			})
 			continue
 		}
 		if reservedInterfaceLists[strings.ToLower(name)] {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.reserved_interface_list",
 				Reason:   "RouterOS 内置接口列表不作为策略入口候选。",
 				Evidence: map[string]any{"kind": "interface-list"},
@@ -425,7 +409,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if isManagedComment(list["comment"]) {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.managed_interface_list",
 				Reason:   "rosboard 管理的聚合接口列表由策略运行时内部使用，不作为用户入口候选。",
 				Evidence: map[string]any{"kind": "interface-list"},
@@ -443,7 +427,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			Addresses: uniqueSorted(candidateAddresses), Reason: "RouterOS 接口列表", Default: strings.EqualFold(name, "LAN"), Running: true,
 		}
 		result = append(result, candidate)
-		appendIngressDecision(&decisions, trace, IngressDecision{
+		decisions = append(decisions, IngressDecision{
 			Interface: name, Result: "accepted", ReasonCode: "ingress.accepted",
 			Reason: "RouterOS 接口列表作为策略入口候选。",
 			Evidence: map[string]any{
@@ -477,14 +461,14 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 	for _, object := range interfaces {
 		name := strings.TrimSpace(object["name"])
 		if name == "" {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Result: "rejected", ReasonCode: "ingress.empty_interface_name",
 				Reason: "RouterOS 接口没有名称，因此不能作为策略入口候选。",
 			})
 			continue
 		}
 		if wanNames[name] {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.excluded_wan_evidence",
 				Reason:   "接口存在默认路由证据，被识别为 WAN 侧接口，因此未作为策略入口。",
 				Evidence: map[string]any{"type": object["type"], "routes": routesForWAN(wans, name)},
@@ -492,7 +476,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if nonIngress[name] {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.excluded_wan_parent",
 				Reason:   "接口是 PPPoE 客户端的底层父接口，入口以 PPPoE 接口为准。",
 				Evidence: map[string]any{"type": object["type"], "pppoeParent": true},
@@ -500,7 +484,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if routerBool(object["disabled"], false) {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.disabled",
 				Reason:   "接口已禁用，因此未作为策略入口候选。",
 				Evidence: map[string]any{"type": object["type"], "disabled": true},
@@ -508,7 +492,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if routerBool(object["dynamic"], false) {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.dynamic",
 				Reason:   "动态接口不作为稳定的策略入口候选。",
 				Evidence: map[string]any{"type": object["type"], "dynamic": true},
@@ -517,7 +501,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 		}
 		kind := trafficIngressInterfaceKind(object["type"])
 		if kind == "" {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.unsupported_interface",
 				Reason:   "接口类型不在当前策略入口识别范围内。",
 				Evidence: map[string]any{"type": object["type"]},
@@ -525,7 +509,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if kind == "physical" && !bridgePortsAvailable {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.bridge_evidence_unavailable",
 				Reason:   "无法读取 Bridge 端口关系，为避免把 Bridge 从端口误选为入口，物理接口暂不纳入候选。",
 				Evidence: map[string]any{"type": object["type"], "bridgePortsAvailable": false},
@@ -533,7 +517,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			continue
 		}
 		if kind == "physical" && bridgeSlaves[name] {
-			appendIngressDecision(&decisions, trace, IngressDecision{
+			decisions = append(decisions, IngressDecision{
 				Interface: name, Result: "rejected", ReasonCode: "ingress.bridge_slave",
 				Reason:   "接口属于 Bridge 的从端口，入口以 Bridge 接口为准。",
 				Evidence: map[string]any{"type": object["type"], "bridge": uniqueSorted(bridgeNamesByInterface[name])},
@@ -552,7 +536,7 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 			Running: routerBool(object["running"], true) && !routerBool(object["disabled"], false),
 		}
 		result = append(result, candidate)
-		appendIngressDecision(&decisions, trace, IngressDecision{
+		decisions = append(decisions, IngressDecision{
 			Interface: name, Result: "accepted", ReasonCode: "ingress.accepted",
 			Reason: candidate.Reason,
 			Evidence: map[string]any{
@@ -574,13 +558,6 @@ func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses
 		return result[i].Name < result[j].Name
 	})
 	return result, decisions
-}
-
-func appendIngressDecision(decisions *[]IngressDecision, trace *[]IngressDecision, decision IngressDecision) {
-	if trace == nil {
-		return
-	}
-	*decisions = append(*decisions, decision)
 }
 
 func routesForWAN(wans []WANCandidate, name string) []WANRoute {

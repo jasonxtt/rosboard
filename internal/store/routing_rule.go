@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS policy_v2_routing_rules (
     name TEXT NOT NULL,
     egress_id TEXT NOT NULL REFERENCES policy_v2_egresses(id) ON DELETE RESTRICT,
     subject_mode TEXT NOT NULL,
+    source_scope_json TEXT DEFAULT NULL,
     ingress_interface_lists_json TEXT NOT NULL DEFAULT '[]',
     ingress_interfaces_json TEXT NOT NULL DEFAULT '[]',
     priority INTEGER NOT NULL,
@@ -66,6 +67,9 @@ CREATE TABLE IF NOT EXISTS policy_v2_routing_rule_prefixes (
 	if _, err := s.db.Exec(`ALTER TABLE policy_v2_routing_rules ADD COLUMN ingress_interfaces_json TEXT NOT NULL DEFAULT '[]'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add routing rule ingress interfaces: %w", err)
 	}
+	if _, err := s.db.Exec(`ALTER TABLE policy_v2_routing_rules ADD COLUMN source_scope_json TEXT DEFAULT NULL`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add routing rule source scope: %w", err)
+	}
 	return nil
 }
 
@@ -95,7 +99,7 @@ func (s *Store) migrateLegacyRoutingRules(ctx context.Context) error {
 		if marker != policyv2.RoutingRuleAuthorityV1 {
 			return fmt.Errorf("unsupported routing rule authority %q", marker)
 		}
-		return s.migrateRoutingRuleIngress(ctx)
+		return s.migrateRoutingRuleTypedSources(ctx)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("inspect routing rule authority: %w", err)
@@ -198,7 +202,16 @@ ORDER BY e.priority, e.name, e.id`)
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit routing rule migration: %w", err)
 	}
-	return s.migrateRoutingRuleIngress(ctx)
+	return s.migrateRoutingRuleTypedSources(ctx)
+}
+
+// migrateRoutingRuleTypedSources runs the post-authority migrations in order:
+// first the legacy ingress copy, then the typed source-scope upgrade.
+func (s *Store) migrateRoutingRuleTypedSources(ctx context.Context) error {
+	if err := s.migrateRoutingRuleIngress(ctx); err != nil {
+		return err
+	}
+	return s.migrateRoutingRuleSourceScope(ctx)
 }
 
 // migrateRoutingRuleIngress copies the former device-global scope into the
@@ -237,11 +250,136 @@ func (s *Store) migrateRoutingRuleIngress(ctx context.Context) error {
 	return tx.Commit()
 }
 
+// migrateRoutingRuleSourceScope upgrades legacy Subject+Ingress rows to the
+// typed source scope exactly once. The mapping preserves the compiled
+// semantics of each row:
+//
+//	all + ingress                   -> interface source over the same selectors
+//	excluded with prefixes only     -> interface source with excluded addresses
+//	selected with terminals only    -> device source
+//	selected with prefixes only     -> ip source
+//
+// Mixed selected rows, member-based exclusions and ingress-less all rows keep
+// the legacy representation and stay editable through the legacy
+// compatibility path.
+func (s *Store) migrateRoutingRuleSourceScope(ctx context.Context) error {
+	var marker string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM policy_v2_schema_meta WHERE key = 'routing_rule_source_scope_migrated'`).Scan(&marker)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("inspect routing rule source scope migration: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.subject_mode, r.ingress_interface_lists_json, r.ingress_interfaces_json,
+		(SELECT count(*) FROM policy_v2_routing_rule_members m WHERE m.rule_id = r.id),
+		(SELECT count(*) FROM policy_v2_routing_rule_prefixes p WHERE p.rule_id = r.id)
+		FROM policy_v2_routing_rules r WHERE r.source_scope_json IS NULL OR trim(r.source_scope_json) = ''`)
+	if err != nil {
+		return fmt.Errorf("list legacy routing rules for source scope migration: %w", err)
+	}
+	type legacySourceRow struct {
+		id            string
+		subjectMode   string
+		ingressLists  string
+		ingressIfaces string
+		memberCount   int
+		prefixCount   int
+	}
+	legacy := make([]legacySourceRow, 0)
+	for rows.Next() {
+		var row legacySourceRow
+		if err := rows.Scan(&row.id, &row.subjectMode, &row.ingressLists, &row.ingressIfaces, &row.memberCount, &row.prefixCount); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan legacy routing rule for source scope migration: %w", err)
+		}
+		legacy = append(legacy, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read legacy routing rules for source scope migration: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close legacy routing rules for source scope migration: %w", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, row := range legacy {
+		var scope *policyv2.RoutingSourceScope
+		switch row.subjectMode {
+		case policyv2.SubjectModeAll:
+			ingress := decodeTrafficIngressScope(row.ingressLists, row.ingressIfaces)
+			if !policyv2.HasTrafficIngress(ingress) {
+				break
+			}
+			scope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Interfaces: ingress.Interfaces, InterfaceLists: ingress.InterfaceLists}
+		case policyv2.SubjectModeExcluded:
+			if row.memberCount > 0 || row.prefixCount == 0 {
+				break
+			}
+			ingress := decodeTrafficIngressScope(row.ingressLists, row.ingressIfaces)
+			if !policyv2.HasTrafficIngress(ingress) {
+				break
+			}
+			prefixes, err := s.routingRulePrefixesForMigration(ctx, tx, row.id)
+			if err != nil {
+				return err
+			}
+			scope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Interfaces: ingress.Interfaces, InterfaceLists: ingress.InterfaceLists, ExcludePrefixes: prefixes}
+		case policyv2.SubjectModeSelected:
+			switch {
+			case row.memberCount > 0 && row.prefixCount == 0:
+				scope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceDevice}
+			case row.memberCount == 0 && row.prefixCount > 0:
+				scope = &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceIP}
+			}
+		}
+		if scope == nil {
+			continue
+		}
+		payload, err := marshalRoutingSourceScope(scope)
+		if err != nil {
+			return fmt.Errorf("migrate routing rule %s source scope: %w", row.id, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE policy_v2_routing_rules SET source_scope_json = ? WHERE id = ?`, payload, row.id); err != nil {
+			return fmt.Errorf("write migrated source scope for %s: %w", row.id, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_schema_meta (key, value) VALUES ('routing_rule_source_scope_migrated', 'v1')`); err != nil {
+		return err
+	}
+	// The conversion is semantics-preserving, so in-flight plans stay valid:
+	// their pre-compiled operations still match the legacy compile output and
+	// the next generated plan converges to the typed-source shape.
+	return tx.Commit()
+}
+
+func (s *Store) routingRulePrefixesForMigration(ctx context.Context, tx *sql.Tx, ruleID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT prefix FROM policy_v2_routing_rule_prefixes WHERE rule_id = ? ORDER BY position`, ruleID)
+	if err != nil {
+		return nil, fmt.Errorf("read routing rule prefixes for %s: %w", ruleID, err)
+	}
+	defer rows.Close()
+	result := make([]string, 0)
+	for rows.Next() {
+		var prefix string
+		if err := rows.Scan(&prefix); err != nil {
+			return nil, fmt.Errorf("scan routing rule prefix for %s: %w", ruleID, err)
+		}
+		result = append(result, prefix)
+	}
+	return result, rows.Err()
+}
+
 func (r *PolicyRepository) ListRoutingRules(ctx context.Context) ([]policyv2.RoutingRule, error) {
 	if err := r.EnsureRoutingRulesMigrated(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, egress_id, subject_mode, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules ORDER BY priority, name, id`)
+	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules ORDER BY priority, name, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list routing rules: %w", err)
 	}
@@ -249,10 +387,15 @@ func (r *PolicyRepository) ListRoutingRules(ctx context.Context) ([]policyv2.Rou
 	for rows.Next() {
 		var rule policyv2.RoutingRule
 		var enabled int
+		var sourceScopeJSON sql.NullString
 		var ingressLists, ingressInterfaces string
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan routing rule: %w", err)
+		}
+		rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode routing rule source scope: %w", err)
 		}
 		rule.Enabled = enabled != 0
 		rule.Ingress = decodeTrafficIngressScope(ingressLists, ingressInterfaces)
@@ -290,9 +433,10 @@ func (r *PolicyRepository) GetRoutingRule(ctx context.Context, id string) (polic
 	}
 	var rule policyv2.RoutingRule
 	var enabled int
+	var sourceScopeJSON sql.NullString
 	var ingressLists, ingressInterfaces string
 	var createdAt, updatedAt int64
-	err := r.store.db.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, id).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt)
+	err := r.store.db.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, id).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return policyv2.RoutingRule{}, policyv2.ErrRoutingRuleNotFound
 	}
@@ -300,6 +444,10 @@ func (r *PolicyRepository) GetRoutingRule(ctx context.Context, id string) (polic
 		return policyv2.RoutingRule{}, fmt.Errorf("get routing rule: %w", err)
 	}
 	rule.Enabled = enabled != 0
+	rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
+	if err != nil {
+		return policyv2.RoutingRule{}, fmt.Errorf("decode routing rule source scope: %w", err)
+	}
 	rule.Ingress = decodeTrafficIngressScope(ingressLists, ingressInterfaces)
 	rule.CreatedAt, rule.UpdatedAt = timeFromUnix(createdAt), timeFromUnix(updatedAt)
 	rule.Subject.Members, err = r.listRoutingRuleMembers(ctx, id)
@@ -318,7 +466,17 @@ func (r *PolicyRepository) GetRoutingRule(ctx context.Context, id string) (polic
 }
 
 func (r *PolicyRepository) SaveRoutingRule(ctx context.Context, value policyv2.RoutingRule) (policyv2.RoutingRule, error) {
-	if (value.Subject.Mode == policyv2.SubjectModeAll || value.Subject.Mode == policyv2.SubjectModeExcluded) && !policyv2.HasTrafficIngress(value.Ingress) {
+	var current *policyv2.RoutingRule
+	if strings.TrimSpace(value.ID) != "" {
+		loaded, loadErr := r.GetRoutingRule(ctx, value.ID)
+		switch {
+		case loadErr == nil:
+			current = &loaded
+		case !errors.Is(loadErr, policyv2.ErrRoutingRuleNotFound):
+			return policyv2.RoutingRule{}, loadErr
+		}
+	}
+	if (current == nil || current.SourceScope == nil) && (value.Subject.Mode == policyv2.SubjectModeAll || value.Subject.Mode == policyv2.SubjectModeExcluded) && !policyv2.HasTrafficIngress(value.Ingress) {
 		// Accept the former global-ingress payload only at this compatibility
 		// boundary; persisted rules are subsequently authoritative.
 		if state, stateErr := r.GetDeviceState(ctx); stateErr == nil {
@@ -327,7 +485,7 @@ func (r *PolicyRepository) SaveRoutingRule(ctx context.Context, value policyv2.R
 			}
 		}
 	}
-	value, err := policyv2.NormalizeRoutingRule(value)
+	value, err := policyv2.PrepareRoutingRuleWrite(value, current)
 	if err != nil {
 		return policyv2.RoutingRule{}, err
 	}
@@ -379,7 +537,11 @@ func (r *PolicyRepository) SaveRoutingRule(ctx context.Context, value policyv2.R
 	value.UpdatedAt = now
 	ingressLists, _ := json.Marshal(value.Ingress.InterfaceLists)
 	ingressInterfaces, _ := json.Marshal(value.Ingress.Interfaces)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
+	sourceScopeJSON, err := marshalRoutingSourceScope(value.SourceScope)
+	if err != nil {
+		return policyv2.RoutingRule{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
 		return policyv2.RoutingRule{}, fmt.Errorf("save routing rule: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_routing_rule_targets WHERE rule_id = ?`, value.ID); err != nil {
@@ -505,6 +667,82 @@ func (r *PolicyRepository) listRoutingRulePrefixes(ctx context.Context, ruleID s
 	return result, rows.Err()
 }
 
+// loadRoutingRuleSourceStateTx reads only the source-bearing portion needed to
+// enforce canonical-write authority inside a proposal's SQLite transaction.
+// The revision check and this read therefore share the same snapshot.
+func loadRoutingRuleSourceStateTx(ctx context.Context, tx *sql.Tx, ruleID string) (*policyv2.RoutingRule, error) {
+	if strings.TrimSpace(ruleID) == "" {
+		return nil, nil
+	}
+	var rule policyv2.RoutingRule
+	var enabled int
+	var sourceScopeJSON sql.NullString
+	var ingressLists, ingressInterfaces string
+	var createdAt, updatedAt int64
+	err := tx.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, ruleID).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rule.Enabled = enabled != 0
+	rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
+	if err != nil {
+		return nil, err
+	}
+	rule.Ingress = decodeTrafficIngressScope(ingressLists, ingressInterfaces)
+	rule.CreatedAt, rule.UpdatedAt = timeFromUnix(createdAt), timeFromUnix(updatedAt)
+	rule.Subject.Members, err = listRoutingRuleMembersTx(ctx, tx, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	rule.Subject.Prefixes, err = listRoutingRulePrefixesTx(ctx, tx, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	return &rule, nil
+}
+
+func listRoutingRuleMembersTx(ctx context.Context, tx *sql.Tx, ruleID string) ([]policyv2.SubjectMember, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT terminal_id, binding, anchor_mac, pinned_ipv4_json, pinned_ipv6_json, last_ipv4_json, last_ipv6_json FROM policy_v2_routing_rule_members WHERE rule_id = ? ORDER BY terminal_id`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]policyv2.SubjectMember, 0)
+	for rows.Next() {
+		var member policyv2.SubjectMember
+		var pinnedIPv4, pinnedIPv6, lastIPv4, lastIPv6 string
+		if err := rows.Scan(&member.TerminalID, &member.Binding, &member.AnchorMAC, &pinnedIPv4, &pinnedIPv6, &lastIPv4, &lastIPv6); err != nil {
+			return nil, err
+		}
+		member.PinnedIPv4 = decodeStringSlice(pinnedIPv4)
+		member.PinnedIPv6 = decodeStringSlice(pinnedIPv6)
+		member.LastIPv4 = decodeStringSlice(lastIPv4)
+		member.LastIPv6 = decodeStringSlice(lastIPv6)
+		result = append(result, member)
+	}
+	return result, rows.Err()
+}
+
+func listRoutingRulePrefixesTx(ctx context.Context, tx *sql.Tx, ruleID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT prefix FROM policy_v2_routing_rule_prefixes WHERE rule_id = ? ORDER BY position, prefix`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]string, 0)
+	for rows.Next() {
+		var prefix string
+		if err := rows.Scan(&prefix); err != nil {
+			return nil, err
+		}
+		result = append(result, prefix)
+	}
+	return result, rows.Err()
+}
+
 func nonNilStrings(values []string) []string {
 	if values == nil {
 		return []string{}
@@ -522,6 +760,32 @@ func decodeStringSlice(value string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func marshalRoutingSourceScope(scope *policyv2.RoutingSourceScope) (any, error) {
+	if scope == nil {
+		return nil, nil
+	}
+	normalized, err := policyv2.NormalizeRoutingSourceScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal routing rule source scope: %w", err)
+	}
+	return string(payload), nil
+}
+
+func decodeRoutingSourceScope(value sql.NullString) (*policyv2.RoutingSourceScope, error) {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil, nil
+	}
+	var scope policyv2.RoutingSourceScope
+	if err := json.Unmarshal([]byte(value.String), &scope); err != nil {
+		return nil, err
+	}
+	return policyv2.NormalizeRoutingSourceScope(&scope)
 }
 
 func decodeTrafficIngressScope(lists, interfaces string) policyv2.TrafficIngressScope {

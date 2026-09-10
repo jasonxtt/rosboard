@@ -7,6 +7,56 @@ export type { AccessSchedule, AccessScheduleMode, AccessTimeWindow, AccessWeekda
 
 export type TrafficIngressScope = { interfaceLists: string[]; interfaces: string[] }
 
+export type RoutingSourceKind = 'device' | 'ip' | 'interface' | 'interface-list' | 'all'
+export type RoutingSourceScope = {
+  kind: RoutingSourceKind
+  /** 旧版单选字段；读取时由后端折叠进 interfaces，前端只在兼容旧数据时回退使用 */
+  name?: string
+  /** kind === 'interface'：命中的 RouterOS 接口（可多选） */
+  interfaces?: string[]
+  /** kind === 'interface'：命中的 RouterOS 接口列表（可多选） */
+  interfaceLists?: string[]
+  /** 仅 kind === 'interface'：在接口边界内排除的来源 IP/CIDR */
+  excludePrefixes?: string[]
+}
+
+export type SourceSelectorInterface = {
+  name: string
+  type: string
+  kind: string
+  running: boolean
+  disabled: boolean
+  dynamic: boolean
+  recommended: boolean
+  roleHints: string[]
+  warnings: string[]
+  reason: string
+  coveredBy: string[]
+}
+
+export type SourceSelectorInterfaceList = {
+  name: string
+  include: string[]
+  exclude: string[]
+  staticMembers: string[]
+  recommended: boolean
+  roleHints: string[]
+  warnings: string[]
+  reason: string
+  safetyCode?: string
+}
+
+export type PolicySourceSelectors = {
+  available: boolean
+  factStatus: 'available' | 'partial' | 'unavailable' | string
+  recommendationStatus: 'available' | 'partial' | 'unavailable' | string
+  reason?: string
+  warnings: string[]
+  snapshot: { fingerprint: string }
+  interfaces: SourceSelectorInterface[]
+  interfaceLists: SourceSelectorInterfaceList[]
+}
+
 export type PolicyTerminal = {
   id: string
   displayName: string
@@ -99,6 +149,7 @@ export type RoutingRule = {
   name: string
   subject: Subject
   ingress: TrafficIngressScope
+  sourceScope?: RoutingSourceScope
   targetListIds: string[]
   egressId: string
   priority: number
@@ -133,7 +184,8 @@ export type AccessOverview = {
 export type DiscoveryRoute = { family: string; destination: string; gateway: string; immediateGateway: string; table: string; active: boolean; proven: boolean }
 export type DiscoveryWAN = { interface: string; type: string; running: boolean; pointToPoint: boolean; proven: boolean; routes: DiscoveryRoute[] }
 export type DiscoveryCandidate = { name: string; kind: string; include: string[]; exclude: string[]; staticMembers: string[]; dynamicMembers: boolean; frozen: boolean; addresses: string[]; reason: string; coveredBy: string[]; default: boolean; dynamic: boolean; running: boolean }
-export type PolicyDiscovery = { available: boolean; reason?: string; warnings: string[]; wans: DiscoveryWAN[]; trafficIngress: DiscoveryCandidate[] }
+export type PolicyDiscovery = { available: boolean; reason?: string; warnings: string[]; snapshot: { fingerprint: string }; wans: DiscoveryWAN[]; trafficIngress: DiscoveryCandidate[] }
+export type PolicyDiscoverySnapshot = { discovery: PolicyDiscovery; sourceSelectors: PolicySourceSelectors }
 
 export type PlanIssue = { code: string; status: string; family?: string; egressID?: string; logicalID?: string; reason: string }
 export type TargetVersionPromotion = { targetListId: string; versionId: string }
@@ -311,13 +363,32 @@ function parseEgress(value: unknown): Egress {
 function parseRoutingRule(value: unknown): RoutingRule {
   const object = objectValue(value)
   const ingress = objectValue(object.ingress)
-  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), revision: numberValue(object.revision) }
+  const sourceScope = parseRoutingSourceScope(object.sourceScope)
+  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, ...(sourceScope ? { sourceScope } : {}), targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), revision: numberValue(object.revision) }
+}
+
+function parseRoutingSourceScope(value: unknown): RoutingSourceScope | undefined {
+  const object = objectValue(value)
+  const kind = stringValue(object.kind)
+  if (!['device', 'ip', 'interface', 'interface-list', 'all'].includes(kind)) return undefined
+  const name = stringValue(object.name).trim()
+  const interfaces = stringArray(object.interfaces)
+  const interfaceLists = stringArray(object.interfaceLists)
+  const excludePrefixes = stringArray(object.excludePrefixes)
+  const scope: RoutingSourceScope = { kind: kind as RoutingSourceKind }
+  if (name) scope.name = name
+  if (interfaces.length) scope.interfaces = interfaces
+  if (interfaceLists.length) scope.interfaceLists = interfaceLists
+  if (excludePrefixes.length) scope.excludePrefixes = excludePrefixes
+  return scope
 }
 
 function parseDiscovery(value: unknown): PolicyDiscovery {
   const object = objectValue(value)
+  const snapshot = objectValue(object.snapshot)
   return {
     available: booleanValue(object.available), reason: stringValue(object.reason) || undefined,
+    snapshot: { fingerprint: stringValue(snapshot.fingerprint) },
     warnings: stringArray(object.warnings),
     wans: Array.isArray(object.wans) ? object.wans.map((raw) => {
       const wan = objectValue(raw)
@@ -332,6 +403,44 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
         name: stringValue(candidate.name), kind: stringValue(candidate.kind), include: stringArray(candidate.include), exclude: stringArray(candidate.exclude), staticMembers: stringArray(candidate.staticMembers), dynamicMembers: booleanValue(candidate.dynamicMembers), frozen: booleanValue(candidate.frozen), addresses: stringArray(candidate.addresses), reason: stringValue(candidate.reason), coveredBy: stringArray(candidate.coveredBy), default: booleanValue(candidate.default), dynamic: booleanValue(candidate.dynamic), running: booleanValue(candidate.running),
       }
     }) : [],
+  }
+}
+
+function parseSourceSelectors(value: unknown): PolicySourceSelectors {
+  const object = objectValue(value)
+  const snapshot = objectValue(object.snapshot)
+  return {
+    available: booleanValue(object.available),
+    factStatus: stringValue(object.factStatus) || 'unavailable',
+    recommendationStatus: stringValue(object.recommendationStatus) || 'unavailable',
+    reason: stringValue(object.reason) || undefined,
+    warnings: stringArray(object.warnings),
+    snapshot: { fingerprint: stringValue(snapshot.fingerprint) },
+    interfaces: Array.isArray(object.interfaces) ? object.interfaces.map((raw) => {
+      const item = objectValue(raw)
+      return {
+        name: stringValue(item.name), type: stringValue(item.type), kind: stringValue(item.kind),
+        running: booleanValue(item.running), disabled: booleanValue(item.disabled), dynamic: booleanValue(item.dynamic),
+        recommended: booleanValue(item.recommended), roleHints: stringArray(item.roleHints), warnings: stringArray(item.warnings),
+        reason: stringValue(item.reason), coveredBy: stringArray(item.coveredBy),
+      }
+    }) : [],
+    interfaceLists: Array.isArray(object.interfaceLists) ? object.interfaceLists.map((raw) => {
+      const item = objectValue(raw)
+      return {
+        name: stringValue(item.name), include: stringArray(item.include), exclude: stringArray(item.exclude), staticMembers: stringArray(item.staticMembers),
+        recommended: booleanValue(item.recommended), roleHints: stringArray(item.roleHints), warnings: stringArray(item.warnings),
+        reason: stringValue(item.reason), safetyCode: stringValue(item.safetyCode) || undefined,
+      }
+    }) : [],
+  }
+}
+
+function parsePolicyDiscoverySnapshot(value: unknown): PolicyDiscoverySnapshot {
+  const object = objectValue(value)
+  return {
+    discovery: parseDiscovery(object.discovery),
+    sourceSelectors: parseSourceSelectors(object.sourceSelectors),
   }
 }
 
@@ -407,6 +516,8 @@ export function previewApplicationPreset(deviceID: string, id: string) { return 
 export function materializeApplicationPreset(deviceID: string, id: string, previewId: string, requestedKinds: Array<'domain' | 'ip'> = []) { return requestJSON(`/api/application-presets/${encodeURIComponent(id)}/target-lists?previewId=${encodeURIComponent(previewId)}`, deviceID, jsonInit('POST', { requestedKinds }), (value) => (objectValue(value).targetLists as unknown[] ?? []).map(parseTargetList)) }
 
 export function fetchPolicyDiscovery(deviceID: string) { return requestJSON('/api/policy-routing/discovery', deviceID, { cache: 'no-store' }, parseDiscovery) }
+export function fetchPolicySourceSelectors(deviceID: string) { return requestJSON('/api/policy-routing/source-selectors', deviceID, { cache: 'no-store' }, parseSourceSelectors) }
+export function fetchPolicyDiscoverySnapshot(deviceID: string) { return requestJSON('/api/policy-routing/discovery-snapshot', deviceID, { cache: 'no-store' }, parsePolicyDiscoverySnapshot) }
 export function saveTrafficIngress(deviceID: string, trafficIngress: TrafficIngressScope) { return requestJSON('/api/policy-routing/traffic-ingress', deviceID, jsonInit('PUT', { trafficIngress }), (value) => { const object = objectValue(value); const scope = objectValue(object.trafficIngress ?? value); return { interfaceLists: stringArray(scope.interfaceLists), interfaces: stringArray(scope.interfaces) } }) }
 export function saveEgress(deviceID: string, egress: Egress) { return requestJSON(`/api/policy-routing/egresses${egress.id ? `/${encodeURIComponent(egress.id)}` : ''}`, deviceID, jsonInit(egress.id ? 'PUT' : 'POST', egress), parseEgress) }
 export function generatePolicyPlan(deviceID: string, kind: string, proposal?: PolicyPlanProposal) { return requestJSON('/api/policy-routing/plans', deviceID, jsonInit('POST', { kind, ...(proposal ? { proposal } : {}) }), parsePlanEnvelope) }

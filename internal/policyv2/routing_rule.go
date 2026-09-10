@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +42,7 @@ type RoutingRule struct {
 	Name          string              `json:"name"`
 	Subject       Subject             `json:"subject"`
 	Ingress       TrafficIngressScope `json:"ingress"`
+	SourceScope   *RoutingSourceScope `json:"sourceScope,omitempty"`
 	TargetListIDs []string            `json:"targetListIds"`
 	EgressID      string              `json:"egressId"`
 	Priority      int                 `json:"priority"`
@@ -89,11 +92,42 @@ func NormalizeRoutingRule(rule RoutingRule) (RoutingRule, error) {
 	}
 	rule.TargetListIDs = targets
 	var err error
+	if rule.SourceScope != nil {
+		normalizedScope, scopeErr := NormalizeRoutingSourceScope(rule.SourceScope)
+		if scopeErr != nil {
+			return RoutingRule{}, scopeErr
+		}
+		rule.SourceScope = normalizedScope
+		if normalizedScope.Kind == RoutingSourceInterface || normalizedScope.Kind == RoutingSourceInterfaceList || normalizedScope.Kind == RoutingSourceAll {
+			// A modern typed selector may omit the compatibility projection. An
+			// explicitly supplied non-all Subject remains invalid rather than
+			// being silently discarded.
+			if strings.TrimSpace(rule.Subject.Mode) == "" && len(rule.Subject.Members) == 0 && len(rule.Subject.Prefixes) == 0 {
+				rule.Subject = Subject{Mode: SubjectModeAll}
+			}
+		}
+	}
 	rule.Subject, err = subject.Normalize(rule.Subject)
 	if err != nil {
 		return RoutingRule{}, err
 	}
 	rule.Ingress = NormalizeTrafficIngressScopeUnvalidated(rule.Ingress)
+	if rule.SourceScope != nil {
+		expectedSubject, expectedIngress, projectionErr := RoutingSourceLegacyProjection(*rule.SourceScope, rule.Subject)
+		if projectionErr != nil {
+			return RoutingRule{}, projectionErr
+		}
+		if rule.SourceScope.Kind == RoutingSourceDevice || rule.SourceScope.Kind == RoutingSourceIP {
+			rule.Ingress = TrafficIngressScope{}
+		} else {
+			if HasTrafficIngress(rule.Ingress) && !reflect.DeepEqual(rule.Ingress, expectedIngress) {
+				return RoutingRule{}, fmt.Errorf("%w: typed source projection does not match source scope", ErrRoutingSourceScopeInvalid)
+			}
+			rule.Subject = expectedSubject
+			rule.Ingress = expectedIngress
+		}
+		return rule, nil
+	}
 	if (rule.Subject.Mode == SubjectModeAll || rule.Subject.Mode == SubjectModeExcluded) && !HasTrafficIngress(rule.Ingress) {
 		return RoutingRule{}, ErrRoutingExcludedRequiresIngress
 	}
@@ -152,8 +186,8 @@ func RoutingRuleConflicts(rules []RoutingRule, targets map[string][]SourceRule, 
 			if !right.Enabled || left.EgressID == right.EgressID {
 				continue
 			}
-			subjectOverlap, indeterminate := SubjectsOverlap(left.Subject, right.Subject)
-			if !subjectOverlap {
+			sourceOverlap, indeterminate := routingSourcesOverlap(left, right)
+			if !sourceOverlap {
 				if !indeterminate {
 					continue
 				}
@@ -185,13 +219,128 @@ func RoutingRuleSubjectWarnings(rules []RoutingRule) []RoutingRuleConflict {
 			if !right.Enabled || left.EgressID == right.EgressID {
 				continue
 			}
-			overlap, indeterminate := SubjectsOverlap(left.Subject, right.Subject)
+			overlap, indeterminate := routingSourcesOverlap(left, right)
 			if indeterminate && !overlap {
-				result = append(result, RoutingRuleConflict{RuleAID: left.ID, RuleBID: right.ID, EgressA: left.EgressID, EgressB: right.EgressID, Kind: "subject", Unknown: true, Reason: "terminal address evidence is insufficient to determine subject overlap"})
+				kind := "subject"
+				reason := "terminal address evidence is insufficient to determine subject overlap"
+				if routingSourceUsesInterfaceMatcher(left) || routingSourceUsesInterfaceMatcher(right) {
+					kind = "source"
+					reason = "source interface and address/list membership overlap cannot be proven from policy data"
+				}
+				result = append(result, RoutingRuleConflict{RuleAID: left.ID, RuleBID: right.ID, EgressA: left.EgressID, EgressB: right.EgressID, Kind: kind, Unknown: true, Reason: reason})
 			}
 		}
 	}
 	return result
+}
+
+type routingSourceOverlapKind string
+
+const (
+	routingSourceOverlapAddress   routingSourceOverlapKind = "address"
+	routingSourceOverlapInterface routingSourceOverlapKind = "interface"
+	routingSourceOverlapIngress   routingSourceOverlapKind = "legacy-ingress"
+	routingSourceOverlapAll       routingSourceOverlapKind = "all"
+)
+
+type routingSourceDescriptor struct {
+	kind      routingSourceOverlapKind
+	name      string
+	names     []string
+	listNames []string
+	subject   Subject
+	ingress   TrafficIngressScope
+}
+
+func routingSourceDescriptorForRule(rule RoutingRule) routingSourceDescriptor {
+	if rule.SourceScope != nil {
+		scope, err := NormalizeRoutingSourceScope(rule.SourceScope)
+		if err == nil {
+			switch scope.Kind {
+			case RoutingSourceDevice, RoutingSourceIP:
+				return routingSourceDescriptor{kind: routingSourceOverlapAddress, subject: rule.Subject}
+			case RoutingSourceInterface:
+				return routingSourceDescriptor{kind: routingSourceOverlapInterface, names: scope.Interfaces, listNames: scope.InterfaceLists}
+			case RoutingSourceInterfaceList:
+				return routingSourceDescriptor{kind: routingSourceOverlapInterface, listNames: []string{scope.Name}, name: scope.Name}
+			case RoutingSourceAll:
+				return routingSourceDescriptor{kind: routingSourceOverlapAll}
+			}
+		}
+		return routingSourceDescriptor{kind: routingSourceOverlapAddress, subject: rule.Subject}
+	}
+	if rule.Subject.Mode == SubjectModeSelected {
+		return routingSourceDescriptor{kind: routingSourceOverlapAddress, subject: rule.Subject}
+	}
+	return routingSourceDescriptor{kind: routingSourceOverlapIngress, subject: rule.Subject, ingress: NormalizeTrafficIngressScopeUnvalidated(rule.Ingress)}
+}
+
+func routingSourceUsesInterfaceMatcher(rule RoutingRule) bool {
+	descriptor := routingSourceDescriptorForRule(rule)
+	return descriptor.kind == routingSourceOverlapInterface || descriptor.kind == routingSourceOverlapIngress
+}
+
+func routingSourcesOverlap(left, right RoutingRule) (overlap, indeterminate bool) {
+	leftSource := routingSourceDescriptorForRule(left)
+	rightSource := routingSourceDescriptorForRule(right)
+	if leftSource.kind == routingSourceOverlapAll || rightSource.kind == routingSourceOverlapAll {
+		return true, false
+	}
+	if leftSource.kind == routingSourceOverlapAddress && rightSource.kind == routingSourceOverlapAddress {
+		return SubjectsOverlap(leftSource.subject, rightSource.subject)
+	}
+	if leftSource.kind == routingSourceOverlapInterface && rightSource.kind == routingSourceOverlapInterface {
+		if routingSourceNamesIntersect(leftSource.names, rightSource.names) || routingSourceNamesIntersect(leftSource.listNames, rightSource.listNames) {
+			return true, false
+		}
+		// An interface list may still contain the other side's interfaces;
+		// membership is live RouterOS state and stays a warning boundary.
+		if len(leftSource.listNames) > 0 || len(rightSource.listNames) > 0 {
+			return false, true
+		}
+		return false, false
+	}
+	if leftSource.kind == routingSourceOverlapIngress && rightSource.kind == routingSourceOverlapIngress {
+		return SubjectsOverlap(leftSource.subject, rightSource.subject)
+	}
+	if leftSource.kind == routingSourceOverlapIngress {
+		return routingLegacyIngressMatchesDirect(leftSource.ingress, rightSource)
+	}
+	if rightSource.kind == routingSourceOverlapIngress {
+		return routingLegacyIngressMatchesDirect(rightSource.ingress, leftSource)
+	}
+	// An interface selector versus an address selector, or an interface
+	// versus a list, requires live topology/membership knowledge. It is a
+	// warning boundary, never a guessed blocker.
+	return false, true
+}
+
+func routingLegacyIngressMatchesDirect(ingress TrafficIngressScope, direct routingSourceDescriptor) (bool, bool) {
+	switch direct.kind {
+	case routingSourceOverlapInterface:
+		for _, name := range ingress.Interfaces {
+			if slices.Contains(direct.names, name) {
+				return true, false
+			}
+		}
+		for _, name := range ingress.InterfaceLists {
+			if slices.Contains(direct.listNames, name) {
+				return true, false
+			}
+		}
+		return false, true
+	default:
+		return false, true
+	}
+}
+
+func routingSourceNamesIntersect(left, right []string) bool {
+	for _, name := range left {
+		if slices.Contains(right, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func SubjectsOverlap(left, right Subject) (overlap, indeterminate bool) {
