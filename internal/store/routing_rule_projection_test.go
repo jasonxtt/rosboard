@@ -197,6 +197,86 @@ func TestSelectedRoutingRuleUsesSourceOnlyWithoutTrafficIngress(t *testing.T) {
 	}
 }
 
+func TestCanonicalInterfaceSourceIgnoresGlobalTrafficIngressEdits(t *testing.T) {
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	repository := storage.PolicyRepository()
+	ctx := context.Background()
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["LAN"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveEgress(ctx, policyv2.Egress{
+		ID: "wan-canonical-interface", Name: "Canonical interface WAN", Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "198.51.100.1", RouteTable: "canonical-interface"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repository.SaveTargetList(ctx, policyv2.TargetList{ID: "canonical-interface-target", Name: "Canonical interface target", Kind: policyv2.KindIP, SourceType: policyv2.TargetSourceTypeManual, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SavePendingTargetListVersion(ctx, policyv2.TargetListVersion{ID: "canonical-interface-version", TargetListID: target.ID, SHA256: "canonical-interface", CompressedYAML: []byte("ip"), State: "pending"}, []policyv2.TargetListRule{{RuleType: "IP-CIDR", Domain: "203.0.113.0/24"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "canonical-interface-rule", Name: "Canonical interface", EgressID: "wan-canonical-interface", TargetListIDs: []string{target.ID}, Enabled: true,
+		SourceScope: &policyv2.RoutingSourceScope{Kind: policyv2.RoutingSourceInterface, Name: "bridge1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := policyv2.BuildDesired(ctx, repository, newPolicyV2FakeRouter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalInterfaceSourceDesired(t, before)
+	stateBefore, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This name is deliberately absent from the fake discovery candidate set.
+	// A legacy global edit must remain compatibility state and must not become a
+	// source gate for the canonical per-rule matcher.
+	if _, err := repository.SaveTrafficIngress(ctx, []byte(`{"interfaceLists":["false-negative"],"interfaces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := policyv2.BuildDesired(ctx, repository, newPolicyV2FakeRouter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalInterfaceSourceDesired(t, after)
+	stateAfter, err := repository.GetDeviceState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateAfter.DesiredRevision != stateBefore.DesiredRevision {
+		t.Fatalf("global legacy edit changed canonical desired revision: before=%d after=%d", stateBefore.DesiredRevision, stateAfter.DesiredRevision)
+	}
+	if before.Hash != after.Hash {
+		t.Fatalf("global legacy edit changed canonical desired hash: before=%s after=%s", before.Hash, after.Hash)
+	}
+}
+
+func assertCanonicalInterfaceSourceDesired(t *testing.T, desired policyv2.DesiredResult) {
+	t.Helper()
+	if len(desired.Blockers) != 0 {
+		t.Fatalf("canonical interface source was blocked by global ingress state: %#v", desired.Blockers)
+	}
+	connections := desiredObjectsByLogicalPrefix(desired.Objects, "routing-rule-connection:canonical-interface-rule:")
+	if len(connections) != 1 || connections[0].Fields["in-interface"] != "bridge1" || connections[0].Fields["in-interface-list"] != "" {
+		t.Fatalf("canonical interface matcher was not kept direct: %#v", connections)
+	}
+	for _, object := range desired.Objects {
+		if strings.HasPrefix(object.LogicalID, "traffic-ingress:") {
+			t.Fatalf("canonical source unexpectedly created a legacy aggregate ingress object: %#v", object)
+		}
+	}
+}
+
 func TestRoutingRulesWithDifferentIngressUseDifferentExecutionGroups(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {

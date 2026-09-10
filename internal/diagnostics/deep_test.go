@@ -149,6 +149,33 @@ func TestDeepKeepsOptionalRouterOSFailuresInSnapshot(t *testing.T) {
 	}
 }
 
+func TestDeepOnlyWireGuardFindingDescribesRecommendationNotAvailability(t *testing.T) {
+	reader := deepTestTopologyReader()
+	reader.objects[routeros.ReadMenuInterface] = []routeros.RouterOSObject{{"name": "wireguard1", "type": "wg", "running": "true"}}
+	reader.objects[routeros.ReadMenuInterfaceList] = nil
+	reader.objects[routeros.ReadMenuInterfaceListMember] = nil
+	reader.objects[routeros.ReadMenuBridgePort] = nil
+	reader.objects[routeros.ReadMenuIPAddress] = []routeros.RouterOSObject{{"interface": "wireguard1", "address": "10.66.0.1/24"}}
+
+	report := (Runner{Device: deepTestDevice(), PolicyReader: reader}).Deep(context.Background())
+	for _, finding := range report.Findings {
+		if finding.ID != "topology.deep" {
+			continue
+		}
+		if finding.Status != StatusWarning || finding.AffectsOverall {
+			t.Fatalf("topology finding = %#v, want non-blocking warning", finding)
+		}
+		if !strings.Contains(finding.Summary, "推荐") || !strings.Contains(finding.Summary, "不等于策略路由不可用") {
+			t.Fatalf("summary does not describe recommendation-only impact: %q", finding.Summary)
+		}
+		if strings.Contains(finding.Summary, "候选只有") {
+			t.Fatalf("summary still presents candidate availability as the product impact: %q", finding.Summary)
+		}
+		return
+	}
+	t.Fatal("topology finding not found")
+}
+
 func TestDeepTimeoutReturnsPartialEvidenceWithoutPanicking(t *testing.T) {
 	reader := deepTestTopologyReader()
 	reader.blockMenu = routeros.ReadMenuInterface

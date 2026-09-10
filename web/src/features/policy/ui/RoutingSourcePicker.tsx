@@ -46,7 +46,7 @@ export function RoutingSourcePicker({ sourceKind, sourceName, sourceSelectors, s
   return <section className="pol-section">
     <h4 className="pol-section-title">来源范围</h4>
     {sourceKind === 'legacy' ? <>
-      <p className="pol-hint">这是旧规则的兼容编辑模式。保留原有 Subject + TrafficIngress 语义；新规则请使用下面的 typed source scope。</p>
+      <p className="pol-hint">这是旧规则的兼容编辑模式，仅保留原有 Subject + TrafficIngress matcher 语义；它不是新规则的来源资格门。新规则请使用下面的 typed source scope。</p>
       <LegacyIngressPicker discovery={discovery} trafficIngress={trafficIngress} selectedLists={selectedLists} subject={subject} busy={busy} onIngress={onIngress} />
       <SubjectSelector terminals={terminals} value={subject} allowExcluded excludedDisabled={!hasTrafficIngress(trafficIngress)} requireObservedAddress onChange={onSubject} />
     </> : <>
@@ -90,7 +90,7 @@ function hasTrafficIngress(scope: TrafficIngressScope) {
 function LegacyIngressPicker({ discovery, trafficIngress, selectedLists, subject, busy, onIngress }: { discovery: PolicyDiscovery | null; trafficIngress: TrafficIngressScope; selectedLists: Set<string>; subject: Subject; busy: boolean; onIngress: (candidate: PolicyDiscovery['trafficIngress'][number]) => void }) {
   const kindLabel: Record<string, string> = { 'interface-list': '接口列表', bridge: 'Bridge', vlan: 'VLAN', wireguard: 'WireGuard', vpn: 'VPN', tunnel: '隧道', physical: '物理接口' }
   return <>
-    <p className="pol-hint">旧规则入口兼容层：仅用于保留已有 Subject + ingress 语义。</p>
+    <p className="pol-hint">旧规则入口兼容层：仅用于保留已有 Subject + ingress 语义；推荐分析缺失不会改变已保存的旧 matcher。</p>
     <div className="pol-choice-list">
       {(discovery?.trafficIngress ?? []).map((candidate) => {
         const selected = candidate.kind === 'interface-list' ? trafficIngress.interfaceLists.includes(candidate.name) : trafficIngress.interfaces.includes(candidate.name)
@@ -100,7 +100,7 @@ function LegacyIngressPicker({ discovery, trafficIngress, selectedLists, subject
           <span><strong>{candidate.name}</strong><small>{kindLabel[candidate.kind] ?? candidate.kind}{candidate.addresses.length ? ` · ${candidate.addresses.join(', ')}` : ''}{candidate.reason ? ` · ${candidate.reason}` : ''}</small></span>
         </label>
       })}
-      {discovery && !discovery.trafficIngress.length ? <p className="pol-hint">没有发现旧版入口候选。</p> : null}
+      {discovery && !discovery.trafficIngress.length ? <p className="pol-hint">没有发现旧版入口推荐；已保存的旧入口仍按原有 matcher 语义保留，创建新规则请使用 typed source。</p> : null}
     </div>
     {(subject.mode === 'all' || subject.mode === 'excluded') && !hasTrafficIngress(trafficIngress) ? <Notice tone="warn">旧规则的全部/排除来源仍需要保留有效 TrafficIngress。</Notice> : null}
   </>

@@ -162,13 +162,13 @@ func endpointPurpose(menu routeros.ReadMenu) string {
 	case routeros.ReadMenuInterface:
 		return "提供接口名称、类型和启用状态，供 WAN 与策略入口识别共用。"
 	case routeros.ReadMenuInterfaceList:
-		return "解析 LAN/用户接口列表和策略入口候选列表。"
+		return "解析 LAN/用户接口列表和策略入口推荐所需证据。"
 	case routeros.ReadMenuInterfaceListMember:
-		return "解析接口列表成员和候选覆盖关系。"
+		return "解析接口列表成员和推荐覆盖关系。"
 	case routeros.ReadMenuBridgePort:
 		return "识别物理接口是否为 Bridge 从端口。"
 	case routeros.ReadMenuIPAddress, routeros.ReadMenuIPv6Address:
-		return "提供接口地址证据，用于候选展示和角色解释。"
+		return "提供接口地址证据，用于推荐展示和角色解释。"
 	case routeros.ReadMenuIPRoute, routeros.ReadMenuIPv6Route:
 		return "提供默认路由和即时出接口证据，用于 WAN 排除。"
 	case routeros.ReadMenuIPDHCPClient, routeros.ReadMenuIPv6DHCPClient:
@@ -278,15 +278,15 @@ func (r Runner) Deep(ctx context.Context) DeepReport {
 			finding.Recommendation = "查看快照读取错误和 Decision Trace，确认是否需要补充 RouterOS 权限。"
 		case len(discovery.TrafficIngress) == 0:
 			finding.Status = StatusWarning
-			finding.Summary = "未发现可用的策略入口候选。"
-			finding.Recommendation = "查看每个接口的 Decision Trace，确认接口列表、Bridge 和 WAN 路由证据。"
+			finding.Summary = "当前没有可推荐的策略入口；这不等于策略路由不可用。"
+			finding.Recommendation = "查看每个接口的 Decision Trace，确认接口列表、Bridge 和 WAN 路由证据；创建新规则时仍可直接选择 RouterOS 来源事实。"
 		case onlyWireGuard:
 			finding.Status = StatusWarning
-			finding.Summary = "当前策略入口候选只有 WireGuard。"
-			finding.Recommendation = "查看被排除的 Bridge、物理接口和 WAN 证据。"
+			finding.Summary = "当前 rosboard 推荐的策略入口只有 WireGuard，可能表示拓扑识别异常；这不等于策略路由不可用。"
+			finding.Recommendation = "查看被排除的 Bridge、物理接口和 WAN 证据；需要时直接选择真实 RouterOS 接口或接口列表，应用前会再次执行 fresh preflight。"
 		default:
 			finding.Status = StatusOK
-			finding.Summary = "网络拓扑和策略入口候选已完成全面体检。"
+			finding.Summary = "网络拓扑和策略入口推荐分析已完成全面体检。"
 		}
 	}
 	report.Findings = append(report.Findings, finding)

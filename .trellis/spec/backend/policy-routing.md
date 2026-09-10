@@ -129,9 +129,12 @@ TargetList` aggregate is sufficient, and no duplicate persistent
 
 RoutingRule owns a narrow per-rule ingress scope. `all` and `excluded` require
 an ingress guard; `selected` is source-only and may omit ingress. Existing
-device-global TrafficIngress is migration/default compatibility only and must
-not remain a second writable runtime authority. Execution groups must include
-normalized ingress scope in their grouping boundary.
+device-global TrafficIngress is migration/default compatibility state only and
+must not remain a second writable runtime authority. Its legacy read/write
+endpoint may remain for old clients, but changing that global value must not
+rewrite or block a canonical per-rule `sourceScope`; typed rules use their own
+source matcher and live preflight. Execution groups must include normalized
+ingress scope in their grouping boundary.
 
 Routing and Access are separate execution domains. Implementers must use
 domain facts, not an operation classifier over a combined desired graph:
