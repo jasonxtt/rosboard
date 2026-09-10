@@ -214,11 +214,12 @@ func sensitiveKey(key string) bool {
 }
 
 var (
-	bearerPattern     = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
-	basicPattern      = regexp.MustCompile(`(?i)\bBasic\s+[A-Za-z0-9+/=]+`)
-	deviceIDPattern   = regexp.MustCompile(`(?i)(device[-_ ]?id)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
-	dataDirPattern    = regexp.MustCompile(`(?i)(data[-_ ]?dir)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
-	assignmentPattern = regexp.MustCompile(`(?i)(password|passwd|passphrase|authorization|cookie|session|token|secret|private[-_ ]?key|preshared[-_ ]?key|api[-_ ]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
+	bearerPattern        = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
+	basicPattern         = regexp.MustCompile(`(?i)\bBasic\s+[A-Za-z0-9+/=]+`)
+	deviceIDPattern      = regexp.MustCompile(`(?i)(device[-_ ]?id)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
+	dataDirPattern       = regexp.MustCompile(`(?i)(data[-_ ]?dir)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
+	dataDirPhrasePattern = regexp.MustCompile(`(?i)(\busing\s+data\s+dir\s+)([^\s,;]+)`)
+	assignmentPattern    = regexp.MustCompile(`(?i)(password|passwd|passphrase|authorization|cookie|session|token|secret|private[-_ ]?key|preshared[-_ ]?key|api[-_ ]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
 )
 
 func redactSensitiveText(value string) string {
@@ -237,6 +238,13 @@ func redactSensitiveText(value string) string {
 			pathValue = pathValue[1 : len(pathValue)-1]
 		}
 		return parts[1] + parts[2] + quote + redactDataDir(pathValue) + quote
+	})
+	value = dataDirPhrasePattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := dataDirPhrasePattern.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		return parts[1] + redactDataDir(parts[2])
 	})
 	return assignmentPattern.ReplaceAllString(value, "$1$2[REDACTED]")
 }
