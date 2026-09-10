@@ -84,6 +84,11 @@ func BuildDiagnosticExport(report DeepReport, recentLogs string) ([]byte, string
 			"Secret",
 			"WireGuard private key",
 			"Other credentials and private keys",
+			"Public IPv4",
+			"Global IPv6",
+			"IPv6 interface identifiers",
+			"Device identifier",
+			"Local absolute data path",
 		},
 		Limits: ExportLimits{
 			MaxZipBytes: maxExportZipBytes,
@@ -162,6 +167,16 @@ func marshalSanitizedJSON(value any) ([]byte, error) {
 }
 
 func sanitizeJSONValue(key string, value any) any {
+	normalizedKey := normalizedJSONKey(key)
+	if normalizedKey == "deviceid" {
+		return "[REDACTED_DEVICE_ID]"
+	}
+	if normalizedKey == "datadir" {
+		if text, ok := value.(string); ok {
+			return redactDataDir(text)
+		}
+		return "[REDACTED_PATH]"
+	}
 	if sensitiveKey(key) {
 		return "[REDACTED]"
 	}
@@ -179,14 +194,14 @@ func sanitizeJSONValue(key string, value any) any {
 		}
 		return clean
 	case string:
-		return redactSensitiveText(typed)
+		return sanitizeExportString(typed)
 	default:
 		return value
 	}
 }
 
 func sensitiveKey(key string) bool {
-	normalized := strings.ToLower(strings.NewReplacer("-", "", "_", "", " ", "", ".", "").Replace(key))
+	normalized := normalizedJSONKey(key)
 	for _, marker := range []string{
 		"password", "passwd", "passphrase", "authorization", "cookie", "session",
 		"token", "secret", "privatekey", "presharedkey", "apikey", "credential",
@@ -201,17 +216,33 @@ func sensitiveKey(key string) bool {
 var (
 	bearerPattern     = regexp.MustCompile(`(?i)\bBearer\s+[^\s,;]+`)
 	basicPattern      = regexp.MustCompile(`(?i)\bBasic\s+[A-Za-z0-9+/=]+`)
+	deviceIDPattern   = regexp.MustCompile(`(?i)(device[-_ ]?id)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
+	dataDirPattern    = regexp.MustCompile(`(?i)(data[-_ ]?dir)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
 	assignmentPattern = regexp.MustCompile(`(?i)(password|passwd|passphrase|authorization|cookie|session|token|secret|private[-_ ]?key|preshared[-_ ]?key|api[-_ ]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
 )
 
 func redactSensitiveText(value string) string {
 	value = bearerPattern.ReplaceAllString(value, "Bearer [REDACTED]")
 	value = basicPattern.ReplaceAllString(value, "Basic [REDACTED]")
+	value = deviceIDPattern.ReplaceAllString(value, "$1$2"+redactedDeviceID)
+	value = dataDirPattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := dataDirPattern.FindStringSubmatch(match)
+		if len(parts) != 4 {
+			return match
+		}
+		pathValue := parts[3]
+		quote := ""
+		if len(pathValue) >= 2 && ((pathValue[0] == '"' && pathValue[len(pathValue)-1] == '"') || (pathValue[0] == '\'' && pathValue[len(pathValue)-1] == '\'')) {
+			quote = pathValue[:1]
+			pathValue = pathValue[1 : len(pathValue)-1]
+		}
+		return parts[1] + parts[2] + quote + redactDataDir(pathValue) + quote
+	})
 	return assignmentPattern.ReplaceAllString(value, "$1$2[REDACTED]")
 }
 
 func boundRecentLog(value string) string {
-	value = redactSensitiveText(value)
+	value = sanitizeExportString(value)
 	lines := strings.Split(value, "\n")
 	if len(lines) > maxExportLogLines {
 		lines = lines[len(lines)-maxExportLogLines:]
