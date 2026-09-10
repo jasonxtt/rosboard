@@ -9,6 +9,9 @@ type EditorState = { rule: RoutingRule | null; egress: Egress | null }
 function jobID(value: { jobId?: string; job?: { id: string } }) { return value.jobId ?? value.job?.id ?? '' }
 
 function subjectLabel(rule: RoutingRule) {
+  if (rule.sourceScope?.kind === 'interface') return `接口 ${rule.sourceScope.name || '未命名'}`
+  if (rule.sourceScope?.kind === 'interface-list') return `接口列表 ${rule.sourceScope.name || '未命名'}`
+  if (rule.sourceScope?.kind === 'all') return '全部来源（安全门延后）'
   if (rule.subject.mode === 'all') return `${[...rule.ingress.interfaceLists, ...rule.ingress.interfaces].join('、') || '入口'} 全部`
   const prefix = `${rule.subject.members.length} 台设备${rule.subject.prefixes.length ? ` + ${rule.subject.prefixes.length} 个地址范围` : ''}`
   return rule.subject.mode === 'excluded' ? `${[...rule.ingress.interfaceLists, ...rule.ingress.interfaces].join('、') || '入口'} 排除 ${prefix}` : prefix

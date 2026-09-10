@@ -7,6 +7,45 @@ export type { AccessSchedule, AccessScheduleMode, AccessTimeWindow, AccessWeekda
 
 export type TrafficIngressScope = { interfaceLists: string[]; interfaces: string[] }
 
+export type RoutingSourceKind = 'device' | 'ip' | 'interface' | 'interface-list' | 'all'
+export type RoutingSourceScope = { kind: RoutingSourceKind; name?: string }
+
+export type SourceSelectorInterface = {
+  name: string
+  type: string
+  kind: string
+  running: boolean
+  disabled: boolean
+  dynamic: boolean
+  recommended: boolean
+  roleHints: string[]
+  warnings: string[]
+  reason: string
+  coveredBy: string[]
+}
+
+export type SourceSelectorInterfaceList = {
+  name: string
+  include: string[]
+  exclude: string[]
+  staticMembers: string[]
+  recommended: boolean
+  roleHints: string[]
+  warnings: string[]
+  reason: string
+  safetyCode?: string
+}
+
+export type PolicySourceSelectors = {
+  available: boolean
+  factStatus: 'available' | 'partial' | 'unavailable' | string
+  recommendationStatus: 'available' | 'partial' | 'unavailable' | string
+  reason?: string
+  warnings: string[]
+  interfaces: SourceSelectorInterface[]
+  interfaceLists: SourceSelectorInterfaceList[]
+}
+
 export type PolicyTerminal = {
   id: string
   displayName: string
@@ -99,6 +138,7 @@ export type RoutingRule = {
   name: string
   subject: Subject
   ingress: TrafficIngressScope
+  sourceScope?: RoutingSourceScope
   targetListIds: string[]
   egressId: string
   priority: number
@@ -311,7 +351,16 @@ function parseEgress(value: unknown): Egress {
 function parseRoutingRule(value: unknown): RoutingRule {
   const object = objectValue(value)
   const ingress = objectValue(object.ingress)
-  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), revision: numberValue(object.revision) }
+  const sourceScope = parseRoutingSourceScope(object.sourceScope)
+  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, ...(sourceScope ? { sourceScope } : {}), targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), revision: numberValue(object.revision) }
+}
+
+function parseRoutingSourceScope(value: unknown): RoutingSourceScope | undefined {
+  const object = objectValue(value)
+  const kind = stringValue(object.kind)
+  if (!['device', 'ip', 'interface', 'interface-list', 'all'].includes(kind)) return undefined
+  const name = stringValue(object.name).trim()
+  return name ? { kind: kind as RoutingSourceKind, name } : { kind: kind as RoutingSourceKind }
 }
 
 function parseDiscovery(value: unknown): PolicyDiscovery {
@@ -330,6 +379,34 @@ function parseDiscovery(value: unknown): PolicyDiscovery {
       const candidate = objectValue(raw)
       return {
         name: stringValue(candidate.name), kind: stringValue(candidate.kind), include: stringArray(candidate.include), exclude: stringArray(candidate.exclude), staticMembers: stringArray(candidate.staticMembers), dynamicMembers: booleanValue(candidate.dynamicMembers), frozen: booleanValue(candidate.frozen), addresses: stringArray(candidate.addresses), reason: stringValue(candidate.reason), coveredBy: stringArray(candidate.coveredBy), default: booleanValue(candidate.default), dynamic: booleanValue(candidate.dynamic), running: booleanValue(candidate.running),
+      }
+    }) : [],
+  }
+}
+
+function parseSourceSelectors(value: unknown): PolicySourceSelectors {
+  const object = objectValue(value)
+  return {
+    available: booleanValue(object.available),
+    factStatus: stringValue(object.factStatus) || 'unavailable',
+    recommendationStatus: stringValue(object.recommendationStatus) || 'unavailable',
+    reason: stringValue(object.reason) || undefined,
+    warnings: stringArray(object.warnings),
+    interfaces: Array.isArray(object.interfaces) ? object.interfaces.map((raw) => {
+      const item = objectValue(raw)
+      return {
+        name: stringValue(item.name), type: stringValue(item.type), kind: stringValue(item.kind),
+        running: booleanValue(item.running), disabled: booleanValue(item.disabled), dynamic: booleanValue(item.dynamic),
+        recommended: booleanValue(item.recommended), roleHints: stringArray(item.roleHints), warnings: stringArray(item.warnings),
+        reason: stringValue(item.reason), coveredBy: stringArray(item.coveredBy),
+      }
+    }) : [],
+    interfaceLists: Array.isArray(object.interfaceLists) ? object.interfaceLists.map((raw) => {
+      const item = objectValue(raw)
+      return {
+        name: stringValue(item.name), include: stringArray(item.include), exclude: stringArray(item.exclude), staticMembers: stringArray(item.staticMembers),
+        recommended: booleanValue(item.recommended), roleHints: stringArray(item.roleHints), warnings: stringArray(item.warnings),
+        reason: stringValue(item.reason), safetyCode: stringValue(item.safetyCode) || undefined,
       }
     }) : [],
   }
@@ -407,6 +484,7 @@ export function previewApplicationPreset(deviceID: string, id: string) { return 
 export function materializeApplicationPreset(deviceID: string, id: string, previewId: string, requestedKinds: Array<'domain' | 'ip'> = []) { return requestJSON(`/api/application-presets/${encodeURIComponent(id)}/target-lists?previewId=${encodeURIComponent(previewId)}`, deviceID, jsonInit('POST', { requestedKinds }), (value) => (objectValue(value).targetLists as unknown[] ?? []).map(parseTargetList)) }
 
 export function fetchPolicyDiscovery(deviceID: string) { return requestJSON('/api/policy-routing/discovery', deviceID, { cache: 'no-store' }, parseDiscovery) }
+export function fetchPolicySourceSelectors(deviceID: string) { return requestJSON('/api/policy-routing/source-selectors', deviceID, { cache: 'no-store' }, parseSourceSelectors) }
 export function saveTrafficIngress(deviceID: string, trafficIngress: TrafficIngressScope) { return requestJSON('/api/policy-routing/traffic-ingress', deviceID, jsonInit('PUT', { trafficIngress }), (value) => { const object = objectValue(value); const scope = objectValue(object.trafficIngress ?? value); return { interfaceLists: stringArray(scope.interfaceLists), interfaces: stringArray(scope.interfaces) } }) }
 export function saveEgress(deviceID: string, egress: Egress) { return requestJSON(`/api/policy-routing/egresses${egress.id ? `/${encodeURIComponent(egress.id)}` : ''}`, deviceID, jsonInit(egress.id ? 'PUT' : 'POST', egress), parseEgress) }
 export function generatePolicyPlan(deviceID: string, kind: string, proposal?: PolicyPlanProposal) { return requestJSON('/api/policy-routing/plans', deviceID, jsonInit('POST', { kind, ...(proposal ? { proposal } : {}) }), parsePlanEnvelope) }

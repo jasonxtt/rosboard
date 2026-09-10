@@ -47,6 +47,12 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 			return
 		}
 		s.servePolicyDiscovery(writer, request)
+	case "source-selectors":
+		if request.Method != http.MethodGet {
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.servePolicySourceSelectors(writer, request)
 	case "traffic-ingress", "lan-scope":
 		s.servePolicyTrafficIngress(writer, request)
 	case "egresses":
@@ -201,6 +207,54 @@ func (s *Server) servePolicyDiscovery(writer http.ResponseWriter, request *http.
 	result, err := scanner.Scan(request.Context(), device.device.ID)
 	if err != nil {
 		writePolicyJSON(writer, http.StatusOK, map[string]any{"available": false, "reason": err.Error(), "wans": []any{}, "trafficIngress": []any{}})
+		return
+	}
+	writePolicyJSON(writer, http.StatusOK, result)
+}
+
+// ---- Source selector facts ----
+
+func (s *Server) servePolicySourceSelectors(writer http.ResponseWriter, request *http.Request) {
+	device, ok := s.resolvePolicyDevice(writer, request)
+	if !ok {
+		return
+	}
+	if s.policySetupState(device.device) != "ready" {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               "runtime not ready",
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
+		return
+	}
+	applier := s.policy.ApplierFor(device.device.ID)
+	if applier == nil || applier.Reader == nil {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               "scanner not configured",
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
+		return
+	}
+	result, err := policyv2.NewScanner(applier.Reader).SourceSelectors(request.Context(), device.device.ID)
+	if err != nil {
+		writePolicyJSON(writer, http.StatusOK, policyv2.SourceSelectorDiscovery{
+			Device:               map[string]string{"id": device.device.ID},
+			FactStatus:           "unavailable",
+			RecommendationStatus: "unavailable",
+			Reason:               err.Error(),
+			Warnings:             []string{},
+			Interfaces:           []policyv2.SourceSelectorInterface{},
+			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
+		})
 		return
 	}
 	writePolicyJSON(writer, http.StatusOK, result)
