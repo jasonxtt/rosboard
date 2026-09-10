@@ -736,7 +736,11 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 				return nil, err
 			}
 		}
-		rule, err = policyv2.NormalizeRoutingRule(rule)
+		if existingRoutingRule != nil {
+			rule, err = policyv2.PrepareRoutingRuleWrite(rule, existingRoutingRule)
+		} else {
+			rule, err = policyv2.NormalizeRoutingRule(rule)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -856,7 +860,8 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 		}
 		proposal, err := s.preparePolicyPlanProposal(request.Context(), device, payload.Proposal)
 		if err != nil {
-			writePolicyJSON(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_policy_proposal", "error": err.Error()})
+			status, code := policyPlanProposalError(err)
+			writePolicyJSON(writer, status, map[string]any{"code": code, "error": err.Error()})
 			return
 		}
 		envelope, err := s.policy.GeneratePlanWithOptions(request.Context(), device.device.ID, payload.Kind, policyv2.PlanOptions{InternetEgresses: payload.InternetEgresses, Proposal: proposal})
@@ -930,6 +935,17 @@ func policyPlanApplyError(err error) (int, string) {
 		return http.StatusConflict, "job_conflict"
 	default:
 		return http.StatusInternalServerError, "apply_failed"
+	}
+}
+
+func policyPlanProposalError(err error) (int, string) {
+	switch {
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeConflict):
+		return http.StatusConflict, "routing_source_scope_conflict"
+	case errors.Is(err, policyv2.ErrRoutingSourceScopeInvalid):
+		return http.StatusUnprocessableEntity, "invalid_routing_source_scope"
+	default:
+		return http.StatusUnprocessableEntity, "invalid_policy_proposal"
 	}
 }
 
