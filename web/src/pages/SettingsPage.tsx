@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Card, Skeleton } from '../ui'
+import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel'
 import {
   AccountSecurityForm,
   CollectionForm,
@@ -11,8 +12,9 @@ import {
   useSettings,
 } from '../features/settings'
 import './settings.css'
+import { useShell } from '../shell/useShell'
 
-type SettingsSectionKey = 'devices' | 'collection' | 'ui' | 'account' | 'maintenance'
+type SettingsSectionKey = 'devices' | 'collection' | 'ui' | 'account' | 'maintenance' | 'diagnostics'
 
 const SECTIONS: Array<{ key: SettingsSectionKey; label: string; icon: string }> = [
   { key: 'devices', label: '设备管理', icon: '📡' },
@@ -20,6 +22,7 @@ const SECTIONS: Array<{ key: SettingsSectionKey; label: string; icon: string }> 
   { key: 'ui', label: '界面设置', icon: '🎨' },
   { key: 'account', label: '账号安全', icon: '🛡' },
   { key: 'maintenance', label: '维护设置', icon: '🧰' },
+  { key: 'diagnostics', label: '系统诊断', icon: '🩺' },
 ]
 
 const SETTINGS_HASH_RE = /^#\/settings(?:\/([a-z-]+))?$/
@@ -39,6 +42,8 @@ export default function SettingsPage() {
   const [section, setSection] = useState<SettingsSectionKey>(() => sectionFromHash())
   const { settings, loading, error, reload } = useSettings()
   const restartGate = useRestartingAction()
+  const { selectedDeviceId, devices } = useShell()
+  const selectedDevice = devices.find((device) => device.id === selectedDeviceId)
 
   // Browser back/forward and shell-written hashes drive the section too.
   useEffect(() => {
@@ -120,6 +125,8 @@ export default function SettingsPage() {
           ) : null}
 
           {settings && section === 'maintenance' ? <MaintenanceSection settings={settings} restartGate={restartGate} onChanged={() => void reload()} /> : null}
+
+          {section === 'diagnostics' ? <DiagnosticsPanel deviceId={selectedDeviceId} deviceName={selectedDevice?.name} /> : null}
         </div>
       </div>
     </div>

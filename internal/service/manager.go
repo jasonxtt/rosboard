@@ -35,7 +35,11 @@ type DeviceStatus struct {
 	MosDNS     *MosDNSStatus `json:"mosdns,omitempty"`
 }
 
-const fleetSnapshotStaleAfter = 90 * time.Second
+// SnapshotStaleAfter is the freshness boundary used when a cached monitor
+// snapshot is considered offline by the fleet view and diagnostics.
+const SnapshotStaleAfter = 90 * time.Second
+
+const fleetSnapshotStaleAfter = SnapshotStaleAfter
 
 const (
 	initialMonitorRetryDelay = 30 * time.Second

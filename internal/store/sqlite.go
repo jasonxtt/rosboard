@@ -226,6 +226,23 @@ func (s *Store) DeviceID() string {
 	return s.deviceID
 }
 
+// ReadOnlyHealthCheck verifies the already-open SQLite database without
+// changing application state. PRAGMA quick_check only reads the database and
+// is bounded by the caller's context.
+func (s *Store) ReadOnlyHealthCheck(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return errors.New("sqlite store is unavailable")
+	}
+	var result string
+	if err := s.db.QueryRowContext(ctx, `PRAGMA quick_check(1)`).Scan(&result); err != nil {
+		return fmt.Errorf("sqlite quick check: %w", err)
+	}
+	if result != "ok" {
+		return fmt.Errorf("sqlite quick check returned %q", result)
+	}
+	return nil
+}
+
 func (s *Store) initSchema() error {
 	for _, statement := range []string{
 		`PRAGMA journal_mode = WAL`,

@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Keep diagnostics/domain/API/store boundaries consistent with the repository layout."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Use the existing error and HTTP response contracts for the new read-only endpoint."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply required Go tests, vet, diff checks, and package-boundary constraints."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Avoid introducing diagnostic logging or leaking credentials in findings."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Place shared diagnostics API/types in the feature boundary and keep generated assets reproducible."}
+{"file":".trellis/spec/frontend/dual-ui.md","reason":"Implement the same diagnostics contract in Aurora and Compact while preserving isolated UI roots."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Implement cancellable feature-local server state and explicit loading/error/reload handling."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Parse the diagnostics response from unknown at one shared API boundary."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run the required frontend verification and provide user-led visual QA guidance."}
