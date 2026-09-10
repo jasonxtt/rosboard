@@ -187,6 +187,10 @@ func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 		s.serveUpdate(writer, request)
 		return
 	}
+	if isDiagnosticsPath(request.URL.Path) {
+		s.serveDiagnostics(writer, request)
+		return
+	}
 	if s.serveAuthAPI(writer, request) {
 		return
 	}

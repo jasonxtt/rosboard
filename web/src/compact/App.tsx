@@ -1,4 +1,5 @@
 import { UpdatePanel } from '../features/update/UpdatePanel'
+import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel'
 import { UI_OPTIONS, isUiVariant, switchUi, readPanelRecord, savePanelRecord, readRefreshPreference, readThemePreference, readLocal, writeLocal, removeLocal, readSession, writeSession, removeSession, resetSharedPanelPreferences, THEME_KEY, REFRESH_KEY, type UiVariant } from '../uiPreference'
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
@@ -59,7 +60,7 @@ import type {
 } from './lib/types'
 
 type IconName = 'overview' | 'status' | 'network' | 'terminal' | 'traffic' | 'policy' | 'runtime' | 'route' | 'settings' | 'refresh' | 'gripVertical' | 'chevronDown' | 'cpu' | 'memory' | 'connections' | 'shield' | 'router' | 'storage' | 'alert' | 'info' | 'check' | 'checkmark' | 'search' | 'clear' | 'eye' | 'eyeOff' | 'palette'
-type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance'
+type SettingsSection = 'connection' | 'collection' | 'ui' | 'account' | 'maintenance' | 'diagnostics'
 type PanelTheme = 'light' | 'dark'
 type PanelPreferences = { refreshMs: number; landingView: ActiveView; terminalFamily: TerminalFamily; theme: PanelTheme }
 type ChoiceMenuOption<T extends string | number> = { value: T; label: string; description?: string }
@@ -1309,6 +1310,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     { key: 'ui', label: '界面设置', icon: 'overview' },
     { key: 'account', label: '账号安全', icon: 'shield' },
     { key: 'maintenance', label: '维护设置', icon: 'storage' },
+    { key: 'diagnostics', label: '系统诊断', icon: 'alert' },
   ]
   const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
   const hostActive = ['target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
@@ -1943,6 +1945,8 @@ export function SettingsPage(props: {
 		  <FullResetZone onRestartingAction={props.onRestartingAction} />
         </section></>
       ) : null}
+
+      {props.activeSection === 'diagnostics' ? <DiagnosticsPanel deviceId={props.selectedDeviceID} deviceName={props.settings?.devices.find((device) => device.id === props.selectedDeviceID)?.name} /> : null}
 
 		{props.settings && props.activeSection === 'account' ? <AccountSettings username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} /> : null}
     </div>
