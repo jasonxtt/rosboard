@@ -243,6 +243,12 @@ func trafficIngressScopesForValidation(ctx context.Context, repository Repositor
 	result := make([]trafficIngressValidationScope, 0)
 	seen := make(map[string]bool)
 	for _, rule := range rules {
+		if rule.SourceScope != nil {
+			// Typed routing sources are validated by the live source preflight.
+			// The legacy TrafficIngress validator must not reintroduce candidate,
+			// WAN, disabled, or dynamic-interface admission rules for them.
+			continue
+		}
 		if !rule.Enabled || (rule.Subject.Mode != SubjectModeAll && rule.Subject.Mode != SubjectModeExcluded) {
 			continue
 		}

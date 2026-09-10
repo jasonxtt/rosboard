@@ -27,6 +27,9 @@ const (
 	// fact remains visible, but the current aggregate-list materializer must
 	// not turn it into a broad executable ingress matcher.
 	RoutingSourceInterfaceListAllDeferredCode = "routing_source_interface_list_all_deferred"
+	// RoutingSourceAllDeferredCode keeps the unconstrained first-class source
+	// visible in the model while its RouterOS chain-safety proof is deferred.
+	RoutingSourceAllDeferredCode = "routing_source_all_deferred"
 )
 
 // RoutingSourceScope stores only the typed discriminator and the selector name
@@ -56,6 +59,15 @@ func routingSourceInterfaceListAllDeferredIssue(logicalID string) PlanIssue {
 		Status:    "blocker",
 		LogicalID: logicalID,
 		Reason:    `InterfaceList("all") as a routing source is deferred until a safe matcher implementation is available`,
+	}
+}
+
+func routingSourceAllDeferredIssue(logicalID string) PlanIssue {
+	return PlanIssue{
+		Code:      RoutingSourceAllDeferredCode,
+		Status:    "blocker",
+		LogicalID: logicalID,
+		Reason:    `SourceScope("all") is deferred until RouterOS prerouting/output and loop-safety semantics are proven`,
 	}
 }
 

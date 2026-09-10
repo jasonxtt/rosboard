@@ -109,6 +109,64 @@ func TestRoutingRuleConflictsRequireSubjectTargetAndEgressOverlap(t *testing.T) 
 	}
 }
 
+func TestRoutingSourceConflictsKeepDirectSelectorsProvenAndCrossKindIndeterminate(t *testing.T) {
+	targets := map[string][]SourceRule{
+		"youtube": {{RuleType: "IP-CIDR", Domain: "192.0.2.0/24"}},
+	}
+	kinds := map[string]string{"youtube": KindIP}
+	base := func(id, egress string, scope *RoutingSourceScope, subject Subject) RoutingRule {
+		return RoutingRule{ID: id, EgressID: egress, TargetListIDs: []string{"youtube"}, Enabled: true, SourceScope: scope, Subject: subject}
+	}
+	all := Subject{Mode: SubjectModeAll}
+	for _, test := range []struct {
+		name       string
+		left       RoutingRule
+		right      RoutingRule
+		wantBlocks int
+		wantWarn   bool
+	}{
+		{
+			name:       "same interface is proven overlap",
+			left:       base("left", "wan-a", &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, all),
+			right:      base("right", "wan-b", &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, all),
+			wantBlocks: 1,
+		},
+		{
+			name:  "different interfaces are disjoint",
+			left:  base("left", "wan-a", &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, all),
+			right: base("right", "wan-b", &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "bridge1"}, all),
+		},
+		{
+			name:       "same interface list is proven overlap",
+			left:       base("left", "wan-a", &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, all),
+			right:      base("right", "wan-b", &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, all),
+			wantBlocks: 1,
+		},
+		{
+			name:     "interface and IP are warning only",
+			left:     base("left", "wan-a", &RoutingSourceScope{Kind: RoutingSourceInterface, Name: "wg1"}, all),
+			right:    base("right", "wan-b", &RoutingSourceScope{Kind: RoutingSourceIP}, Subject{Mode: SubjectModeSelected, Prefixes: []string{"192.0.2.10/32"}}),
+			wantWarn: true,
+		},
+		{
+			name:     "different interface lists are warning only",
+			left:     base("left", "wan-a", &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "LAN"}, all),
+			right:    base("right", "wan-b", &RoutingSourceScope{Kind: RoutingSourceInterfaceList, Name: "VPN"}, all),
+			wantWarn: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := len(RoutingRuleConflicts([]RoutingRule{test.left, test.right}, targets, kinds)); got != test.wantBlocks {
+				t.Fatalf("conflict count=%d, want %d", got, test.wantBlocks)
+			}
+			warnings := RoutingRuleSubjectWarnings([]RoutingRule{test.left, test.right})
+			if (len(warnings) > 0) != test.wantWarn {
+				t.Fatalf("warning count=%d, want warning=%v: %#v", len(warnings), test.wantWarn, warnings)
+			}
+		})
+	}
+}
+
 func TestDomainProjectionResolutionIsSeparateFromLogicalConflict(t *testing.T) {
 	targets := map[string][]SourceRule{
 		"video": {{RuleType: "DOMAIN-SUFFIX", Domain: "video.example"}},
