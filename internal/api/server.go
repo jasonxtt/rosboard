@@ -37,6 +37,7 @@ type Server struct {
 	mutationMu     sync.RWMutex
 	cfgMu          sync.RWMutex
 	deviceSaveMu   sync.Mutex
+	diagnosticsMu  sync.Mutex
 	cfg            config.Config
 	monitor        *service.Monitor
 	manager        *service.MonitorManager
@@ -57,6 +58,7 @@ type Server struct {
 	previews          map[string]policyPreviewEntry
 	presetPreviews    map[string]applicationPresetPreview
 	presetRegistry    *applicationpreset.Registry
+	deepDiagnostics   map[string]bool
 }
 
 func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Server {
