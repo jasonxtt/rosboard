@@ -70,6 +70,18 @@ type TrafficIngressCandidate struct {
 	Running        bool     `json:"running"`
 }
 
+// IngressDecision explains the existing traffic-ingress candidate decision
+// for one RouterOS interface or interface list. It is diagnostic evidence,
+// not a second candidate-selection algorithm: ScanWithTrace uses the same
+// builder as Scan and only records the branch that the builder already took.
+type IngressDecision struct {
+	Interface  string         `json:"interface"`
+	Result     string         `json:"result"`
+	ReasonCode string         `json:"reasonCode"`
+	Reason     string         `json:"reason"`
+	Evidence   map[string]any `json:"evidence,omitempty"`
+}
+
 type Scanner struct {
 	reader PolicyReader
 }
@@ -77,6 +89,21 @@ type Scanner struct {
 func NewScanner(reader PolicyReader) *Scanner { return &Scanner{reader: reader} }
 
 func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) {
+	discovery, err := s.scan(ctx, deviceID, nil)
+	return discovery, err
+}
+
+// ScanWithTrace returns the normal discovery result plus the decisions made
+// by the same traffic-ingress candidate builder. Keeping the trace beside the
+// existing builder makes it possible to inspect a live decision without
+// changing the business candidate result.
+func (s *Scanner) ScanWithTrace(ctx context.Context, deviceID string) (Discovery, []IngressDecision, error) {
+	trace := make([]IngressDecision, 0)
+	discovery, err := s.scan(ctx, deviceID, &trace)
+	return discovery, trace, err
+}
+
+func (s *Scanner) scan(ctx context.Context, deviceID string, trace *[]IngressDecision) (Discovery, error) {
 	if s == nil || s.reader == nil {
 		return Discovery{}, fmt.Errorf("policy scanner is not configured")
 	}
@@ -121,7 +148,10 @@ func (s *Scanner) Scan(ctx context.Context, deviceID string) (Discovery, error) 
 	lanInterfaces := explicitLANInterfaceMembers(lists, members, interfaces)
 	pppoeParents := pppoeParentInterfaces(pppoeClients)
 	wans := buildWANCandidates(interfaces, routes, lanInterfaces)
-	lan := buildTrafficIngressCandidates(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans, pppoeParents)
+	lan, decisions := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, append(ipv4Addresses, ipv6Addresses...), bridgePorts, bridgePortsAvailable, wans, pppoeParents, trace)
+	if trace != nil {
+		*trace = append(*trace, decisions...)
+	}
 	fingerprint, err := discoveryFingerprint(interfaces, resource, ipv4Routes, ipv6Routes, ipv4DHCP, ipv6DHCP, pppoeClients, lists, members, bridgePorts)
 	if err != nil {
 		return Discovery{}, err
@@ -348,6 +378,11 @@ func ingressUsableAddress(value string) bool {
 }
 
 func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool) []TrafficIngressCandidate {
+	result, _ := buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts, bridgePortsAvailable, wans, nonIngress, nil)
+	return result
+}
+
+func buildTrafficIngressCandidatesDetailed(interfaces, lists, members, addresses, bridgePorts []routeros.RouterOSObject, bridgePortsAvailable bool, wans []WANCandidate, nonIngress map[string]bool, trace *[]IngressDecision) ([]TrafficIngressCandidate, []IngressDecision) {
 	membersByList := make(map[string][]string)
 	dynamicByList := make(map[string]bool)
 	for _, member := range members {
@@ -371,9 +406,30 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 	}
 	resolvedLists := resolveInterfaceLists(lists, membersByList, interfaceByName)
 	result := make([]TrafficIngressCandidate, 0, len(lists)+len(interfaces))
+	decisions := make([]IngressDecision, 0, len(lists)+len(interfaces))
 	for _, list := range lists {
 		name := strings.TrimSpace(list["name"])
-		if name == "" || reservedInterfaceLists[strings.ToLower(name)] || isManagedComment(list["comment"]) {
+		if name == "" {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Result: "rejected", ReasonCode: "ingress.empty_interface_list",
+				Reason: "接口列表没有名称，因此不能作为策略入口候选。",
+			})
+			continue
+		}
+		if reservedInterfaceLists[strings.ToLower(name)] {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.reserved_interface_list",
+				Reason:   "RouterOS 内置接口列表不作为策略入口候选。",
+				Evidence: map[string]any{"kind": "interface-list"},
+			})
+			continue
+		}
+		if isManagedComment(list["comment"]) {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.managed_interface_list",
+				Reason:   "rosboard 管理的聚合接口列表由策略运行时内部使用，不作为用户入口候选。",
+				Evidence: map[string]any{"kind": "interface-list"},
+			})
 			continue
 		}
 		staticMembers := uniqueSorted(membersByList[name])
@@ -381,10 +437,23 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 		for _, member := range resolvedLists[name] {
 			candidateAddresses = append(candidateAddresses, addressesByInterface[member]...)
 		}
-		result = append(result, TrafficIngressCandidate{
+		candidate := TrafficIngressCandidate{
 			Name: name, Kind: "interface-list", Include: splitCSV(list["include"]), Exclude: splitCSV(list["exclude"]),
 			StaticMembers: staticMembers, DynamicMembers: dynamicByList[name], Frozen: false,
 			Addresses: uniqueSorted(candidateAddresses), Reason: "RouterOS 接口列表", Default: strings.EqualFold(name, "LAN"), Running: true,
+		}
+		result = append(result, candidate)
+		appendIngressDecision(&decisions, trace, IngressDecision{
+			Interface: name, Result: "accepted", ReasonCode: "ingress.accepted",
+			Reason: "RouterOS 接口列表作为策略入口候选。",
+			Evidence: map[string]any{
+				"kind":           candidate.Kind,
+				"include":        candidate.Include,
+				"exclude":        candidate.Exclude,
+				"staticMembers":  candidate.StaticMembers,
+				"dynamicMembers": candidate.DynamicMembers,
+				"addresses":      candidate.Addresses,
+			},
 		})
 	}
 	wanNames := make(map[string]bool)
@@ -394,18 +463,81 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 		}
 	}
 	bridgeSlaves := make(map[string]bool)
+	bridgeNamesByInterface := make(map[string][]string)
 	for _, port := range bridgePorts {
 		if !routerBool(port["disabled"], false) {
-			bridgeSlaves[port["interface"]] = true
+			interfaceName := strings.TrimSpace(port["interface"])
+			bridgeSlaves[interfaceName] = true
+			bridgeName := strings.TrimSpace(port["bridge"])
+			if interfaceName != "" && bridgeName != "" {
+				bridgeNamesByInterface[interfaceName] = append(bridgeNamesByInterface[interfaceName], bridgeName)
+			}
 		}
 	}
 	for _, object := range interfaces {
 		name := strings.TrimSpace(object["name"])
-		if name == "" || wanNames[name] || nonIngress[name] || routerBool(object["disabled"], false) || routerBool(object["dynamic"], false) {
+		if name == "" {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Result: "rejected", ReasonCode: "ingress.empty_interface_name",
+				Reason: "RouterOS 接口没有名称，因此不能作为策略入口候选。",
+			})
+			continue
+		}
+		if wanNames[name] {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.excluded_wan_evidence",
+				Reason:   "接口存在默认路由证据，被识别为 WAN 侧接口，因此未作为策略入口。",
+				Evidence: map[string]any{"type": object["type"], "routes": routesForWAN(wans, name)},
+			})
+			continue
+		}
+		if nonIngress[name] {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.excluded_wan_parent",
+				Reason:   "接口是 PPPoE 客户端的底层父接口，入口以 PPPoE 接口为准。",
+				Evidence: map[string]any{"type": object["type"], "pppoeParent": true},
+			})
+			continue
+		}
+		if routerBool(object["disabled"], false) {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.disabled",
+				Reason:   "接口已禁用，因此未作为策略入口候选。",
+				Evidence: map[string]any{"type": object["type"], "disabled": true},
+			})
+			continue
+		}
+		if routerBool(object["dynamic"], false) {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.dynamic",
+				Reason:   "动态接口不作为稳定的策略入口候选。",
+				Evidence: map[string]any{"type": object["type"], "dynamic": true},
+			})
 			continue
 		}
 		kind := trafficIngressInterfaceKind(object["type"])
-		if kind == "" || kind == "physical" && (!bridgePortsAvailable || bridgeSlaves[name]) {
+		if kind == "" {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.unsupported_interface",
+				Reason:   "接口类型不在当前策略入口识别范围内。",
+				Evidence: map[string]any{"type": object["type"]},
+			})
+			continue
+		}
+		if kind == "physical" && !bridgePortsAvailable {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.bridge_evidence_unavailable",
+				Reason:   "无法读取 Bridge 端口关系，为避免把 Bridge 从端口误选为入口，物理接口暂不纳入候选。",
+				Evidence: map[string]any{"type": object["type"], "bridgePortsAvailable": false},
+			})
+			continue
+		}
+		if kind == "physical" && bridgeSlaves[name] {
+			appendIngressDecision(&decisions, trace, IngressDecision{
+				Interface: name, Result: "rejected", ReasonCode: "ingress.bridge_slave",
+				Reason:   "接口属于 Bridge 的从端口，入口以 Bridge 接口为准。",
+				Evidence: map[string]any{"type": object["type"], "bridge": uniqueSorted(bridgeNamesByInterface[name])},
+			})
 			continue
 		}
 		coveredBy := make([]string, 0)
@@ -414,10 +546,22 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 				coveredBy = append(coveredBy, listName)
 			}
 		}
-		result = append(result, TrafficIngressCandidate{
+		candidate := TrafficIngressCandidate{
 			Name: name, Kind: kind, Addresses: uniqueSorted(addressesByInterface[name]), CoveredBy: uniqueSorted(coveredBy),
 			Reason: trafficIngressReason(kind), Dynamic: false,
 			Running: routerBool(object["running"], true) && !routerBool(object["disabled"], false),
+		}
+		result = append(result, candidate)
+		appendIngressDecision(&decisions, trace, IngressDecision{
+			Interface: name, Result: "accepted", ReasonCode: "ingress.accepted",
+			Reason: candidate.Reason,
+			Evidence: map[string]any{
+				"type":      object["type"],
+				"kind":      candidate.Kind,
+				"addresses": candidate.Addresses,
+				"coveredBy": candidate.CoveredBy,
+				"running":   candidate.Running,
+			},
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
@@ -429,7 +573,23 @@ func buildTrafficIngressCandidates(interfaces, lists, members, addresses, bridge
 		}
 		return result[i].Name < result[j].Name
 	})
-	return result
+	return result, decisions
+}
+
+func appendIngressDecision(decisions *[]IngressDecision, trace *[]IngressDecision, decision IngressDecision) {
+	if trace == nil {
+		return
+	}
+	*decisions = append(*decisions, decision)
+}
+
+func routesForWAN(wans []WANCandidate, name string) []WANRoute {
+	for _, wan := range wans {
+		if wan.Interface == name {
+			return append([]WANRoute(nil), wan.Routes...)
+		}
+	}
+	return []WANRoute{}
 }
 
 func resolveInterfaceLists(lists []routeros.RouterOSObject, direct map[string][]string, interfaces map[string]routeros.RouterOSObject) map[string][]string {

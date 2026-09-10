@@ -23,6 +23,8 @@ const (
 
 const ModeQuick = "quick"
 
+const ModeDeep = "deep"
+
 // Finding is intentionally independent from the aggregate report status:
 // optional modules may be unhealthy without failing rosboard as a whole.
 type Finding struct {

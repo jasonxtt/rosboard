@@ -3,6 +3,7 @@ package policyv2
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"rosboard/internal/routeros"
@@ -361,4 +362,108 @@ func TestDiscoveryReturnsOptionalReadWarningsWithPartialResults(t *testing.T) {
 	if err != nil || !discovery.Available || len(discovery.WANs) != 1 || len(discovery.Warnings) != 9 {
 		t.Fatalf("optional discovery failures were not preserved as warnings: discovery=%#v err=%v", discovery, err)
 	}
+}
+
+func TestDiscoveryTracePreservesCandidateResult(t *testing.T) {
+	reader := discoveryReader{
+		routeros.ReadMenuSystemResource: {{"board-name": "router", "version": "7.22.3"}},
+		routeros.ReadMenuInterface: {
+			{"name": "bridge-lan", "type": "bridge", "running": "true"},
+			{"name": "bridge-wan", "type": "bridge", "running": "true"},
+			{"name": "ether2", "type": "ether", "running": "true"},
+			{"name": "wireguard1", "type": "wg", "running": "true"},
+			{"name": "ether-disabled", "type": "ether", "running": "false", "disabled": "true"},
+			{"name": "loopback0", "type": "loopback", "running": "true"},
+		},
+		routeros.ReadMenuIPRoute: {
+			{"dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "immediate-gw": "192.0.2.1%bridge-wan", "routing-table": "main", "active": "true"},
+		},
+		routeros.ReadMenuIPv6Route:           {},
+		routeros.ReadMenuInterfaceList:       {{"name": "LAN"}},
+		routeros.ReadMenuInterfaceListMember: {{"list": "LAN", "interface": "bridge-lan"}},
+		routeros.ReadMenuBridgePort:          {{"bridge": "bridge-lan", "interface": "ether2"}},
+		routeros.ReadMenuIPAddress: {
+			{"interface": "bridge-lan", "address": "192.0.2.10/24"},
+			{"interface": "bridge-wan", "address": "198.51.100.2/24"},
+			{"interface": "wireguard1", "address": "10.66.0.1/24"},
+		},
+		routeros.ReadMenuIPv6Address:    {},
+		routeros.ReadMenuIPDHCPClient:   {},
+		routeros.ReadMenuIPv6DHCPClient: {},
+		routeros.ReadMenuPPPoEClient:    {},
+	}
+
+	plain, err := NewScanner(reader).Scan(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	traced, decisions, err := NewScanner(reader).ScanWithTrace(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plain, traced) {
+		t.Fatalf("trace changed discovery candidates: plain=%#v traced=%#v", plain, traced)
+	}
+
+	byName := make(map[string]IngressDecision, len(decisions))
+	for _, decision := range decisions {
+		if decision.Interface != "" {
+			byName[decision.Interface] = decision
+		}
+	}
+	checks := []struct {
+		name   string
+		code   string
+		result string
+	}{
+		{name: "bridge-lan", code: "ingress.accepted", result: "accepted"},
+		{name: "bridge-wan", code: "ingress.excluded_wan_evidence", result: "rejected"},
+		{name: "ether2", code: "ingress.bridge_slave", result: "rejected"},
+		{name: "wireguard1", code: "ingress.accepted", result: "accepted"},
+		{name: "ether-disabled", code: "ingress.disabled", result: "rejected"},
+		{name: "loopback0", code: "ingress.unsupported_interface", result: "rejected"},
+	}
+	for _, check := range checks {
+		decision, ok := byName[check.name]
+		if !ok || decision.ReasonCode != check.code || decision.Result != check.result {
+			t.Fatalf("decision for %s = %#v, want code=%s result=%s", check.name, decision, check.code, check.result)
+		}
+	}
+	if got := byName["ether2"].Evidence["bridge"]; !reflect.DeepEqual(got, []string{"bridge-lan"}) {
+		t.Fatalf("bridge evidence = %#v, want [bridge-lan]", got)
+	}
+}
+
+func TestDiscoveryTraceRecordsBridgeReadFailureWithoutChangingSafetyBehavior(t *testing.T) {
+	reader := discoveryErrorReader{
+		objects: map[routeros.ReadMenu][]routeros.RouterOSObject{
+			routeros.ReadMenuSystemResource:      {{"board-name": "router"}},
+			routeros.ReadMenuInterface:           {{"name": "ether1", "type": "ether", "running": "true"}},
+			routeros.ReadMenuIPRoute:             {},
+			routeros.ReadMenuIPv6Route:           {},
+			routeros.ReadMenuInterfaceList:       {},
+			routeros.ReadMenuInterfaceListMember: {},
+			routeros.ReadMenuIPAddress:           {{"interface": "ether1", "address": "192.0.2.10/24"}},
+			routeros.ReadMenuIPv6Address:         {},
+			routeros.ReadMenuIPDHCPClient:        {},
+			routeros.ReadMenuIPv6DHCPClient:      {},
+			routeros.ReadMenuPPPoEClient:         {},
+		},
+		errors: map[routeros.ReadMenu]error{
+			routeros.ReadMenuBridgePort: fmt.Errorf("bridge port unavailable"),
+		},
+	}
+	_, decisions, err := NewScanner(reader).ScanWithTrace(context.Background(), "edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decision := range decisions {
+		if decision.Interface == "ether1" {
+			if decision.ReasonCode != "ingress.bridge_evidence_unavailable" || decision.Result != "rejected" {
+				t.Fatalf("ether1 decision = %#v", decision)
+			}
+			return
+		}
+	}
+	t.Fatal("bridge evidence failure decision not found")
 }

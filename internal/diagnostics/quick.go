@@ -25,17 +25,19 @@ const (
 	diskErrorBytes      = 100 << 20
 )
 
-// Runner reads existing cached/service/repository state. It never calls a
-// RouterOS or MosDNS endpoint and never starts a refresh or update check.
+// Runner reads existing cached/service/repository state for Quick. Quick never
+// calls a RouterOS or MosDNS endpoint and never starts a refresh or update
+// check; Deep opts into one separate, read-only RouterOS snapshot.
 type Runner struct {
-	Config     config.Config
-	Device     config.DeviceConfig
-	Manager    *service.MonitorManager
-	Store      *store.Store
-	StoreError error
-	Updater    *update.Manager
-	Now        func() time.Time
-	StaleAfter time.Duration
+	Config       config.Config
+	Device       config.DeviceConfig
+	Manager      *service.MonitorManager
+	PolicyReader policyv2.PolicyReader
+	Store        *store.Store
+	StoreError   error
+	Updater      *update.Manager
+	Now          func() time.Time
+	StaleAfter   time.Duration
 }
 
 func (r Runner) Quick(ctx context.Context) Report {

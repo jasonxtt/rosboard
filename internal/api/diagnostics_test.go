@@ -83,6 +83,55 @@ func TestDiagnosticsRequiresDeviceAndGet(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsDeepEndpointReturnsSnapshotAndTrace(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/diagnostics/deep?device=edge", nil)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var payload struct {
+		Mode     string `json:"mode"`
+		DeviceID string `json:"deviceId"`
+		Snapshot struct {
+			Endpoints []struct {
+				Endpoint  string `json:"endpoint"`
+				ReadCount int    `json:"readCount"`
+			} `json:"endpoints"`
+		} `json:"snapshot"`
+		IngressTrace []struct {
+			ReasonCode string `json:"reasonCode"`
+		} `json:"ingressTrace"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode deep report: %v", err)
+	}
+	if payload.Mode != "deep" || payload.DeviceID != "edge" {
+		t.Fatalf("unexpected deep report identity: %#v", payload)
+	}
+	if len(payload.Snapshot.Endpoints) != 12 || len(payload.IngressTrace) == 0 {
+		t.Fatalf("deep report lacks snapshot/trace: %#v", payload)
+	}
+	for _, endpoint := range payload.Snapshot.Endpoints {
+		if endpoint.ReadCount != 1 {
+			t.Fatalf("endpoint %s read count = %d, want 1", endpoint.Endpoint, endpoint.ReadCount)
+		}
+	}
+}
+
+func TestDiagnosticsDeepRequiresPost(t *testing.T) {
+	server := NewServerWithManager(config.Config{}, nil, nil, fsys{}, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/diagnostics/deep?device=edge", nil)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusMethodNotAllowed || recorder.Header().Get("Allow") != http.MethodPost {
+		t.Fatalf("status = %d allow = %q body = %s", recorder.Code, recorder.Header().Get("Allow"), recorder.Body.String())
+	}
+}
+
 // fsys is an empty asset filesystem; diagnostics tests never serve the app.
 type fsys struct{}
 
