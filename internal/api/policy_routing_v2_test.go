@@ -121,6 +121,30 @@ func TestPolicyV2OverviewContractUsesNonNullCollections(t *testing.T) {
 	}
 }
 
+func TestPolicyV2SourceSelectorEndpointReturnsRouterOSFacts(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	response := policyV2Request(t, server, http.MethodGet, "/source-selectors", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Available      bool             `json:"available"`
+		FactStatus     string           `json:"factStatus"`
+		Interfaces     []map[string]any `json:"interfaces"`
+		InterfaceLists []map[string]any `json:"interfaceLists"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Available || payload.FactStatus != "available" || len(payload.Interfaces) != 1 || len(payload.InterfaceLists) != 1 {
+		t.Fatalf("unexpected source selector payload: %#v body=%s", payload, response.Body.String())
+	}
+	if payload.Interfaces[0]["name"] != "lan" || payload.InterfaceLists[0]["name"] != "LAN" {
+		t.Fatalf("unexpected source selector facts: %#v", payload)
+	}
+}
+
 func TestPolicyV2NewProposalAllocatesEgressIdentity(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()

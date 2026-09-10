@@ -1,4 +1,4 @@
-import type { Subject, TrafficIngressScope } from './canonical'
+import type { RoutingSourceKind, Subject, TrafficIngressScope } from './canonical'
 
 export function hasTrafficIngress(scope: TrafficIngressScope): boolean {
   return scope.interfaceLists.length + scope.interfaces.length > 0
@@ -12,6 +12,13 @@ export function sourceIsValid(subject: Subject, ingress: TrafficIngressScope): b
   if (subject.mode === 'all') return hasTrafficIngress(ingress)
   if (subject.mode === 'excluded') return hasTrafficIngress(ingress) && (subject.members.length > 0 || subject.prefixes.length > 0)
   return subject.members.length > 0 || subject.prefixes.length > 0
+}
+
+export function typedSourceIsValid(kind: RoutingSourceKind, name: string, subject: Subject): boolean {
+  if (kind === 'device') return subject.mode === 'selected' && subject.members.length > 0 && subject.prefixes.length === 0
+  if (kind === 'ip') return subject.mode === 'selected' && subject.members.length === 0 && subject.prefixes.length > 0
+  if (kind === 'interface' || kind === 'interface-list') return name.trim().length > 0 && subject.mode === 'all' && subject.members.length === 0 && subject.prefixes.length === 0
+  return kind === 'all' && subject.mode === 'all' && subject.members.length === 0 && subject.prefixes.length === 0
 }
 
 function normalizedNames(values: string[]): string[] {

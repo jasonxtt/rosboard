@@ -54,6 +54,9 @@ type TrackedJob = { id: string; label: string; successMessage: string }
 
 function ruleSourceNodes(rule: RoutingRule, terminalByID: Map<string, PolicyTerminal>): FlowNode[] {
   const { subject } = rule
+  if (rule.sourceScope?.kind === 'interface') return [{ label: `接口 ${rule.sourceScope.name || '未命名'}` }]
+  if (rule.sourceScope?.kind === 'interface-list') return [{ label: `接口列表 ${rule.sourceScope.name || '未命名'}` }]
+  if (rule.sourceScope?.kind === 'all') return [{ label: '全部来源（安全门延后）' }]
   if (subject.mode === 'all') return [{ label: '全部终端' }]
   const names = subject.members.map((member) => terminalByID.get(member.terminalId)?.displayName || member.terminalId)
   const nodes: FlowNode[] = []

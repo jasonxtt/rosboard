@@ -46,6 +46,7 @@ export function SubjectSelector({
   allowExcluded = false,
   excludedDisabled = false,
   requireObservedAddress = false,
+  selectedOnly = false,
 }: {
   terminals: PolicyTerminal[]
   value?: Subject
@@ -53,6 +54,7 @@ export function SubjectSelector({
   allowExcluded?: boolean
   excludedDisabled?: boolean
   requireObservedAddress?: boolean
+  selectedOnly?: boolean
 }) {
   const [query, setQuery] = useState('')
   const selected = new Map(value.members.map((member) => [member.terminalId, member]))
@@ -91,9 +93,9 @@ export function SubjectSelector({
 
   return <div className="canonical-selector">
     <div className="policy-choice-list" role="radiogroup" aria-label="受控对象范围">
-      <label className={`policy-choice${value.mode === 'all' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} /><span><strong>全部设备</strong><small>由策略流量入口限定范围</small></span></label>
+      {!selectedOnly ? <label className={`policy-choice${value.mode === 'all' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} /><span><strong>全部设备</strong><small>由策略流量入口限定范围</small></span></label> : null}
       <label className={`policy-choice${value.mode === 'selected' ? ' active' : ''}`}><input type="radio" checked={value.mode === 'selected'} onChange={() => update({ mode: 'selected' })} /><span><strong>仅选择的设备 / 地址</strong><small>只使用下面的终端和手动地址作为来源匹配</small></span></label>
-      {allowExcluded ? <label className={`policy-choice${value.mode === 'excluded' ? ' active' : ''}${excludedDisabled ? ' disabled' : ''}`}><input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} /><span><strong>入口内排除设备 / 地址</strong><small>{excludedDisabled ? '需要先选择有效的 TrafficIngress' : '先匹配 TrafficIngress，再排除下面的终端和地址'}</small></span></label> : null}
+      {allowExcluded && !selectedOnly ? <label className={`policy-choice${value.mode === 'excluded' ? ' active' : ''}${excludedDisabled ? ' disabled' : ''}`}><input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} /><span><strong>入口内排除设备 / 地址</strong><small>{excludedDisabled ? '需要先选择有效的 TrafficIngress' : '先匹配 TrafficIngress，再排除下面的终端和地址'}</small></span></label> : null}
     </div>
     {value.mode === 'selected' || value.mode === 'excluded' ? <>
       <p className="policy-hint">自动跟随：按可靠 MAC 识别设备，跟随其 IP 地址变化。固定当前地址：保留当前选定的 IP，后续地址变化不会自动更新。</p>

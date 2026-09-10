@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { sameTrafficIngress, shouldIncludeTrafficIngress, sourceIsValid } from '../src/compact/features/policy/source.ts'
+import { sameTrafficIngress, shouldIncludeTrafficIngress, sourceIsValid, typedSourceIsValid } from '../src/compact/features/policy/source.ts'
 
 const emptyIngress = { interfaceLists: [], interfaces: [] }
 const lanIngress = { interfaceLists: ['LAN'], interfaces: [] }
@@ -21,4 +21,12 @@ test('unchanged shared ingress is omitted from source-only proposals', () => {
   assert.equal(shouldIncludeTrafficIngress({ mode: 'selected', members: [], prefixes: ['192.0.2.10'] }, lanIngress, lanIngress), false)
   assert.equal(shouldIncludeTrafficIngress({ mode: 'selected', members: [], prefixes: ['192.0.2.10'] }, emptyIngress, lanIngress), true)
   assert.equal(shouldIncludeTrafficIngress({ mode: 'all', members: [], prefixes: [] }, emptyIngress, emptyIngress), true)
+})
+
+test('typed routing sources validate without a TrafficIngress candidate', () => {
+  assert.equal(typedSourceIsValid('device', '', { mode: 'selected', members: [{ terminalId: 'device-1', binding: 'auto', pinnedIpv4: [], pinnedIpv6: [] }], prefixes: [] }), true)
+  assert.equal(typedSourceIsValid('ip', '', { mode: 'selected', members: [], prefixes: ['10.0.0.0/24', 'fd86::/64'] }), true)
+  assert.equal(typedSourceIsValid('interface', 'bridge1', { mode: 'all', members: [], prefixes: [] }), true)
+  assert.equal(typedSourceIsValid('interface-list', 'LAN', { mode: 'all', members: [], prefixes: [] }), true)
+  assert.equal(typedSourceIsValid('device', '', { mode: 'all', members: [], prefixes: [] }), false)
 })

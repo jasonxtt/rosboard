@@ -19,10 +19,12 @@ type SubjectSelectorProps = {
   excludedDisabled?: boolean
   /** routing rules only see terminals with routing-usable addresses */
   requireObservedAddress?: boolean
+  /** Typed Device sources only allow an explicit terminal selection. */
+  selectedOnly?: boolean
 }
 
 /** 来源 picker: 全部终端 / 指定终端 (multi-select + binding + pinned IPs) / 排除 + manual prefixes. */
-export function SubjectSelector({ terminals, value = emptySubject, onChange, allowExcluded = false, excludedDisabled = false, requireObservedAddress = false }: SubjectSelectorProps) {
+export function SubjectSelector({ terminals, value = emptySubject, onChange, allowExcluded = false, excludedDisabled = false, requireObservedAddress = false, selectedOnly = false }: SubjectSelectorProps) {
   const [query, setQuery] = useState('')
   const selected = new Map(value.members.map((member) => [member.terminalId, member]))
   const visibleTerminals = useMemo(() => {
@@ -64,13 +66,13 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
 
   const modeOptions = (
     <div className="pol-choice-list pol-choice-row" role="radiogroup" aria-label="来源范围">
-      <label className={`pol-choice${value.mode === 'all' ? ' pol-choice-active' : ''}`}>
+      {!selectedOnly ? <label className={`pol-choice${value.mode === 'all' ? ' pol-choice-active' : ''}`}>
         <input type="radio" checked={value.mode === 'all'} onChange={() => update({ mode: 'all', members: [], prefixes: [] })} />
         <span>
           <strong>全部终端</strong>
           <small>{allowExcluded ? '由策略入口限定范围' : '设备上的所有终端'}</small>
         </span>
-      </label>
+      </label> : null}
       <label className={`pol-choice${value.mode === 'selected' ? ' pol-choice-active' : ''}`}>
         <input type="radio" checked={value.mode === 'selected'} onChange={() => update({ mode: 'selected' })} />
         <span>
@@ -78,7 +80,7 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
           <small>只匹配下面勾选的终端和手动地址</small>
         </span>
       </label>
-      {allowExcluded ? (
+      {allowExcluded && !selectedOnly ? (
         <label className={`pol-choice${value.mode === 'excluded' ? ' pol-choice-active' : ''}${excludedDisabled ? ' pol-choice-disabled' : ''}`}>
           <input type="radio" checked={value.mode === 'excluded'} disabled={excludedDisabled} onChange={() => update({ mode: 'excluded' })} />
           <span>
