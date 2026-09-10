@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -92,6 +93,13 @@ func (r Runner) storageFinding(ctx context.Context) Finding {
 		Title:          "本地存储",
 		AffectsOverall: true,
 		Evidence:       map[string]any{"dataDir": r.Config.DataDir},
+	}
+	if errors.Is(r.StoreError, store.ErrDeviceStoreNotOpen) {
+		finding.Status = StatusSkipped
+		finding.AffectsOverall = false
+		finding.Summary = "设备存储尚未由运行时打开，暂不检查 SQLite。"
+		finding.Recommendation = "启用设备或等待设备初始化后重新检查。"
+		return finding
 	}
 	if r.StoreError != nil || r.Store == nil {
 		finding.Status = StatusError
@@ -476,6 +484,19 @@ func (r Runner) accessFinding(ctx context.Context, snapshot model.DashboardSnaps
 		return finding
 	}
 
+	switch {
+	case policyStateAvailable && policyState.Job.State == "failed":
+		finding.Status = StatusError
+		finding.Summary = "访问控制关联的设备级应用任务失败。"
+		finding.Recommendation = "检查访问控制或策略路由任务错误后重新应用。"
+		return finding
+	case !state.Applied():
+		finding.Status = StatusWarning
+		finding.Summary = "访问控制 revision 尚未应用到设备。"
+		finding.Recommendation = "打开访问控制页面检查并重新同步。"
+		return finding
+	}
+
 	if monitorAvailable {
 		terminals := make([]accesscontrol.Terminal, 0, len(snapshot.Terminals))
 		for _, terminal := range snapshot.Terminals {
@@ -510,24 +531,14 @@ func (r Runner) accessFinding(ctx context.Context, snapshot model.DashboardSnaps
 			return finding
 		}
 	} else {
-		finding.Status = StatusSkipped
-		finding.Summary = "采集快照不可用，暂不检查自动成员解析。"
+		finding.Evidence["memberResolution"] = "skipped_monitor_unavailable"
+		finding.Status = StatusOK
+		finding.Summary = "访问控制 revision 与已应用状态一致，但采集快照不可用，未检查自动成员解析。"
 		return finding
 	}
 
-	switch {
-	case policyStateAvailable && policyState.Job.State == "failed":
-		finding.Status = StatusError
-		finding.Summary = "访问控制关联的设备级应用任务失败。"
-		finding.Recommendation = "检查访问控制或策略路由任务错误后重新应用。"
-	case !state.Applied():
-		finding.Status = StatusWarning
-		finding.Summary = "访问控制 revision 尚未应用到设备。"
-		finding.Recommendation = "打开访问控制页面检查并重新同步。"
-	default:
-		finding.Status = StatusOK
-		finding.Summary = "访问控制 revision 与已应用状态一致。"
-	}
+	finding.Status = StatusOK
+	finding.Summary = "访问控制 revision 与已应用状态一致。"
 	return finding
 }
 
