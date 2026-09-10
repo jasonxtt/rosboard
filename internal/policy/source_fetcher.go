@@ -49,6 +49,14 @@ type FetchOptions struct {
 	Kind string
 }
 
+type sourceIPDisposition uint8
+
+const (
+	sourceIPUsable sourceIPDisposition = iota
+	sourceIPIgnored
+	sourceIPForbidden
+)
+
 // SourceTransportError preserves the safe public message while letting a
 // caller distinguish transport failures from validation failures.
 type SourceTransportError struct {
@@ -320,10 +328,16 @@ func boundedSourceError(err error) string {
 
 func (f *SourceFetcher) resolvePublicIPs(ctx context.Context, host string) ([]netip.Addr, error) {
 	if ip, err := netip.ParseAddr(host); err == nil {
-		if isForbiddenSourceIP(ip) {
+		switch classifySourceIP(ip) {
+		case sourceIPUsable:
+			return []netip.Addr{ip.Unmap()}, nil
+		case sourceIPIgnored:
+			return nil, newSourceTransportError("source host has no usable addresses", nil)
+		case sourceIPForbidden:
+			return nil, fmt.Errorf("source host resolves to forbidden address %s", ip)
+		default:
 			return nil, fmt.Errorf("source host resolves to forbidden address %s", ip)
 		}
-		return []netip.Addr{ip}, nil
 	}
 	ips, err := f.resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
@@ -332,12 +346,23 @@ func (f *SourceFetcher) resolvePublicIPs(ctx context.Context, host string) ([]ne
 	if len(ips) == 0 {
 		return nil, newSourceTransportError("source host has no addresses", nil)
 	}
+	usable := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
-		if isForbiddenSourceIP(ip) {
+		switch classifySourceIP(ip) {
+		case sourceIPUsable:
+			usable = append(usable, ip.Unmap())
+		case sourceIPIgnored:
+			continue
+		case sourceIPForbidden:
+			return nil, fmt.Errorf("source host has forbidden address %s", ip)
+		default:
 			return nil, fmt.Errorf("source host has forbidden address %s", ip)
 		}
 	}
-	return ips, nil
+	if len(usable) == 0 {
+		return nil, newSourceTransportError("source host has no usable addresses", nil)
+	}
+	return usable, nil
 }
 
 func (f *SourceFetcher) dialPinned(ctx context.Context, network, port string, ips []netip.Addr) (net.Conn, error) {
@@ -504,7 +529,59 @@ var forbiddenSourcePrefixes = []netip.Prefix{
 	netip.MustParsePrefix("2620:4f:8000::/48"),
 }
 
+var allowedFakeSourcePrefixes = []netip.Prefix{
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("28.0.0.0/8"),
+	netip.MustParsePrefix("2001:2::/64"),
+	netip.MustParsePrefix("f2b0::/18"),
+}
+
+var syntheticSourceIPs = []netip.Addr{
+	netip.MustParseAddr("0.0.0.0"),
+	netip.MustParseAddr("::"),
+	netip.MustParseAddr("::ffff"),
+}
+
 var sourceIPv6GlobalUnicastPrefix = netip.MustParsePrefix("2000::/3")
+
+func classifySourceIP(ip netip.Addr) sourceIPDisposition {
+	if !ip.IsValid() {
+		return sourceIPForbidden
+	}
+	if isSyntheticSourceIP(ip) {
+		return sourceIPIgnored
+	}
+	ip = ip.Unmap()
+	if isAllowedFakeSourceIP(ip) {
+		return sourceIPUsable
+	}
+	if isForbiddenSourceIP(ip) {
+		return sourceIPForbidden
+	}
+	return sourceIPUsable
+}
+
+func isAllowedFakeSourceIP(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() {
+		return false
+	}
+	for _, prefix := range allowedFakeSourcePrefixes {
+		if prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSyntheticSourceIP(ip netip.Addr) bool {
+	for _, synthetic := range syntheticSourceIPs {
+		if ip == synthetic {
+			return true
+		}
+	}
+	return false
+}
 
 func isForbiddenSourceIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
