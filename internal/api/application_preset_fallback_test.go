@@ -101,6 +101,9 @@ func (r applicationPresetResolver) LookupNetIP(_ context.Context, _, host string
 	if host == "raw.githubusercontent.com" && r.harness.primaryMode == "dns" {
 		return nil, errors.New("DNS unavailable")
 	}
+	if host == "raw.githubusercontent.com" && r.harness.primaryMode == "synthetic" {
+		return []netip.Addr{netip.MustParseAddr("::ffff")}, nil
+	}
 	switch host {
 	case "raw.githubusercontent.com":
 		return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
@@ -159,6 +162,7 @@ func TestApplicationPresetUsesCDNFallbackOnlyForRetryablePrimaryFailures(t *test
 		{name: "timeout", primaryMode: "timeout", wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
 		{name: "dns failure", primaryMode: "dns", wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
 		{name: "network failure", primaryMode: "network", wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
+		{name: "synthetic DNS answer", primaryMode: "synthetic", wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
 		{name: "github 503", primaryStatus: http.StatusServiceUnavailable, wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
 		{name: "github 429", primaryStatus: http.StatusTooManyRequests, wantStatus: http.StatusOK, wantFallback: 1, wantPrimaryBody: validBody},
 		{name: "github 404", primaryStatus: http.StatusNotFound, wantStatus: http.StatusBadGateway, wantFallback: 0, wantPrimaryBody: validBody},
