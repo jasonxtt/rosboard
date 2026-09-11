@@ -1,29 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel, applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
-import { PolicyErrorDisplay, PolicyMetadata, PolicyModal, PolicyNotice, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
+import { PolicyErrorDisplay, PolicyMetadata, PolicyNotice, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 const actionLabel: Record<string, string> = { create: '创建', patch: '修改', delete: '删除', move: '移动', disable: '停用', enable: '启用', reuse: '复用', adopt: '接管', reference_add: '建立引用', reference_remove: '解除引用' }
 
 export type PolicyPlanSummary = { entries: Array<[string, string]> }
 
-export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBack, onKeywordBack, onBusyChange }: { deviceID: string; envelope: PlanEnvelope; summary?: PolicyPlanSummary; onApplied: () => Promise<void> | void; onBack: () => void; onKeywordBack?: () => void; onBusyChange?: (busy: boolean) => void }) {
+export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBack, onBusyChange }: { deviceID: string; envelope: PlanEnvelope; summary?: PolicyPlanSummary; onApplied: () => Promise<void> | void; onBack: () => void; onBusyChange?: (busy: boolean) => void }) {
   const plan = envelope.plan
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
   const [completionWarnings, setCompletionWarnings] = useState<PlanIssue[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-  const [keywordModalOpen, setKeywordModalOpen] = useState(false)
-  const [showAllKeywords, setShowAllKeywords] = useState(false)
   const required = plan.acknowledgements.filter((ack) => ack.required)
   const ready = !plan.blockers.length && !plan.familyBlockers.length && !plan.pendingReview && required.every((ack) => acks.has(ack.code))
-  const keywordList = plan.keywordImpact?.introducedKeywords.length ? plan.keywordImpact.introducedKeywords : plan.keywordImpact?.keywords ?? []
-
-  useEffect(() => {
-    const needsKeywordConfirmation = plan.keywordImpact?.requiresConfirmation && plan.acknowledgements.some((ack) => ack.code === 'routing_keyword_regexp_precedence' && ack.required)
-    setKeywordModalOpen(Boolean(needsKeywordConfirmation && !plan.blockers.length && !plan.familyBlockers.length))
-    setShowAllKeywords(false)
-  }, [plan.planID, plan.keywordImpact?.requiresConfirmation, plan.blockers.length, plan.familyBlockers.length, plan.acknowledgements])
 
   const operationGroups = useMemo(() => {
     const groups = new Map<string, PlanOperation[]>()
@@ -88,7 +79,6 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
     {required.length ? <div className="policy-acknowledge-block"><h4>应用前确认</h4>{required.map((ack) => <label key={ack.code} className="policy-ack-item"><input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} /><span>{planAcknowledgementLabel(ack.code)}</span><span className="policy-ack-required-badge">必选</span></label>)}</div> : null}
     {error ? <PolicyErrorDisplay error={error} /> : null}
     <div className="policy-form-actions"><button type="button" className="toolbar-button" disabled={applying} onClick={onBack}>返回修改</button><button type="button" className="primary-button" disabled={!ready || applying} onClick={() => void apply()}>{applying ? '正在应用…' : '确认并应用'}</button></div>
-    {keywordModalOpen && plan.keywordImpact ? <PolicyModal title="此策略将启用关键字域名规则" onClose={() => setKeywordModalOpen(false)} footer={<><button type="button" className="toolbar-button" onClick={() => { setKeywordModalOpen(false); (onKeywordBack ?? onBack)() }}>返回高级设置</button><button type="button" className="primary-button" onClick={() => { setAcks((current) => new Set(current).add('routing_keyword_regexp_precedence')); setKeywordModalOpen(false) }}>继续保存</button></>}><p>{plan.keywordImpact.introducedKeywords.length ? '本次新增的关键字规则：' : '本策略将启用以下关键字规则：'}</p><ul>{(showAllKeywords ? keywordList : keywordList.slice(0, 10)).map((keyword) => <li key={keyword}>{keyword}</li>)}</ul>{!showAllKeywords && keywordList.length > 10 ? <p><button type="button" className="link-button" onClick={() => setShowAllKeywords(true)}>查看全部（另有 {keywordList.length - 10} 条）</button></p> : null}<p>关键字规则通过 RouterOS 正则表达式匹配。</p><p>如果访问域名同时匹配这些关键字和其他普通域名策略，这些关键字规则可能不遵循普通 Priority 顺序，并优先由当前策略处理。</p><p>如果不希望出现这种行为，可返回高级设置关闭「启用关键字域名规则」。</p></PolicyModal> : null}
   </div>
 }
 

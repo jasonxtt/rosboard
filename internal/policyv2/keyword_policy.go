@@ -70,7 +70,7 @@ func keywordVersionForComparison(source Source, targetScope map[string]bool, pre
 // keywordImpactForProposal compares the proposed routing rule with the
 // currently saved rule. A source refresh has no proposal and therefore does
 // not call this path: automatic additions to an already-enabled rule do not
-// create a repeat confirmation.
+// create a repeat newly-introduced-risk marker.
 func keywordImpactForProposal(ctx context.Context, baseRepository, plannedRepository Repository, proposal *PolicyProposal, targetScope map[string]bool) (*KeywordImpact, error) {
 	if proposal == nil || proposal.RoutingRule == nil {
 		return nil, nil
@@ -161,16 +161,11 @@ func appendKeywordImpactToPlan(plan *Plan, impact *KeywordImpact, logicalID stri
 		ruleLabel = "当前策略"
 	}
 	plan.Warnings = append(plan.Warnings, PlanIssue{
-		Code:                    routingKeywordRegexpPrecedenceCode,
-		Status:                  "warning",
-		LogicalID:               logicalID,
-		Reason:                  fmt.Sprintf("策略「%s」将启用 %d 条关键字规则（%s），并生成 RouterOS DNS Static regexp；RouterOS 会优先匹配 regexp，再匹配普通域名，这可能改变设备级 DNS 顺序。", ruleLabel, impact.ProjectedCount, keywordSummary),
-		RequiresAcknowledgement: impact.RequiresConfirmation,
+		Code:      routingKeywordRegexpPrecedenceCode,
+		Status:    "warning",
+		LogicalID: logicalID,
+		Reason:    fmt.Sprintf("策略「%s」将启用 %d 条关键字规则（%s），并生成 RouterOS DNS Static regexp。RouterOS 会先匹配 regexp，再匹配普通域名；当域名同时命中时，关键字规则可能绕过普通 Priority 顺序并由当前策略优先处理，从而改变设备级 DNS 顺序。若不希望启用，请返回“高级设置”关闭“启用关键字域名规则”。", ruleLabel, impact.ProjectedCount, keywordSummary),
 	})
-	if impact.RequiresConfirmation {
-		plan.Acknowledgements = append(plan.Acknowledgements, PlanAcknowledgement{Code: routingKeywordRegexpPrecedenceCode, Required: true})
-	}
-	plan.RequiresAcknowledgement = plan.RequiresAcknowledgement || impact.RequiresConfirmation
 }
 
 type routingKeywordAccessProjection struct {

@@ -51,7 +51,7 @@ function KeywordDomainSetting({ targetLists, targetListIDs, enabled, onChange }:
   const hasUnmaterializedPreset = targetListIDs.some((id) => id.startsWith('preset:'))
   const countSummary = keywordCount > 0 ? `当前目标列表包含 ${keywordCount} 条 DOMAIN-KEYWORD 规则。` : hasUnmaterializedPreset ? '预设目标的关键字数量将在生成预览时由后端计算。' : '当前目标列表暂无关键字规则。'
   return (
-    <details className="settings-disclosure policy-advanced" open>
+    <details className="settings-disclosure policy-advanced">
       <summary className="settings-disclosure-summary">高级设置</summary>
       <div className="settings-disclosure-body policy-advanced-body">
         <label className="policy-checkbox">
@@ -557,7 +557,6 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
                 envelope={plan}
                 summary={planSummary ?? undefined}
                 onBack={() => setActiveStep(2)}
-                onKeywordBack={() => setActiveStep(1)}
                 onRepreview={() => void generateCurrentPlan()}
                 onBusyChange={setApplying}
                 onApplied={async () => {

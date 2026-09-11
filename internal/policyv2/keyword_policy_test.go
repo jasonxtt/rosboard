@@ -3,6 +3,7 @@ package policyv2
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -46,13 +47,16 @@ func TestKeywordImpactDoesNotRepeatConfirmationForAnUnchangedEnabledSet(t *testi
 
 	plan := Plan{}
 	appendKeywordImpactToPlan(&plan, &KeywordImpact{Enabled: true, ProjectedCount: 1, Keywords: []string{"video"}, RequiresConfirmation: true}, "rule")
-	if !plan.RequiresAcknowledgement || len(plan.Acknowledgements) != 1 || len(plan.Warnings) != 1 || !plan.Warnings[0].RequiresAcknowledgement {
-		t.Fatalf("first keyword enable must add required warning and acknowledgement: %#v", plan)
+	if plan.RequiresAcknowledgement || len(plan.Acknowledgements) != 0 || len(plan.Warnings) != 1 || plan.Warnings[0].RequiresAcknowledgement {
+		t.Fatalf("keyword enable must add a warning without a separate acknowledgement: %#v", plan)
+	}
+	if !strings.Contains(plan.Warnings[0].Reason, "返回“高级设置”关闭“启用关键字域名规则”") {
+		t.Fatalf("keyword warning should include the remediation: %#v", plan.Warnings[0])
 	}
 	plan = Plan{}
 	appendKeywordImpactToPlan(&plan, impact, "rule")
 	if plan.RequiresAcknowledgement || len(plan.Acknowledgements) != 0 || len(plan.Warnings) != 1 || plan.Warnings[0].RequiresAcknowledgement {
-		t.Fatalf("unchanged keyword set must keep warning without repeating acknowledgement: %#v", plan)
+		t.Fatalf("unchanged keyword set must keep a warning without adding an acknowledgement: %#v", plan)
 	}
 }
 
