@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 97
-- **Last Active**: 2026-09-08
+- **Total Sessions**: 98
+- **Last Active**: 2026-09-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~40 | Active |
+| `journal-3.md` | ~73 | Active |
 | `journal-2.md` | ~1992 | Archived |
 | `journal-1.md` | ~1980 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 98 | 2026-09-11 | MosDNS 指纹归因修复 + 告警中文化 + FastTrack 合并 | `f2512cc` | `main` |
 | 97 | 2026-09-08 | Deliver accepted policy backend and switchable dual UI | 81f406a | `codex/dual-ui-integration` |
 | 96 | 2026-09-05 | Complete IPv6 routing family fix and production test deployment | `f7812ae` | `feat/policy-access-rebuild` |
 | 95 | 2026-09-03 | 完成 Unified Target / Policy Model 收尾 | `ae2ba769`, `74c01fbc` | `main` |
