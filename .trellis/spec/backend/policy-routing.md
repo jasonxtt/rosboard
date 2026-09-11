@@ -257,3 +257,39 @@ no active `rbs_<scope8>_` DNS/address-list projection, while a mixed enabled/dis
 consumer set keeps one shared active projection and preserves each rule
 filter's independent enabled state. This activity rule is shared by desired
 state and Access/cross-domain precedence validators.
+
+## Shared FastTrack compatibility
+
+FastTrack filters are foreign configuration, never DesiredObject-owned objects.
+Persisted RoutingRules (including disabled rules) hold device-local compatibility
+records. Never assign ownership to the first rule or persist a reference counter.
+Direct rule saves/deletes and proposal commits share DeviceWriteGate with apply
+and release. A non-final rule deletion must not acquire or release FastTrack.
+
+Conservative V1 analysis uses connection marks and simple forward matchers; any
+foreign mark producer is excluded by scoped ownership, not a mark-name prefix.
+Complex matching requires a backend-validated, plan-hash-bound acknowledgement.
+The plan binds filter configuration, foreign mark producers and restore records;
+traffic counters and job outcome messages do not invalidate a reviewed plan.
+
+Write the original and intended configuration durably before changing only
+connection-mark. Verify read-back against the intended snapshot; never adopt an
+unexpected read-back as our own write. These are optimistic checks, not atomic
+RouterOS CAS, and cannot detect an unobserved edit followed by an exact revert.
+Observed external divergence is sticky for the current holding period.
+
+A failed routing apply retains compatibility because proposals are already
+saved. Release requires zero persisted rules, verified routing convergence and
+no owned routing mangle remaining. Network/unknown outcomes retain restore
+intent; confirmed external changes or missing filters relinquish restoration.
+Explicit non-transient HTTP rejections stop background mutation retries and
+require manual synchronization after correcting the cause. Never recreate the
+foreign filter, change its comment/order, or flush connection tracking.
+
+Internal domain follow-up plans must pass the same acknowledgement validator as
+interactive apply, with no hash or accepted codes. Never inherit confirmation
+from the first domain or treat a plan's presentation `Accepted` flag as consent.
+If the next domain requires acknowledgement, discard its cached plan, retain
+the first domain's committed state and the pending desired state, and fail the
+job with a re-preview/confirmation recovery message before any next-domain
+mutation.

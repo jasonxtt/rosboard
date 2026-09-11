@@ -40,7 +40,7 @@ type discoveryEvidence struct {
 
 func (s *Scanner) collectDiscoveryEvidence(ctx context.Context) (discoveryEvidence, error) {
 	if s == nil || s.reader == nil {
-		return discoveryEvidence{}, fmt.Errorf("policy scanner is not configured")
+		return discoveryEvidence{}, fmt.Errorf("策略扫描器未配置")
 	}
 	read := func(menu routeros.ReadMenu, properties []string) ([]routeros.RouterOSObject, error) {
 		return s.reader.PolicyList(ctx, menu, properties)

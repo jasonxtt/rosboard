@@ -51,7 +51,7 @@ func (s *Server) serveTargetListAPI(writer http.ResponseWriter, request *http.Re
 		case "manual":
 			s.servePolicyManualPreview(writer, request)
 		default:
-			writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "not found"})
+			writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "资源不存在"})
 		}
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) serveTargetListAPI(writer http.ResponseWriter, request *http.Re
 		}
 	}
 	if len(parts) != 1 {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "资源不存在"})
 		return
 	}
 	switch request.Method {
@@ -116,7 +116,7 @@ func targetListSchedule(value string) (time.Duration, bool) {
 
 func writeTargetListMethodNotAllowed(writer http.ResponseWriter, allow string) {
 	writer.Header().Set("Allow", allow)
-	writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 }
 
 func (s *Server) listTargetLists(writer http.ResponseWriter, request *http.Request) {
@@ -148,7 +148,7 @@ func (s *Server) getTargetList(writer http.ResponseWriter, request *http.Request
 	}
 	target, err := device.repository.GetTargetList(request.Context(), id)
 	if errors.Is(err, policyv2.ErrTargetListNotFound) {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "target list not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "目标列表不存在"})
 		return
 	}
 	if err != nil {
@@ -177,7 +177,7 @@ func targetListEditableContent(target policyv2.TargetList) (string, error) {
 		versionID = target.ActiveVersionID
 	}
 	if versionID == "" {
-		return "", errors.New("target list has no saved content version")
+		return "", errors.New("目标列表没有已保存的内容版本")
 	}
 
 	var version *policyv2.TargetListVersion
@@ -188,27 +188,27 @@ func targetListEditableContent(target policyv2.TargetList) (string, error) {
 		}
 	}
 	if version == nil || len(version.CompressedYAML) == 0 {
-		return "", errors.New("target list content version is unavailable")
+		return "", errors.New("目标列表内容版本不可用")
 	}
 
 	reader, err := gzip.NewReader(bytes.NewReader(version.CompressedYAML))
 	if err != nil {
-		return "", fmt.Errorf("decode target list content: %w", err)
+		return "", fmt.Errorf("解压目标列表内容失败：%w", err)
 	}
 	content, readErr := io.ReadAll(io.LimitReader(reader, policy.MaxSourceBytes+1))
 	closeErr := reader.Close()
 	if readErr != nil {
-		return "", fmt.Errorf("read target list content: %w", readErr)
+		return "", fmt.Errorf("读取目标列表内容失败：%w", readErr)
 	}
 	if closeErr != nil {
-		return "", fmt.Errorf("close target list content: %w", closeErr)
+		return "", fmt.Errorf("完成目标列表内容读取失败：%w", closeErr)
 	}
 	if len(content) > policy.MaxSourceBytes {
-		return "", fmt.Errorf("target list content exceeds %d bytes", policy.MaxSourceBytes)
+		return "", fmt.Errorf("目标列表内容超过 %d 字节", policy.MaxSourceBytes)
 	}
 	prepared, err := policy.PrepareSourceContent(content, target.Kind)
 	if err != nil {
-		return "", fmt.Errorf("parse target list content: %w", err)
+		return "", fmt.Errorf("解析目标列表内容失败：%w", err)
 	}
 	lines := make([]string, len(prepared.Rules))
 	for index, rule := range prepared.Rules {
@@ -273,12 +273,12 @@ func (s *Server) deleteTargetList(writer http.ResponseWriter, request *http.Requ
 	}
 	revision := queryRevision(request)
 	if revision < 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision must be non-negative"})
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision 参数必须是非负数"})
 		return
 	}
 	source, err := device.repository.GetSource(request.Context(), id)
 	if errors.Is(err, policyv2.ErrSourceNotFound) {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "target list not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "目标列表不存在"})
 		return
 	}
 	if err != nil {
@@ -358,14 +358,14 @@ func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceC
 		src.ID = uuid.NewString()
 	}
 	if strings.TrimSpace(src.Name) == "" {
-		return policyv2.Source{}, newTargetListSaveValidationError(http.StatusBadRequest, "invalid_target_list", "name is required")
+		return policyv2.Source{}, newTargetListSaveValidationError(http.StatusBadRequest, "invalid_target_list", "名称不能为空")
 	}
 	var current policyv2.Source
 	if pathID != "" {
 		var err error
 		current, err = device.repository.GetSource(request.Context(), pathID)
 		if err != nil {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusNotFound, "target_list_not_found", "target list not found")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusNotFound, "target_list_not_found", "目标列表不存在")
 		}
 		if src.Type == "" {
 			src.Type = current.Type
@@ -382,16 +382,16 @@ func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceC
 	}
 	if pathID != "" {
 		if current.Type != src.Type {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "target list source type cannot be changed")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "目标列表来源类型不可修改")
 		}
 		if current.Kind != "" && current.Kind != src.Kind {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "target list kind cannot be changed")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "目标列表类型不可修改")
 		}
 	}
 	if src.Type == policyv2.TargetSourceTypeURL || src.Type == policyv2.TargetSourceTypePreset {
 		interval, valid := targetListSchedule(src.Schedule)
 		if !valid {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "unsupported target list refresh schedule")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list", "不支持的目标列表刷新周期")
 		}
 		if src.Schedule == "" {
 			src.Schedule = "7d"
@@ -416,10 +416,10 @@ func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceC
 		var found bool
 		preview, found = s.policyPreview(previewID, device.device.ID)
 		if !found || preview.SourceType != src.Type || policyv2.NormalizeSourceKind(preview.Kind) != src.Kind {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list_preview", "a valid target list preview is required")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list_preview", "需要有效的目标列表预览")
 		}
 		if len(preview.Content.Rules) == 0 {
-			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list_preview", "target list preview contains no valid rules")
+			return policyv2.Source{}, newTargetListSaveValidationError(http.StatusUnprocessableEntity, "invalid_target_list_preview", "目标列表预览不包含有效规则")
 		}
 		if src.Type == policyv2.TargetSourceTypeURL || src.Type == policyv2.TargetSourceTypePreset {
 			src.URL = preview.URL
@@ -434,7 +434,7 @@ func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceC
 	}
 	src, err = device.repository.GetSource(request.Context(), src.ID)
 	if err != nil {
-		return policyv2.Source{}, fmt.Errorf("reload target list: %w", err)
+		return policyv2.Source{}, fmt.Errorf("重新读取目标列表失败：%w", err)
 	}
 	if contentChanged {
 		versionID := uuid.NewString()
@@ -454,7 +454,7 @@ func (s *Server) saveTargetListModel(request *http.Request, device policyDeviceC
 		s.discardPolicyPreview(previewID)
 		src, err = device.repository.GetSource(request.Context(), src.ID)
 		if err != nil {
-			return policyv2.Source{}, fmt.Errorf("reload saved target list: %w", err)
+			return policyv2.Source{}, fmt.Errorf("重新读取已保存的目标列表失败：%w", err)
 		}
 	}
 	return src, nil
@@ -483,7 +483,7 @@ func (s *Server) loadTargetListRules(request *http.Request, device policyDeviceC
 		decoded, decodeErr := base64.RawURLEncoding.DecodeString(cursor)
 		parts := strings.SplitN(string(decoded), "\x00", 2)
 		if decodeErr != nil || len(parts) != 2 {
-			return targetListRulesPage{}, &targetListOperationError{status: http.StatusBadRequest, code: "invalid_cursor", message: "rules cursor is invalid"}
+			return targetListRulesPage{}, &targetListOperationError{status: http.StatusBadRequest, code: "invalid_cursor", message: "规则分页游标无效"}
 		}
 		query.AfterType, query.AfterDomain = parts[0], parts[1]
 	}
@@ -530,7 +530,7 @@ func (s *Server) serveTargetListRules(writer http.ResponseWriter, request *http.
 			return
 		}
 		if errors.Is(err, policyv2.ErrSourceNotFound) {
-			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "target list not found"})
+			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "target_list_not_found", "error": "目标列表不存在"})
 			return
 		}
 		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "rules_unavailable", "error": err.Error()})
@@ -554,7 +554,7 @@ func (e *targetListOperationError) Unwrap() error { return e.cause }
 func (s *Server) refreshTargetListModel(request *http.Request, device policyDeviceContext, id string) (targetListRefreshResult, error) {
 	src, err := device.repository.GetSource(request.Context(), id)
 	if err != nil || (src.Type != policyv2.TargetSourceTypeURL && src.Type != policyv2.TargetSourceTypePreset) || src.URL == "" {
-		return targetListRefreshResult{}, &targetListOperationError{status: http.StatusConflict, code: "target_list_unavailable", message: "target list cannot be refreshed", cause: err}
+		return targetListRefreshResult{}, &targetListOperationError{status: http.StatusConflict, code: "target_list_unavailable", message: "目标列表无法刷新", cause: err}
 	}
 	fetcher := s.sourceFetcher
 	if fetcher == nil {
@@ -566,7 +566,7 @@ func (s *Server) refreshTargetListModel(request *http.Request, device policyDevi
 	}
 	interval, valid := targetListSchedule(src.Schedule)
 	if !valid {
-		return targetListRefreshResult{}, &targetListOperationError{status: http.StatusConflict, code: "target_list_unavailable", message: "target list refresh schedule is invalid"}
+		return targetListRefreshResult{}, &targetListOperationError{status: http.StatusConflict, code: "target_list_unavailable", message: "目标列表刷新周期无效"}
 	}
 	refresh := policyv2.TargetListRefresh{NotModified: result.NotModified, ETag: result.ETag, LastModified: result.LastModified}
 	versionID := ""

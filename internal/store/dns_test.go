@@ -39,12 +39,20 @@ func TestDNSObservationsPersistDeduplicationWatermarkAndPruning(t *testing.T) {
 	if err != nil || inserted != 1 {
 		t.Fatalf("repeat insert=%d err=%v", inserted, err)
 	}
-	features, err := storage.DNSFeaturesForMatch(ctx)
+	features, err := storage.DNSFeaturesForMatch(ctx, time.Time{})
 	if err != nil || len(features) != 2 {
 		t.Fatalf("unexpected DNS features: %#v err=%v", features, err)
 	}
-	if features[0].HitCount != 2 {
+	hitCounts := make(map[string]int64, len(features))
+	for _, feature := range features {
+		hitCounts[feature.Domain] = feature.HitCount
+	}
+	if hitCounts["example.com"] != 2 {
 		t.Fatalf("repeated query did not update long-term feature: %#v", features)
+	}
+	filtered, err := storage.DNSFeaturesForMatch(ctx, queryTime.Add(500*time.Millisecond))
+	if err != nil || len(filtered) != 1 || filtered[0].Domain != "video.example" {
+		t.Fatalf("last_seen filter did not apply: %#v err=%v", filtered, err)
 	}
 
 	loaded, err := storage.DNSObservations(ctx, 10)
@@ -69,9 +77,38 @@ func TestDNSObservationsPersistDeduplicationWatermarkAndPruning(t *testing.T) {
 	if len(loaded) != 1 || loaded[0].DedupeKey != "two" {
 		t.Fatalf("unexpected pruned observations: %#v", loaded)
 	}
-	features, err = storage.DNSFeaturesForMatch(ctx)
+	features, err = storage.DNSFeaturesForMatch(ctx, time.Time{})
 	if err != nil || len(features) != 2 {
 		t.Fatalf("pruning raw observations must retain DNS features: %#v err=%v", features, err)
+	}
+}
+
+func TestPruneDNSFeatures(t *testing.T) {
+	ctx := context.Background()
+	storage, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+
+	queryTime := time.Date(2026, 8, 2, 1, 2, 3, 0, time.UTC)
+	observations := []model.DNSObservation{
+		{DedupeKey: "old", TraceID: "trace-old", ClientIP: "10.0.0.8", Domain: "old.example", AnswerIP: "192.0.2.1", QueryType: "A", QueryTime: queryTime, TTL: 60, IngestedAt: queryTime},
+		{DedupeKey: "new", TraceID: "trace-new", ClientIP: "10.0.0.8", Domain: "new.example", AnswerIP: "192.0.2.2", QueryType: "A", QueryTime: queryTime.Add(time.Hour), TTL: 60, IngestedAt: queryTime.Add(time.Hour)},
+	}
+	if _, err := storage.SaveDNSObservations(ctx, observations, DNSWatermark{QueryTime: queryTime.Add(time.Hour), TraceID: "trace-new"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := storage.PruneDNSFeatures(ctx, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.PruneDNSFeatures(ctx, queryTime.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	features, err := storage.DNSFeaturesForMatch(ctx, time.Time{})
+	if err != nil || len(features) != 1 || features[0].Domain != "new.example" {
+		t.Fatalf("unexpected features after pruning: %#v err=%v", features, err)
 	}
 }
 

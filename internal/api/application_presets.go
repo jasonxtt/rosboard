@@ -44,7 +44,7 @@ func (s *Server) serveApplicationPresetAPI(writer http.ResponseWriter, request *
 	relative := strings.Trim(strings.TrimPrefix(request.URL.Path, "/api/application-presets"), "/")
 	if relative == "" {
 		if request.Method != http.MethodGet {
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"code": "method_not_allowed", "error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"code": "method_not_allowed", "error": "不支持的请求方法"})
 			return
 		}
 		writePolicyJson(writer, http.StatusOK, map[string]any{"presets": s.applicationPresets().List()})
@@ -52,12 +52,12 @@ func (s *Server) serveApplicationPresetAPI(writer http.ResponseWriter, request *
 	}
 	parts := strings.Split(relative, "/")
 	if len(parts) != 2 || (parts[1] != "preview" && parts[1] != "target-lists") || request.Method != http.MethodPost {
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"code": "method_not_allowed", "error": "method not allowed"})
+		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"code": "method_not_allowed", "error": "不支持的请求方法"})
 		return
 	}
 	preset, ok := s.applicationPresets().Get(parts[0])
 	if !ok {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "preset_not_found", "error": "application preset not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "preset_not_found", "error": "应用预设不存在"})
 		return
 	}
 	device, ok := s.resolvePolicyDevice(writer, request)
@@ -88,7 +88,7 @@ func (s *Server) previewApplicationPreset(writer http.ResponseWriter, request *h
 	preview.Domain, _ = policy.PrepareSourceContent(fetched.Body, policy.KindDomain)
 	preview.IP, _ = policy.PrepareSourceContent(fetched.Body, policy.KindIP)
 	if len(preview.Domain.Rules) == 0 && len(preview.IP.Rules) == 0 {
-		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "preset_has_no_supported_rules", "error": "preset contains no supported domain or IP rules"})
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "preset_has_no_supported_rules", "error": "预设不包含可用的域名或 IP 规则"})
 		return
 	}
 	previewID := s.saveApplicationPresetPreview(preview)
@@ -139,7 +139,7 @@ func fetchApplicationPresetRule(ctx context.Context, fetcher *policy.SourceFetch
 
 	fallback, fallbackErr := fetcher.Fetch(totalCtx, fallbackURL, policy.FetchOptions{})
 	if fallbackErr != nil {
-		return policy.FetchResult{}, fmt.Errorf("application preset source unavailable: %w", fallbackErr)
+		return policy.FetchResult{}, fmt.Errorf("应用预设来源不可用：%w", fallbackErr)
 	}
 	return fallback, nil
 }
@@ -148,7 +148,7 @@ func (s *Server) materializeApplicationPreset(writer http.ResponseWriter, reques
 	previewID := strings.TrimSpace(request.URL.Query().Get("previewId"))
 	preview, ok := s.applicationPresetPreview(previewID, device.device.ID, preset.ID)
 	if !ok {
-		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_preset_preview", "error": "a valid preset preview is required"})
+		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "invalid_preset_preview", "error": "需要有效的预设预览"})
 		return
 	}
 	var payload struct {

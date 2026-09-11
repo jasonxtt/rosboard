@@ -18,7 +18,7 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 
 	verifier, ok := mutation.(AccessCapabilityVerifier)
 	if !ok {
-		return accessCapabilityIssues(ordered, errors.New("RouterOS mutation client does not implement the access-control capability probe")), nil
+		return accessCapabilityIssues(ordered, errors.New("RouterOS 写入客户端不支持访问控制能力探测")), nil
 	}
 	if err := verifier.VerifyAccessControlCapabilities(ctx, ordered); err != nil {
 		return accessCapabilityIssues(ordered, err), nil
@@ -28,7 +28,7 @@ func accessCapabilityBlockers(ctx context.Context, mutation PolicyMutation, desi
 	}
 	timeVerifier, ok := mutation.(AccessTimeCapabilityVerifier)
 	if !ok {
-		return accessTimeCapabilityIssues(scheduled, errors.New("RouterOS mutation client does not implement the access-control time capability probe")), nil
+		return accessTimeCapabilityIssues(scheduled, errors.New("RouterOS 写入客户端不支持访问控制时间能力探测")), nil
 	}
 	if err := timeVerifier.VerifyAccessControlTimeCapabilities(ctx, scheduled); err != nil {
 		return accessTimeCapabilityIssues(scheduled, err), nil

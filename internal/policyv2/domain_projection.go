@@ -152,7 +152,7 @@ func appendCrossDomainProjectionIssues(result *DesiredResult, resolutions []Cros
 		if resolution.AccessScheduled {
 			result.Blockers = append(result.Blockers, PlanIssue{
 				Code: scheduledAccessDomainOverlapUnsupportedCode, Status: "blocker", LogicalID: logicalID, EgressID: resolution.RoutingEgressID,
-				Reason: "限时访问规则「" + displayName(resolution.AccessRuleName, resolution.AccessRuleID) + "」引用的域名目标与启用的策略路由域名投影重叠（" + domainOverlapPhrase(resolution.Overlaps) + "）。访问控制 DNS 投影目前无法随时间窗口关闭，无法安全保证窗口外仍由策略路由生效；请拆分不重叠域名目标，或暂时使用 always 规则。",
+				Reason: "限时访问规则「" + displayName(resolution.AccessRuleName, resolution.AccessRuleID) + "」引用的域名目标与启用的策略路由域名投影重叠（" + domainOverlapPhrase(resolution.Overlaps) + "）。访问控制 DNS 投影目前无法随时间窗口关闭，无法安全保证窗口外仍由策略路由生效；请拆分不重叠域名目标，或暂时使用「全天」规则。",
 			})
 			continue
 		}

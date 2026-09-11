@@ -44,7 +44,7 @@ function StatItem({ label, value, wide = false, danger = false }: { label: strin
 
 /**
  * 识别设置 per-device card: 协议分析 toggle + MosDNS 归因 (enabled, 地址,
- * 同步周期, 证据窗口) + runtime stats → POST /api/settings/recognition.
+ * 同步周期, 实时证据窗口) + runtime stats → POST /api/settings/recognition.
  */
 export function RecognitionCard({ deviceId, deviceName, restartGate }: RecognitionCardProps) {
   const [draft, setDraft] = useState<RecognitionDraft | null>(null)
@@ -66,7 +66,7 @@ export function RecognitionCard({ deviceId, deviceName, restartGate }: Recogniti
           mosdns: {
             enabled: recognition.mosdns.enabled,
             baseUrl: mosDNSAddressFromBaseURL(recognition.mosdns.baseUrl),
-            syncIntervalMinutes: recognition.mosdns.syncIntervalMinutes || 30,
+            syncIntervalMinutes: recognition.mosdns.syncIntervalMinutes || 5,
             matchWindowMinutes: recognition.mosdns.matchWindowMinutes || 30,
           },
         })
@@ -180,7 +180,7 @@ export function RecognitionCard({ deviceId, deviceName, restartGate }: Recogniti
               onChange={(value) => setDraft((current) => current && { ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(value) || 0 } })}
             />
           </Field>
-          <Field label="DNS 证据窗口（分钟）">
+          <Field label="实时证据窗口（分钟）" hint="窗口内的 DNS 证据标记为「MosDNS 匹配」，更早学习到的特征标记为「特征推断」">
             <Input
               type="number"
               min={1}

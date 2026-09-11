@@ -12,7 +12,6 @@ import (
 const (
 	routingSourceInterfaceNotFoundCode     = "routing_source_interface_not_found"
 	routingSourceInterfaceListNotFoundCode = "routing_source_interface_list_not_found"
-	routingSourcePreflightUnavailableCode  = "routing_source_preflight_unavailable"
 )
 
 // ValidateRoutingSources is the apply-time source authority for canonical
@@ -83,14 +82,14 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 		return blockers, warnings, nil
 	}
 	if reader == nil {
-		return nil, nil, errors.New("routing source preflight reader is unavailable")
+		return nil, nil, errors.New("路由来源预检的 RouterOS 读取器不可用")
 	}
 
 	interfaceByName := make(map[string]routeros.RouterOSObject)
 	if len(interfaceRefs) > 0 {
 		interfaces, err := reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{"name", "type", "running", "disabled", "dynamic"})
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: scan RouterOS interfaces: %w", routingSourcePreflightUnavailableCode, err)
+			return nil, nil, fmt.Errorf("读取 RouterOS 接口失败：%w", err)
 		}
 		interfaceByName = make(map[string]routeros.RouterOSObject, len(interfaces))
 		for _, object := range interfaces {
@@ -103,7 +102,7 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 	if len(interfaceListRefs) > 0 {
 		lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: scan RouterOS interface lists: %w", routingSourcePreflightUnavailableCode, err)
+			return nil, nil, fmt.Errorf("读取 RouterOS 接口列表失败：%w", err)
 		}
 		interfaceListNames = make(map[string]bool, len(lists))
 		for _, object := range lists {
@@ -133,14 +132,14 @@ func ValidateRoutingSources(ctx context.Context, reader PolicyReader, repository
 	for _, ref := range interfaceRefs {
 		object, exists := interfaceByName[ref.name]
 		if !exists {
-			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceNotFoundCode, "selected RouterOS interface does not exist: "+ref.name))
+			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceNotFoundCode, "所选 RouterOS 接口不存在："+ref.name))
 			continue
 		}
 		appendRoutingSourceInterfaceWarnings(&warnings, ref.rule, ref.name, object, wanInterfaces)
 	}
 	for _, ref := range interfaceListRefs {
 		if !interfaceListNames[ref.name] {
-			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceListNotFoundCode, "selected RouterOS interface-list does not exist: "+ref.name))
+			blockers = append(blockers, routingSourcePreflightIssue(ref.rule, routingSourceInterfaceListNotFoundCode, "所选 RouterOS 接口列表不存在："+ref.name))
 		}
 	}
 	return blockers, warnings, nil
@@ -160,19 +159,19 @@ func appendRoutingSourceInterfaceWarnings(warnings *[]PlanIssue, rule RoutingRul
 		*warnings = append(*warnings, PlanIssue{Code: code, Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: reason})
 	}
 	if routerBool(object["disabled"], false) {
-		appendWarning("routing_source_interface_disabled", "selected source interface is currently disabled: "+name)
+		appendWarning("routing_source_interface_disabled", "所选来源接口当前已禁用："+name)
 	}
 	if routerBool(object["dynamic"], false) {
-		appendWarning("routing_source_interface_dynamic", "selected source interface is dynamic; verify that direct ingress matching is intentional: "+name)
+		appendWarning("routing_source_interface_dynamic", "所选来源接口是动态对象，请确认直接匹配该接口入口是有意为之："+name)
 	}
 	if !routerBool(object["running"], true) {
-		appendWarning("routing_source_interface_not_running", "selected source interface is not currently running: "+name)
+		appendWarning("routing_source_interface_not_running", "所选来源接口当前未运行："+name)
 	}
 	if wanInterfaces[name] {
-		appendWarning("routing_source_interface_wan", "selected source interface is also configured as a WAN egress; verify that matching traffic entering from it is intentional: "+name)
+		appendWarning("routing_source_interface_wan", "所选来源接口同时被配置为 WAN 出口，请确认匹配从该接口进入的流量是有意为之："+name)
 	}
 	if hint := routingSourceInterfaceRoleHint(object["type"]); hint != "" {
-		appendWarning("routing_source_interface_role_hint", "selected source interface is identified as "+hint+"; verify that using it as an ingress matcher is intentional: "+name)
+		appendWarning("routing_source_interface_role_hint", "所选来源接口被识别为"+hint+"，请确认将其作为入口匹配是有意为之："+name)
 	}
 }
 
@@ -180,15 +179,15 @@ func routingSourceInterfaceRoleHint(kind string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch {
 	case strings.Contains(kind, "pppoe") || strings.Contains(kind, "lte"):
-		return "a WAN-like interface"
+		return "类 WAN 接口"
 	case strings.Contains(kind, "wireguard"):
-		return "a WireGuard interface"
+		return "WireGuard 接口"
 	case strings.Contains(kind, "bridge"):
-		return "a bridge interface"
+		return "桥接接口"
 	case strings.Contains(kind, "tunnel") || strings.Contains(kind, "gre") || strings.Contains(kind, "eoip") || strings.Contains(kind, "ipip"):
-		return "a tunnel interface"
+		return "隧道接口"
 	case strings.Contains(kind, "vlan"):
-		return "a VLAN interface"
+		return "VLAN 接口"
 	default:
 		return ""
 	}

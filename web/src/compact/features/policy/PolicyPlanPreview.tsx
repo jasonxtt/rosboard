@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
+import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel, applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
 import { PolicyErrorDisplay, PolicyMetadata, PolicyNotice, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 const actionLabel: Record<string, string> = { create: '创建', patch: '修改', delete: '删除', move: '移动', disable: '停用', enable: '启用', reuse: '复用', adopt: '接管', reference_add: '建立引用', reference_remove: '解除引用' }
@@ -10,6 +10,7 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
   const plan = envelope.plan
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
+  const [completionWarnings, setCompletionWarnings] = useState<PlanIssue[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const required = plan.acknowledgements.filter((ack) => ack.required)
@@ -47,7 +48,7 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
     setError(null)
     try {
 		const result = await applyPolicyPlan(deviceID, envelope.planId || plan.planID, Array.from(acks), envelope.planHash || plan.planHash)
-      if (result.jobId) await waitForPolicyJob(deviceID, result.jobId)
+      if (result.jobId) { const warnings = await waitForPolicyJob(deviceID, result.jobId); if (warnings.length) { setCompletionWarnings(warnings); return } }
       await onApplied()
     } catch (applyError) {
       setError(applyError)
@@ -56,6 +57,8 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
       onBusyChange?.(false)
     }
   }
+
+  if (completionWarnings) return <div className="policy-plan"><PolicyNotice tone="warn" title="策略变更已完成">{completionWarnings.map((warning, index) => <p key={`${warning.code}:${index}`}>{warning.reason}</p>)}</PolicyNotice><button type="button" className="primary-button" onClick={() => void onApplied()}>完成</button></div>
 
   return <div className="policy-plan policy-plan--compact">
     {summary ? <><h4>本次配置</h4><PolicyMetadata entries={summary.entries} /></> : null}
@@ -67,12 +70,13 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
       ['执行组', String(plan.executionGroups.length)],
       ['计划哈希', plan.planHash ? `${plan.planHash.slice(0, 16)}…` : '—'],
     ]} />
+    {plan.fastTrack && fastTrackNoticeVisible(plan.fastTrack) ? <PolicyNotice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</PolicyNotice> : null}
     {plan.blockers.length ? <IssueBlock title="阻断项" issues={plan.blockers} tone="bad" /> : null}
     {plan.familyBlockers.length ? <IssueBlock title="地址族阻断" issues={plan.familyBlockers} tone="bad" /> : null}
     {plan.warnings.length ? <IssueBlock title="警告" issues={plan.warnings} tone="warn" /> : null}
     {plan.pendingReview ? <PolicyNotice tone="warn" title="计划需要重新审阅">结构性变化或来源缩减尚未获得应用确认。</PolicyNotice> : null}
-    {operationGroups.length ? <div className="policy-operations"><h4>变更清单</h4>{operationGroups.map((group) => { const expanded = expandedGroups.has(group.label); const visibleOperations = expanded ? group.operations : group.operations.slice(0, 1); return <div key={group.label} className="policy-operation-type-group"><div className="policy-operation-head"><strong>{group.label}</strong><span className="policy-operation-count">{group.operations.length}</span></div><div className="policy-operation-list">{visibleOperations.map((operation) => <OperationRow key={`${group.label}:${operation.seq}`} operation={operation} />)}{group.operations.length > 1 ? <button type="button" className="link-button policy-operation-more" aria-expanded={expanded} onClick={() => toggleOperationGroup(group.label)}>{expanded ? '收起' : `查看更多（剩余 ${group.operations.length - 1} 条）`}</button> : null}</div></div> })}</div> : <PolicyNotice tone="info">没有需要写入 RouterOS 的变更。</PolicyNotice>}
-    {required.length ? <div className="policy-acknowledge-block"><h4>应用前确认</h4>{required.map((ack) => <label key={ack.code} className="policy-ack-item"><input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} /><span>{ack.code}</span><span className="policy-ack-required-badge">必选</span></label>)}</div> : null}
+    {operationGroups.length ? <div className="policy-operations"><h4>变更清单</h4>{operationGroups.map((group) => { const expanded = expandedGroups.has(group.label); const visibleOperations = expanded ? group.operations : group.operations.slice(0, 1); return <div key={group.label} className="policy-operation-type-group"><div className="policy-operation-head"><strong>{group.label}</strong><span className="policy-operation-count">{group.operations.length}</span></div><div className="policy-operation-list">{visibleOperations.map((operation) => <OperationRow key={`${group.label}:${operation.seq}`} operation={operation} />)}{group.operations.length > 1 ? <button type="button" className="link-button policy-operation-more" aria-expanded={expanded} onClick={() => toggleOperationGroup(group.label)}>{expanded ? '收起' : `查看更多（剩余 ${group.operations.length - 1} 条）`}</button> : null}</div></div> })}</div> : <PolicyNotice tone="info">没有普通策略对象需要变更；FastTrack 操作见上方说明。</PolicyNotice>}
+    {required.length ? <div className="policy-acknowledge-block"><h4>应用前确认</h4>{required.map((ack) => <label key={ack.code} className="policy-ack-item"><input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} /><span>{planAcknowledgementLabel(ack.code)}</span><span className="policy-ack-required-badge">必选</span></label>)}</div> : null}
     {error ? <PolicyErrorDisplay error={error} /> : null}
     <div className="policy-form-actions"><button type="button" className="toolbar-button" disabled={applying} onClick={onBack}>返回修改</button><button type="button" className="primary-button" disabled={!ready || applying} onClick={() => void apply()}>{applying ? '正在应用…' : '确认并应用'}</button></div>
   </div>
@@ -102,5 +106,5 @@ function operationLabel(operation: PlanOperation) {
 }
 
 function IssueBlock({ title, issues, tone }: { title: string; issues: PlanIssue[]; tone: StatusTone }) {
-  return <div className={`policy-issue-block policy-issue-${tone}`}><h4>{title} ({issues.length})</h4><ul>{issues.map((issue, index) => <li key={`${issue.code}:${index}`}><span>{issue.reason || issue.code}</span>{issue.family ? <small> · {issue.family}</small> : null}</li>)}</ul></div>
+  return <div className={`policy-issue-block policy-issue-${tone}`}><h4>{title} ({issues.length})</h4><ul>{issues.map((issue, index) => <li key={`${issue.code}:${index}`}><span>{issue.reason || '（无详细说明）'}</span>{issue.family ? <small> · {issue.family}</small> : null}</li>)}</ul></div>
 }

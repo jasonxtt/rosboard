@@ -57,11 +57,11 @@ func TestApplicationResolverUsesMaterializedPresetForRecentDNSObservation(t *tes
 	saveTestDNSObservation(t, storage, "dns-1", "10.0.0.8", "r3.example.com", "192.0.2.1", queryTime, 60)
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.1", queryTime.Add(time.Second))
-	if !ok || applicationID != "youtube" || application != "YouTube" || domain != "r3.example.com" {
-		t.Fatalf("unexpected resolver result: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
+	applicationID, application, domain, source, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.1", queryTime.Add(time.Second))
+	if !ok || applicationID != "youtube" || application != "YouTube" || domain != "r3.example.com" || source != ApplicationSourceMosDNS {
+		t.Fatalf("unexpected resolver result: id=%q application=%q domain=%q source=%q ok=%v", applicationID, application, domain, source, ok)
 	}
-	if _, _, _, ok := resolver.Resolve(context.Background(), "10.0.0.9", "192.0.2.1", queryTime.Add(time.Second)); ok {
+	if _, _, _, _, ok := resolver.Resolve(context.Background(), "10.0.0.9", "192.0.2.1", queryTime.Add(time.Second)); ok {
 		t.Fatal("resolver matched a different client")
 	}
 }
@@ -80,7 +80,7 @@ func TestTerminalConnectionUsesPresetApplicationFields(t *testing.T) {
 	row := terminalConnectionRow(context.Background(), resolver, queryTime.Add(time.Second), "ipv4", routeros.FirewallConnection{
 		ID: "*1", Protocol: "tcp", SrcAddress: "10.0.0.8", SrcPort: "50000", DstAddress: "192.0.2.1", DstPort: "443",
 	}, connectionView{LocalAddress: "10.0.0.8"}, routeMatcher{}, "", true)
-	if row.ApplicationID != "youtube" || row.Application != "YouTube" || row.MatchedDomain != "r3.example.com" || row.ApplicationSource != "mosdns" || !row.Estimated {
+	if row.ApplicationID != "youtube" || row.Application != "YouTube" || row.MatchedDomain != "r3.example.com" || row.ApplicationSource != ApplicationSourceMosDNS || !row.Estimated {
 		t.Fatalf("preset attribution fields are wrong: %#v", row)
 	}
 	if row.Service != "HTTP协议" || row.Protocol != "tcp" {
@@ -101,7 +101,7 @@ func TestApplicationResolverDoesNotGuessAmbiguousPresetMatch(t *testing.T) {
 	saveTestDNSObservation(t, storage, "dns-ambiguous", "10.0.0.8", "api.shared.example", "192.0.2.2", queryTime, 60)
 
 	resolver := NewApplicationResolverWithRegistry(storage, registry, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.2", queryTime.Add(time.Second))
+	applicationID, application, domain, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.2", queryTime.Add(time.Second))
 	if ok || applicationID != "" || application != "" || domain != "api.shared.example" {
 		t.Fatalf("ambiguous preset match was guessed: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
 	}
@@ -120,7 +120,7 @@ func TestApplicationResolverDoesNotGuessAmbiguousDifferentSpecificity(t *testing
 	saveTestDNSObservation(t, storage, "dns-ambiguous-specificity", "10.0.0.8", "api.example.com", "192.0.2.22", queryTime, 60)
 
 	resolver := NewApplicationResolverWithRegistry(storage, registry, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.22", queryTime.Add(time.Second))
+	applicationID, application, domain, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.22", queryTime.Add(time.Second))
 	if ok || applicationID != "" || application != "" || domain != "api.example.com" {
 		t.Fatalf("different-specificity preset match was guessed: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
 	}
@@ -137,13 +137,13 @@ func TestApplicationResolverKeepsObservedDomainWithoutPresetMatch(t *testing.T) 
 	saveTestDNSObservation(t, storage, "dns-unknown", "10.0.0.8", "unknown.example", "192.0.2.3", queryTime, 60)
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.3", queryTime.Add(time.Second))
+	applicationID, application, domain, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.3", queryTime.Add(time.Second))
 	if ok || applicationID != "" || application != "" || domain != "unknown.example" {
 		t.Fatalf("unexpected unmatched result: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
 	}
 }
 
-func TestApplicationResolverDoesNotUseDurableDNSFeatures(t *testing.T) {
+func TestApplicationResolverUsesLearnedFingerprintAfterObservationPruned(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -155,19 +155,15 @@ func TestApplicationResolverDoesNotUseDurableDNSFeatures(t *testing.T) {
 	if err := storage.PruneDNSObservations(context.Background(), queryTime.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	features, err := storage.DNSFeaturesForMatch(context.Background())
-	if err != nil || len(features) != 1 {
-		t.Fatalf("durable DNS feature was not retained for diagnostics: features=%#v err=%v", features, err)
-	}
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.4", queryTime.Add(time.Second))
-	if ok || applicationID != "" || application != "" || domain != "" {
-		t.Fatalf("durable DNS feature incorrectly provided realtime attribution: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
+	applicationID, application, domain, source, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.4", queryTime.Add(time.Second))
+	if !ok || applicationID != "youtube" || application != "YouTube" || domain != "api.example.com" || source != ApplicationSourceMosDNS {
+		t.Fatalf("learned fingerprint did not provide attribution: id=%q application=%q domain=%q source=%q ok=%v", applicationID, application, domain, source, ok)
 	}
 }
 
-func TestApplicationResolverRechecksTTLAfterCacheHit(t *testing.T) {
+func TestApplicationResolverIgnoresAnswerTTL(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -178,16 +174,15 @@ func TestApplicationResolverRechecksTTLAfterCacheHit(t *testing.T) {
 	saveTestDNSObservation(t, storage, "dns-ttl", "10.0.0.8", "api.example.com", "192.0.2.5", queryTime, 10)
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	if _, _, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.5", queryTime.Add(time.Second)); !ok {
-		t.Fatal("valid DNS observation did not match")
+	if _, _, _, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.5", queryTime.Add(time.Second)); !ok {
+		t.Fatal("fresh DNS fingerprint did not match")
 	}
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.5", queryTime.Add(11*time.Second))
-	if ok || applicationID != "" || application != "" || domain != "" {
-		t.Fatalf("cached observation bypassed TTL: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
+	if _, _, _, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.5", queryTime.Add(20*time.Minute)); !ok {
+		t.Fatal("answer TTL must not expire learned attribution")
 	}
 }
 
-func TestApplicationResolverRespectsEvidenceWindow(t *testing.T) {
+func TestApplicationResolverLabelsLearnedSourceBeyondMatchWindow(t *testing.T) {
 	storage, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -195,12 +190,29 @@ func TestApplicationResolverRespectsEvidenceWindow(t *testing.T) {
 	t.Cleanup(func() { _ = storage.Close() })
 	seedPresetDomain(t, storage, "youtube", policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "example.com"})
 	queryTime := time.Date(2026, 8, 2, 1, 2, 3, 0, time.UTC)
-	saveTestDNSObservation(t, storage, "dns-window", "10.0.0.8", "api.example.com", "192.0.2.6", queryTime, int64(time.Hour/time.Second))
+	saveTestDNSObservation(t, storage, "dns-window", "10.0.0.8", "api.example.com", "192.0.2.6", queryTime, 60)
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.6", queryTime.Add(31*time.Minute))
+	applicationID, application, domain, source, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.6", queryTime.Add(31*time.Minute))
+	if !ok || applicationID != "youtube" || application != "YouTube" || domain != "api.example.com" || source != ApplicationSourceMosDNSLearned {
+		t.Fatalf("fingerprint beyond match window must attribute as learned: id=%q application=%q domain=%q source=%q ok=%v", applicationID, application, domain, source, ok)
+	}
+}
+
+func TestApplicationResolverDropsFingerprintBeyondMaxAge(t *testing.T) {
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	seedPresetDomain(t, storage, "youtube", policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "example.com"})
+	queryTime := time.Date(2026, 8, 2, 1, 2, 3, 0, time.UTC)
+	saveTestDNSObservation(t, storage, "dns-stale", "10.0.0.8", "api.example.com", "192.0.2.9", queryTime, 60)
+
+	resolver := NewApplicationResolver(storage, true, 30)
+	applicationID, application, domain, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.9", queryTime.Add(dnsFeatureMaxAge+time.Hour))
 	if ok || applicationID != "" || application != "" || domain != "" {
-		t.Fatalf("observation outside evidence window matched: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
+		t.Fatalf("fingerprint older than max age matched: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
 	}
 }
 
@@ -217,7 +229,7 @@ func TestApplicationResolverUsesNewestObservation(t *testing.T) {
 	saveTestDNSObservation(t, storage, "dns-new", "10.0.0.8", "new.example", "192.0.2.7", queryTime.Add(10*time.Second), 60)
 
 	resolver := NewApplicationResolver(storage, true, 30)
-	applicationID, application, domain, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.7", queryTime.Add(11*time.Second))
+	applicationID, application, domain, _, ok := resolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.7", queryTime.Add(11*time.Second))
 	if !ok || applicationID != "netflix" || application != "Netflix" || domain != "new.example" {
 		t.Fatalf("newest observation did not win: id=%q application=%q domain=%q ok=%v", applicationID, application, domain, ok)
 	}
@@ -245,8 +257,8 @@ func TestApplicationResolverKeepsDeviceEvidenceIsolated(t *testing.T) {
 
 	firstResolver := NewApplicationResolver(first, true, 30)
 	secondResolver := NewApplicationResolver(second, true, 30)
-	firstID, firstName, firstDomain, firstOK := firstResolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.8", queryTime.Add(time.Second))
-	secondID, secondName, secondDomain, secondOK := secondResolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.8", queryTime.Add(time.Second))
+	firstID, firstName, firstDomain, _, firstOK := firstResolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.8", queryTime.Add(time.Second))
+	secondID, secondName, secondDomain, _, secondOK := secondResolver.Resolve(context.Background(), "10.0.0.8", "192.0.2.8", queryTime.Add(time.Second))
 	if !firstOK || firstID != "youtube" || firstName != "YouTube" || firstDomain != "first.example" {
 		t.Fatalf("first device attribution leaked or failed: id=%q name=%q domain=%q ok=%v", firstID, firstName, firstDomain, firstOK)
 	}

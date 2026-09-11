@@ -25,9 +25,9 @@ const (
 )
 
 var (
-	ErrRoutingRuleNotFound            = errors.New("routing rule not found")
-	ErrRoutingRuleInUse               = errors.New("routing rule still has references")
-	ErrRoutingExcludedRequiresIngress = errors.New("excluded routing subjects require a valid traffic ingress")
+	ErrRoutingRuleNotFound            = errors.New("策略路由规则不存在")
+	ErrRoutingRuleInUse               = errors.New("策略路由规则仍被引用")
+	ErrRoutingExcludedRequiresIngress = errors.New("排除来源的策略路由规则需要有效的流量入口")
 )
 
 // Subject is the shared client-subject core. RoutingRule and AccessRule keep
@@ -68,13 +68,13 @@ func NormalizeRoutingRule(rule RoutingRule) (RoutingRule, error) {
 	rule.Name = strings.TrimSpace(rule.Name)
 	rule.EgressID = strings.TrimSpace(rule.EgressID)
 	if rule.ID == "" {
-		return RoutingRule{}, errors.New("routing rule id is required")
+		return RoutingRule{}, errors.New("策略路由规则缺少 ID")
 	}
 	if rule.Name == "" {
-		return RoutingRule{}, errors.New("routing rule name is required")
+		return RoutingRule{}, errors.New("策略路由规则名称不能为空")
 	}
 	if rule.EgressID == "" {
-		return RoutingRule{}, errors.New("routing rule egress id is required")
+		return RoutingRule{}, errors.New("策略路由规则缺少出口")
 	}
 	seen := make(map[string]bool, len(rule.TargetListIDs))
 	targets := make([]string, 0, len(rule.TargetListIDs))
@@ -88,7 +88,7 @@ func NormalizeRoutingRule(rule RoutingRule) (RoutingRule, error) {
 	}
 	sort.Strings(targets)
 	if len(targets) == 0 {
-		return RoutingRule{}, errors.New("routing rule requires at least one target list")
+		return RoutingRule{}, errors.New("策略路由规则至少需要一个目标列表")
 	}
 	rule.TargetListIDs = targets
 	var err error
@@ -196,7 +196,7 @@ func RoutingRuleConflicts(rules []RoutingRule, targets map[string][]SourceRule, 
 				continue
 			}
 			if targetOverlap, targetKind := routingTargetsOverlap(left.TargetListIDs, right.TargetListIDs, targets, kinds); targetOverlap {
-				result = append(result, RoutingRuleConflict{RuleAID: left.ID, RuleBID: right.ID, EgressA: left.EgressID, EgressB: right.EgressID, Kind: targetKind, Reason: "enabled routing rules have overlapping subjects and targets"})
+				result = append(result, RoutingRuleConflict{RuleAID: left.ID, RuleBID: right.ID, EgressA: left.EgressID, EgressB: right.EgressID, Kind: targetKind, Reason: fmt.Sprintf("策略「%s」与策略「%s」的来源和目标存在重叠，但使用不同的出口", displayName(left.Name, left.ID), displayName(right.Name, right.ID))})
 			}
 		}
 	}
@@ -222,10 +222,10 @@ func RoutingRuleSubjectWarnings(rules []RoutingRule) []RoutingRuleConflict {
 			overlap, indeterminate := routingSourcesOverlap(left, right)
 			if indeterminate && !overlap {
 				kind := "subject"
-				reason := "terminal address evidence is insufficient to determine subject overlap"
+				reason := fmt.Sprintf("策略「%s」与策略「%s」的终端地址证据不足，无法确定来源是否重叠", displayName(left.Name, left.ID), displayName(right.Name, right.ID))
 				if routingSourceUsesInterfaceMatcher(left) || routingSourceUsesInterfaceMatcher(right) {
 					kind = "source"
-					reason = "source interface and address/list membership overlap cannot be proven from policy data"
+					reason = fmt.Sprintf("策略「%s」与策略「%s」的来源接口与地址/列表成员关系是否重叠，无法从策略数据证明", displayName(left.Name, left.ID), displayName(right.Name, right.ID))
 				}
 				result = append(result, RoutingRuleConflict{RuleAID: left.ID, RuleBID: right.ID, EgressA: left.EgressID, EgressB: right.EgressID, Kind: kind, Unknown: true, Reason: reason})
 			}
@@ -610,7 +610,7 @@ func DomainProjectionResolutions(rules []RoutingRule, targets map[string][]Sourc
 					Severity: "blocker", Code: "domain_projection_context_ambiguous",
 					RuleAID: left.ruleID, RuleBID: right.ruleID, EgressA: left.egressID, EgressB: right.egressID,
 					Reason: fmt.Sprintf(
-						"域名冲突无法自动裁决：%s。策略「%s」与策略「%s」的 Priority 均为 %d，无法确定唯一的 DNS 解析出口。请修改其中一条策略的优先级（数值更小者优先）后重试。",
+						"域名冲突无法自动裁决：%s。策略「%s」与策略「%s」的优先级均为 %d，无法确定唯一的 DNS 解析出口。请修改其中一条策略的优先级（数值更小者优先）后重试。",
 						domainOverlapPhrase(overlaps), displayName(left.ruleName, left.ruleID), displayName(right.ruleName, right.ruleID), left.priority),
 				})
 				continue
@@ -619,7 +619,7 @@ func DomainProjectionResolutions(rules []RoutingRule, targets map[string][]Sourc
 				Severity: "warning", Code: "domain_projection_priority_shadowed",
 				RuleAID: winner.ruleID, RuleBID: loser.ruleID, EgressA: winner.egressID, EgressB: loser.egressID,
 				Reason: fmt.Sprintf(
-					"域名冲突已按优先级处理：%s。策略「%s」(Priority %d) 优先于策略「%s」(Priority %d)，重叠域名将按「%s」执行；「%s」中的重叠部分在本设备上不会生效，其余不重叠域名不受影响。",
+					"域名冲突已按优先级处理：%s。策略「%s」（优先级 %d）优先于策略「%s」（优先级 %d），重叠域名将按「%s」执行；「%s」中的重叠部分在本设备上不会生效，其余不重叠域名不受影响。",
 					domainOverlapPhrase(overlaps),
 					displayName(winner.ruleName, winner.ruleID), winner.priority,
 					displayName(loser.ruleName, loser.ruleID), loser.priority,

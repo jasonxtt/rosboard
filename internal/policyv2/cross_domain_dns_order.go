@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -414,12 +415,12 @@ func convergeCrossDomainDNSOrder(ctx context.Context, mutation PolicyMutation, r
 	checked := DesiredResult{}
 	appendCrossDomainPrecedenceBlockers(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, actual, &checked)
 	if len(checked.Blockers) > 0 {
-		return fmt.Errorf("cross-domain DNS precedence is unavailable")
+		return errors.New("跨域 DNS 优先级顺序不可用")
 	}
 	operations := planCrossDomainDNSMoves(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, actual)
 	for _, operation := range operations {
 		if err := applyOperation(ctx, mutation, operation, map[string]string{}); err != nil {
-			return fmt.Errorf("cross-domain DNS move %s: %w", operation.LogicalID, err)
+			return fmt.Errorf("跨域 DNS 顺序调整 %s 失败：%w", operation.LogicalID, err)
 		}
 	}
 	// All newly created or patched objects are still staged disabled at this
@@ -445,27 +446,27 @@ func verifyCrossDomainDNSOrder(ctx context.Context, mutation PolicyMutation, rep
 		expectedAccess, expectedAccessOK := desiredByLogicalID[constraint.AccessLogicalID]
 		if !routingOK {
 			if requireRoutingActive {
-				return fmt.Errorf("active Routing DNS static %s is missing or disabled", constraint.RoutingLogicalID)
+				return fmt.Errorf("启用中的策略路由 DNS 静态规则 %s 缺失或已停用", constraint.RoutingLogicalID)
 			}
 			continue
 		}
 		if !accessOK {
-			return fmt.Errorf("Access DNS static %s is missing", constraint.AccessLogicalID)
+			return fmt.Errorf("访问控制 DNS 静态规则 %s 缺失", constraint.AccessLogicalID)
 		}
 		if !expectedAccessOK || !crossDomainAccessActualMatchesDesired(accessActual, expectedAccess) {
-			return fmt.Errorf("Access DNS static %s does not match the planned projection", constraint.AccessLogicalID)
+			return fmt.Errorf("访问控制 DNS 静态规则 %s 与计划投影不一致", constraint.AccessLogicalID)
 		}
 		if !requireRoutingActive {
 			if accessActual.Position >= routingActual.Position {
-				return fmt.Errorf("Access DNS static %s is not before Routing DNS static %s", constraint.AccessLogicalID, constraint.RoutingLogicalID)
+				return fmt.Errorf("访问控制 DNS 静态规则 %s 未排在策略路由 DNS 静态规则 %s 之前", constraint.AccessLogicalID, constraint.RoutingLogicalID)
 			}
 			continue
 		}
 		if !actualObjectActive(accessActual) {
-			return fmt.Errorf("active Access DNS static %s is missing or disabled", constraint.AccessLogicalID)
+			return fmt.Errorf("启用中的访问控制 DNS 静态规则 %s 缺失或已停用", constraint.AccessLogicalID)
 		}
 		if accessActual.Position >= routingActual.Position {
-			return fmt.Errorf("Access DNS static %s is not before Routing DNS static %s", constraint.AccessLogicalID, constraint.RoutingLogicalID)
+			return fmt.Errorf("访问控制 DNS 静态规则 %s 未排在策略路由 DNS 静态规则 %s 之前", constraint.AccessLogicalID, constraint.RoutingLogicalID)
 		}
 	}
 	if domain == PolicyDomainAccess || domain == PolicyDomainCombined {
@@ -483,19 +484,19 @@ func verifyCrossDomainDNSOrder(ctx context.Context, mutation PolicyMutation, rep
 					continue
 				}
 				if !accessOK {
-					return fmt.Errorf("Access DNS static %s is missing", accessObject.LogicalID)
+					return fmt.Errorf("访问控制 DNS 静态规则 %s 缺失", accessObject.LogicalID)
 				}
 				if !crossDomainAccessActualMatchesDesired(accessActual, accessObject) {
-					return fmt.Errorf("Access DNS static %s does not match the planned projection", accessObject.LogicalID)
+					return fmt.Errorf("访问控制 DNS 静态规则 %s 与计划投影不一致", accessObject.LogicalID)
 				}
 				if requireRoutingActive && !actualObjectActive(routingObject) {
-					return fmt.Errorf("active Routing DNS static %s is missing or disabled", routingObject.LogicalID)
+					return fmt.Errorf("启用中的策略路由 DNS 静态规则 %s 缺失或已停用", routingObject.LogicalID)
 				}
 				if requireRoutingActive && !actualObjectActive(accessActual) {
-					return fmt.Errorf("active Access DNS static %s is missing or disabled", accessObject.LogicalID)
+					return fmt.Errorf("启用中的访问控制 DNS 静态规则 %s 缺失或已停用", accessObject.LogicalID)
 				}
 				if accessActual.Position >= routingObject.Position {
-					return fmt.Errorf("Access DNS static %s is not before Routing DNS static %s", accessObject.LogicalID, routingObject.LogicalID)
+					return fmt.Errorf("访问控制 DNS 静态规则 %s 未排在策略路由 DNS 静态规则 %s 之前", accessObject.LogicalID, routingObject.LogicalID)
 				}
 			}
 		}

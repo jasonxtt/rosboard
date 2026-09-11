@@ -30,32 +30,32 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 	relative := strings.TrimPrefix(request.URL.Path, "/api/policy-routing")
 	relative = strings.TrimPrefix(relative, "/")
 	if relative == "" {
-		writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		return
 	}
 	parts := strings.Split(relative, "/")
 	switch parts[0] {
 	case "overview":
 		if request.Method != http.MethodGet {
-			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.servePolicyOverview(writer, request)
 	case "discovery":
 		if request.Method != http.MethodGet {
-			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.servePolicyDiscovery(writer, request)
 	case "source-selectors":
 		if request.Method != http.MethodGet {
-			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.servePolicySourceSelectors(writer, request)
 	case "discovery-snapshot":
 		if request.Method != http.MethodGet {
-			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJSON(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.servePolicyDiscoverySnapshot(writer, request)
@@ -70,7 +70,7 @@ func (s *Server) servePolicyRoutingAPI(writer http.ResponseWriter, request *http
 	case "jobs":
 		s.servePolicyJobs(writer, request, parts)
 	default:
-		writePolicyJSON(writer, http.StatusNotFound, map[string]any{"error": "not found"})
+		writePolicyJSON(writer, http.StatusNotFound, map[string]any{"error": "资源不存在"})
 	}
 }
 
@@ -89,18 +89,18 @@ type policyDeviceContext struct {
 func (s *Server) resolvePolicyDevice(writer http.ResponseWriter, request *http.Request) (policyDeviceContext, bool) {
 	deviceID := strings.TrimSpace(request.URL.Query().Get("device"))
 	if deviceID == "" {
-		writePolicyJSON(writer, http.StatusBadRequest, map[string]any{"code": "device_required", "error": "a device query parameter is required"})
+		writePolicyJSON(writer, http.StatusBadRequest, map[string]any{"code": "device_required", "error": "缺少 device 查询参数"})
 		return policyDeviceContext{}, false
 	}
 	device, found := s.configSnapshot().Device(deviceID)
 	if !found {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "device_not_found", "error": "device not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "device_not_found", "error": "设备不存在"})
 		return policyDeviceContext{}, false
 	}
 	var repo *store.PolicyRepository
 	child, err := s.store.OpenDevice(deviceID)
 	if err != nil {
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "policy_storage_unavailable", "error": "device storage unavailable"})
+		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "policy_storage_unavailable", "error": "设备存储不可用"})
 		return policyDeviceContext{}, false
 	}
 	repo = child.PolicyRepository()
@@ -197,16 +197,16 @@ func (s *Server) servePolicyDiscovery(writer http.ResponseWriter, request *http.
 		return
 	}
 	if s.policySetupState(device.device) != "ready" {
-		writePolicyJSON(writer, http.StatusOK, map[string]any{"available": false, "reason": "runtime not ready", "wans": []any{}, "trafficIngress": []any{}})
+		writePolicyJSON(writer, http.StatusOK, map[string]any{"available": false, "reason": "运行时未就绪", "wans": []any{}, "trafficIngress": []any{}})
 		return
 	}
 	if s.policy == nil {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "runtime_unavailable", "error": "policy discovery is unavailable"})
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "runtime_unavailable", "error": "策略发现不可用"})
 		return
 	}
 	applier := s.policy.ApplierFor(device.device.ID)
 	if applier == nil || applier.Reader == nil {
-		writePolicyJSON(writer, http.StatusOK, map[string]any{"available": false, "reason": "scanner not configured", "wans": []any{}, "trafficIngress": []any{}})
+		writePolicyJSON(writer, http.StatusOK, map[string]any{"available": false, "reason": "扫描器未配置", "wans": []any{}, "trafficIngress": []any{}})
 		return
 	}
 	scanner := policyv2.NewScanner(applier.Reader)
@@ -230,7 +230,7 @@ func (s *Server) servePolicySourceSelectors(writer http.ResponseWriter, request 
 			Device:               map[string]string{"id": device.device.ID},
 			FactStatus:           "unavailable",
 			RecommendationStatus: "unavailable",
-			Reason:               "runtime not ready",
+			Reason:               "运行时未就绪",
 			Warnings:             []string{},
 			Interfaces:           []policyv2.SourceSelectorInterface{},
 			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
@@ -243,7 +243,7 @@ func (s *Server) servePolicySourceSelectors(writer http.ResponseWriter, request 
 			Device:               map[string]string{"id": device.device.ID},
 			FactStatus:           "unavailable",
 			RecommendationStatus: "unavailable",
-			Reason:               "scanner not configured",
+			Reason:               "扫描器未配置",
 			Warnings:             []string{},
 			Interfaces:           []policyv2.SourceSelectorInterface{},
 			InterfaceLists:       []policyv2.SourceSelectorInterfaceList{},
@@ -275,12 +275,12 @@ func (s *Server) servePolicyDiscoverySnapshot(writer http.ResponseWriter, reques
 		return
 	}
 	if s.policySetupState(device.device) != "ready" {
-		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "runtime not ready"))
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "运行时未就绪"))
 		return
 	}
 	applier := s.policy.ApplierFor(device.device.ID)
 	if applier == nil || applier.Reader == nil {
-		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "scanner not configured"))
+		writePolicyJSON(writer, http.StatusOK, unavailablePolicyDiscoverySnapshot(device.device.ID, "扫描器未配置"))
 		return
 	}
 	result, err := policyv2.NewScanner(applier.Reader).ScanAndSourceSelectors(request.Context(), device.device.ID)
@@ -319,7 +319,7 @@ func unavailablePolicyDiscoverySnapshot(deviceID, reason string) policyv2.Policy
 
 func (s *Server) servePolicyTrafficIngress(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPut {
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		return
 	}
 	device, ok := s.resolvePolicyDevice(writer, request)
@@ -341,7 +341,7 @@ func (s *Server) servePolicyTrafficIngress(writer http.ResponseWriter, request *
 		payload.TrafficIngress = payload.Scope
 	}
 	if len(payload.TrafficIngress) == 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_traffic_ingress", "error": "trafficIngress is required"})
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_traffic_ingress", "error": "缺少 trafficIngress 参数"})
 		return
 	}
 	scope, err := policyv2.ParseTrafficIngressScope(payload.TrafficIngress)
@@ -351,7 +351,7 @@ func (s *Server) servePolicyTrafficIngress(writer http.ResponseWriter, request *
 	}
 	applier := s.policy.ApplierFor(device.device.ID)
 	if applier == nil || applier.Reader == nil {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "runtime_unavailable", "error": "policy discovery is unavailable"})
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "runtime_unavailable", "error": "策略发现不可用"})
 		return
 	}
 	discovery, err := policyv2.NewScanner(applier.Reader).Scan(request.Context(), device.device.ID)
@@ -382,7 +382,7 @@ func (s *Server) servePolicyTrafficIngress(writer http.ResponseWriter, request *
 func (s *Server) servePolicyEgress(writer http.ResponseWriter, request *http.Request, parts []string) {
 	if len(parts) == 1 {
 		if request.Method != http.MethodPost {
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.savePolicyEgress(writer, request, "")
@@ -391,7 +391,7 @@ func (s *Server) servePolicyEgress(writer http.ResponseWriter, request *http.Req
 	id := parts[1]
 	if len(parts) == 3 && parts[2] == "state" {
 		if request.Method != http.MethodPost {
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		s.setPolicyEgressState(writer, request, id)
@@ -405,7 +405,7 @@ func (s *Server) servePolicyEgress(writer http.ResponseWriter, request *http.Req
 	case http.MethodDelete:
 		s.deletePolicyEgress(writer, request, id)
 	default:
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 	}
 }
 
@@ -426,16 +426,16 @@ func (s *Server) setPolicyEgressState(writer http.ResponseWriter, request *http.
 		return
 	}
 	if payload.Enabled == nil || payload.Revision < 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_egress_state", "error": "enabled and a non-negative revision are required"})
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_egress_state", "error": "需要 enabled 字段和非负的 revision"})
 		return
 	}
 	egress, err := device.repository.GetEgress(request.Context(), id)
 	if err != nil {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "egress not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "出口不存在"})
 		return
 	}
 	if egress.PendingDeletion {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "egress_pending_deletion", "error": "egress is pending deletion"})
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "egress_pending_deletion", "error": "出口正在等待删除清理"})
 		return
 	}
 	egress.Revision = payload.Revision
@@ -464,7 +464,7 @@ func (s *Server) getPolicyEgress(writer http.ResponseWriter, request *http.Reque
 	}
 	eg, err := device.repository.GetEgress(request.Context(), id)
 	if err != nil {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "egress not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "出口不存在"})
 		return
 	}
 	writePolicyJson(writer, http.StatusOK, eg)
@@ -519,7 +519,7 @@ func (s *Server) savePolicyEgress(writer http.ResponseWriter, request *http.Requ
 
 func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyRepository, reader policyv2.PolicyReader, egress *policyv2.Egress) error {
 	if egress == nil {
-		return errors.New("egress is required")
+		return errors.New("缺少出口")
 	}
 	existingEgress := false
 	if current, err := repository.GetEgress(ctx, egress.ID); err == nil {
@@ -533,10 +533,10 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 		}
 	}
 	if egress.ListMode != policyv2.ListModeShared && egress.ListMode != policyv2.ListModeDedicated {
-		return errors.New("listMode must be shared or dedicated")
+		return errors.New("listMode 必须是 shared 或 dedicated")
 	}
 	if egress.FailureMode != "strict" && egress.FailureMode != "fallback" && egress.FailureMode != "existing" {
-		return errors.New("failureMode must be strict, fallback, or existing")
+		return errors.New("failureMode 必须是 strict、fallback 或 existing")
 	}
 	seen := make(map[policyv2.AddressFamily]bool)
 	managerID, err := repository.ManagerInstanceID(ctx)
@@ -547,10 +547,10 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 	for index := range egress.Families {
 		family := &egress.Families[index]
 		if family.Family != policyv2.FamilyIPv4 && family.Family != policyv2.FamilyIPv6 {
-			return fmt.Errorf("unsupported address family %q", family.Family)
+			return fmt.Errorf("不支持的地址族 %q", family.Family)
 		}
 		if seen[family.Family] {
-			return fmt.Errorf("address family %q appears more than once", family.Family)
+			return fmt.Errorf("地址族 %q 重复出现", family.Family)
 		}
 		seen[family.Family] = true
 		if !family.Enabled {
@@ -559,31 +559,31 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 		hasIPv4 = hasIPv4 || family.Family == policyv2.FamilyIPv4
 		hasIPv6 = hasIPv6 || family.Family == policyv2.FamilyIPv6
 		if family.WANSource == "next-hop" && strings.TrimSpace(family.Gateway) == "" {
-			return fmt.Errorf("%s next-hop mode requires a gateway", family.Family)
+			return fmt.Errorf("%s 的 next-hop 模式需要填写网关", family.Family)
 		}
 		if family.WANSource != "next-hop" && strings.TrimSpace(family.WANInterface) == "" && strings.TrimSpace(family.Gateway) == "" {
-			return fmt.Errorf("%s requires a WAN interface or gateway", family.Family)
+			return fmt.Errorf("%s 需要 WAN 接口或网关", family.Family)
 		}
 		if family.WANSource == "next-hop" {
 			if !policyGatewayMatchesFamily(family.Gateway, family.Family) {
-				return fmt.Errorf("%s next-hop gateway must be a valid %s IP", family.Family, family.Family)
+				return fmt.Errorf("%s 的 next-hop 网关必须是有效的 %s IP", family.Family, family.Family)
 			}
 		} else if strings.TrimSpace(family.Gateway) == "" && strings.TrimSpace(family.WANInterface) != "" {
 			if reader == nil {
-				return fmt.Errorf("%s cannot determine the next-hop gateway; please fill it manually", family.Family)
+				return fmt.Errorf("%s 无法确定下一跳网关，请手动填写", family.Family)
 			}
 			resolution, resolveErr := policyv2.ResolveGateway(ctx, reader, *family)
 			if resolveErr != nil {
-				return fmt.Errorf("%s gateway discovery failed: %w", family.Family, resolveErr)
+				return fmt.Errorf("%s 网关发现失败：%w", family.Family, resolveErr)
 			}
 			if !resolution.PointToPoint {
 				switch len(resolution.Candidates) {
 				case 1:
 					family.Gateway = resolution.Gateway
 				case 0:
-					return fmt.Errorf("%s is not point-to-point and no next-hop gateway was found; please fill the gateway IP", family.Family)
+					return fmt.Errorf("%s 不是点对点接口且未发现下一跳网关，请填写网关 IP", family.Family)
 				default:
-					return fmt.Errorf("%s has multiple possible next-hop gateways; please fill one gateway IP", family.Family)
+					return fmt.Errorf("%s 存在多个可能的下一跳网关，请填写其中一个网关 IP", family.Family)
 				}
 			}
 		}
@@ -591,27 +591,27 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 			family.RouteTable = policyv2.DefaultRouteTable(managerID, repository.DeviceID(), egress.ID, family.Family)
 		}
 		if family.RouteMode != "" && family.RouteMode != "strict" && family.RouteMode != "fallback" {
-			return fmt.Errorf("unsupported %s route mode %q", family.Family, family.RouteMode)
+			return fmt.Errorf("不支持的 %s 路由模式 %q", family.Family, family.RouteMode)
 		}
 		if family.NATMode != "" && family.NATMode != "none" && family.NATMode != "masquerade" {
-			return fmt.Errorf("unsupported %s NAT mode %q", family.Family, family.NATMode)
+			return fmt.Errorf("不支持的 %s NAT 模式 %q", family.Family, family.NATMode)
 		}
 	}
 	if !hasIPv4 && !hasIPv6 {
-		return errors.New("at least one address family must be enabled")
+		return errors.New("至少启用一个地址族")
 	}
 	if strings.TrimSpace(egress.DNSUpstream) == "" {
 		if !hasIPv4 {
-			return errors.New("an IPv6-only egress requires an explicit IPv6 DNS upstream")
+			return errors.New("仅 IPv6 的出口必须显式填写 IPv6 DNS 上游")
 		}
 		egress.DNSUpstream = "1.1.1.1"
 	}
 	upstream, err := netip.ParseAddr(strings.TrimSpace(egress.DNSUpstream))
 	if err != nil {
-		return errors.New("dnsUpstream must be one IP address")
+		return errors.New("dnsUpstream 必须是一个 IP 地址")
 	}
 	if upstream.Is4() && !hasIPv4 || !upstream.Is4() && !hasIPv6 {
-		return errors.New("dnsUpstream address family must be enabled on this egress")
+		return errors.New("dnsUpstream 的地址族必须在该出口上启用")
 	}
 	if !existingEgress || strings.TrimSpace(egress.Name) == "" {
 		egress.Name = policyv2.InternalEgressName(*egress, "")
@@ -638,7 +638,7 @@ func normalizePolicyV2Egress(ctx context.Context, repository *store.PolicyReposi
 				otherListName = policyv2.SharedListName(other.Name)
 			}
 			if strings.EqualFold(otherListName, egress.ListName) {
-				return fmt.Errorf("shared address-list name %q is already in use", egress.ListName)
+				return fmt.Errorf("共享地址列表名称 %q 已被使用", egress.ListName)
 			}
 		}
 		if other.FakeAlias != "" {
@@ -679,12 +679,12 @@ func (s *Server) deletePolicyEgress(writer http.ResponseWriter, request *http.Re
 	}
 	revision := queryRevision(request)
 	if revision < 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision must be non-negative"})
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision 参数必须是非负数"})
 		return
 	}
 	egress, err := device.repository.GetEgress(request.Context(), id)
 	if err != nil {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "egress not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "egress_not_found", "error": "出口不存在"})
 		return
 	}
 	if err := device.repository.DeleteEgress(request.Context(), id, revision); err != nil {
@@ -812,7 +812,7 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 	if proposal.TrafficIngress != nil {
 		applier := s.policy.ApplierFor(device.device.ID)
 		if applier == nil || applier.Reader == nil {
-			return nil, errors.New("policy discovery is unavailable")
+			return nil, errors.New("策略发现不可用")
 		}
 		discovery, err := policyv2.NewScanner(applier.Reader).Scan(ctx, device.device.ID)
 		if err != nil {
@@ -861,7 +861,7 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 		}
 	}
 	if proposal.Empty() {
-		return nil, errors.New("policy proposal is empty")
+		return nil, errors.New("策略变更提案为空")
 	}
 	return proposal, nil
 }
@@ -871,11 +871,11 @@ func (s *Server) appendProposedPresetTargets(ctx context.Context, device policyD
 	previewID := strings.TrimSpace(selection.PreviewID)
 	preset, ok := s.applicationPresets().Get(presetID)
 	if !ok {
-		return fmt.Errorf("application preset not found: %s", presetID)
+		return fmt.Errorf("应用预设不存在：%s", presetID)
 	}
 	preview, ok := s.applicationPresetPreview(previewID, device.device.ID, preset.ID)
 	if !ok {
-		return fmt.Errorf("a valid preset preview is required for %s", preset.Name)
+		return fmt.Errorf("需要 %s 的有效预设预览", preset.Name)
 	}
 	requestedKinds, err := applicationpreset.ResolveRequestedKinds(selection.RequestedKinds, len(preview.Domain.Rules) > 0, len(preview.IP.Rules) > 0)
 	if err != nil {
@@ -895,7 +895,7 @@ func (s *Server) appendProposedPresetTargets(ctx context.Context, device policyD
 		} else if findErr != nil {
 			return findErr
 		} else if target.SourceType != policyv2.TargetSourceTypePreset || target.PresetID != preset.ID || target.Kind != kind {
-			return fmt.Errorf("target list %s is not owned by preset %s", targetID, preset.ID)
+			return fmt.Errorf("目标列表 %s 不属于预设 %s", targetID, preset.ID)
 		} else if !target.PendingDeletion {
 			activeVersionID := strings.TrimSpace(target.ActiveVersionID)
 			pendingVersionID := strings.TrimSpace(target.PendingVersionID)
@@ -944,7 +944,7 @@ func (s *Server) appendProposedPresetTargets(ctx context.Context, device policyD
 func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Request, parts []string) {
 	if len(parts) == 1 {
 		if request.Method != http.MethodPost {
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 			return
 		}
 		device, ok := s.resolvePolicyDevice(writer, request)
@@ -955,7 +955,7 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		if s.policySetupState(device.device) != "ready" {
-			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "runtime_unavailable", "error": "policy runtime is not ready"})
+			writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{"code": "runtime_unavailable", "error": "策略运行时未就绪"})
 			return
 		}
 		var payload struct {
@@ -982,7 +982,7 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if len(parts) != 3 || parts[2] != "apply" || request.Method != http.MethodPost {
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		return
 	}
 	device, ok := s.resolvePolicyDevice(writer, request)
@@ -1000,7 +1000,7 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	job, err := s.policy.ApplyPlanWithHash(request.Context(), device.device.ID, parts[1], strings.TrimSpace(payload.PlanHash))
+	job, err := s.policy.ApplyPlanWithAcknowledgements(request.Context(), device.device.ID, parts[1], strings.TrimSpace(payload.PlanHash), payload.Acknowledgements)
 	if err != nil {
 		status, code := policyPlanApplyError(err)
 		writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "details": map[string]any{}})
@@ -1011,7 +1011,7 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 
 func (s *Server) servePolicyJobs(writer http.ResponseWriter, request *http.Request, parts []string) {
 	if len(parts) != 2 || request.Method != http.MethodGet {
-		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		return
 	}
 	device, ok := s.resolvePolicyDevice(writer, request)
@@ -1020,7 +1020,7 @@ func (s *Server) servePolicyJobs(writer http.ResponseWriter, request *http.Reque
 	}
 	job, err := s.policy.GetJob(request.Context(), device.device.ID, parts[1])
 	if errors.Is(err, policyv2.ErrJobNotFound) {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "job_not_found", "error": "job not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "job_not_found", "error": "应用任务不存在"})
 		return
 	}
 	if err != nil {
@@ -1038,6 +1038,8 @@ func policyPlanApplyError(err error) (int, string) {
 		return http.StatusConflict, "plan_expired"
 	case errors.Is(err, policyv2.ErrPlanStale):
 		return http.StatusConflict, "stale_plan"
+	case errors.Is(err, policyv2.ErrAcknowledgementRequired):
+		return http.StatusUnprocessableEntity, "acknowledgement_required"
 	case errors.Is(err, policyv2.ErrPlanBlocked):
 		return http.StatusUnprocessableEntity, "plan_blocked"
 	case errors.Is(err, policyv2.ErrDeviceBusy):
