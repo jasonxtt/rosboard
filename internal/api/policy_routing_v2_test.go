@@ -389,6 +389,165 @@ func TestPolicyV2RoutingRuleCRUDUsesCanonicalTargetReferences(t *testing.T) {
 	}
 }
 
+func seedDirectRoutingRuleTarget(t *testing.T, repository *store.PolicyRepository, id string, rules ...policyv2.TargetListRule) {
+	t.Helper()
+	target, err := repository.SaveTargetList(context.Background(), policyv2.TargetList{
+		ID: id, Name: id, Kind: policyv2.KindDomain, SourceType: policyv2.TargetSourceTypeManual, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionID := id + "-version"
+	for index := range rules {
+		rules[index].VersionID = versionID
+	}
+	if err := repository.SavePendingTargetListVersion(context.Background(), policyv2.TargetListVersion{
+		ID: versionID, TargetListID: target.ID, SHA256: id, CompressedYAML: []byte(id), State: "pending",
+	}, rules); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedDirectRoutingRuleEgress(t *testing.T, repository *store.PolicyRepository, id string) {
+	t.Helper()
+	if _, err := repository.SaveEgress(context.Background(), policyv2.Egress{
+		ID: id, Name: id, Enabled: true,
+		Families: []policyv2.EgressFamily{{Family: policyv2.FamilyIPv4, Enabled: true, Gateway: "192.0.2.1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func directRoutingRuleBody(id, targetID, egressID string, includeKeywordDomains bool) string {
+	return directRoutingRuleBodyWithRevision(id, targetID, egressID, &includeKeywordDomains, 0)
+}
+
+func directRoutingRuleBodyWithRevision(id, targetID, egressID string, includeKeywordDomains *bool, revision int64) string {
+	payload := map[string]any{
+		"id": id, "name": id, "subject": policyv2.Subject{Mode: policyv2.SubjectModeAll},
+		"ingress": policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN"}}, "targetListIds": []string{targetID},
+		"egressId": egressID, "priority": 10, "enabled": true, "deferApply": true,
+	}
+	if includeKeywordDomains != nil {
+		payload["includeKeywordDomains"] = *includeKeywordDomains
+	}
+	if revision > 0 {
+		payload["revision"] = revision
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	return string(body)
+}
+
+func TestPolicyV2DirectRoutingRuleKeywordSaveRequiresAcknowledgement(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	seedDirectRoutingRuleEgress(t, repository, "wan-keyword-direct")
+	seedDirectRoutingRuleTarget(t, repository, "keyword-direct-target", policyv2.TargetListRule{RuleType: "DOMAIN-KEYWORD", Domain: "video"})
+
+	response := policyV2Request(t, server, http.MethodPost, "/rules", directRoutingRuleBody("keyword-direct-rule", "keyword-direct-target", "wan-keyword-direct", true))
+	if response.Code != http.StatusUnprocessableEntity || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_keyword_acknowledgement_required"`)) {
+		t.Fatalf("direct keyword save must be rejected before persistence: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := repository.GetRoutingRule(context.Background(), "keyword-direct-rule"); !errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
+		t.Fatalf("rejected direct keyword save mutated desired state: %v", err)
+	}
+}
+
+func TestPolicyV2DirectRoutingRuleKeywordUpdateRequiresAcknowledgement(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	seedDirectRoutingRuleEgress(t, repository, "wan-keyword-update")
+	seedDirectRoutingRuleTarget(t, repository, "keyword-update-target", policyv2.TargetListRule{RuleType: "DOMAIN-KEYWORD", Domain: "video"})
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "keyword-update-rule", Name: "keyword-update-rule", Subject: policyv2.Subject{Mode: policyv2.SubjectModeAll},
+		Ingress: policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN"}}, TargetListIDs: []string{"keyword-update-target"},
+		EgressID: "wan-keyword-update", Priority: 10, Enabled: true, IncludeKeywordDomains: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response := policyV2Request(t, server, http.MethodPut, "/rules/keyword-update-rule", directRoutingRuleBody("keyword-update-rule", "keyword-update-target", "wan-keyword-update", true))
+	if response.Code != http.StatusUnprocessableEntity || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_keyword_acknowledgement_required"`)) {
+		t.Fatalf("direct false-to-true keyword update must be rejected: status=%d body=%s", response.Code, response.Body.String())
+	}
+	stored, err := repository.GetRoutingRule(ctx, "keyword-update-rule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.IncludeKeywordDomains || stored.Revision != 1 {
+		t.Fatalf("rejected direct keyword update mutated rule: %#v", stored)
+	}
+}
+
+func TestPolicyV2DirectRoutingRuleKeywordAcknowledgedTransitionsRemainAvailable(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	deviceStore, err := storage.OpenDevice("edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := deviceStore.PolicyRepository()
+	ctx := context.Background()
+	seedDirectRoutingRuleEgress(t, repository, "wan-keyword-allowed")
+	seedDirectRoutingRuleTarget(t, repository, "keyword-allowed-target", policyv2.TargetListRule{RuleType: "DOMAIN-KEYWORD", Domain: "video"})
+	seedDirectRoutingRuleTarget(t, repository, "plain-allowed-target", policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "example.com"})
+
+	trueValue := true
+	falseValue := false
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "acknowledged-rule", Name: "acknowledged-rule", Subject: policyv2.Subject{Mode: policyv2.SubjectModeAll},
+		Ingress: policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN"}}, TargetListIDs: []string{"keyword-allowed-target"},
+		EgressID: "wan-keyword-allowed", Priority: 10, Enabled: true, IncludeKeywordDomains: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if response := policyV2Request(t, server, http.MethodPut, "/rules/acknowledged-rule", directRoutingRuleBodyWithRevision("acknowledged-rule", "keyword-allowed-target", "wan-keyword-allowed", &trueValue, 1)); response.Code != http.StatusOK {
+		t.Fatalf("already acknowledged keyword edit should remain available: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := policyV2Request(t, server, http.MethodPut, "/rules/acknowledged-rule", directRoutingRuleBodyWithRevision("acknowledged-rule", "keyword-allowed-target", "wan-keyword-allowed", &falseValue, 2)); response.Code != http.StatusOK {
+		t.Fatalf("turning keyword projection off should remain available: status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	if _, err := repository.SaveRoutingRule(ctx, policyv2.RoutingRule{
+		ID: "omitted-preserves-rule", Name: "omitted-preserves-rule", Subject: policyv2.Subject{Mode: policyv2.SubjectModeAll},
+		Ingress: policyv2.TrafficIngressScope{InterfaceLists: []string{"LAN"}}, TargetListIDs: []string{"keyword-allowed-target"},
+		EgressID: "wan-keyword-allowed", Priority: 10, Enabled: true, IncludeKeywordDomains: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if response := policyV2Request(t, server, http.MethodPut, "/rules/omitted-preserves-rule", directRoutingRuleBodyWithRevision("omitted-preserves-rule", "keyword-allowed-target", "wan-keyword-allowed", nil, 1)); response.Code != http.StatusOK {
+		t.Fatalf("omitted keyword field should preserve an already acknowledged rule: status=%d body=%s", response.Code, response.Body.String())
+	}
+	preserved, err := repository.GetRoutingRule(ctx, "omitted-preserves-rule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preserved.IncludeKeywordDomains || preserved.Revision != 2 {
+		t.Fatalf("omitted keyword field did not preserve the existing value: %#v", preserved)
+	}
+
+	if response := policyV2Request(t, server, http.MethodPost, "/rules", directRoutingRuleBody("keyword-disabled-rule", "keyword-allowed-target", "wan-keyword-allowed", false)); response.Code != http.StatusOK {
+		t.Fatalf("keyword-disabled direct create should remain available: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := policyV2Request(t, server, http.MethodPost, "/rules", directRoutingRuleBody("plain-enabled-rule", "plain-allowed-target", "wan-keyword-allowed", true)); response.Code != http.StatusOK {
+		t.Fatalf("keyword-enabled direct create without keywords should remain available: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestPolicyV2RoutingRuleSaveCanonicalizesTerminalSubjects(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()

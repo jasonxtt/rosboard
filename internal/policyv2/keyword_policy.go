@@ -131,6 +131,15 @@ func keywordImpactForProposal(ctx context.Context, baseRepository, plannedReposi
 	return impact, nil
 }
 
+// RoutingRuleKeywordImpactForSave applies the same acknowledgement decision
+// used by proposal plans to the legacy direct routing-rule write path. Direct
+// writes must fail closed before changing canonical desired state; otherwise a
+// client could opt into RouterOS regexp-first matching without an approved
+// plan acknowledgement.
+func RoutingRuleKeywordImpactForSave(ctx context.Context, repository Repository, rule RoutingRule) (*KeywordImpact, error) {
+	return keywordImpactForProposal(ctx, repository, repository, &PolicyProposal{RoutingRule: &rule}, nil)
+}
+
 func sameRoutingTargetSet(left, right []string) bool {
 	return strings.Join(sortedUniqueProjectionIDs(left), "\x00") == strings.Join(sortedUniqueProjectionIDs(right), "\x00")
 }
