@@ -95,7 +95,7 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
       })}</tbody></table></div>}
     </section>
     {editing ? <RoutingRuleWizard deviceID={deviceID} context={context} rule={editing.rule} egress={editing.egress} onClose={() => setEditing(undefined)} onSaved={async () => { setNotice('策略已应用。'); await reload() }} /> : null}
-    {deleting ? <PolicyModal title="删除路由策略" onClose={() => setDeleting(null)} footer={<><button type="button" className="toolbar-button" onClick={() => setDeleting(null)}>取消</button><button type="button" className="danger-button" onClick={() => void (async () => { try { const result = await deleteRoutingRule(deviceID, deleting.id, deleting.revision); const id = jobID(result); if (id) await waitForPolicyJob(deviceID, id); setDeleting(null); setNotice('策略已删除。'); await reload() } catch (deleteError) { setError(deleteError) } })()}>删除</button></>}><p>确定删除“{deleting.name}”？删除后会在变更计划中清理对应的 RouterOS 规则。</p></PolicyModal> : null}
+    {deleting ? <PolicyModal title="删除路由策略" onClose={() => setDeleting(null)} footer={<><button type="button" className="toolbar-button" onClick={() => setDeleting(null)}>取消</button><button type="button" className="danger-button" onClick={() => void (async () => { try { const result = await deleteRoutingRule(deviceID, deleting.id, deleting.revision); const id = jobID(result); const warnings = id ? await waitForPolicyJob(deviceID, id) : []; setDeleting(null); setNotice(['策略已删除。', ...warnings.map((warning) => warning.reason)].join(' ')); await reload() } catch (deleteError) { setError(deleteError) } })()}>删除</button></>}><p>确定删除“{deleting.name}”？删除后会在变更计划中清理对应的 RouterOS 规则。</p></PolicyModal> : null}
   </div>
 }
 

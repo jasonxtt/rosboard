@@ -26,6 +26,10 @@ func (r *PolicyRepository) DeviceID() string { return r.store.deviceID }
 
 func (s *Store) initPolicySchema() error {
 	_, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS policy_v2_fasttrack (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    state_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS policy_v2_egresses (
     id TEXT PRIMARY KEY,
     origin TEXT NOT NULL DEFAULT 'legacy',

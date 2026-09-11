@@ -329,7 +329,17 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		ActualFingerprint:        fingerprint, Blockers: blockers, FamilyBlockers: []PlanIssue{}, Warnings: desired.Warnings,
 		Acknowledgements: []PlanAcknowledgement{}, OwnershipStrict: true, Operations: operations,
 	}
-	plan.Summary = planSummary(operations, blockers, desired.Warnings)
+	if domain != PolicyDomainAccess {
+		report, err := inspectFastTrack(ctx, applier, planningRepository, desired.Objects)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		if report != nil && kind == "routing-rule-delete" && report.Consumers > 0 {
+			report.RetainOnly = true
+		}
+		addFastTrackPlan(&plan, report)
+	}
+	plan.Summary = planSummary(operations, blockers, plan.Warnings)
 	if len(blockers) > 0 {
 		plan.State = "blocked"
 	} else {
@@ -348,7 +358,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
-	plan.PlanHash = shortHash(string(hashPayload), 64)
+	plan.PlanHash = shortHash(string(hashPayload)+fastTrackHash(plan.FastTrack)+fastTrackHash(plan.Acknowledgements), 64)
 	m.mu.Lock()
 	m.plans[plan.PlanID] = cachedPlan{Plan: plan, Desired: desired.Objects, Actual: actual, AccessResolutions: desired.AccessResolutions, InternetEgresses: cloneInternetEgresses(options.InternetEgresses), Proposal: clonePolicyProposal(proposal), AccessProposal: cloneAccessProposal(accessProposal), BaseDesiredRevision: baseDesiredRevision, TargetPromotions: append([]TargetVersionPromotion(nil), desired.TargetPromotions...), TargetScope: cloneTargetScope(targetScope)}
 	for id, cached := range m.plans {
@@ -548,7 +558,13 @@ func (m *Manager) ApplyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	return m.applyPlanWithHash(ctx, deviceID, planID, planHash)
 }
 
-func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
+func (m *Manager) ApplyPlanWithAcknowledgements(ctx context.Context, deviceID, planID, planHash string, acknowledgements []string) (ApplyJob, error) {
+	return m.applyPlanWithHash(ctx, deviceID, planID, planHash, acknowledgements...)
+}
+
+var ErrAcknowledgementRequired = errors.New("plan requires explicit risk acknowledgement")
+
+func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string, acknowledgements ...string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
 		return ApplyJob{}, errors.New("策略运行时不可用")
@@ -570,6 +586,9 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	}
 	if len(cached.Plan.Blockers) > 0 {
 		return ApplyJob{}, &PlanBlockedError{Blockers: cached.Plan.Blockers}
+	}
+	if err := validatePlanAcknowledgements(cached.Plan, planHash, acknowledgements); err != nil {
+		return ApplyJob{}, err
 	}
 	if cached.Proposal != nil {
 		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
@@ -664,6 +683,10 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	delete(m.plans, planID)
 	m.mu.Unlock()
 
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
 	now := time.Now().UTC()
 	job := ApplyJob{ID: uuid.NewString(), PlanID: planID, State: "queued", Phase: "queued", CreatedAt: now}
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
@@ -778,6 +801,10 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 	if fingerprint != cached.Plan.ActualFingerprint {
 		release()
 		return ApplyJob{}, ErrPlanStale
+	}
+	if err := checkFastTrackPlan(ctx, applier, planningRepository, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
 	}
 	committer, ok := applier.Repo.(ProposalCommitter)
 	if !ok {
@@ -1137,7 +1164,20 @@ func (m *Manager) GetJob(ctx context.Context, deviceID, jobID string) (ApplyJob,
 	if applier == nil {
 		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
-	return applier.Repo.GetApplyJob(ctx, jobID)
+	job, err := applier.Repo.GetApplyJob(ctx, jobID)
+	if err != nil {
+		return job, err
+	}
+	if store, ok := applier.Repo.(FastTrackRepository); ok {
+		state, err := store.LoadFastTrackState(ctx)
+		if err != nil {
+			return job, err
+		}
+		if state.JobID == jobID {
+			job.Warnings = state.JobWarnings
+		}
+	}
+	return job, nil
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -1146,6 +1186,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	_ = m.RefreshDue(ctx, time.Now().UTC())
 	_ = m.ReconcileAccess(ctx)
+	m.retryFastTrackReleases(ctx)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -1155,6 +1196,7 @@ func (m *Manager) Start(ctx context.Context) {
 		case now := <-ticker.C:
 			_ = m.RefreshDue(ctx, now.UTC())
 			_ = m.ReconcileAccess(ctx)
+			m.retryFastTrackReleases(ctx)
 		}
 	}
 }
@@ -1378,6 +1420,13 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", &PlanBlockedError{Blockers: envelope.Plan.Blockers})
 			return
 		}
+		// Internal follow-ups have no user authorization for this newly generated
+		// plan. Never inherit acknowledgements from the already committed domain.
+		if err := validatePlanAcknowledgements(envelope.Plan, "", nil); err != nil {
+			m.deleteCachedPlans([]string{envelope.PlanID})
+			m.failJob(ctx, applier.Repo, &job, "follow-up-acknowledgement-required", fmt.Errorf("后续 %s 应用需要重新预览并确认风险: %w", followUp.domain, err))
+			return
+		}
 		m.mu.Lock()
 		next, haveNext := m.plans[envelope.PlanID]
 		delete(m.plans, envelope.PlanID)
@@ -1474,6 +1523,14 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			m.failJob(ctx, applier.Repo, &job, "desired-state-validation", ErrPlanStale)
 			return job, false
 		}
+	}
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, planned.Objects, cached.Plan); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-state-check", err)
+		return job, false
+	}
+	if err := ensureFastTrack(ctx, applier, cached.Plan.FastTrack); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-compatibility", err)
+		return job, false
 	}
 	needsDNSMutation := domain == PolicyDomainRouting || hasDesiredMenu(cached.Desired, routeros.MenuIPDNSStatic)
 	if needsDNSMutation {
@@ -1612,6 +1669,13 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "verify-cross-domain-dns-order", err)
 		return job, false
 	}
+	if domain != PolicyDomainAccess {
+		if err := finishFastTrack(ctx, applier, job.ID, cached.Plan.FastTrack); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "fasttrack-journal", err)
+			return job, false
+		}
+	}
+
 	job.Progress = len(cached.Plan.Operations)
 	if keepJobOpen {
 		job.State = "follow_up"
@@ -2069,6 +2133,62 @@ func isStaleApplicationOperation(operation PlanOperation) bool {
 	return false
 }
 
+const accessFilterOrderingUnavailableCode = "access_filter_ordering_unavailable"
+
+func isIgnorableFastTrackCounterDummy(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic &&
+		strings.EqualFold(strings.TrimSpace(object["chain"]), "forward") &&
+		strings.EqualFold(strings.TrimSpace(object["action"]), "passthrough") &&
+		strings.EqualFold(strings.TrimSpace(object["comment"]), "special dummy rule to show fasttrack counters")
+}
+
+func isNonIgnorableDynamicFirewallFilter(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic && !isIgnorableFastTrackCounterDummy(object)
+}
+
+// accessOrderingFirewallFilterObjects removes only RouterOS's harmless
+// FastTrack counter dummy from ordering decisions. Other dynamic rules can
+// affect packet processing and must remain visible as ordering boundaries.
+func accessOrderingFirewallFilterObjects(objects []routeros.RouterOSObject) []routeros.RouterOSObject {
+	ordered := make([]routeros.RouterOSObject, 0, len(objects))
+	for _, object := range objects {
+		if isIgnorableFastTrackCounterDummy(object) {
+			continue
+		}
+		ordered = append(ordered, object)
+	}
+	return ordered
+}
+
+// firstNonIgnorableDynamicBeforeAccess returns a dynamic RouterOS rule that
+// precedes the first managed Access rule. Such a rule is a non-movable
+// ordering boundary; moving Access rules across it would either fail with
+// RouterOS's "cannot move builtin" error or silently change packet semantics.
+func firstNonIgnorableDynamicBeforeAccess(objects []routeros.RouterOSObject, desiredIdentities map[string]struct{}, identityByRouterID map[string]string) string {
+	for _, object := range objects {
+		identity := managedCommentIdentity(object["comment"])
+		if desiredIdentity := identityByRouterID[object.ID()]; desiredIdentity != "" {
+			identity = desiredIdentity
+		}
+		if _, isDesired := desiredIdentities[identity]; isDesired {
+			return ""
+		}
+		if isNonIgnorableDynamicFirewallFilter(object) {
+			return object.ID()
+		}
+	}
+	return ""
+}
+
+func accessFilterOrderingUnavailableError(routerID string) error {
+	if strings.TrimSpace(routerID) == "" {
+		routerID = "<unknown>"
+	}
+	return fmt.Errorf("%s: non-movable dynamic firewall rule %s precedes managed access-control rules", accessFilterOrderingUnavailableCode, routerID)
+}
+
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
 		identities := make([]string, 0)
@@ -2084,6 +2204,14 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		objects, err := mutation.List(ctx, menu, routeros.MutationQuery{})
 		if err != nil {
 			return fmt.Errorf("read %s before access-control ordering: %w", menu, err)
+		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(identities))
+		for _, identity := range identities {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
 		}
 		order := make([]string, 0, len(objects))
 		idByIdentity := make(map[string]string, len(identities))
@@ -2134,6 +2262,10 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("verify %s access-control ordering: %w", menu, err)
 		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
+		}
 		if len(objects) < len(identities) {
 			return fmt.Errorf("%s returned fewer rules than managed access-control rules", menu)
 		}
@@ -2182,6 +2314,14 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 		objects, err := mutation.List(ctx, menu, routeros.MutationQuery{})
 		if err != nil {
 			return nil, fmt.Errorf("read %s before planning access-control ordering: %w", menu, err)
+		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(desiredByIdentity))
+		for identity := range desiredByIdentity {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, routerIDToDesiredIdentity); routerID != "" {
+			return nil, accessFilterOrderingUnavailableError(routerID)
 		}
 		routerIDByIdentity := make(map[string]string, len(jumps))
 		seenDesiredJump := make(map[string]bool, len(jumps))
