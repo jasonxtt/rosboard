@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { fastTrackSummary, planAcknowledgementLabel, applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
+import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel, applyPolicyPlan, waitForPolicyJob, type PlanEnvelope, type PlanIssue, type PlanOperation } from './canonical'
 import { PolicyErrorDisplay, PolicyMetadata, PolicyNotice, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 const actionLabel: Record<string, string> = { create: '创建', patch: '修改', delete: '删除', move: '移动', disable: '停用', enable: '启用', reuse: '复用', adopt: '接管', reference_add: '建立引用', reference_remove: '解除引用' }
@@ -70,7 +70,7 @@ export function PolicyPlanPreview({ deviceID, envelope, summary, onApplied, onBa
       ['执行组', String(plan.executionGroups.length)],
       ['计划哈希', plan.planHash ? `${plan.planHash.slice(0, 16)}…` : '—'],
     ]} />
-    {plan.fastTrack ? <PolicyNotice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</PolicyNotice> : null}
+    {plan.fastTrack && fastTrackNoticeVisible(plan.fastTrack) ? <PolicyNotice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</PolicyNotice> : null}
     {plan.blockers.length ? <IssueBlock title="阻断项" issues={plan.blockers} tone="bad" /> : null}
     {plan.familyBlockers.length ? <IssueBlock title="地址族阻断" issues={plan.familyBlockers} tone="bad" /> : null}
     {plan.warnings.length ? <IssueBlock title="警告" issues={plan.warnings} tone="warn" /> : null}

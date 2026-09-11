@@ -203,6 +203,12 @@ export function fastTrackSummary(report: FastTrackReport) {
  if (report.rules.every((rule) => rule.status === 'compatible')) return '当前 FastTrack 已排除策略连接，无需修改。'
  return '以下调整在策略路由启用前执行，仅影响新连接；现有连接不会被强制中断。'
 }
+/** 路由器上没有启用的 FastTrack 且没有待恢复项时，提示块不展示。 */
+export function fastTrackNoticeVisible(report: FastTrackReport) {
+ if (report.retainOnly) return true
+ if (!report.consumers) return true
+ return report.rules.length > 0
+}
 export type PolicyPlan = {
   fastTrack?: FastTrackReport
   planID: string
