@@ -2114,19 +2114,60 @@ func isStaleApplicationOperation(operation PlanOperation) bool {
 	return false
 }
 
-// movableFirewallFilterObjects removes RouterOS dynamic filter entries from
-// ordering decisions. RouterOS exposes its FastTrack counter dummy as a
-// dynamic rule, and the REST API rejects attempts to move it as a builtin.
-func movableFirewallFilterObjects(objects []routeros.RouterOSObject) []routeros.RouterOSObject {
-	movable := make([]routeros.RouterOSObject, 0, len(objects))
+const accessFilterOrderingUnavailableCode = "access_filter_ordering_unavailable"
+
+func isIgnorableFastTrackCounterDummy(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic &&
+		strings.EqualFold(strings.TrimSpace(object["chain"]), "forward") &&
+		strings.EqualFold(strings.TrimSpace(object["action"]), "passthrough") &&
+		strings.EqualFold(strings.TrimSpace(object["comment"]), "special dummy rule to show fasttrack counters")
+}
+
+func isNonIgnorableDynamicFirewallFilter(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic && !isIgnorableFastTrackCounterDummy(object)
+}
+
+// accessOrderingFirewallFilterObjects removes only RouterOS's harmless
+// FastTrack counter dummy from ordering decisions. Other dynamic rules can
+// affect packet processing and must remain visible as ordering boundaries.
+func accessOrderingFirewallFilterObjects(objects []routeros.RouterOSObject) []routeros.RouterOSObject {
+	ordered := make([]routeros.RouterOSObject, 0, len(objects))
 	for _, object := range objects {
-		dynamic, err := object.Bool("dynamic")
-		if err == nil && dynamic {
+		if isIgnorableFastTrackCounterDummy(object) {
 			continue
 		}
-		movable = append(movable, object)
+		ordered = append(ordered, object)
 	}
-	return movable
+	return ordered
+}
+
+// firstNonIgnorableDynamicBeforeAccess returns a dynamic RouterOS rule that
+// precedes the first managed Access rule. Such a rule is a non-movable
+// ordering boundary; moving Access rules across it would either fail with
+// RouterOS's "cannot move builtin" error or silently change packet semantics.
+func firstNonIgnorableDynamicBeforeAccess(objects []routeros.RouterOSObject, desiredIdentities map[string]struct{}, identityByRouterID map[string]string) string {
+	for _, object := range objects {
+		identity := managedCommentIdentity(object["comment"])
+		if desiredIdentity := identityByRouterID[object.ID()]; desiredIdentity != "" {
+			identity = desiredIdentity
+		}
+		if _, isDesired := desiredIdentities[identity]; isDesired {
+			return ""
+		}
+		if isNonIgnorableDynamicFirewallFilter(object) {
+			return object.ID()
+		}
+	}
+	return ""
+}
+
+func accessFilterOrderingUnavailableError(routerID string) error {
+	if strings.TrimSpace(routerID) == "" {
+		routerID = "<unknown>"
+	}
+	return fmt.Errorf("%s: non-movable dynamic firewall rule %s precedes managed access-control rules", accessFilterOrderingUnavailableCode, routerID)
 }
 
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
@@ -2145,7 +2186,14 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("read %s before access-control ordering: %w", menu, err)
 		}
-		objects = movableFirewallFilterObjects(objects)
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(identities))
+		for _, identity := range identities {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
+		}
 		order := make([]string, 0, len(objects))
 		idByIdentity := make(map[string]string, len(identities))
 		for _, object := range objects {
@@ -2195,7 +2243,10 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("verify %s access-control ordering: %w", menu, err)
 		}
-		objects = movableFirewallFilterObjects(objects)
+		objects = accessOrderingFirewallFilterObjects(objects)
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
+		}
 		if len(objects) < len(identities) {
 			return fmt.Errorf("%s returned fewer rules than managed access-control rules", menu)
 		}
@@ -2245,7 +2296,14 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 		if err != nil {
 			return nil, fmt.Errorf("read %s before planning access-control ordering: %w", menu, err)
 		}
-		objects = movableFirewallFilterObjects(objects)
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(desiredByIdentity))
+		for identity := range desiredByIdentity {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, routerIDToDesiredIdentity); routerID != "" {
+			return nil, accessFilterOrderingUnavailableError(routerID)
+		}
 		routerIDByIdentity := make(map[string]string, len(jumps))
 		seenDesiredJump := make(map[string]bool, len(jumps))
 		firstJumpIndex := -1
