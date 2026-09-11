@@ -22,7 +22,7 @@ func (s *Server) servePolicyRoutingRules(writer http.ResponseWriter, request *ht
 		case http.MethodPost:
 			s.savePolicyRoutingRule(writer, request, "")
 		default:
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		}
 	case 2:
 		switch request.Method {
@@ -33,10 +33,10 @@ func (s *Server) servePolicyRoutingRules(writer http.ResponseWriter, request *ht
 		case http.MethodDelete:
 			s.deletePolicyRoutingRule(writer, request, parts[1])
 		default:
-			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			writePolicyJson(writer, http.StatusMethodNotAllowed, map[string]any{"error": "不支持的请求方法"})
 		}
 	default:
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"error": "资源不存在"})
 	}
 }
 
@@ -156,7 +156,7 @@ func (s *Server) getPolicyRoutingRule(writer http.ResponseWriter, request *http.
 	}
 	rule, err := device.repository.GetRoutingRule(request.Context(), id)
 	if errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
-		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "routing_rule_not_found", "error": "routing rule not found"})
+		writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "routing_rule_not_found", "error": "策略路由规则不存在"})
 		return
 	}
 	if err != nil {
@@ -231,12 +231,12 @@ func (s *Server) deletePolicyRoutingRule(writer http.ResponseWriter, request *ht
 	}
 	revision := queryRevision(request)
 	if revision < 0 {
-		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision must be non-negative"})
+		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision 参数必须是非负数"})
 		return
 	}
 	if err := device.repository.DeleteRoutingRule(request.Context(), id, revision); err != nil {
 		if errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
-			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "routing_rule_not_found", "error": "routing rule not found"})
+			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "routing_rule_not_found", "error": "策略路由规则不存在"})
 			return
 		}
 		if errors.Is(err, policyv2.ErrRevisionStale) {

@@ -123,7 +123,7 @@ func (m *Manager) RegisterApplier(deviceID string, applier *Applier) error {
 	if state, err := applier.Repo.GetDeviceState(context.Background()); err == nil && state.Job.ID != "" && !state.Job.Terminal() {
 		state.Job.State = "failed"
 		state.Job.Phase = "failed"
-		state.Job.Error = "rosboard restarted before the apply finished; generate a new plan and retry"
+		state.Job.Error = "rosboard 在应用完成前重启，请重新生成计划并重试"
 		state.Job.FinishedAt = time.Now().UTC()
 		_ = applier.Repo.SaveApplyJob(context.Background(), state.Job)
 	}
@@ -141,13 +141,32 @@ func (m *Manager) ApplierFor(deviceID string) *Applier {
 }
 
 var (
-	ErrPlanNotFound            = errors.New("policy plan not found")
-	ErrPlanExpired             = errors.New("policy plan expired")
-	ErrPlanStale               = errors.New("policy plan is stale")
-	ErrPlanBlocked             = errors.New("policy plan is blocked")
-	ErrDeviceBusy              = errors.New("policy device already has an active apply")
-	ErrTargetListSplitRequired = errors.New("target list is consumed by both policy domains and requires separate applies")
+	ErrPlanNotFound            = errors.New("策略计划不存在，请重新生成预览")
+	ErrPlanExpired             = errors.New("策略计划已过期，请重新生成预览")
+	ErrPlanStale               = errors.New("策略计划已变化，请重新生成预览")
+	ErrPlanBlocked             = errors.New("策略计划被阻断")
+	ErrDeviceBusy              = errors.New("该设备有正在执行的策略应用任务，请等待完成")
+	ErrTargetListSplitRequired = errors.New("目标列表同时被策略路由和访问控制使用，需要分别应用")
 )
+
+// PlanBlockedError keeps the ErrPlanBlocked identity for errors.Is while
+// carrying the first blocker reason into API error responses and job errors.
+type PlanBlockedError struct {
+	Blockers []PlanIssue
+}
+
+func (err *PlanBlockedError) Error() string {
+	if err == nil || len(err.Blockers) == 0 {
+		return ErrPlanBlocked.Error()
+	}
+	message := ErrPlanBlocked.Error() + "：" + err.Blockers[0].Reason
+	if len(err.Blockers) > 1 {
+		message += fmt.Sprintf("（另有 %d 个阻断项）", len(err.Blockers)-1)
+	}
+	return message
+}
+
+func (*PlanBlockedError) Unwrap() error { return ErrPlanBlocked }
 
 func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (PlanEnvelope, error) {
 	return m.GeneratePlanWithOptions(ctx, deviceID, kind, PlanOptions{})
@@ -156,7 +175,7 @@ func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (Plan
 func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind string, options PlanOptions) (PlanEnvelope, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return PlanEnvelope{}, errors.New("policy runtime is unavailable")
+		return PlanEnvelope{}, errors.New("策略运行时不可用")
 	}
 	domain := options.Domain
 	var err error
@@ -173,7 +192,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	proposal := options.Proposal
 	accessProposal := options.AccessProposal
 	if proposal != nil && accessProposal != nil {
-		return PlanEnvelope{}, errors.New("routing and access proposals cannot be combined")
+		return PlanEnvelope{}, errors.New("策略路由与访问控制的变更提案不能合并")
 	}
 	if proposal != nil {
 		// A proposal is the routing-policy bundle. Keep it out of the legacy
@@ -182,10 +201,10 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		domain = PolicyDomainRouting
 		proposal = clonePolicyProposal(proposal)
 		if proposal == nil {
-			return PlanEnvelope{}, errors.New("policy proposal could not be cloned")
+			return PlanEnvelope{}, errors.New("策略变更提案无法复制")
 		}
 		if accessOnlyPlan || proposal.Empty() {
-			return PlanEnvelope{}, errors.New("a policy proposal is not valid for this plan")
+			return PlanEnvelope{}, errors.New("该策略变更提案不适用于此计划")
 		}
 		state, err := applier.Repo.GetDeviceState(ctx)
 		if err != nil {
@@ -207,10 +226,10 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		domain = PolicyDomainAccess
 		accessProposal = cloneAccessProposal(accessProposal)
 		if accessProposal == nil || accessProposal.Empty() {
-			return PlanEnvelope{}, errors.New("an access proposal is not valid for this plan")
+			return PlanEnvelope{}, errors.New("该访问控制变更提案不适用于此计划")
 		}
 		if applier.Access == nil {
-			return PlanEnvelope{}, errors.New("access repository is unavailable")
+			return PlanEnvelope{}, errors.New("访问控制存储不可用")
 		}
 		if migrator, ok := applier.Access.(CanonicalAccessMigrator); ok {
 			if err := migrator.EnsureCanonicalAccessMigrated(ctx); err != nil {
@@ -532,7 +551,7 @@ func (m *Manager) ApplyPlanWithHash(ctx context.Context, deviceID, planID, planH
 func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	m.mu.RLock()
 	cached, ok := m.plans[planID]
@@ -550,7 +569,7 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 		return ApplyJob{}, ErrPlanExpired
 	}
 	if len(cached.Plan.Blockers) > 0 {
-		return ApplyJob{}, ErrPlanBlocked
+		return ApplyJob{}, &PlanBlockedError{Blockers: cached.Plan.Blockers}
 	}
 	if cached.Proposal != nil {
 		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
@@ -763,7 +782,7 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 	committer, ok := applier.Repo.(ProposalCommitter)
 	if !ok {
 		release()
-		return ApplyJob{}, errors.New("policy repository does not support atomic proposal commit")
+		return ApplyJob{}, errors.New("策略存储不支持原子提交提案")
 	}
 	committedRevision, err := committer.CommitPolicyProposal(ctx, *proposal, cached.BaseDesiredRevision)
 	if errors.Is(err, ErrRevisionStale) {
@@ -911,7 +930,7 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 	committer, ok := applier.Repo.(AccessProposalCommitter)
 	if !ok {
 		release()
-		return ApplyJob{}, errors.New("policy repository does not support atomic access proposal commit")
+		return ApplyJob{}, errors.New("策略存储不支持原子提交访问控制提案")
 	}
 	committedRevision, err := committer.CommitAccessProposal(ctx, *proposal, cached.BaseDesiredRevision, "policy-plan")
 	if errors.Is(err, ErrRevisionStale) || errors.Is(err, accesscontrol.ErrRevisionStale) {
@@ -993,7 +1012,7 @@ func (m *Manager) GenerateAndApply(ctx context.Context, deviceID, kind string) (
 func (m *Manager) GenerateAndApplyTarget(ctx context.Context, deviceID, kind, targetID string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	domains := TargetConsumerDomains{Routing: true}
 	if consumerRepository, ok := applier.Repo.(TargetConsumerDomainRepository); ok {
@@ -1116,7 +1135,7 @@ func uniqueTargetIDs(targetIDs []string) []string {
 func (m *Manager) GetJob(ctx context.Context, deviceID, jobID string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	return applier.Repo.GetApplyJob(ctx, jobID)
 }
@@ -1356,7 +1375,7 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		}
 		if len(envelope.Plan.Blockers) > 0 {
 			m.deleteCachedPlans([]string{envelope.PlanID})
-			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", ErrPlanBlocked)
+			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", &PlanBlockedError{Blockers: envelope.Plan.Blockers})
 			return
 		}
 		m.mu.Lock()
@@ -1610,7 +1629,7 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 				commitErr = followUpCommitter.CommitRoutingApplyWithJobState(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job, cached.TargetPromotions, false)
 			}
 		} else if keepJobOpen {
-			commitErr = errors.New("policy repository does not support follow-up job state")
+			commitErr = errors.New("策略存储不支持跟进任务状态")
 		} else if domain == PolicyDomainAccess {
 			commitErr = committer.CommitAccessApply(ctx, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, cached.TargetPromotions)
 		} else {
@@ -1619,7 +1638,7 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	} else {
 		// The old broad commit is a compatibility seam for explicit Combined
 		// callers only. Normal manager paths require the domain-scoped contract.
-		commitErr = errors.New("policy repository does not support domain-scoped apply")
+		commitErr = errors.New("策略存储不支持按域应用")
 	}
 	if commitErr != nil {
 		m.failJob(ctx, applier.Repo, &job, "commit", commitErr)
@@ -2274,7 +2293,7 @@ func parseDNSCacheSizeKiB(value string) (int64, error) {
 	parsed, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil || parsed < 0 {
 		if err == nil {
-			err = errors.New("cache-size must not be negative")
+			err = errors.New("cache-size 不能为负数")
 		}
 		return 0, err
 	}

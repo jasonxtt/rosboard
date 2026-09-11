@@ -103,13 +103,13 @@ func (s *Scanner) scan(ctx context.Context, deviceID string) (Discovery, error) 
 
 func discoveryFromEvidence(evidence discoveryEvidence, deviceID string) (Discovery, error) {
 	if evidence.interfacesErr != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS interfaces: %w", evidence.interfacesErr)
+		return Discovery{}, fmt.Errorf("读取 RouterOS 接口失败：%w", evidence.interfacesErr)
 	}
 	if evidence.resourceErr != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS identity: %w", evidence.resourceErr)
+		return Discovery{}, fmt.Errorf("读取 RouterOS 设备标识失败：%w", evidence.resourceErr)
 	}
 	if evidence.ipv4RoutesErr != nil {
-		return Discovery{}, fmt.Errorf("read RouterOS IPv4 routes: %w", evidence.ipv4RoutesErr)
+		return Discovery{}, fmt.Errorf("读取 RouterOS IPv4 路由失败：%w", evidence.ipv4RoutesErr)
 	}
 	warnings := make([]string, 0)
 	ipv4Routes := evidence.ipv4Routes

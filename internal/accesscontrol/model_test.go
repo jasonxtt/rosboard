@@ -12,10 +12,10 @@ func TestAccessRuleRejectsRoutingOnlyExcludedSubject(t *testing.T) {
 		ID: "access-excluded", Name: "Excluded", TargetScope: TargetScopeInternet,
 		Subject: subject.Subject{Mode: subject.ModeExcluded, Prefixes: []string{"192.0.2.0/24"}},
 	}
-	if err := ValidateRule(rule); err == nil || !strings.Contains(err.Error(), "all or selected") {
+	if err := ValidateRule(rule); err == nil || !strings.Contains(err.Error(), "「全部」或「指定」") {
 		t.Fatalf("excluded access subject was not rejected: %v", err)
 	}
-	if _, err := NormalizeRule(rule); err == nil || !strings.Contains(err.Error(), "all or selected") {
+	if _, err := NormalizeRule(rule); err == nil || !strings.Contains(err.Error(), "「全部」或「指定」") {
 		t.Fatalf("excluded access subject was not rejected during normalization: %v", err)
 	}
 }

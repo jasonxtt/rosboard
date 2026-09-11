@@ -18,7 +18,7 @@ func ValidateFakeAliases(ctx context.Context, reader PolicyReader, repository Re
 	for _, menu := range []routeros.ReadMenu{routeros.ReadMenuIPAddress, routeros.ReadMenuIPv6Address} {
 		objects, err := reader.PolicyList(ctx, menu, []string{"address", "disabled", "invalid"})
 		if err != nil {
-			return nil, fmt.Errorf("scan RouterOS addresses for Fake DNS collision: %w", err)
+			return nil, fmt.Errorf("读取 RouterOS 地址以检查 Fake DNS 冲突失败：%w", err)
 		}
 		for _, object := range objects {
 			if aliasRouterBool(object["disabled"]) || aliasRouterBool(object["invalid"]) {

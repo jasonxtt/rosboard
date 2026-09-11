@@ -402,7 +402,7 @@ func (r *AccessRepository) ListRules(ctx context.Context) ([]accesscontrol.Acces
 			return nil, err
 		}
 		if index, ok := byID[ruleID]; ok {
-			rules[index].MigrationIssues = append(rules[index].MigrationIssues, code+": "+value)
+			rules[index].MigrationIssues = append(rules[index].MigrationIssues, accessMigrationIssueText(code, value))
 		}
 	}
 	if err := issueRows.Err(); err != nil {
@@ -428,6 +428,15 @@ func accessMemberSubject(member accesscontrol.RuleMember) subject.Member {
 	return subject.Member{TerminalID: member.TerminalID, Binding: member.Binding, AnchorMAC: member.AnchorMAC,
 		PinnedIPv4: append([]string{}, member.PinnedIPv4...), PinnedIPv6: append([]string{}, member.PinnedIPv6...),
 		LastIPv4: append([]string{}, member.LastIPv4...), LastIPv6: append([]string{}, member.LastIPv6...)}
+}
+
+// accessMigrationIssueText renders the persisted migration marker as
+// user-facing prose; the code stays the machine-readable identity.
+func accessMigrationIssueText(code, value string) string {
+	if code == "legacy_application_unresolved" {
+		return "旧版应用引用无法迁移：" + value
+	}
+	return code + ": " + value
 }
 
 func (r *AccessRepository) ListMembers(ctx context.Context) ([]accesscontrol.RuleMember, error) {

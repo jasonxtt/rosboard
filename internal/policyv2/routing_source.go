@@ -50,8 +50,8 @@ type RoutingSourceScope struct {
 }
 
 var (
-	ErrRoutingSourceScopeInvalid  = errors.New("invalid routing source scope")
-	ErrRoutingSourceScopeConflict = errors.New("routing source scope conflicts with legacy projection")
+	ErrRoutingSourceScopeInvalid  = errors.New("无效的路由来源范围")
+	ErrRoutingSourceScopeConflict = errors.New("路由来源范围与旧版来源投影不一致")
 )
 
 func IsDeferredRoutingSourceInterfaceListName(name string) bool {
@@ -80,7 +80,7 @@ func routingSourceInterfaceListAllDeferredIssue(logicalID string) PlanIssue {
 		Code:      RoutingSourceInterfaceListAllDeferredCode,
 		Status:    "blocker",
 		LogicalID: logicalID,
-		Reason:    `InterfaceList("all") as a routing source is deferred until a safe matcher implementation is available`,
+		Reason:    `暂不支持以 RouterOS 内置「all」接口列表作为路由来源，待安全的匹配实现就绪后开放`,
 	}
 }
 
@@ -89,7 +89,7 @@ func routingSourceAllDeferredIssue(logicalID string) PlanIssue {
 		Code:      RoutingSourceAllDeferredCode,
 		Status:    "blocker",
 		LogicalID: logicalID,
-		Reason:    `SourceScope("all") is deferred until RouterOS prerouting/output and loop-safety semantics are proven`,
+		Reason:    `「全部来源」暂不可用：RouterOS prerouting/output 与环路安全语义尚未验证完成`,
 	}
 }
 
@@ -104,14 +104,14 @@ func NormalizeRoutingSourceScope(value *RoutingSourceScope) (*RoutingSourceScope
 	switch normalized.Kind {
 	case RoutingSourceDevice, RoutingSourceIP, RoutingSourceAll:
 		if normalized.Name != "" || len(value.Interfaces) != 0 || len(value.InterfaceLists) != 0 || len(value.ExcludePrefixes) != 0 {
-			return nil, fmt.Errorf("%w: %s source must not contain interface selectors or exclusions", ErrRoutingSourceScopeInvalid, normalized.Kind)
+			return nil, fmt.Errorf("%w：%s 来源不能包含接口选择器或排除地址", ErrRoutingSourceScopeInvalid, normalized.Kind)
 		}
 	case RoutingSourceInterfaceList:
 		if normalized.Name == "" {
-			return nil, fmt.Errorf("%w: %s source requires a name", ErrRoutingSourceScopeInvalid, normalized.Kind)
+			return nil, fmt.Errorf("%w：%s 来源需要一个名称", ErrRoutingSourceScopeInvalid, normalized.Kind)
 		}
 		if len(value.Interfaces) != 0 || len(value.InterfaceLists) != 0 || len(value.ExcludePrefixes) != 0 {
-			return nil, fmt.Errorf("%w: %s source keeps a single legacy list name only", ErrRoutingSourceScopeInvalid, normalized.Kind)
+			return nil, fmt.Errorf("%w：%s 来源仅保留一个旧版列表名称", ErrRoutingSourceScopeInvalid, normalized.Kind)
 		}
 	case RoutingSourceInterface:
 		interfaces := append([]string{}, value.Interfaces...)
@@ -122,7 +122,7 @@ func NormalizeRoutingSourceScope(value *RoutingSourceScope) (*RoutingSourceScope
 		normalized.Interfaces = normalizedNames(interfaces)
 		normalized.InterfaceLists = normalizedNames(value.InterfaceLists)
 		if len(normalized.Interfaces) == 0 && len(normalized.InterfaceLists) == 0 {
-			return nil, fmt.Errorf("%w: interface source requires at least one interface or interface list", ErrRoutingSourceScopeInvalid)
+			return nil, fmt.Errorf("%w：接口来源至少需要一个接口或接口列表", ErrRoutingSourceScopeInvalid)
 		}
 		exclusions, err := normalizeRoutingSourceExclusions(value.ExcludePrefixes)
 		if err != nil {
@@ -130,7 +130,7 @@ func NormalizeRoutingSourceScope(value *RoutingSourceScope) (*RoutingSourceScope
 		}
 		normalized.ExcludePrefixes = exclusions
 	default:
-		return nil, fmt.Errorf("%w: unsupported source kind %q", ErrRoutingSourceScopeInvalid, value.Kind)
+		return nil, fmt.Errorf("%w：不支持的来源类型 %q", ErrRoutingSourceScopeInvalid, value.Kind)
 	}
 	return normalized, nil
 }
@@ -146,7 +146,7 @@ func normalizeRoutingSourceExclusions(values []string) ([]string, error) {
 	for _, value := range values {
 		canonical, err := subject.NormalizePrefix(value)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid excluded source address %q", ErrRoutingSourceScopeInvalid, strings.TrimSpace(value))
+			return nil, fmt.Errorf("%w：无效的排除来源地址 %q", ErrRoutingSourceScopeInvalid, strings.TrimSpace(value))
 		}
 		result = append(result, canonical)
 	}
@@ -223,7 +223,7 @@ func RoutingSourceLegacyProjection(scope RoutingSourceScope, source Subject) (Su
 	case RoutingSourceAll:
 		return Subject{Mode: SubjectModeAll}, NormalizeTrafficIngressScopeUnvalidated(TrafficIngressScope{}), nil
 	default:
-		return Subject{}, TrafficIngressScope{}, fmt.Errorf("%w: unsupported source kind %q", ErrRoutingSourceScopeInvalid, normalizedScope.Kind)
+		return Subject{}, TrafficIngressScope{}, fmt.Errorf("%w：不支持的来源类型 %q", ErrRoutingSourceScopeInvalid, normalizedScope.Kind)
 	}
 }
 
@@ -235,16 +235,16 @@ func normalizeRoutingSubjectForSource(scope RoutingSourceScope, source Subject) 
 	switch scope.Kind {
 	case RoutingSourceDevice:
 		if normalized.Mode != SubjectModeSelected || len(normalized.Members) == 0 || len(normalized.Prefixes) != 0 {
-			return Subject{}, fmt.Errorf("%w: device source requires selected terminal members only", ErrRoutingSourceScopeInvalid)
+			return Subject{}, fmt.Errorf("%w：终端来源只能包含选中的终端成员", ErrRoutingSourceScopeInvalid)
 		}
 	case RoutingSourceIP:
 		if normalized.Mode != SubjectModeSelected || len(normalized.Members) != 0 || len(normalized.Prefixes) == 0 {
-			return Subject{}, fmt.Errorf("%w: ip source requires selected IP prefixes only", ErrRoutingSourceScopeInvalid)
+			return Subject{}, fmt.Errorf("%w：IP 来源只能包含手动地址或地址段", ErrRoutingSourceScopeInvalid)
 		}
 	case RoutingSourceInterface:
 		if len(scope.ExcludePrefixes) == 0 {
 			if normalized.Mode != SubjectModeAll || len(normalized.Members) != 0 || len(normalized.Prefixes) != 0 {
-				return Subject{}, fmt.Errorf("%w: %s source uses an all-subject compatibility projection", ErrRoutingSourceScopeInvalid, scope.Kind)
+				return Subject{}, fmt.Errorf("%w：%s 来源使用「全部终端」兼容投影", ErrRoutingSourceScopeInvalid, scope.Kind)
 			}
 			return normalized, nil
 		}
@@ -255,12 +255,12 @@ func normalizeRoutingSubjectForSource(scope RoutingSourceScope, source Subject) 
 			return normalized, nil
 		}
 		if normalized.Mode != SubjectModeExcluded || len(normalized.Members) != 0 || !reflect.DeepEqual(normalized.Prefixes, scope.ExcludePrefixes) {
-			return Subject{}, fmt.Errorf("%w: interface source with exclusions requires the matching excluded-subject projection", ErrRoutingSourceScopeInvalid)
+			return Subject{}, fmt.Errorf("%w：带排除地址的接口来源需要匹配的「排除」来源投影", ErrRoutingSourceScopeInvalid)
 		}
 		return normalized, nil
 	case RoutingSourceInterfaceList, RoutingSourceAll:
 		if normalized.Mode != SubjectModeAll || len(normalized.Members) != 0 || len(normalized.Prefixes) != 0 {
-			return Subject{}, fmt.Errorf("%w: %s source uses an all-subject compatibility projection", ErrRoutingSourceScopeInvalid, scope.Kind)
+			return Subject{}, fmt.Errorf("%w：%s 来源使用「全部终端」兼容投影", ErrRoutingSourceScopeInvalid, scope.Kind)
 		}
 	}
 	return normalized, nil
@@ -315,7 +315,7 @@ func routingSourceLegacySubjectValue(value Subject) (routingSourceLegacySubject,
 // semantics of an old-client payload with a canonical typed rule.
 func LegacyRoutingSourceProjectionMatches(canonical, incoming RoutingRule) (bool, error) {
 	if canonical.SourceScope == nil {
-		return false, fmt.Errorf("%w: canonical source scope is absent", ErrRoutingSourceScopeConflict)
+		return false, fmt.Errorf("%w：缺少规范的来源范围", ErrRoutingSourceScopeConflict)
 	}
 	expectedSubject, expectedIngress, err := RoutingSourceLegacyProjection(*canonical.SourceScope, canonical.Subject)
 	if err != nil {
@@ -401,7 +401,7 @@ func PrepareRoutingRuleWrite(value RoutingRule, current *RoutingRule) (RoutingRu
 			return RoutingRule{}, err
 		}
 		if !matches {
-			return RoutingRule{}, fmt.Errorf("%w: legacy Subject/Ingress does not match the canonical source", ErrRoutingSourceScopeConflict)
+			return RoutingRule{}, fmt.Errorf("%w：旧版来源/入口字段与规范来源不一致", ErrRoutingSourceScopeConflict)
 		}
 		// Preserve the canonical source payload wholesale for old-client
 		// non-source edits. This also preserves hidden identity state such as

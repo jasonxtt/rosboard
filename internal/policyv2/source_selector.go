@@ -267,7 +267,7 @@ func sourceSelectorsFromEvidence(evidence discoveryEvidence, deviceID string) (S
 		}
 		if strings.EqualFold(name, "all") {
 			entry.SafetyCode = RoutingSourceInterfaceListAllDeferredCode
-			entry.Warnings = append(entry.Warnings, "内置 all 接口列表可见但当前计划会阻止应用，直到全量来源 matcher 的安全语义完成。")
+			entry.Warnings = append(entry.Warnings, "内置 all 接口列表可见但当前计划会阻止应用，直到全量来源匹配的安全语义完成。")
 			entry.Reason = "RouterOS 内置接口列表；事实可见，当前策略应用安全门延后。"
 		}
 		if reservedInterfaceLists[strings.ToLower(name)] && entry.SafetyCode == "" {

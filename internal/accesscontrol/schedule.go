@@ -14,9 +14,18 @@ const (
 	MaxAccessScheduleWindows = 16
 )
 
-var ErrInvalidSchedule = errors.New("invalid access schedule")
+var ErrInvalidSchedule = errors.New("访问时间计划无效")
 
 var accessScheduleDays = [...]string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+var accessScheduleDayLabels = [...]string{"周一", "周二", "周三", "周四", "周五", "周六", "周日"}
+
+func accessScheduleDayLabel(day string) string {
+	if index, ok := accessScheduleDayIndex[strings.ToLower(strings.TrimSpace(day))]; ok {
+		return accessScheduleDayLabels[index]
+	}
+	return day
+}
 
 var accessScheduleDayIndex = map[string]int{
 	"mon": 0,
@@ -62,19 +71,19 @@ func NormalizeSchedule(schedule AccessSchedule) (AccessSchedule, error) {
 		mode = ScheduleModeAlways
 	}
 	if mode != ScheduleModeAlways && mode != ScheduleModeWeekly {
-		return AccessSchedule{}, fmt.Errorf("%w: mode must be always or weekly", ErrInvalidSchedule)
+		return AccessSchedule{}, fmt.Errorf("%w：模式必须是「始终」或「每周」", ErrInvalidSchedule)
 	}
 	if mode == ScheduleModeAlways {
 		if len(schedule.Windows) != 0 {
-			return AccessSchedule{}, fmt.Errorf("%w: always mode must not define windows", ErrInvalidSchedule)
+			return AccessSchedule{}, fmt.Errorf("%w：「始终」模式不能包含时间段", ErrInvalidSchedule)
 		}
 		return AlwaysSchedule(), nil
 	}
 	if len(schedule.Windows) == 0 {
-		return AccessSchedule{}, fmt.Errorf("%w: weekly mode requires at least one window", ErrInvalidSchedule)
+		return AccessSchedule{}, fmt.Errorf("%w：「每周」模式至少需要一个时间段", ErrInvalidSchedule)
 	}
 	if len(schedule.Windows) > MaxAccessScheduleWindows {
-		return AccessSchedule{}, fmt.Errorf("%w: at most %d windows are allowed", ErrInvalidSchedule, MaxAccessScheduleWindows)
+		return AccessSchedule{}, fmt.Errorf("%w：最多允许 %d 个时间段", ErrInvalidSchedule, MaxAccessScheduleWindows)
 	}
 
 	windows := make([]AccessTimeWindow, 0, len(schedule.Windows))
@@ -112,26 +121,26 @@ func ValidateSchedule(schedule AccessSchedule) error {
 func normalizeAccessTimeWindow(window AccessTimeWindow) (AccessTimeWindow, []accessScheduleSegment, error) {
 	start, err := parseScheduleClock(window.Start)
 	if err != nil {
-		return AccessTimeWindow{}, nil, fmt.Errorf("%w: invalid start time %q", ErrInvalidSchedule, window.Start)
+		return AccessTimeWindow{}, nil, fmt.Errorf("%w：无效的开始时间 %q", ErrInvalidSchedule, window.Start)
 	}
 	end, err := parseScheduleClock(window.End)
 	if err != nil {
-		return AccessTimeWindow{}, nil, fmt.Errorf("%w: invalid end time %q", ErrInvalidSchedule, window.End)
+		return AccessTimeWindow{}, nil, fmt.Errorf("%w：无效的结束时间 %q", ErrInvalidSchedule, window.End)
 	}
 	if start == end {
-		return AccessTimeWindow{}, nil, fmt.Errorf("%w: start and end time must differ", ErrInvalidSchedule)
+		return AccessTimeWindow{}, nil, fmt.Errorf("%w：开始和结束时间必须不同", ErrInvalidSchedule)
 	}
 
 	daySet := make(map[int]bool, len(window.Days))
 	for _, rawDay := range window.Days {
 		day, ok := accessScheduleDayIndex[strings.ToLower(strings.TrimSpace(rawDay))]
 		if !ok {
-			return AccessTimeWindow{}, nil, fmt.Errorf("%w: invalid weekday %q", ErrInvalidSchedule, rawDay)
+			return AccessTimeWindow{}, nil, fmt.Errorf("%w：无效的星期 %q", ErrInvalidSchedule, rawDay)
 		}
 		daySet[day] = true
 	}
 	if len(daySet) == 0 {
-		return AccessTimeWindow{}, nil, fmt.Errorf("%w: a window requires at least one weekday", ErrInvalidSchedule)
+		return AccessTimeWindow{}, nil, fmt.Errorf("%w：每个时间段至少选择一个星期", ErrInvalidSchedule)
 	}
 	days := make([]string, 0, len(daySet))
 	dayNumbers := make([]int, 0, len(daySet))
@@ -161,12 +170,12 @@ func normalizeAccessTimeWindow(window AccessTimeWindow) (AccessTimeWindow, []acc
 func parseScheduleClock(value string) (int, error) {
 	value = strings.TrimSpace(value)
 	if len(value) != 5 || value[2] != ':' || value[0] < '0' || value[0] > '9' || value[1] < '0' || value[1] > '9' || value[3] < '0' || value[3] > '9' || value[4] < '0' || value[4] > '9' {
-		return 0, errors.New("time must use HH:MM")
+		return 0, errors.New("时间必须使用 HH:MM 格式")
 	}
 	hour := int(value[0]-'0')*10 + int(value[1]-'0')
 	minute := int(value[3]-'0')*10 + int(value[4]-'0')
 	if hour > 23 || minute > 59 {
-		return 0, errors.New("time must be within 00:00 and 23:59")
+		return 0, errors.New("时间必须在 00:00 到 23:59 之间")
 	}
 	return hour*60 + minute, nil
 }
@@ -188,7 +197,7 @@ func validateScheduleSegments(segments []accessScheduleSegment) error {
 	for index := 1; index < len(segments); index++ {
 		previous, current := segments[index-1], segments[index]
 		if previous.day == current.day && current.startMin < previous.endMin {
-			return fmt.Errorf("%w: overlapping windows on %s", ErrInvalidSchedule, accessScheduleDays[current.day])
+			return fmt.Errorf("%w：%s的时间段存在重叠", ErrInvalidSchedule, accessScheduleDayLabel(accessScheduleDays[current.day]))
 		}
 	}
 	return nil
@@ -232,7 +241,7 @@ func CompileSchedule(schedule AccessSchedule) ([]string, error) {
 	for key, daySet := range byRange {
 		var startMin, endMin int
 		if _, err := fmt.Sscanf(key, "%d-%d", &startMin, &endMin); err != nil {
-			return nil, fmt.Errorf("%w: invalid compiled time range", ErrInvalidSchedule)
+			return nil, fmt.Errorf("%w：无效的编译时间范围", ErrInvalidSchedule)
 		}
 		days := make([]int, 0, len(daySet))
 		for day := range daySet {
