@@ -562,7 +562,7 @@ func (m *Manager) ApplyPlanWithAcknowledgements(ctx context.Context, deviceID, p
 	return m.applyPlanWithHash(ctx, deviceID, planID, planHash, acknowledgements...)
 }
 
-var ErrAcknowledgementRequired = errors.New("plan requires explicit risk acknowledgement")
+var ErrAcknowledgementRequired = errors.New("计划需要先确认风险提示")
 
 func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string, acknowledgements ...string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
@@ -2186,7 +2186,7 @@ func accessFilterOrderingUnavailableError(routerID string) error {
 	if strings.TrimSpace(routerID) == "" {
 		routerID = "<unknown>"
 	}
-	return fmt.Errorf("%s: non-movable dynamic firewall rule %s precedes managed access-control rules", accessFilterOrderingUnavailableCode, routerID)
+	return fmt.Errorf("%s: 动态防火墙规则 %s 不可移动且位于访问控制规则之前，无法自动调整顺序", accessFilterOrderingUnavailableCode, routerID)
 }
 
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {

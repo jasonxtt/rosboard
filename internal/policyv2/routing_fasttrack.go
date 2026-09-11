@@ -3,7 +3,6 @@ package policyv2
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -224,7 +223,8 @@ func addFastTrackPlan(plan *Plan, report *FastTrackReport) {
 		if code == "" {
 			continue
 		}
-		plan.Warnings = append(plan.Warnings, PlanIssue{Code: code, LogicalID: fastTrackKey(rule.Menu, rule.ID), Reason: fmt.Sprintf("FastTrack %s: %s", rule.ID, rule.Reason)})
+		// The per-rule reasons are rendered once from plan.FastTrack.Rules;
+		// mirroring them into plan.Warnings would duplicate every notice.
 		if rule.Status != "auto_fixable" {
 			found := false
 			for _, ack := range plan.Acknowledgements {
