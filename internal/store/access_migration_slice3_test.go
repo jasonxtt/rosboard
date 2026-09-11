@@ -28,7 +28,7 @@ func TestCanonicalAccessMigrationUnknownOpaqueApplicationFailsClosedWithoutTarge
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rules) != 1 || rules[0].Enabled || rules[0].TargetScope != accesscontrol.TargetScopeTargets || len(rules[0].TargetListIDs) != 0 || len(rules[0].MigrationIssues) != 1 || !strings.HasPrefix(rules[0].MigrationIssues[0], "legacy_application_unresolved:") {
+	if len(rules) != 1 || rules[0].Enabled || rules[0].TargetScope != accesscontrol.TargetScopeTargets || len(rules[0].TargetListIDs) != 0 || len(rules[0].MigrationIssues) != 1 || !strings.HasPrefix(rules[0].MigrationIssues[0], "旧版应用引用无法迁移：") {
 		t.Fatalf("unknown opaque application was not fail-closed: %#v", rules)
 	}
 	if _, err := storage.PolicyRepository().GetTargetList(ctx, "preset:youtube:domain"); !errors.Is(err, policyv2.ErrTargetListNotFound) {
@@ -171,7 +171,7 @@ func TestCanonicalAccessMigrationHandlesMixedLegacyRules(t *testing.T) {
 	if byID["source-rule"].TargetScope != accesscontrol.TargetScopeTargets || len(byID["source-rule"].TargetListIDs) != 1 || byID["source-rule"].TargetListIDs[0] != "source-a" {
 		t.Fatalf("legacy source rule was not migrated: %#v", byID["source-rule"])
 	}
-	if byID["application-rule"].Enabled || byID["application-rule"].TargetScope != accesscontrol.TargetScopeTargets || len(byID["application-rule"].TargetListIDs) != 0 || len(byID["application-rule"].MigrationIssues) != 1 || !strings.HasPrefix(byID["application-rule"].MigrationIssues[0], "legacy_application_unresolved:") {
+	if byID["application-rule"].Enabled || byID["application-rule"].TargetScope != accesscontrol.TargetScopeTargets || len(byID["application-rule"].TargetListIDs) != 0 || len(byID["application-rule"].MigrationIssues) != 1 || !strings.HasPrefix(byID["application-rule"].MigrationIssues[0], "旧版应用引用无法迁移：") {
 		t.Fatalf("legacy application rule was not fail-closed: %#v", byID["application-rule"])
 	}
 	if byID["internet-rule"].TargetScope != accesscontrol.TargetScopeInternet || len(byID["internet-rule"].TargetListIDs) != 0 {

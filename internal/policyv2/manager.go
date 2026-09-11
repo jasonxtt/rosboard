@@ -123,7 +123,7 @@ func (m *Manager) RegisterApplier(deviceID string, applier *Applier) error {
 	if state, err := applier.Repo.GetDeviceState(context.Background()); err == nil && state.Job.ID != "" && !state.Job.Terminal() {
 		state.Job.State = "failed"
 		state.Job.Phase = "failed"
-		state.Job.Error = "rosboard restarted before the apply finished; generate a new plan and retry"
+		state.Job.Error = "rosboard 在应用完成前重启，请重新生成计划并重试"
 		state.Job.FinishedAt = time.Now().UTC()
 		_ = applier.Repo.SaveApplyJob(context.Background(), state.Job)
 	}
@@ -141,13 +141,32 @@ func (m *Manager) ApplierFor(deviceID string) *Applier {
 }
 
 var (
-	ErrPlanNotFound            = errors.New("policy plan not found")
-	ErrPlanExpired             = errors.New("policy plan expired")
-	ErrPlanStale               = errors.New("policy plan is stale")
-	ErrPlanBlocked             = errors.New("policy plan is blocked")
-	ErrDeviceBusy              = errors.New("policy device already has an active apply")
-	ErrTargetListSplitRequired = errors.New("target list is consumed by both policy domains and requires separate applies")
+	ErrPlanNotFound            = errors.New("策略计划不存在，请重新生成预览")
+	ErrPlanExpired             = errors.New("策略计划已过期，请重新生成预览")
+	ErrPlanStale               = errors.New("策略计划已变化，请重新生成预览")
+	ErrPlanBlocked             = errors.New("策略计划被阻断")
+	ErrDeviceBusy              = errors.New("该设备有正在执行的策略应用任务，请等待完成")
+	ErrTargetListSplitRequired = errors.New("目标列表同时被策略路由和访问控制使用，需要分别应用")
 )
+
+// PlanBlockedError keeps the ErrPlanBlocked identity for errors.Is while
+// carrying the first blocker reason into API error responses and job errors.
+type PlanBlockedError struct {
+	Blockers []PlanIssue
+}
+
+func (err *PlanBlockedError) Error() string {
+	if err == nil || len(err.Blockers) == 0 {
+		return ErrPlanBlocked.Error()
+	}
+	message := ErrPlanBlocked.Error() + "：" + err.Blockers[0].Reason
+	if len(err.Blockers) > 1 {
+		message += fmt.Sprintf("（另有 %d 个阻断项）", len(err.Blockers)-1)
+	}
+	return message
+}
+
+func (*PlanBlockedError) Unwrap() error { return ErrPlanBlocked }
 
 func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (PlanEnvelope, error) {
 	return m.GeneratePlanWithOptions(ctx, deviceID, kind, PlanOptions{})
@@ -156,7 +175,7 @@ func (m *Manager) GeneratePlan(ctx context.Context, deviceID, kind string) (Plan
 func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind string, options PlanOptions) (PlanEnvelope, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return PlanEnvelope{}, errors.New("policy runtime is unavailable")
+		return PlanEnvelope{}, errors.New("策略运行时不可用")
 	}
 	domain := options.Domain
 	var err error
@@ -173,7 +192,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	proposal := options.Proposal
 	accessProposal := options.AccessProposal
 	if proposal != nil && accessProposal != nil {
-		return PlanEnvelope{}, errors.New("routing and access proposals cannot be combined")
+		return PlanEnvelope{}, errors.New("策略路由与访问控制的变更提案不能合并")
 	}
 	if proposal != nil {
 		// A proposal is the routing-policy bundle. Keep it out of the legacy
@@ -182,10 +201,10 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		domain = PolicyDomainRouting
 		proposal = clonePolicyProposal(proposal)
 		if proposal == nil {
-			return PlanEnvelope{}, errors.New("policy proposal could not be cloned")
+			return PlanEnvelope{}, errors.New("策略变更提案无法复制")
 		}
 		if accessOnlyPlan || proposal.Empty() {
-			return PlanEnvelope{}, errors.New("a policy proposal is not valid for this plan")
+			return PlanEnvelope{}, errors.New("该策略变更提案不适用于此计划")
 		}
 		state, err := applier.Repo.GetDeviceState(ctx)
 		if err != nil {
@@ -207,10 +226,10 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		domain = PolicyDomainAccess
 		accessProposal = cloneAccessProposal(accessProposal)
 		if accessProposal == nil || accessProposal.Empty() {
-			return PlanEnvelope{}, errors.New("an access proposal is not valid for this plan")
+			return PlanEnvelope{}, errors.New("该访问控制变更提案不适用于此计划")
 		}
 		if applier.Access == nil {
-			return PlanEnvelope{}, errors.New("access repository is unavailable")
+			return PlanEnvelope{}, errors.New("访问控制存储不可用")
 		}
 		if migrator, ok := applier.Access.(CanonicalAccessMigrator); ok {
 			if err := migrator.EnsureCanonicalAccessMigrated(ctx); err != nil {
@@ -310,7 +329,17 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		ActualFingerprint:        fingerprint, Blockers: blockers, FamilyBlockers: []PlanIssue{}, Warnings: desired.Warnings,
 		Acknowledgements: []PlanAcknowledgement{}, OwnershipStrict: true, Operations: operations,
 	}
-	plan.Summary = planSummary(operations, blockers, desired.Warnings)
+	if domain != PolicyDomainAccess {
+		report, err := inspectFastTrack(ctx, applier, planningRepository, desired.Objects)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		if report != nil && kind == "routing-rule-delete" && report.Consumers > 0 {
+			report.RetainOnly = true
+		}
+		addFastTrackPlan(&plan, report)
+	}
+	plan.Summary = planSummary(operations, blockers, plan.Warnings)
 	if len(blockers) > 0 {
 		plan.State = "blocked"
 	} else {
@@ -329,7 +358,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
-	plan.PlanHash = shortHash(string(hashPayload), 64)
+	plan.PlanHash = shortHash(string(hashPayload)+fastTrackHash(plan.FastTrack)+fastTrackHash(plan.Acknowledgements), 64)
 	m.mu.Lock()
 	m.plans[plan.PlanID] = cachedPlan{Plan: plan, Desired: desired.Objects, Actual: actual, AccessResolutions: desired.AccessResolutions, InternetEgresses: cloneInternetEgresses(options.InternetEgresses), Proposal: clonePolicyProposal(proposal), AccessProposal: cloneAccessProposal(accessProposal), BaseDesiredRevision: baseDesiredRevision, TargetPromotions: append([]TargetVersionPromotion(nil), desired.TargetPromotions...), TargetScope: cloneTargetScope(targetScope)}
 	for id, cached := range m.plans {
@@ -529,10 +558,16 @@ func (m *Manager) ApplyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	return m.applyPlanWithHash(ctx, deviceID, planID, planHash)
 }
 
-func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
+func (m *Manager) ApplyPlanWithAcknowledgements(ctx context.Context, deviceID, planID, planHash string, acknowledgements []string) (ApplyJob, error) {
+	return m.applyPlanWithHash(ctx, deviceID, planID, planHash, acknowledgements...)
+}
+
+var ErrAcknowledgementRequired = errors.New("计划需要先确认风险提示")
+
+func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string, acknowledgements ...string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	m.mu.RLock()
 	cached, ok := m.plans[planID]
@@ -550,7 +585,10 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 		return ApplyJob{}, ErrPlanExpired
 	}
 	if len(cached.Plan.Blockers) > 0 {
-		return ApplyJob{}, ErrPlanBlocked
+		return ApplyJob{}, &PlanBlockedError{Blockers: cached.Plan.Blockers}
+	}
+	if err := validatePlanAcknowledgements(cached.Plan, planHash, acknowledgements); err != nil {
+		return ApplyJob{}, err
 	}
 	if cached.Proposal != nil {
 		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
@@ -645,6 +683,10 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	delete(m.plans, planID)
 	m.mu.Unlock()
 
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
 	now := time.Now().UTC()
 	job := ApplyJob{ID: uuid.NewString(), PlanID: planID, State: "queued", Phase: "queued", CreatedAt: now}
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
@@ -760,10 +802,14 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 		release()
 		return ApplyJob{}, ErrPlanStale
 	}
+	if err := checkFastTrackPlan(ctx, applier, planningRepository, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
 	committer, ok := applier.Repo.(ProposalCommitter)
 	if !ok {
 		release()
-		return ApplyJob{}, errors.New("policy repository does not support atomic proposal commit")
+		return ApplyJob{}, errors.New("策略存储不支持原子提交提案")
 	}
 	committedRevision, err := committer.CommitPolicyProposal(ctx, *proposal, cached.BaseDesiredRevision)
 	if errors.Is(err, ErrRevisionStale) {
@@ -911,7 +957,7 @@ func (m *Manager) applyAccessProposedPlan(ctx context.Context, deviceID, planID 
 	committer, ok := applier.Repo.(AccessProposalCommitter)
 	if !ok {
 		release()
-		return ApplyJob{}, errors.New("policy repository does not support atomic access proposal commit")
+		return ApplyJob{}, errors.New("策略存储不支持原子提交访问控制提案")
 	}
 	committedRevision, err := committer.CommitAccessProposal(ctx, *proposal, cached.BaseDesiredRevision, "policy-plan")
 	if errors.Is(err, ErrRevisionStale) || errors.Is(err, accesscontrol.ErrRevisionStale) {
@@ -993,7 +1039,7 @@ func (m *Manager) GenerateAndApply(ctx context.Context, deviceID, kind string) (
 func (m *Manager) GenerateAndApplyTarget(ctx context.Context, deviceID, kind, targetID string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	domains := TargetConsumerDomains{Routing: true}
 	if consumerRepository, ok := applier.Repo.(TargetConsumerDomainRepository); ok {
@@ -1116,9 +1162,22 @@ func uniqueTargetIDs(targetIDs []string) []string {
 func (m *Manager) GetJob(ctx context.Context, deviceID, jobID string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
-		return ApplyJob{}, errors.New("policy runtime is unavailable")
+		return ApplyJob{}, errors.New("策略运行时不可用")
 	}
-	return applier.Repo.GetApplyJob(ctx, jobID)
+	job, err := applier.Repo.GetApplyJob(ctx, jobID)
+	if err != nil {
+		return job, err
+	}
+	if store, ok := applier.Repo.(FastTrackRepository); ok {
+		state, err := store.LoadFastTrackState(ctx)
+		if err != nil {
+			return job, err
+		}
+		if state.JobID == jobID {
+			job.Warnings = state.JobWarnings
+		}
+	}
+	return job, nil
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -1127,6 +1186,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	_ = m.RefreshDue(ctx, time.Now().UTC())
 	_ = m.ReconcileAccess(ctx)
+	m.retryFastTrackReleases(ctx)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -1136,6 +1196,7 @@ func (m *Manager) Start(ctx context.Context) {
 		case now := <-ticker.C:
 			_ = m.RefreshDue(ctx, now.UTC())
 			_ = m.ReconcileAccess(ctx)
+			m.retryFastTrackReleases(ctx)
 		}
 	}
 }
@@ -1356,7 +1417,14 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		}
 		if len(envelope.Plan.Blockers) > 0 {
 			m.deleteCachedPlans([]string{envelope.PlanID})
-			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", ErrPlanBlocked)
+			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", &PlanBlockedError{Blockers: envelope.Plan.Blockers})
+			return
+		}
+		// Internal follow-ups have no user authorization for this newly generated
+		// plan. Never inherit acknowledgements from the already committed domain.
+		if err := validatePlanAcknowledgements(envelope.Plan, "", nil); err != nil {
+			m.deleteCachedPlans([]string{envelope.PlanID})
+			m.failJob(ctx, applier.Repo, &job, "follow-up-acknowledgement-required", fmt.Errorf("后续 %s 应用需要重新预览并确认风险: %w", followUp.domain, err))
 			return
 		}
 		m.mu.Lock()
@@ -1455,6 +1523,14 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			m.failJob(ctx, applier.Repo, &job, "desired-state-validation", ErrPlanStale)
 			return job, false
 		}
+	}
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, planned.Objects, cached.Plan); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-state-check", err)
+		return job, false
+	}
+	if err := ensureFastTrack(ctx, applier, cached.Plan.FastTrack); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-compatibility", err)
+		return job, false
 	}
 	needsDNSMutation := domain == PolicyDomainRouting || hasDesiredMenu(cached.Desired, routeros.MenuIPDNSStatic)
 	if needsDNSMutation {
@@ -1593,6 +1669,13 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "verify-cross-domain-dns-order", err)
 		return job, false
 	}
+	if domain != PolicyDomainAccess {
+		if err := finishFastTrack(ctx, applier, job.ID, cached.Plan.FastTrack); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "fasttrack-journal", err)
+			return job, false
+		}
+	}
+
 	job.Progress = len(cached.Plan.Operations)
 	if keepJobOpen {
 		job.State = "follow_up"
@@ -1610,7 +1693,7 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 				commitErr = followUpCommitter.CommitRoutingApplyWithJobState(ctx, cached.Plan.DesiredRevision, cached.Plan.DesiredHash, job, cached.TargetPromotions, false)
 			}
 		} else if keepJobOpen {
-			commitErr = errors.New("policy repository does not support follow-up job state")
+			commitErr = errors.New("策略存储不支持跟进任务状态")
 		} else if domain == PolicyDomainAccess {
 			commitErr = committer.CommitAccessApply(ctx, cached.Plan.AccessRevision, cached.Plan.DesiredHash, job, cached.AccessResolutions, cached.TargetPromotions)
 		} else {
@@ -1619,7 +1702,7 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	} else {
 		// The old broad commit is a compatibility seam for explicit Combined
 		// callers only. Normal manager paths require the domain-scoped contract.
-		commitErr = errors.New("policy repository does not support domain-scoped apply")
+		commitErr = errors.New("策略存储不支持按域应用")
 	}
 	if commitErr != nil {
 		m.failJob(ctx, applier.Repo, &job, "commit", commitErr)
@@ -2050,6 +2133,62 @@ func isStaleApplicationOperation(operation PlanOperation) bool {
 	return false
 }
 
+const accessFilterOrderingUnavailableCode = "access_filter_ordering_unavailable"
+
+func isIgnorableFastTrackCounterDummy(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic &&
+		strings.EqualFold(strings.TrimSpace(object["chain"]), "forward") &&
+		strings.EqualFold(strings.TrimSpace(object["action"]), "passthrough") &&
+		strings.EqualFold(strings.TrimSpace(object["comment"]), "special dummy rule to show fasttrack counters")
+}
+
+func isNonIgnorableDynamicFirewallFilter(object routeros.RouterOSObject) bool {
+	dynamic, err := object.Bool("dynamic")
+	return err == nil && dynamic && !isIgnorableFastTrackCounterDummy(object)
+}
+
+// accessOrderingFirewallFilterObjects removes only RouterOS's harmless
+// FastTrack counter dummy from ordering decisions. Other dynamic rules can
+// affect packet processing and must remain visible as ordering boundaries.
+func accessOrderingFirewallFilterObjects(objects []routeros.RouterOSObject) []routeros.RouterOSObject {
+	ordered := make([]routeros.RouterOSObject, 0, len(objects))
+	for _, object := range objects {
+		if isIgnorableFastTrackCounterDummy(object) {
+			continue
+		}
+		ordered = append(ordered, object)
+	}
+	return ordered
+}
+
+// firstNonIgnorableDynamicBeforeAccess returns a dynamic RouterOS rule that
+// precedes the first managed Access rule. Such a rule is a non-movable
+// ordering boundary; moving Access rules across it would either fail with
+// RouterOS's "cannot move builtin" error or silently change packet semantics.
+func firstNonIgnorableDynamicBeforeAccess(objects []routeros.RouterOSObject, desiredIdentities map[string]struct{}, identityByRouterID map[string]string) string {
+	for _, object := range objects {
+		identity := managedCommentIdentity(object["comment"])
+		if desiredIdentity := identityByRouterID[object.ID()]; desiredIdentity != "" {
+			identity = desiredIdentity
+		}
+		if _, isDesired := desiredIdentities[identity]; isDesired {
+			return ""
+		}
+		if isNonIgnorableDynamicFirewallFilter(object) {
+			return object.ID()
+		}
+	}
+	return ""
+}
+
+func accessFilterOrderingUnavailableError(routerID string) error {
+	if strings.TrimSpace(routerID) == "" {
+		routerID = "<unknown>"
+	}
+	return fmt.Errorf("%s: 动态防火墙规则 %s 不可移动且位于访问控制规则之前，无法自动调整顺序", accessFilterOrderingUnavailableCode, routerID)
+}
+
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
 		identities := make([]string, 0)
@@ -2065,6 +2204,14 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		objects, err := mutation.List(ctx, menu, routeros.MutationQuery{})
 		if err != nil {
 			return fmt.Errorf("read %s before access-control ordering: %w", menu, err)
+		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(identities))
+		for _, identity := range identities {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
 		}
 		order := make([]string, 0, len(objects))
 		idByIdentity := make(map[string]string, len(identities))
@@ -2115,6 +2262,10 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("verify %s access-control ordering: %w", menu, err)
 		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
+			return accessFilterOrderingUnavailableError(routerID)
+		}
 		if len(objects) < len(identities) {
 			return fmt.Errorf("%s returned fewer rules than managed access-control rules", menu)
 		}
@@ -2163,6 +2314,14 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 		objects, err := mutation.List(ctx, menu, routeros.MutationQuery{})
 		if err != nil {
 			return nil, fmt.Errorf("read %s before planning access-control ordering: %w", menu, err)
+		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		desiredIdentities := make(map[string]struct{}, len(desiredByIdentity))
+		for identity := range desiredByIdentity {
+			desiredIdentities[identity] = struct{}{}
+		}
+		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, routerIDToDesiredIdentity); routerID != "" {
+			return nil, accessFilterOrderingUnavailableError(routerID)
 		}
 		routerIDByIdentity := make(map[string]string, len(jumps))
 		seenDesiredJump := make(map[string]bool, len(jumps))
@@ -2274,7 +2433,7 @@ func parseDNSCacheSizeKiB(value string) (int64, error) {
 	parsed, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil || parsed < 0 {
 		if err == nil {
-			err = errors.New("cache-size must not be negative")
+			err = errors.New("cache-size 不能为负数")
 		}
 		return 0, err
 	}

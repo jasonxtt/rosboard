@@ -15,9 +15,9 @@ const (
 )
 
 var (
-	ErrInvalidTargetListKind       = errors.New("target list kind must be domain or ip")
-	ErrInvalidTargetListSourceType = errors.New("target list source type must be url, upload, manual or preset")
-	ErrPresetTargetListProtected   = errors.New("preset target lists are managed by application presets")
+	ErrInvalidTargetListKind       = errors.New("目标列表类型必须是域名或 IP")
+	ErrInvalidTargetListSourceType = errors.New("目标列表来源类型必须是 url、upload、manual 或 preset")
+	ErrPresetTargetListProtected   = errors.New("预设目标列表由应用预设管理")
 )
 
 // ValidateTargetListKind is intentionally strict. Legacy Source callers must
@@ -41,10 +41,10 @@ func ValidateTargetListSourceType(sourceType string) error {
 
 func ValidateTargetListPreset(sourceType, presetID string) error {
 	if sourceType == TargetSourceTypePreset && strings.TrimSpace(presetID) == "" {
-		return errors.New("preset target lists require presetId")
+		return errors.New("预设目标列表必须提供 presetId")
 	}
 	if sourceType != TargetSourceTypePreset && strings.TrimSpace(presetID) != "" {
-		return errors.New("presetId is only valid for preset target lists")
+		return errors.New("presetId 仅适用于预设目标列表")
 	}
 	return nil
 }

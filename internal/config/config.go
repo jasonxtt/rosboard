@@ -357,7 +357,7 @@ func (c *Config) normalizeDevices() {
 				Enabled:   true,
 				SortOrder: 1,
 				RouterOS:  c.RouterOS,
-				MosDNS:    MosDNSConfig{SyncIntervalMinutes: 30, MatchWindowMinutes: 30},
+				MosDNS:    MosDNSConfig{SyncIntervalMinutes: 5, MatchWindowMinutes: 30},
 			}}
 		}
 		return
@@ -367,7 +367,7 @@ func (c *Config) normalizeDevices() {
 		c.Devices[index].Name = strings.TrimSpace(c.Devices[index].Name)
 		c.Devices[index].MosDNS.BaseURL = NormalizeMosDNSBaseURL(c.Devices[index].MosDNS.BaseURL)
 		if c.Devices[index].MosDNS.SyncIntervalMinutes == 0 {
-			c.Devices[index].MosDNS.SyncIntervalMinutes = 30
+			c.Devices[index].MosDNS.SyncIntervalMinutes = 5
 		}
 		if c.Devices[index].MosDNS.MatchWindowMinutes == 0 {
 			c.Devices[index].MosDNS.MatchWindowMinutes = c.Devices[index].FeatureLibrary.MatchWindowMinutes

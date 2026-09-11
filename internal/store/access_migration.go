@@ -73,7 +73,7 @@ func (r *AccessRepository) EnsureCanonicalAccessMigrated(ctx context.Context) er
 				return err
 			}
 			for _, applicationID := range unresolved {
-				message := "legacy application ID has no verified ApplicationPreset mapping"
+				message := "旧版应用 ID 没有已验证的应用预设映射"
 				if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO access_rule_migration_issues (device_id, rule_id, code, value, message) VALUES (?, ?, 'legacy_application_unresolved', ?, ?)`, r.store.deviceID, legacy.id, applicationID, message); err != nil {
 					return err
 				}

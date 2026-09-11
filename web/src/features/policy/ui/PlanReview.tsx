@@ -1,3 +1,4 @@
+import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel } from '../canonical'
 import { useMemo, useState } from 'react'
 import { Badge } from '../../../ui/Badge'
 import type { BadgeTone } from '../../../ui/Badge'
@@ -83,7 +84,7 @@ function IssueRows({ title, issues, tone }: { title: string; issues: PlanIssue[]
       <ul>
         {issues.map((issue, index) => (
           <li key={`${issue.code}:${index}`}>
-            <span>{issue.reason || issue.code}</span>
+            <span>{issue.reason || '（无详细说明）'}</span>
             {issue.family ? <small> · {issue.family}</small> : null}
           </li>
         ))}
@@ -159,6 +160,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
   const plan = envelope.plan
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
+  const [completionWarnings, setCompletionWarnings] = useState<Array<{ code: string; reason: string }> | null>(null)
   const [applyJobId, setApplyJobId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
@@ -217,6 +219,8 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
     }
   }
 
+  if (completionWarnings) return <div className="pol-plan"><Notice tone="warn" title="策略变更已完成">{completionWarnings.map((warning, index) => <p key={`${warning.code}:${index}`}>{warning.reason}</p>)}</Notice><Button variant="primary" onClick={() => void onApplied()}>完成</Button></div>
+
   if (applyJobId) {
     return (
       <div className="pol-plan">
@@ -225,7 +229,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
           domain="policy"
           jobId={applyJobId}
           label="正在应用变更计划"
-          onCommitted={() => void onApplied()}
+          onCommitted={(job) => { onBusyChange?.(false); if (job.warnings?.length) setCompletionWarnings(job.warnings); else void onApplied() }}
           onFailed={(job) => {
             setApplyJobId('')
             setError(job.error || 'RouterOS 应用失败')
@@ -274,6 +278,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
         </div>
       </div>
       <SummaryChips plan={plan} />
+      {plan.fastTrack && fastTrackNoticeVisible(plan.fastTrack) ? <Notice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</Notice> : null}
       <IssueRows title="阻断项" issues={plan.blockers} tone="err" />
       <IssueRows title="协议族阻断" issues={plan.familyBlockers} tone="err" />
       <IssueRows title="警告" issues={plan.warnings} tone="warn" />
@@ -312,7 +317,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
           })}
         </div>
       ) : (
-        <Notice tone="info">没有需要写入 RouterOS 的变更。</Notice>
+        <Notice tone="info">没有普通策略对象需要变更；FastTrack 操作见上方说明。</Notice>
       )}
       {required.length ? (
         <div className="pol-acks">
@@ -320,7 +325,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
           {required.map((ack) => (
             <label key={ack.code} className="pol-check pol-ack">
               <input type="checkbox" checked={acks.has(ack.code)} disabled={applying} onChange={() => toggleAck(ack.code)} />
-              <span>{ack.code}</span>
+              <span>{planAcknowledgementLabel(ack.code)}</span>
               <Badge tone="warn">必选</Badge>
             </label>
           ))}

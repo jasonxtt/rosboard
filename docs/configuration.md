@@ -20,7 +20,7 @@
 | `devices[].enabled` | 是否在后台持续采集该设备 |
 | `devices[].routeros.*` | 每台设备的 REST 地址、账号、密码、采集接口和终端网段 |
 | `devices[].protocol_analysis` | 是否对该设备启用协议 / 应用分析 |
-| `devices[].mosdns.*` | MosDNS 审计日志归因：`enabled`、`base_url`、`sync_interval_minutes`、`match_window_minutes` |
+| `devices[].mosdns.*` | MosDNS 审计日志归因：`enabled`、`base_url`、`sync_interval_minutes`（同步周期，默认 `5` 分钟）、`match_window_minutes`（实时证据窗口，默认 `30` 分钟；窗口内证据标记为「MosDNS 匹配」，更早学习到的指纹标记为「特征推断」） |
 
 设备由面板在连接测试通过后写入配置文件；每台设备至少需要一个采集接口和一个 IPv4/IPv6 本地 CIDR。支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR` 环境变量覆盖。自动创建与后续更新的配置文件权限均为 `0600`。
 

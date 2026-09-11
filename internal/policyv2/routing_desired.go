@@ -125,10 +125,10 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		conflictRules[ruleIndex].TargetListIDs = filteredTargets
 	}
 	for _, conflict := range RoutingRuleConflicts(conflictRules, targetRules, targetKinds) {
-		result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_conflict", Status: "blocker", LogicalID: conflict.RuleAID, EgressID: conflict.EgressA, Reason: conflict.Reason + ": " + conflict.RuleAID + " / " + conflict.RuleBID})
+		result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_conflict", Status: "blocker", LogicalID: conflict.RuleAID, EgressID: conflict.EgressA, Reason: conflict.Reason})
 	}
 	for _, warning := range RoutingRuleSubjectWarnings(conflictRules) {
-		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_overlap_indeterminate", Status: "warning", LogicalID: warning.RuleAID, EgressID: warning.EgressA, Reason: warning.Reason + ": " + warning.RuleAID + " / " + warning.RuleBID})
+		result.Warnings = append(result.Warnings, PlanIssue{Code: "routing_subject_overlap_indeterminate", Status: "warning", LogicalID: warning.RuleAID, EgressID: warning.EgressA, Reason: warning.Reason})
 	}
 	for _, resolution := range DomainProjectionResolutions(conflictRules, targetRules, targetKinds, egressByID) {
 		issue := PlanIssue{Code: resolution.Code, Status: resolution.Severity, LogicalID: resolution.RuleAID, EgressID: resolution.EgressA, Reason: resolution.Reason}
@@ -146,7 +146,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		egress, ok := egressByID[rule.EgressID]
 		if !ok || egress.PendingDeletion {
 			if rule.Enabled {
-				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_egress_unavailable", Status: "blocker", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule references a missing or pending-deletion egress"})
+				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_egress_unavailable", Status: "blocker", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」引用的出口不存在或正在清理：" + rule.EgressID})
 			}
 			continue
 		}
@@ -154,7 +154,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			source, sourceOK := sourceByID[targetID]
 			if !sourceOK || source.PendingDeletion {
 				if rule.Enabled {
-					result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_target_unavailable", Status: "blocker", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule references a missing or pending-deletion target list: " + targetID})
+					result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_rule_target_unavailable", Status: "blocker", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」引用的目标列表不存在或正在清理：" + targetID})
 				}
 				continue
 			}
@@ -355,7 +355,7 @@ func buildRoutingIngressProjections(result *DesiredResult, add func(string, rout
 			scope = defaultScope
 		}
 		if !HasTrafficIngress(scope) {
-			result.Blockers = append(result.Blockers, PlanIssue{Code: "traffic_ingress_required", Status: "blocker", LogicalID: rule.ID, Reason: "all / excluded routing rule requires an ingress scope"})
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "traffic_ingress_required", Status: "blocker", LogicalID: rule.ID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」需要设置流量入口（来源为「全部」或「排除」时必选）"})
 			continue
 		}
 		key := TrafficIngressScopeKey(scope)
@@ -829,7 +829,7 @@ func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routero
 				return routingSourceMatcher{}, false
 			}
 			if strings.TrimSpace(scope.Name) == "" {
-				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "interface-list source requires a non-empty RouterOS interface-list name"})
+				result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "接口列表来源需要一个非空的 RouterOS 接口列表名称"})
 				return routingSourceMatcher{}, false
 			}
 			return routingSourceMatcher{boundary: "direct-interface-list", inInterfaceList: scope.Name}, true
@@ -846,7 +846,7 @@ func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routero
 			}
 			return matcher, true
 		default:
-			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule has an unsupported source kind"})
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_source_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」使用了不支持的来源类型"})
 			return routingSourceMatcher{}, false
 		}
 	}
@@ -861,7 +861,7 @@ func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routero
 		}
 	case SubjectModeExcluded:
 		if !ruleIngressReady || strings.TrimSpace(matcher.ingressList) == "" {
-			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_excluded_requires_ingress", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "excluded source mode requires a valid TrafficIngress scope"})
+			result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_excluded_requires_ingress", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」为排除来源模式，需要有效的流量入口范围"})
 			return routingSourceMatcher{}, false
 		}
 		matcher.boundary = "excluded"
@@ -874,7 +874,7 @@ func compileRoutingSourceMatcher(result *DesiredResult, add func(string, routero
 			return routingSourceMatcher{}, false
 		}
 	default:
-		result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_subject_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "routing rule has an unsupported source mode"})
+		result.Blockers = append(result.Blockers, PlanIssue{Code: "routing_subject_invalid", Status: "blocker", Family: string(family.Family), LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "策略「" + displayName(rule.Name, rule.ID) + "」使用了不支持的来源模式"})
 		return routingSourceMatcher{}, false
 	}
 	return matcher, true

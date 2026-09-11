@@ -183,7 +183,7 @@ type accessProposalRepository struct {
 
 func newAccessProposalRepository(ctx context.Context, repository accesscontrol.Repository, proposal AccessProposal) (*accessProposalRepository, error) {
 	if repository == nil {
-		return nil, errors.New("access repository is unavailable")
+		return nil, errors.New("访问控制存储不可用")
 	}
 	rules, err := repository.ListRules(ctx)
 	if err != nil {

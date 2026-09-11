@@ -90,3 +90,60 @@ func TestMosDNSSynchronizerPaginatesWatermarksAndKeepsFailuresAtomic(t *testing.
 		t.Fatalf("failed sync changed status incorrectly: %+v", status)
 	}
 }
+
+func TestMosDNSSynchronizerFirstSyncStopsAtLookbackHorizon(t *testing.T) {
+	baseTime := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	pageOne := make([]mosclient.AuditLog, 0, mosDNSPageSize)
+	for index := mosDNSPageSize - 2; index >= 0; index-- {
+		pageOne = append(pageOne, mosclient.AuditLog{
+			ClientIP: "10.0.0.8", QueryType: "A", QueryName: "recent.example.com",
+			QueryTime: baseTime.Add(time.Duration(index) * time.Second), TraceID: "trace-" + strconv.Itoa(index),
+			Answers: []mosclient.AuditAnswer{{Type: "A", TTL: 60, Data: "192.0.2.1"}},
+		})
+	}
+	pageOne = append(pageOne, mosclient.AuditLog{
+		ClientIP: "10.0.0.8", QueryType: "A", QueryName: "stale.example.com",
+		QueryTime: baseTime.Add(-48 * time.Hour), TraceID: "trace-stale",
+		Answers: []mosclient.AuditAnswer{{Type: "A", TTL: 60, Data: "192.0.2.2"}},
+	})
+	var pages atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		pages.Add(1)
+		response := mosclient.AuditLogsResponse{Pagination: mosclient.Pagination{TotalPages: 5}, Logs: pageOne}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(response)
+	}))
+	defer server.Close()
+
+	storage, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	synchronizer, err := NewMosDNSSynchronizer(config.MosDNSConfig{Enabled: true, BaseURL: server.URL, SyncIntervalMinutes: 5}, storage, nil, 48)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := synchronizer.SyncOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	observations, err := storage.DNSObservations(context.Background(), 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observations) != mosDNSPageSize-1 {
+		t.Fatalf("stale record beyond the lookback horizon must be skipped, got %d observations", len(observations))
+	}
+	for _, observation := range observations {
+		if observation.Domain == "stale.example.com" {
+			t.Fatal("stale record was imported")
+		}
+	}
+	if got := pages.Load(); got != 1 {
+		t.Fatalf("first sync must stop paging at the lookback horizon, requested %d pages", got)
+	}
+	status := synchronizer.Status()
+	if !status.Watermark.Equal(baseTime.Add(time.Duration(mosDNSPageSize-2) * time.Second)) {
+		t.Fatalf("unexpected watermark after lookback-limited sync: %+v", status)
+	}
+}

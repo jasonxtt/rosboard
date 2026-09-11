@@ -620,12 +620,12 @@ func terminalConnectionRow(ctx context.Context, resolver *ApplicationResolver, a
 	if protocolAnalysis {
 		row.Service = classifyService(connection.Protocol, connection.DstPort, connection.ReplyDstPort, connection.SrcPort)
 		row.Estimated = true
-		if applicationID, application, domain, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
+		if applicationID, application, domain, source, ok := resolver.Resolve(ctx, view.LocalAddress, remoteAddress(connection, view.LocalAddress), at); domain != "" {
 			row.MatchedDomain = domain
 			if ok {
 				row.ApplicationID = applicationID
 				row.Application = application
-				row.ApplicationSource = "mosdns"
+				row.ApplicationSource = source
 			}
 		}
 	}

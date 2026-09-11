@@ -182,7 +182,7 @@ func normalizeAddressForHolder(value string) (string, error) {
 		return "", err
 	}
 	if address.Zone() != "" {
-		return "", errors.New("scoped address is not supported")
+		return "", errors.New("不支持带作用域标识的地址")
 	}
 	return address.String(), nil
 }

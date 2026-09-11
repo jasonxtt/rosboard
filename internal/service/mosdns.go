@@ -16,6 +16,10 @@ import (
 const (
 	mosDNSPageSize = 200
 	mosDNSMaxPages = 600
+	// mosDNSInitialSyncLookback bounds the first (no-watermark) sync so a large
+	// mosdns audit backlog is not imported wholesale; steady-state watermark
+	// syncs are unaffected.
+	mosDNSInitialSyncLookback = 24 * time.Hour
 )
 
 type MosDNSStatus struct {
@@ -103,6 +107,7 @@ func (s *MosDNSSynchronizer) SyncOnce(ctx context.Context) error {
 	if err != nil {
 		return s.fail(err)
 	}
+	initialCutoff := now.Add(-mosDNSInitialSyncLookback)
 	nextWatermark := watermark
 	observations := make([]model.DNSObservation, 0)
 	skipped := 0
@@ -121,6 +126,10 @@ func (s *MosDNSSynchronizer) SyncOnce(ctx context.Context) error {
 				continue
 			}
 			if hasWatermark && record.QueryTime.Before(watermark.QueryTime) {
+				reachedWatermark = true
+				break
+			}
+			if !hasWatermark && record.QueryTime.Before(initialCutoff) {
 				reachedWatermark = true
 				break
 			}
@@ -147,6 +156,9 @@ func (s *MosDNSSynchronizer) SyncOnce(ctx context.Context) error {
 		if err := s.storage.PruneDNSObservations(ctx, now.Add(-s.retention)); err != nil {
 			return s.fail(err)
 		}
+	}
+	if err := s.storage.PruneDNSFeatures(ctx, now.Add(-dnsFeatureMaxAge)); err != nil {
+		return s.fail(err)
 	}
 	featureCount, featureLastSeen, err := s.storage.DNSFeatureSummary(ctx)
 	if err != nil {
