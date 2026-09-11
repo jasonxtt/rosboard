@@ -2114,6 +2114,21 @@ func isStaleApplicationOperation(operation PlanOperation) bool {
 	return false
 }
 
+// movableFirewallFilterObjects removes RouterOS dynamic filter entries from
+// ordering decisions. RouterOS exposes its FastTrack counter dummy as a
+// dynamic rule, and the REST API rejects attempts to move it as a builtin.
+func movableFirewallFilterObjects(objects []routeros.RouterOSObject) []routeros.RouterOSObject {
+	movable := make([]routeros.RouterOSObject, 0, len(objects))
+	for _, object := range objects {
+		dynamic, err := object.Bool("dynamic")
+		if err == nil && dynamic {
+			continue
+		}
+		movable = append(movable, object)
+	}
+	return movable
+}
+
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
 		identities := make([]string, 0)
@@ -2130,6 +2145,7 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("read %s before access-control ordering: %w", menu, err)
 		}
+		objects = movableFirewallFilterObjects(objects)
 		order := make([]string, 0, len(objects))
 		idByIdentity := make(map[string]string, len(identities))
 		for _, object := range objects {
@@ -2179,6 +2195,7 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if err != nil {
 			return fmt.Errorf("verify %s access-control ordering: %w", menu, err)
 		}
+		objects = movableFirewallFilterObjects(objects)
 		if len(objects) < len(identities) {
 			return fmt.Errorf("%s returned fewer rules than managed access-control rules", menu)
 		}
@@ -2228,6 +2245,7 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 		if err != nil {
 			return nil, fmt.Errorf("read %s before planning access-control ordering: %w", menu, err)
 		}
+		objects = movableFirewallFilterObjects(objects)
 		routerIDByIdentity := make(map[string]string, len(jumps))
 		seenDesiredJump := make(map[string]bool, len(jumps))
 		firstJumpIndex := -1
