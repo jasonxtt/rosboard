@@ -1,4 +1,4 @@
-import { fastTrackSummary, planAcknowledgementLabel } from '../canonical'
+import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel } from '../canonical'
 import { useMemo, useState } from 'react'
 import { Badge } from '../../../ui/Badge'
 import type { BadgeTone } from '../../../ui/Badge'
@@ -278,7 +278,7 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
         </div>
       </div>
       <SummaryChips plan={plan} />
-      {plan.fastTrack ? <Notice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</Notice> : null}
+      {plan.fastTrack && fastTrackNoticeVisible(plan.fastTrack) ? <Notice tone="info" title="FastTrack">{fastTrackSummary(plan.fastTrack)}{plan.fastTrack.consumers > 0 && !plan.fastTrack.retainOnly ? plan.fastTrack.rules.map((rule) => <p key={`${rule.menu}:${rule.id}`}>{rule.id} · {rule.reason}</p>) : null}</Notice> : null}
       <IssueRows title="阻断项" issues={plan.blockers} tone="err" />
       <IssueRows title="协议族阻断" issues={plan.familyBlockers} tone="err" />
       <IssueRows title="警告" issues={plan.warnings} tone="warn" />
