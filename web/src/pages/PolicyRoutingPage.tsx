@@ -420,8 +420,9 @@ export default function PolicyRoutingPage() {
             domain="policy"
             jobId={trackedJob.id}
             label={trackedJob.label}
-            onCommitted={() => {
+            onCommitted={(job) => {
               toast(trackedJob.successMessage)
+              if (job.warnings?.length) setJobError(job.warnings.map((warning) => warning.reason).join('；'))
               setTrackedJob(null)
               void load(true)
             }}

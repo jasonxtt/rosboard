@@ -77,6 +77,7 @@ type PlanSummary struct {
 }
 
 type Plan struct {
+	FastTrack                *FastTrackReport                                   `json:"fastTrack,omitempty"`
 	PlanID                   string                                             `json:"planID"`
 	DeviceID                 string                                             `json:"deviceID"`
 	Kind                     string                                             `json:"kind"`

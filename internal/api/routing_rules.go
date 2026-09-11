@@ -201,7 +201,12 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 		}
 		payload.RoutingRule = canonical
 	}
+	release, acquired := s.acquireRoutingRuleWrite(writer, device.device.ID)
+	if !acquired {
+		return
+	}
 	rule, err := device.repository.SaveRoutingRule(request.Context(), payload.RoutingRule)
+	release()
 	if err != nil {
 		writeRoutingRuleSaveError(writer, err)
 		return
@@ -234,7 +239,13 @@ func (s *Server) deletePolicyRoutingRule(writer http.ResponseWriter, request *ht
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_revision", "error": "revision must be non-negative"})
 		return
 	}
-	if err := device.repository.DeleteRoutingRule(request.Context(), id, revision); err != nil {
+	release, acquired := s.acquireRoutingRuleWrite(writer, device.device.ID)
+	if !acquired {
+		return
+	}
+	deleteErr := device.repository.DeleteRoutingRule(request.Context(), id, revision)
+	release()
+	if err := deleteErr; err != nil {
 		if errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
 			writePolicyJson(writer, http.StatusNotFound, map[string]any{"code": "routing_rule_not_found", "error": "routing rule not found"})
 			return
@@ -285,4 +296,17 @@ func writeRoutingRuleSaveError(writer http.ResponseWriter, err error) {
 		status, code = http.StatusServiceUnavailable, "save_failed"
 	}
 	writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error()})
+}
+
+// Direct saved-rule writes share the RouterOS gate with proposal commits and
+// FastTrack release. Otherwise a last-delete retry could race a new consumer.
+func (s *Server) acquireRoutingRuleWrite(writer http.ResponseWriter, deviceID string) (func(), bool) {
+	if s.policy == nil {
+		return func() {}, true
+	}
+	release, ok := s.policy.WriteGate().TryAcquire(deviceID)
+	if !ok {
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "job_conflict", "error": "device policy apply is active"})
+	}
+	return release, ok
 }

@@ -310,7 +310,17 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		ActualFingerprint:        fingerprint, Blockers: blockers, FamilyBlockers: []PlanIssue{}, Warnings: desired.Warnings,
 		Acknowledgements: []PlanAcknowledgement{}, OwnershipStrict: true, Operations: operations,
 	}
-	plan.Summary = planSummary(operations, blockers, desired.Warnings)
+	if domain != PolicyDomainAccess {
+		report, err := inspectFastTrack(ctx, applier, planningRepository, desired.Objects)
+		if err != nil {
+			return PlanEnvelope{}, err
+		}
+		if report != nil && kind == "routing-rule-delete" && report.Consumers > 0 {
+			report.RetainOnly = true
+		}
+		addFastTrackPlan(&plan, report)
+	}
+	plan.Summary = planSummary(operations, blockers, plan.Warnings)
 	if len(blockers) > 0 {
 		plan.State = "blocked"
 	} else {
@@ -329,7 +339,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 	if err != nil {
 		return PlanEnvelope{}, err
 	}
-	plan.PlanHash = shortHash(string(hashPayload), 64)
+	plan.PlanHash = shortHash(string(hashPayload)+fastTrackHash(plan.FastTrack)+fastTrackHash(plan.Acknowledgements), 64)
 	m.mu.Lock()
 	m.plans[plan.PlanID] = cachedPlan{Plan: plan, Desired: desired.Objects, Actual: actual, AccessResolutions: desired.AccessResolutions, InternetEgresses: cloneInternetEgresses(options.InternetEgresses), Proposal: clonePolicyProposal(proposal), AccessProposal: cloneAccessProposal(accessProposal), BaseDesiredRevision: baseDesiredRevision, TargetPromotions: append([]TargetVersionPromotion(nil), desired.TargetPromotions...), TargetScope: cloneTargetScope(targetScope)}
 	for id, cached := range m.plans {
@@ -529,7 +539,13 @@ func (m *Manager) ApplyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	return m.applyPlanWithHash(ctx, deviceID, planID, planHash)
 }
 
-func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string) (ApplyJob, error) {
+func (m *Manager) ApplyPlanWithAcknowledgements(ctx context.Context, deviceID, planID, planHash string, acknowledgements []string) (ApplyJob, error) {
+	return m.applyPlanWithHash(ctx, deviceID, planID, planHash, acknowledgements...)
+}
+
+var ErrAcknowledgementRequired = errors.New("plan requires explicit risk acknowledgement")
+
+func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planHash string, acknowledgements ...string) (ApplyJob, error) {
 	applier := m.ApplierFor(deviceID)
 	if applier == nil {
 		return ApplyJob{}, errors.New("policy runtime is unavailable")
@@ -551,6 +567,15 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	}
 	if len(cached.Plan.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanBlocked
+	}
+	accepted := make(map[string]bool, len(acknowledgements))
+	for _, code := range acknowledgements {
+		accepted[code] = true
+	}
+	for _, ack := range cached.Plan.Acknowledgements {
+		if ack.Required && (planHash != cached.Plan.PlanHash || !accepted[ack.Code]) {
+			return ApplyJob{}, ErrAcknowledgementRequired
+		}
 	}
 	if cached.Proposal != nil {
 		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
@@ -645,6 +670,10 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	delete(m.plans, planID)
 	m.mu.Unlock()
 
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
+	}
 	now := time.Now().UTC()
 	job := ApplyJob{ID: uuid.NewString(), PlanID: planID, State: "queued", Phase: "queued", CreatedAt: now}
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
@@ -759,6 +788,10 @@ func (m *Manager) applyProposedPlan(ctx context.Context, deviceID, planID string
 	if fingerprint != cached.Plan.ActualFingerprint {
 		release()
 		return ApplyJob{}, ErrPlanStale
+	}
+	if err := checkFastTrackPlan(ctx, applier, planningRepository, desired.Objects, cached.Plan); err != nil {
+		release()
+		return ApplyJob{}, err
 	}
 	committer, ok := applier.Repo.(ProposalCommitter)
 	if !ok {
@@ -1118,7 +1151,20 @@ func (m *Manager) GetJob(ctx context.Context, deviceID, jobID string) (ApplyJob,
 	if applier == nil {
 		return ApplyJob{}, errors.New("policy runtime is unavailable")
 	}
-	return applier.Repo.GetApplyJob(ctx, jobID)
+	job, err := applier.Repo.GetApplyJob(ctx, jobID)
+	if err != nil {
+		return job, err
+	}
+	if store, ok := applier.Repo.(FastTrackRepository); ok {
+		state, err := store.LoadFastTrackState(ctx)
+		if err != nil {
+			return job, err
+		}
+		if state.JobID == jobID {
+			job.Warnings = state.JobWarnings
+		}
+	}
+	return job, nil
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -1127,6 +1173,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	_ = m.RefreshDue(ctx, time.Now().UTC())
 	_ = m.ReconcileAccess(ctx)
+	m.retryFastTrackReleases(ctx)
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -1136,6 +1183,7 @@ func (m *Manager) Start(ctx context.Context) {
 		case now := <-ticker.C:
 			_ = m.RefreshDue(ctx, now.UTC())
 			_ = m.ReconcileAccess(ctx)
+			m.retryFastTrackReleases(ctx)
 		}
 	}
 }
@@ -1456,6 +1504,14 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			return job, false
 		}
 	}
+	if err := checkFastTrackPlan(ctx, applier, applier.Repo, planned.Objects, cached.Plan); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-state-check", err)
+		return job, false
+	}
+	if err := ensureFastTrack(ctx, applier, cached.Plan.FastTrack); err != nil {
+		m.failJob(ctx, applier.Repo, &job, "fasttrack-compatibility", err)
+		return job, false
+	}
 	needsDNSMutation := domain == PolicyDomainRouting || hasDesiredMenu(cached.Desired, routeros.MenuIPDNSStatic)
 	if needsDNSMutation {
 		if err := ensureDefaultDNSCache(ctx, applier); err != nil {
@@ -1593,6 +1649,13 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 		m.failJob(ctx, applier.Repo, &job, "verify-cross-domain-dns-order", err)
 		return job, false
 	}
+	if domain != PolicyDomainAccess {
+		if err := finishFastTrack(ctx, applier, job.ID, cached.Plan.FastTrack); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "fasttrack-journal", err)
+			return job, false
+		}
+	}
+
 	job.Progress = len(cached.Plan.Operations)
 	if keepJobOpen {
 		job.State = "follow_up"

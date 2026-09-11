@@ -1000,7 +1000,7 @@ func (s *Server) servePolicyPlans(writer http.ResponseWriter, request *http.Requ
 		writePolicyJson(writer, http.StatusBadRequest, map[string]any{"code": "invalid_body", "error": err.Error()})
 		return
 	}
-	job, err := s.policy.ApplyPlanWithHash(request.Context(), device.device.ID, parts[1], strings.TrimSpace(payload.PlanHash))
+	job, err := s.policy.ApplyPlanWithAcknowledgements(request.Context(), device.device.ID, parts[1], strings.TrimSpace(payload.PlanHash), payload.Acknowledgements)
 	if err != nil {
 		status, code := policyPlanApplyError(err)
 		writePolicyJson(writer, status, map[string]any{"code": code, "error": err.Error(), "details": map[string]any{}})
@@ -1038,6 +1038,8 @@ func policyPlanApplyError(err error) (int, string) {
 		return http.StatusConflict, "plan_expired"
 	case errors.Is(err, policyv2.ErrPlanStale):
 		return http.StatusConflict, "stale_plan"
+	case errors.Is(err, policyv2.ErrAcknowledgementRequired):
+		return http.StatusUnprocessableEntity, "acknowledgement_required"
 	case errors.Is(err, policyv2.ErrPlanBlocked):
 		return http.StatusUnprocessableEntity, "plan_blocked"
 	case errors.Is(err, policyv2.ErrDeviceBusy):

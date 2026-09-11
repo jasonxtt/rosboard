@@ -136,3 +136,22 @@ func TestRoutingRuleDeleteApplyFailureMarksPartialSuccess(t *testing.T) {
 		t.Fatalf("desired state must not contain the deleted rule, got %#v", rules)
 	}
 }
+
+func TestRoutingRuleWritesRespectActiveDeviceGate(t *testing.T) {
+	server, storage := newPolicyV2APIServer(t)
+	defer storage.Close()
+	release, ok := server.policy.WriteGate().TryAcquire("edge")
+	if !ok {
+		t.Fatal("gate unavailable")
+	}
+	defer release()
+	for _, input := range []struct{ method, path, body string }{
+		{http.MethodPost, "/rules", `{"id":"new","sourceScope":{"type":"ip","prefixes":["192.0.2.1"]},"deferApply":true}`},
+		{http.MethodDelete, "/rules/absent", ``},
+	} {
+		response := policyV2Request(t, server, input.method, input.path, input.body)
+		if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte(`"job_conflict"`)) {
+			t.Fatalf("gate bypass %s: %d %s", input.method, response.Code, response.Body.String())
+		}
+	}
+}

@@ -192,7 +192,19 @@ export type TargetVersionPromotion = { targetListId: string; versionId: string }
 export type PlanAcknowledgement = { code: string; required: boolean; accepted: boolean }
 export type PlanOperation = { seq: number; groupID?: string; egressID?: string; family?: string; phase: string; action: string; menu?: string; logicalID?: string; routerID?: string; ownership?: string; before?: Record<string, unknown>; after?: Record<string, unknown> }
 export type ExecutionGroup = { id: string; role: string; egressID?: string; family?: string; operationSeqs: number[] }
+export type FastTrackReport = { retainOnly?: boolean; consumers: number; rules: Array<{ id: string; menu: string; status: string; reason: string }> }
+export function planAcknowledgementLabel(code: string) {
+ return code.startsWith('fasttrack_') ? '我已了解 FastTrack 可能导致策略路由不稳定的风险，仍要继续。' : code
+}
+export function fastTrackSummary(report: FastTrackReport) {
+ if (report.retainOnly) return '其他已保存策略仍在使用 FastTrack 兼容配置，本次删除不修改或恢复 FastTrack。'
+ if (!report.consumers) return '最后一条策略已删除；确认策略路由清理完成后，尝试恢复未被外部修改的 FastTrack。'
+ if (!report.rules.length) return '未检测到启用的 FastTrack，无需修改。'
+ if (report.rules.every((rule) => rule.status === 'compatible')) return '当前 FastTrack 已排除策略连接，无需修改。'
+ return '以下调整在策略路由启用前执行，仅影响新连接；现有连接不会被强制中断。'
+}
 export type PolicyPlan = {
+  fastTrack?: FastTrackReport
   planID: string
   kind: string
   lifecycle: string
@@ -454,6 +466,11 @@ function parsePlanOperation(value: unknown): PlanOperation {
   return { seq: numberValue(object.seq ?? object.sequence), groupID: stringValue(object.groupID ?? object.groupId) || undefined, egressID: stringValue(object.egressID ?? object.egressId) || undefined, family: stringValue(object.family) || undefined, phase: stringValue(object.phase), action: stringValue(object.action), menu: stringValue(object.menu) || undefined, logicalID: stringValue(object.logicalID ?? object.logicalId) || undefined, routerID: stringValue(object.routerID ?? object.routerId) || undefined, ownership: stringValue(object.ownership) || undefined, before: objectValue(object.before), after: objectValue(object.after) }
 }
 
+function parseFastTrack(value: unknown): FastTrackReport | undefined {
+ if (!value || typeof value !== 'object') return undefined
+ const object = objectValue(value)
+ return { retainOnly: booleanValue(object.retainOnly), consumers: numberValue(object.consumers), rules: Array.isArray(object.rules) ? object.rules.map((value) => { const rule = objectValue(value); return { id: stringValue(rule.id), menu: stringValue(rule.menu), status: stringValue(rule.status), reason: stringValue(rule.reason) } }) : [] }
+}
 function parsePlan(value: unknown): PolicyPlan {
   const object = objectValue(value)
   const acknowledgements = Array.isArray(object.acknowledgements) ? object.acknowledgements.map((raw) => { const ack = objectValue(raw); return { code: stringValue(ack.code), required: booleanValue(ack.required), accepted: booleanValue(ack.accepted) } }) : []
@@ -461,7 +478,7 @@ function parsePlan(value: unknown): PolicyPlan {
   const summary: Record<string, number> = {}
   for (const [key, raw] of Object.entries(objectValue(object.summary))) summary[key] = numberValue(raw)
   return {
-    planID: stringValue(object.planID ?? object.planId), kind: stringValue(object.kind), lifecycle: stringValue(object.lifecycle), createdAt: stringValue(object.createdAt), expiresAt: stringValue(object.expiresAt) || undefined,
+    fastTrack: parseFastTrack(object.fastTrack), planID: stringValue(object.planID ?? object.planId), kind: stringValue(object.kind), lifecycle: stringValue(object.lifecycle), createdAt: stringValue(object.createdAt), expiresAt: stringValue(object.expiresAt) || undefined,
     desiredRevision: numberValue(object.desiredRevision), domain: stringValue(object.domain) || undefined, accessRevision: numberValue(object.accessRevision) || undefined, actualFingerprint: stringValue(object.actualFingerprint), blockers: Array.isArray(object.blockers) ? object.blockers.map(parsePlanIssue) : [], familyBlockers: Array.isArray(object.familyBlockers) ? object.familyBlockers.map(parsePlanIssue) : [], warnings: Array.isArray(object.warnings) ? object.warnings.map(parsePlanIssue) : [], acknowledgements, summary, pendingReview: booleanValue(object.pendingReview), operations: Array.isArray(object.operations) ? object.operations.map(parsePlanOperation) : [], targetPromotions: Array.isArray(object.targetPromotions) ? object.targetPromotions.map((raw) => { const promotion = objectValue(raw); return { targetListId: stringValue(promotion.targetListId ?? promotion.targetID), versionId: stringValue(promotion.versionId) } }) : [], executionGroups: groups, planHash: stringValue(object.planHash), state: stringValue(object.state),
   }
 }
@@ -544,7 +561,7 @@ export async function waitForPolicyJob(deviceID: string, jobID: string) {
   while (Date.now() < deadline) {
     const job = await requestJSON(`/api/policy-routing/jobs/${encodeURIComponent(jobID)}`, deviceID, { cache: 'no-store' }, (value) => objectValue(objectValue(value).job ?? value))
     const state = stringValue(objectValue(job).state)
-    if (state === 'committed') return
+    if (state === 'committed') return Array.isArray(job.warnings) ? job.warnings.map(parsePlanIssue) : []
     if (['failed', 'committed_partial', 'needs_decision', 'rolled_back', 'rollback_failed'].includes(state)) throw new CanonicalPolicyError(stringValue(objectValue(job).error) || 'RouterOS 同步失败', 409, 'job_failed')
     await new Promise((resolve) => window.setTimeout(resolve, 500))
   }
