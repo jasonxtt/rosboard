@@ -155,13 +155,13 @@ func TestEnsureAccessJumpsFirstSkipsAlreadyCorrectOrder(t *testing.T) {
 	}
 }
 
-func TestEnsureAccessJumpsFirstSkipsDynamicBuiltinRule(t *testing.T) {
+func TestEnsureAccessJumpsFirstSkipsFastTrackCounterDummy(t *testing.T) {
 	jumpOut := accessJumpForTest("access:policy-a:ipv4:jump-out", 1)
 	jumpIn := accessJumpForTest("access:policy-a:ipv4:jump-in", 2)
 	recorder := &applyingListedMoveRecorder{
 		listedMoveRecorder: listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
 			routeros.MenuIPFirewallFilter: {
-				{".id": "*builtin", "dynamic": "true", "comment": "special dummy rule to show fasttrack counters"},
+				{".id": "*builtin", "dynamic": "true", "chain": "forward", "action": "passthrough", "comment": "special dummy rule to show fasttrack counters"},
 				{".id": "*user", "chain": "forward", "action": "accept"},
 				{".id": "*jump-out", "chain": "forward", "action": "jump", "comment": jumpOut.Fields["comment"]},
 				{".id": "*jump-in", "chain": "forward", "action": "jump", "comment": jumpIn.Fields["comment"]},
@@ -210,12 +210,32 @@ func TestPlanAccessJumpsFirstTreatsForeignRulesAsOrderingBoundary(t *testing.T) 
 	}
 }
 
-func TestPlanAccessJumpsFirstSkipsDynamicBuiltinRule(t *testing.T) {
+func TestEnsureAccessJumpsFirstFailsClosedForNonFastTrackDynamicRule(t *testing.T) {
 	jumpOut := accessJumpForTest("access:policy-a:ipv4:jump-out", 1)
 	jumpIn := accessJumpForTest("access:policy-a:ipv4:jump-in", 2)
 	recorder := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
 		routeros.MenuIPFirewallFilter: {
-			{".id": "*builtin", "dynamic": "true", "comment": "special dummy rule to show fasttrack counters"},
+			{".id": "*hotspot", "dynamic": "true", "chain": "forward", "action": "jump", "jump-target": "hs-unauth", "comment": "hotspot forward jump"},
+			{".id": "*jump-out", "chain": "forward", "action": "jump", "comment": jumpOut.Fields["comment"]},
+			{".id": "*jump-in", "chain": "forward", "action": "jump", "comment": jumpIn.Fields["comment"]},
+		},
+	}}
+
+	err := ensureAccessJumpsFirst(context.Background(), recorder, []DesiredObject{jumpOut, jumpIn})
+	if err == nil || !strings.Contains(err.Error(), accessFilterOrderingUnavailableCode) {
+		t.Fatalf("non-FastTrack dynamic rule must fail closed: %v", err)
+	}
+	if len(recorder.moves) != 0 {
+		t.Fatalf("non-FastTrack dynamic rule must not be moved across: %#v", recorder.moves)
+	}
+}
+
+func TestPlanAccessJumpsFirstSkipsFastTrackCounterDummy(t *testing.T) {
+	jumpOut := accessJumpForTest("access:policy-a:ipv4:jump-out", 1)
+	jumpIn := accessJumpForTest("access:policy-a:ipv4:jump-in", 2)
+	recorder := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPFirewallFilter: {
+			{".id": "*builtin", "dynamic": "true", "chain": "forward", "action": "passthrough", "comment": "special dummy rule to show fasttrack counters"},
 			{".id": "*user", "chain": "forward", "action": "accept"},
 			{".id": "*jump-out", "chain": "forward", "action": "jump", "comment": jumpOut.Fields["comment"]},
 			{".id": "*jump-in", "chain": "forward", "action": "jump", "comment": jumpIn.Fields["comment"]},
@@ -234,6 +254,28 @@ func TestPlanAccessJumpsFirstSkipsDynamicBuiltinRule(t *testing.T) {
 	}
 	if got, want := moves[1].Anchor.LogicalID, jumpIn.LogicalID; got != want {
 		t.Fatalf("second move anchor = %q, want %q", got, want)
+	}
+}
+
+func TestPlanAccessJumpsFirstDoesNotIgnoreNonFastTrackDynamicRule(t *testing.T) {
+	jumpOut := accessJumpForTest("access:policy-a:ipv4:jump-out", 1)
+	jumpIn := accessJumpForTest("access:policy-a:ipv4:jump-in", 2)
+	recorder := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPFirewallFilter: {
+			{".id": "*builtin", "dynamic": "true", "chain": "forward", "action": "passthrough", "comment": "special dummy rule to show fasttrack counters"},
+			{".id": "*hotspot", "dynamic": "true", "chain": "forward", "action": "jump", "jump-target": "hs-unauth", "comment": "hotspot forward jump"},
+			{".id": "*user", "chain": "forward", "action": "accept"},
+			{".id": "*jump-out", "chain": "forward", "action": "jump", "comment": jumpOut.Fields["comment"]},
+			{".id": "*jump-in", "chain": "forward", "action": "jump", "comment": jumpIn.Fields["comment"]},
+		},
+	}}
+
+	moves, err := planAccessJumpsFirst(context.Background(), recorder, []DesiredObject{jumpOut, jumpIn})
+	if err == nil || !strings.Contains(err.Error(), accessFilterOrderingUnavailableCode) {
+		t.Fatalf("non-FastTrack dynamic rule must make ordering unavailable: moves=%#v err=%v", moves, err)
+	}
+	if len(moves) != 0 {
+		t.Fatalf("ordering-unavailable plan must not contain move operations: %#v", moves)
 	}
 }
 
