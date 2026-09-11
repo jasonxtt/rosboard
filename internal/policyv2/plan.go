@@ -77,6 +77,7 @@ type PlanSummary struct {
 }
 
 type Plan struct {
+	FastTrack                *FastTrackReport                                   `json:"fastTrack,omitempty"`
 	PlanID                   string                                             `json:"planID"`
 	DeviceID                 string                                             `json:"deviceID"`
 	Kind                     string                                             `json:"kind"`
@@ -121,4 +122,19 @@ type cachedPlan struct {
 	BaseDesiredRevision int64
 	TargetPromotions    []TargetVersionPromotion
 	TargetScope         map[string]bool
+}
+
+// validatePlanAcknowledgements is shared by interactive apply and internal
+// follow-ups. A plan's Accepted flags are presentation data, not authorization.
+func validatePlanAcknowledgements(plan Plan, planHash string, acknowledgements []string) error {
+	accepted := make(map[string]bool, len(acknowledgements))
+	for _, code := range acknowledgements {
+		accepted[code] = true
+	}
+	for _, ack := range plan.Acknowledgements {
+		if ack.Required && (planHash == "" || planHash != plan.PlanHash || !accepted[ack.Code]) {
+			return ErrAcknowledgementRequired
+		}
+	}
+	return nil
 }

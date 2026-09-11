@@ -109,15 +109,16 @@ type DeviceState struct {
 }
 
 type ApplyJob struct {
-	ID         string    `json:"id"`
-	PlanID     string    `json:"planId"`
-	State      string    `json:"state"`
-	Phase      string    `json:"phase"`
-	Progress   int       `json:"progress"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	StartedAt  time.Time `json:"startedAt,omitempty"`
-	FinishedAt time.Time `json:"finishedAt,omitempty"`
+	Warnings   []PlanIssue `json:"warnings,omitempty"`
+	ID         string      `json:"id"`
+	PlanID     string      `json:"planId"`
+	State      string      `json:"state"`
+	Phase      string      `json:"phase"`
+	Progress   int         `json:"progress"`
+	Error      string      `json:"error,omitempty"`
+	CreatedAt  time.Time   `json:"createdAt"`
+	StartedAt  time.Time   `json:"startedAt,omitempty"`
+	FinishedAt time.Time   `json:"finishedAt,omitempty"`
 }
 
 func (j ApplyJob) Terminal() bool {

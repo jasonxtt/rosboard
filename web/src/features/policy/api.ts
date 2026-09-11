@@ -19,7 +19,7 @@ import { alwaysAccessSchedule, normalizeAccessSchedule, type AccessTimeWindow, t
 import { apiGet, safeArray, safeObject, scoped } from '../../lib/api.ts'
 import { parseInterfaceStatus } from '../../lib/types.ts'
 
-export type PolicyJob = { id: string; state: string; phase: string; progress: number; error?: string }
+export type PolicyJob = { warnings?: Array<{ code: string; reason: string }>; id: string; state: string; phase: string; progress: number; error?: string }
 
 export type InternetEgressCandidate = { interface: string; type: string; running: boolean; reason?: string }
 export type InternetEgressCandidates = Record<string, InternetEgressCandidate[]>
@@ -93,6 +93,7 @@ function parsePolicyJob(value: unknown): PolicyJob {
     state: stringValue(object.state),
     phase: stringValue(object.phase),
     progress: numberValue(object.progress),
+    warnings: safeArray<unknown>(object.warnings).map((value) => { const warning = objectValue(value); return { code: stringValue(warning.code), reason: stringValue(warning.reason) } }),
     error: stringValue(object.error) || undefined,
   }
 }

@@ -1696,7 +1696,7 @@ func (s *Store) purgePolicyData(ctx context.Context) error {
 		"policy_v2_routing_rule_prefixes", "policy_v2_routing_rule_members", "policy_v2_routing_rule_targets", "policy_v2_routing_rules",
 		"policy_v2_source_rules", "policy_v2_source_versions", "policy_v2_sources",
 		"policy_v2_egress_families", "policy_v2_egresses",
-		"policy_v2_schema_meta",
+		"policy_v2_schema_meta", "policy_v2_fasttrack",
 	} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
 			return fmt.Errorf("purge policy data from %s: %w", table, err)
