@@ -285,3 +285,11 @@ intent; confirmed external changes or missing filters relinquish restoration.
 Explicit non-transient HTTP rejections stop background mutation retries and
 require manual synchronization after correcting the cause. Never recreate the
 foreign filter, change its comment/order, or flush connection tracking.
+
+Internal domain follow-up plans must pass the same acknowledgement validator as
+interactive apply, with no hash or accepted codes. Never inherit confirmation
+from the first domain or treat a plan's presentation `Accepted` flag as consent.
+If the next domain requires acknowledgement, discard its cached plan, retain
+the first domain's committed state and the pending desired state, and fail the
+job with a re-preview/confirmation recovery message before any next-domain
+mutation.

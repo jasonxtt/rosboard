@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"rosboard/internal/policyv2"
@@ -451,5 +453,90 @@ func TestFastTrackFirstProposalAndConcurrentCreation(t *testing.T) {
 	rules, _ = repo.ListRoutingRules(ctx)
 	if successes != 1 || len(state.Records) != 1 || len(rules) != 1 || router.unsetCalls != 0 {
 		t.Fatalf("concurrent acquisition: successes=%d records=%d rules=%d", successes, len(state.Records), len(rules))
+	}
+}
+
+func TestFastTrackAccessFirstFollowUpRequiresAcknowledgement(t *testing.T) {
+	for _, code := range []string{"fasttrack_compatibility_unverified", "fasttrack_policy_routing_conflict"} {
+		t.Run(code, func(t *testing.T) {
+			ctx := context.Background()
+			storage, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer storage.Close()
+			repo := storage.PolicyRepository()
+			access := storage.AccessRepository()
+			target := seedCanonicalTarget(t, repo, "shared-fasttrack-domain", policyv2.KindDomain, policyv2.TargetListRule{RuleType: "DOMAIN-SUFFIX", Domain: "example.com"})
+			rootReviewAddRoutingConsumer(t, ctx, repo, "follow-up-wan", target.ID)
+			rootReviewAddAccessConsumer(t, ctx, access, "follow-up-access", target.ID)
+			router := newPolicyV2FakeRouter()
+			router.dnsServers = "192.0.2.53"
+			filter := routeros.RouterOSFields{"chain": "forward", "action": "fasttrack-connection", "connection-state": "established,related", "comment": "foreign FastTrack"}
+			if code == "fasttrack_compatibility_unverified" {
+				filter["dst-address"] = "192.0.2.0/24"
+			} else {
+				if _, err := router.Create(ctx, routeros.MenuIPFirewallMangle, routeros.RouterOSFields{"chain": "prerouting", "action": "mark-connection", "new-connection-mark": "foreign-vpn"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := router.Create(ctx, routeros.MenuIPFirewallFilter, filter); err != nil {
+				t.Fatal(err)
+			}
+			before := rootReviewRouterSnapshot(t, router, rootReviewRoutingMenus[2:])
+			manager := policyv2.NewManager(nil)
+			if err := manager.RegisterApplier("default", &policyv2.Applier{Repo: repo, Access: access, Reader: router, Mutation: router}); err != nil {
+				t.Fatal(err)
+			}
+			initial, err := manager.GenerateAndApplyTarget(ctx, "default", "target-list-refresh", target.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			job := waitPolicyV2Job(t, repo, initial.ID)
+			if job.State != "failed" || !strings.Contains(job.Error, "follow-up-acknowledgement-required") {
+				t.Fatalf("unconfirmed Routing follow-up ran: %+v", job)
+			}
+			accessState, err := access.GetState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			routingState, err := repo.GetDeviceState(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !accessState.Applied() || routingState.Applied() {
+				t.Fatalf("wrong partial commit: access=%+v routing=%+v", accessState, routingState)
+			}
+			if after := rootReviewRouterSnapshot(t, router, rootReviewRoutingMenus[2:]); !reflect.DeepEqual(before, after) {
+				t.Fatalf("unconfirmed follow-up changed Routing objects: before=%+v after=%+v", before, after)
+			}
+			dns, err := router.List(ctx, routeros.MenuIPDNSStatic, routeros.MutationQuery{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, obj := range dns {
+				if !rootReviewAccessObject(obj) {
+					t.Fatalf("Routing DNS created without confirmation: %+v", obj)
+				}
+			}
+			// Recover only via a new interactive plan and its exact risk acknowledgement.
+			plan, err := manager.GeneratePlanWithOptions(ctx, "default", "structural", policyv2.PlanOptions{Domain: policyv2.PolicyDomainRouting})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Plan.Acknowledgements) != 1 || plan.Plan.Acknowledgements[0].Code != code {
+				t.Fatalf("wrong risk: %+v", plan.Plan.Acknowledgements)
+			}
+			if _, err := manager.ApplyPlanWithHash(ctx, "default", plan.PlanID, plan.PlanHash); !errors.Is(err, policyv2.ErrAcknowledgementRequired) {
+				t.Fatalf("interactive confirmation bypass: %v", err)
+			}
+			approved, err := manager.ApplyPlanWithAcknowledgements(ctx, "default", plan.PlanID, plan.PlanHash, []string{code})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if job := waitPolicyV2Job(t, repo, approved.ID); job.State != "committed" {
+				t.Fatalf("explicit recovery failed: %+v", job)
+			}
+		})
 	}
 }

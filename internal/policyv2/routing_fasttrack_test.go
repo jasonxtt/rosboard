@@ -192,3 +192,29 @@ func TestFastTrackAcknowledgementCannotBeSkipped(t *testing.T) {
 		t.Fatalf("unbound ack: %v", err)
 	}
 }
+
+func TestValidatePlanAcknowledgements(t *testing.T) {
+	plan := Plan{PlanHash: "reviewed", Acknowledgements: []PlanAcknowledgement{{Code: "risk", Required: true, Accepted: true}, {Code: "optional"}}}
+	for _, tc := range []struct {
+		name, hash string
+		accepted   []string
+		wantError  bool
+	}{
+		{"internal follow-up", "", nil, true},
+		{"presentation flag is not approval", "reviewed", nil, true},
+		{"missing hash", "", []string{"risk"}, true},
+		{"stale hash", "old", []string{"risk"}, true},
+		{"wrong issue", "reviewed", []string{"other"}, true},
+		{"explicit approval", "reviewed", []string{"risk"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePlanAcknowledgements(plan, tc.hash, tc.accepted)
+			if errors.Is(err, ErrAcknowledgementRequired) != tc.wantError {
+				t.Fatalf("validation: %v", err)
+			}
+		})
+	}
+	if err := validatePlanAcknowledgements(Plan{Acknowledgements: []PlanAcknowledgement{{Code: "optional"}}}, "", nil); err != nil {
+		t.Fatal(err)
+	}
+}

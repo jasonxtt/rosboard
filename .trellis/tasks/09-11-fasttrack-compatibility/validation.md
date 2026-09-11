@@ -37,3 +37,20 @@ test machine alone does not validate RouterOS firmware behavior.
 
 No production deployment, backup rotation, merge, release, or task archival was
 performed. Keep the PR Draft pending root review and runtime/user acceptance.
+
+## P1 review correction: internal domain follow-up acknowledgement
+
+Confirmed the reported bypass with a real shared-domain Target refresh test.
+Before the fix, both complex FastTrack and foreign connection-mark producer
+cases incorrectly completed Routing after Access without confirmation.
+
+Interactive apply and internal follow-ups now share a pure acknowledgement
+validator. Internal follow-ups provide no hash/accepted codes, discard a plan
+requiring confirmation, and stop with `follow-up-acknowledgement-required` and
+an explicit re-preview message. The successful Access commit and pending
+Routing desired state remain intact. No confirmation is inferred or inherited.
+
+The two regressions now verify no Routing objects/DNS are written, Access stays
+applied, Routing stays pending, and a new interactive plan succeeds only with
+its exact acknowledgement. Validator cases cover missing/stale hashes, wrong
+codes, presentation flags, explicit consent, and plans requiring no consent.

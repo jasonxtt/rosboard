@@ -568,14 +568,8 @@ func (m *Manager) applyPlanWithHash(ctx context.Context, deviceID, planID, planH
 	if len(cached.Plan.Blockers) > 0 {
 		return ApplyJob{}, ErrPlanBlocked
 	}
-	accepted := make(map[string]bool, len(acknowledgements))
-	for _, code := range acknowledgements {
-		accepted[code] = true
-	}
-	for _, ack := range cached.Plan.Acknowledgements {
-		if ack.Required && (planHash != cached.Plan.PlanHash || !accepted[ack.Code]) {
-			return ApplyJob{}, ErrAcknowledgementRequired
-		}
+	if err := validatePlanAcknowledgements(cached.Plan, planHash, acknowledgements); err != nil {
+		return ApplyJob{}, err
 	}
 	if cached.Proposal != nil {
 		return m.applyProposedPlan(ctx, deviceID, planID, applier, cached)
@@ -1405,6 +1399,13 @@ func (m *Manager) runApply(deviceID string, applier *Applier, cached cachedPlan,
 		if len(envelope.Plan.Blockers) > 0 {
 			m.deleteCachedPlans([]string{envelope.PlanID})
 			m.failJob(ctx, applier.Repo, &job, "generate-follow-up", ErrPlanBlocked)
+			return
+		}
+		// Internal follow-ups have no user authorization for this newly generated
+		// plan. Never inherit acknowledgements from the already committed domain.
+		if err := validatePlanAcknowledgements(envelope.Plan, "", nil); err != nil {
+			m.deleteCachedPlans([]string{envelope.PlanID})
+			m.failJob(ctx, applier.Repo, &job, "follow-up-acknowledgement-required", fmt.Errorf("后续 %s 应用需要重新预览并确认风险: %w", followUp.domain, err))
 			return
 		}
 		m.mu.Lock()
