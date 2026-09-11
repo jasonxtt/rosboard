@@ -102,5 +102,5 @@ function operationLabel(operation: PlanOperation) {
 }
 
 function IssueBlock({ title, issues, tone }: { title: string; issues: PlanIssue[]; tone: StatusTone }) {
-  return <div className={`policy-issue-block policy-issue-${tone}`}><h4>{title} ({issues.length})</h4><ul>{issues.map((issue, index) => <li key={`${issue.code}:${index}`}><span>{issue.reason || issue.code}</span>{issue.family ? <small> · {issue.family}</small> : null}</li>)}</ul></div>
+  return <div className={`policy-issue-block policy-issue-${tone}`}><h4>{title} ({issues.length})</h4><ul>{issues.map((issue, index) => <li key={`${issue.code}:${index}`}><span>{issue.reason || '（无详细说明）'}</span>{issue.family ? <small> · {issue.family}</small> : null}</li>)}</ul></div>
 }

@@ -83,7 +83,7 @@ function IssueRows({ title, issues, tone }: { title: string; issues: PlanIssue[]
       <ul>
         {issues.map((issue, index) => (
           <li key={`${issue.code}:${index}`}>
-            <span>{issue.reason || issue.code}</span>
+            <span>{issue.reason || '（无详细说明）'}</span>
             {issue.family ? <small> · {issue.family}</small> : null}
           </li>
         ))}

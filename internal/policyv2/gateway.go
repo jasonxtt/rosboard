@@ -2,7 +2,7 @@ package policyv2
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/netip"
 	"strings"
 
@@ -23,7 +23,7 @@ type GatewayResolution struct {
 // users can still enter a gateway explicitly when their topology needs one.
 func ResolveGateway(ctx context.Context, reader PolicyReader, family EgressFamily) (GatewayResolution, error) {
 	if reader == nil {
-		return GatewayResolution{}, fmt.Errorf("RouterOS gateway discovery is unavailable")
+		return GatewayResolution{}, errors.New("RouterOS 网关发现不可用")
 	}
 	interfaceName := strings.TrimSpace(family.WANInterface)
 	if interfaceName == "" || family.WANSource == "next-hop" {

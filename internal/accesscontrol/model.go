@@ -36,12 +36,12 @@ const (
 )
 
 var (
-	ErrRuleNotFound          = errors.New("access rule not found")
-	ErrRevisionStale         = errors.New("access rule revision is stale")
-	ErrMemberDuplicate       = errors.New("terminal is already a member of this rule")
-	ErrMemberAnchorRequired  = errors.New("auto-follow member requires a stable MAC anchor")
-	ErrMemberAnchorChanged   = errors.New("auto-follow member identity anchor changed")
-	ErrCanonicalRuleRequired = errors.New("canonical access rule is required")
+	ErrRuleNotFound          = errors.New("访问规则不存在")
+	ErrRevisionStale         = errors.New("访问规则已被其他修改更新，请刷新后重试")
+	ErrMemberDuplicate       = errors.New("该设备已是此规则的成员")
+	ErrMemberAnchorRequired  = errors.New("自动跟随成员需要稳定的 MAC 身份锚点")
+	ErrMemberAnchorChanged   = errors.New("自动跟随成员的身份锚点已变化")
+	ErrCanonicalRuleRequired = errors.New("需要规范格式的访问规则")
 )
 
 // AccessRule is the user-facing logical entity. Multi-client, multi-source,
@@ -204,7 +204,7 @@ func NormalizeMemberResolution(resolution MemberResolution) (MemberResolution, e
 	resolution.RuleID = strings.TrimSpace(resolution.RuleID)
 	resolution.TerminalID = strings.TrimSpace(resolution.TerminalID)
 	if resolution.RuleID == "" || resolution.TerminalID == "" {
-		return MemberResolution{}, errors.New("member resolution identity is required")
+		return MemberResolution{}, errors.New("成员解析缺少规则或终端标识")
 	}
 	anchor, err := NormalizeMAC(resolution.AnchorMAC)
 	if err != nil || anchor == "" {
@@ -238,10 +238,10 @@ type Repository interface {
 
 func ValidateRule(rule AccessRule) error {
 	if strings.TrimSpace(rule.ID) == "" {
-		return errors.New("rule id is required")
+		return errors.New("规则缺少 ID")
 	}
 	if strings.TrimSpace(rule.Name) == "" {
-		return errors.New("rule name is required")
+		return errors.New("规则名称不能为空")
 	}
 	if rule.Subject.Mode == subject.ModeAll || rule.Subject.Mode == subject.ModeExcluded || len(rule.Subject.Members) != 0 || len(rule.Subject.Prefixes) != 0 {
 		if _, err := subject.Normalize(rule.Subject); err != nil {
@@ -249,7 +249,7 @@ func ValidateRule(rule AccessRule) error {
 		}
 	}
 	if rule.Subject.Mode == subject.ModeExcluded {
-		return errors.New("access-control subject mode must be all or selected")
+		return errors.New("访问控制规则的来源模式仅支持「全部」或「指定」")
 	}
 	if err := ValidateSchedule(rule.Schedule); err != nil {
 		return err
@@ -257,49 +257,49 @@ func ValidateRule(rule AccessRule) error {
 	switch rule.TargetScope {
 	case TargetScopeInternet:
 		if len(rule.TargetListIDs) != 0 || len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
-			return errors.New("internet scope rules must not reference targets")
+			return errors.New("「整个互联网」规则不能引用目标列表")
 		}
 		if rule.Subject.Mode != "" && rule.Subject.Mode != subject.ModeAll && rule.Subject.Mode != subject.ModeSelected {
-			return errors.New("access-control subject mode must be all or selected")
+			return errors.New("访问控制规则的来源模式仅支持「全部」或「指定」")
 		}
 	case TargetScopeTargets:
 		if len(rule.TargetListIDs) == 0 && (rule.Enabled || len(rule.MigrationIssues) == 0) {
-			return errors.New("targets scope rules require at least one target list")
+			return errors.New("目标列表范围的规则至少需要一个目标列表")
 		}
 		if len(rule.SourceIDs) != 0 || len(rule.ApplicationIDs) != 0 {
-			return errors.New("targets scope rules must not reference legacy sources or applications")
+			return errors.New("目标列表范围的规则不能引用旧版来源或应用")
 		}
 	case TargetScopeSources:
 		if len(rule.SourceIDs) == 0 {
-			return errors.New("sources scope rules require at least one source")
+			return errors.New("来源范围的规则至少需要一个来源")
 		}
 		if len(rule.ApplicationIDs) != 0 {
-			return errors.New("sources scope rules must not reference applications")
+			return errors.New("来源范围的规则不能引用应用")
 		}
 	case TargetScopeApplications:
 		if len(rule.ApplicationIDs) == 0 {
-			return errors.New("applications scope rules require at least one application")
+			return errors.New("应用范围的规则至少需要一个应用")
 		}
 		if len(rule.SourceIDs) != 0 {
-			return errors.New("applications scope rules must not reference sources")
+			return errors.New("应用范围的规则不能引用来源")
 		}
 	default:
-		return errors.New("targetScope must be internet or targets")
+		return errors.New("targetScope 必须是 internet 或 targets")
 	}
 	return nil
 }
 
 func ValidateMember(member RuleMember) error {
 	if strings.TrimSpace(member.RuleID) == "" {
-		return errors.New("member rule id is required")
+		return errors.New("成员缺少规则 ID")
 	}
 	if strings.TrimSpace(member.TerminalID) == "" {
-		return errors.New("member terminal id is required")
+		return errors.New("成员缺少终端标识")
 	}
 	switch member.Binding {
 	case BindingAuto:
 		if len(member.PinnedIPv4) != 0 || len(member.PinnedIPv6) != 0 {
-			return errors.New("auto-follow member cannot pin addresses")
+			return errors.New("自动跟随成员不能固定地址")
 		}
 		if strings.TrimSpace(member.AnchorMAC) != "" {
 			if _, err := NormalizeMAC(member.AnchorMAC); err != nil {
@@ -308,7 +308,7 @@ func ValidateMember(member RuleMember) error {
 		}
 	case BindingFixed:
 		if len(member.PinnedIPv4)+len(member.PinnedIPv6) == 0 {
-			return errors.New("fixed member requires at least one pinned address")
+			return errors.New("固定成员至少需要一个固定地址")
 		}
 		if _, err := normalizeAddresses(member.PinnedIPv4, true); err != nil {
 			return err
@@ -317,7 +317,7 @@ func ValidateMember(member RuleMember) error {
 			return err
 		}
 	default:
-		return errors.New("binding must be auto or fixed")
+		return errors.New("绑定方式必须是 auto 或 fixed")
 	}
 	return nil
 }
@@ -340,7 +340,7 @@ func NormalizeRule(rule AccessRule) (AccessRule, error) {
 		}
 	}
 	if rule.Subject.Mode == subject.ModeExcluded {
-		return AccessRule{}, errors.New("access-control subject mode must be all or selected")
+		return AccessRule{}, errors.New("访问控制规则的来源模式仅支持「全部」或「指定」")
 	}
 	var err error
 	rule.Schedule, err = NormalizeSchedule(rule.Schedule)

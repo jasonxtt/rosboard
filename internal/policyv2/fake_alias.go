@@ -16,10 +16,10 @@ type FakeAliasRequest struct {
 
 func AllocateFakeDNSAlias(request FakeAliasRequest) (string, error) {
 	if strings.TrimSpace(request.EgressID) == "" {
-		return "", errors.New("fake DNS alias requires an egress ID")
+		return "", errors.New("Fake DNS 别名需要一个出口 ID")
 	}
 	if request.Family != FamilyIPv4 && request.Family != FamilyIPv6 {
-		return "", fmt.Errorf("unsupported fake DNS alias family %q", request.Family)
+		return "", fmt.Errorf("不支持的 Fake DNS 别名地址族 %q", request.Family)
 	}
 	used := make(map[netip.Addr]bool)
 	for _, value := range request.UsedAliases {
@@ -30,10 +30,10 @@ func AllocateFakeDNSAlias(request FakeAliasRequest) (string, error) {
 	if value := strings.TrimSpace(request.PersistedAlias); value != "" {
 		address, err := netip.ParseAddr(value)
 		if err != nil || !fakeAliasAllowed(address, request.Family) {
-			return "", fmt.Errorf("fake DNS alias %q is outside the documentation pool", value)
+			return "", fmt.Errorf("Fake DNS 别名 %q 不在文档保留地址池内", value)
 		}
 		if used[address] {
-			return "", fmt.Errorf("fake DNS alias %q is already used", value)
+			return "", fmt.Errorf("Fake DNS 别名 %q 已被使用", value)
 		}
 		return address.String(), nil
 	}
@@ -57,7 +57,7 @@ func AllocateFakeDNSAlias(request FakeAliasRequest) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("no collision-free documentation fake DNS alias is available for %s", request.Family)
+	return "", fmt.Errorf("%s 没有可用的无冲突文档保留 Fake DNS 别名", request.Family)
 }
 
 func fakeAliasAllowed(address netip.Addr, family AddressFamily) bool {

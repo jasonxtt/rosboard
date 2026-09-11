@@ -398,7 +398,7 @@ func TestPolicyV2AccessProposalToggleDoesNotGoStale(t *testing.T) {
 			if job = waitPolicyV2Job(t, policyRepository, job.ID); job.State != "committed" {
 				t.Fatalf("access %s proposal apply failed: %#v", test.name, job)
 			}
-			if strings.Contains(job.Error, "policy plan is stale") {
+			if strings.Contains(job.Error, "策略计划已变化") {
 				t.Fatalf("access %s proposal recorded a stale job: %#v", test.name, job)
 			}
 			finalRules, err := accessRepository.ListRules(ctx)

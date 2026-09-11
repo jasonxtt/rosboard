@@ -9,18 +9,18 @@ import (
 )
 
 var (
-	ErrEgressNotFound      = errors.New("policy egress not found")
-	ErrSourceNotFound      = errors.New("policy source not found")
-	ErrRevisionStale       = errors.New("policy object revision is stale")
-	ErrEgressInUse         = errors.New("policy egress still has assigned sources")
-	ErrSourceInUse         = errors.New("policy source is used by access control")
-	ErrRoutingRuleRequired = errors.New("source routing association must be managed by a routing rule")
-	ErrJobNotFound         = errors.New("policy apply job not found")
+	ErrEgressNotFound      = errors.New("出口不存在")
+	ErrSourceNotFound      = errors.New("目标列表不存在")
+	ErrRevisionStale       = errors.New("内容已被其他修改更新，请刷新后重试")
+	ErrEgressInUse         = errors.New("出口仍被来源引用")
+	ErrSourceInUse         = errors.New("目标列表仍被访问控制使用")
+	ErrRoutingRuleRequired = errors.New("来源的路由关联必须由策略路由规则管理")
+	ErrJobNotFound         = errors.New("应用任务不存在")
 
-	ErrTargetListNotFound      = errors.New("policy target list not found")
+	ErrTargetListNotFound      = errors.New("目标列表不存在")
 	ErrTargetListInUse         = ErrSourceInUse
-	ErrTargetListKindImmutable = errors.New("target list kind cannot be changed")
-	ErrTargetListTypeImmutable = errors.New("target list source type cannot be changed")
+	ErrTargetListKindImmutable = errors.New("目标列表类型不可修改")
+	ErrTargetListTypeImmutable = errors.New("目标列表来源类型不可修改")
 )
 
 type RuleQuery struct {

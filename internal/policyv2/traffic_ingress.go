@@ -23,16 +23,16 @@ type TrafficIngressScope struct {
 func ParseTrafficIngressScope(payload []byte) (TrafficIngressScope, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &raw); err != nil || raw == nil {
-		return TrafficIngressScope{}, errors.New("traffic ingress must be a JSON object")
+		return TrafficIngressScope{}, errors.New("流量入口必须是一个 JSON 对象")
 	}
 	var scope TrafficIngressScope
 	if value, ok := raw["interfaceLists"]; ok {
 		if err := json.Unmarshal(value, &scope.InterfaceLists); err != nil {
-			return TrafficIngressScope{}, errors.New("interfaceLists must be an array of strings")
+			return TrafficIngressScope{}, errors.New("interfaceLists 必须是字符串数组")
 		}
 		if value := raw["interfaces"]; len(value) > 0 {
 			if err := json.Unmarshal(value, &scope.Interfaces); err != nil {
-				return TrafficIngressScope{}, errors.New("interfaces must be an array of strings")
+				return TrafficIngressScope{}, errors.New("interfaces 必须是字符串数组")
 			}
 		}
 	} else {
@@ -40,7 +40,7 @@ func ParseTrafficIngressScope(payload []byte) (TrafficIngressScope, error) {
 		// `interfaces`. Treat that shape as lists during the in-place upgrade.
 		if value := raw["interfaces"]; len(value) > 0 {
 			if err := json.Unmarshal(value, &scope.InterfaceLists); err != nil {
-				return TrafficIngressScope{}, errors.New("interfaces must be an array of strings")
+				return TrafficIngressScope{}, errors.New("interfaces 必须是字符串数组")
 			}
 		} else {
 			var legacy string
@@ -56,7 +56,7 @@ func ParseTrafficIngressScope(payload []byte) (TrafficIngressScope, error) {
 	scope.Interfaces = normalizedNames(scope.Interfaces)
 	for _, name := range scope.InterfaceLists {
 		if reservedInterfaceLists[strings.ToLower(name)] {
-			return TrafficIngressScope{}, errors.New("built-in or WAN interface lists cannot be selected")
+			return TrafficIngressScope{}, errors.New("不能选择内置或 WAN 接口列表")
 		}
 	}
 	return scope, nil
@@ -118,7 +118,7 @@ func NormalizeTrafficIngressScope(scope TrafficIngressScope, candidates []Traffi
 			result.Interfaces = append(result.Interfaces, name)
 			return nil
 		}
-		return fmt.Errorf("traffic ingress candidate no longer exists: %s", name)
+		return fmt.Errorf("流量入口候选项已不存在：%s", name)
 	}
 	for _, name := range scope.InterfaceLists {
 		if err := classify(name, "interface-list"); err != nil {
@@ -145,11 +145,11 @@ func ValidateTrafficIngress(ctx context.Context, reader PolicyReader, repository
 	}
 	lists, err := reader.PolicyList(ctx, routeros.ReadMenuInterfaceList, []string{"name"})
 	if err != nil {
-		return nil, fmt.Errorf("scan RouterOS interface lists: %w", err)
+		return nil, fmt.Errorf("读取 RouterOS 接口列表失败：%w", err)
 	}
 	interfaces, err := reader.PolicyList(ctx, routeros.ReadMenuInterface, []string{"name", "disabled", "dynamic"})
 	if err != nil {
-		return nil, fmt.Errorf("scan RouterOS interfaces: %w", err)
+		return nil, fmt.Errorf("读取 RouterOS 接口失败：%w", err)
 	}
 	existingLists := make(map[string]bool, len(lists))
 	for _, object := range lists {

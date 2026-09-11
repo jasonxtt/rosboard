@@ -93,7 +93,7 @@ func (s *Server) serveAccessControlAPI(writer http.ResponseWriter, request *http
 	relative := strings.Trim(strings.TrimPrefix(request.URL.Path, "/api/access-control"), "/")
 	parts := strings.Split(relative, "/")
 	if len(parts) < 2 || parts[0] != "devices" || strings.TrimSpace(parts[1]) == "" {
-		writeAccessError(writer, http.StatusNotFound, "not_found", "not found")
+		writeAccessError(writer, http.StatusNotFound, "not_found", "资源不存在")
 		return
 	}
 	device, ok := s.resolveAccessDevice(writer, strings.TrimSpace(parts[1]))
@@ -114,23 +114,23 @@ func (s *Server) serveAccessControlAPI(writer http.ResponseWriter, request *http
 	case len(parts) == 4 && parts[2] == "jobs" && request.Method == http.MethodGet:
 		s.serveAccessJob(writer, request, device, parts[3])
 	default:
-		writeAccessError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		writeAccessError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "不支持的请求方法")
 	}
 }
 
 func (s *Server) resolveAccessDevice(writer http.ResponseWriter, deviceID string) (accessDeviceContext, bool) {
 	device, found := s.configSnapshot().Device(deviceID)
 	if !found || device.Archived {
-		writeAccessError(writer, http.StatusNotFound, "device_not_found", "device not found")
+		writeAccessError(writer, http.StatusNotFound, "device_not_found", "设备不存在")
 		return accessDeviceContext{}, false
 	}
 	if s.store == nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "storage_unavailable", "device storage unavailable")
+		writeAccessError(writer, http.StatusServiceUnavailable, "storage_unavailable", "设备存储不可用")
 		return accessDeviceContext{}, false
 	}
 	deviceStore, err := s.store.OpenDevice(deviceID)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "storage_unavailable", "device storage unavailable")
+		writeAccessError(writer, http.StatusServiceUnavailable, "storage_unavailable", "设备存储不可用")
 		return accessDeviceContext{}, false
 	}
 	return accessDeviceContext{device: device, policyRepository: deviceStore.PolicyRepository(), accessRepository: deviceStore.AccessRepository()}, true
@@ -141,22 +141,22 @@ func (s *Server) serveAccessOverview(writer http.ResponseWriter, request *http.R
 	_ = device.accessRepository.EnsureCanonicalAccessMigrated(ctx)
 	rules, members, err := s.loadAccessRules(ctx, device)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load access rules")
+		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取访问规则失败")
 		return
 	}
 	targetLists, err := device.policyRepository.ListTargetLists(ctx)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load target lists")
+		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取目标列表失败")
 		return
 	}
 	state, err := device.accessRepository.GetState(ctx)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load access-control state")
+		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取访问控制状态失败")
 		return
 	}
 	policyState, err := device.policyRepository.GetDeviceState(ctx)
 	if err != nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load policy state")
+		writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取策略状态失败")
 		return
 	}
 	terminals := s.accessTerminals(device.device.ID)
@@ -312,11 +312,11 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 	}
 	var payload accessRuleRequest
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		writeAccessError(writer, http.StatusBadRequest, "invalid_body", "invalid request body")
+		writeAccessError(writer, http.StatusBadRequest, "invalid_body", "请求体无效")
 		return
 	}
 	if payload.TargetScope != accesscontrol.TargetScopeInternet && payload.TargetScope != accesscontrol.TargetScopeTargets {
-		writeAccessError(writer, http.StatusUnprocessableEntity, "canonical_access_rule_required", "access rules must use subject, targetScope=internet|targets, and targetListIds")
+		writeAccessError(writer, http.StatusUnprocessableEntity, "canonical_access_rule_required", "访问规则必须使用 subject、targetScope=internet|targets 与 targetListIds")
 		return
 	}
 	rule := accesscontrol.AccessRule{
@@ -347,7 +347,7 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 	if pathID != "" {
 		existingRules, loadErr := device.accessRepository.ListRules(request.Context())
 		if loadErr != nil {
-			writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load access rule")
+			writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取访问规则失败")
 			return
 		}
 		found := false
@@ -358,12 +358,12 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 			}
 		}
 		if !found {
-			writeAccessError(writer, http.StatusNotFound, "rule_not_found", "access rule not found")
+			writeAccessError(writer, http.StatusNotFound, "rule_not_found", "访问规则不存在")
 			return
 		}
 		storedMembers, loadErr := device.accessRepository.ListMembers(request.Context())
 		if loadErr != nil {
-			writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "failed to load access rule members")
+			writeAccessError(writer, http.StatusServiceUnavailable, "load_failed", "读取访问规则成员失败")
 			return
 		}
 		for _, storedMember := range storedMembers {
@@ -451,7 +451,7 @@ func (s *Server) saveAccessRule(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	if s.policy == nil || s.policy.ApplierFor(device.device.ID) == nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "runtime_unavailable", "policy runtime is unavailable")
+		writeAccessError(writer, http.StatusServiceUnavailable, "runtime_unavailable", "策略运行时不可用")
 		return
 	}
 	proposal := policyv2.AccessProposal{Rule: rule, Members: members}
@@ -551,7 +551,7 @@ func (s *Server) deleteAccessRule(writer http.ResponseWriter, request *http.Requ
 	}
 	revision := queryRevision(request)
 	if revision < 0 {
-		writeAccessError(writer, http.StatusBadRequest, "invalid_revision", "revision must be non-negative")
+		writeAccessError(writer, http.StatusBadRequest, "invalid_revision", "revision 参数必须是非负数")
 		return
 	}
 	if err := device.accessRepository.DeleteRule(request.Context(), ruleID, revision, accessActor(request)); err != nil {
@@ -581,7 +581,7 @@ func (s *Server) syncAccessControl(writer http.ResponseWriter, request *http.Req
 	var payload accessInternetEgressRequest
 	if request.Body != nil {
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
-			writeAccessError(writer, http.StatusBadRequest, "invalid_body", "invalid request body")
+			writeAccessError(writer, http.StatusBadRequest, "invalid_body", "请求体无效")
 			return
 		}
 	}
@@ -596,7 +596,7 @@ func (s *Server) syncAccessControl(writer http.ResponseWriter, request *http.Req
 
 func (s *Server) serveAccessJob(writer http.ResponseWriter, request *http.Request, device accessDeviceContext, jobID string) {
 	if s.policy == nil {
-		writeAccessError(writer, http.StatusServiceUnavailable, "runtime_unavailable", "policy runtime is unavailable")
+		writeAccessError(writer, http.StatusServiceUnavailable, "runtime_unavailable", "策略运行时不可用")
 		return
 	}
 	job, err := s.policy.GetJob(request.Context(), device.device.ID, jobID)
@@ -613,7 +613,7 @@ func (s *Server) serveAccessJob(writer http.ResponseWriter, request *http.Reques
 
 func (s *Server) applyAccessDesired(request *http.Request, deviceID, kind string, internetEgresses map[string][]string) (policyv2.ApplyJob, error) {
 	if s.policy == nil || s.policy.ApplierFor(deviceID) == nil {
-		return policyv2.ApplyJob{}, errors.New("policy runtime is unavailable")
+		return policyv2.ApplyJob{}, errors.New("策略运行时不可用")
 	}
 	plan, err := s.policy.GeneratePlanWithOptions(request.Context(), deviceID, kind, policyv2.PlanOptions{InternetEgresses: internetEgresses})
 	if err != nil {

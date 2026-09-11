@@ -358,8 +358,8 @@ func TestDomainProjectionResolutionsUsePriorityArbitration(t *testing.T) {
 				switch resolution.Severity {
 				case "blocker":
 					blockers++
-					if !strings.Contains(resolution.Reason, "Priority") {
-						t.Fatalf("blocker reason must mention Priority: %q", resolution.Reason)
+					if !strings.Contains(resolution.Reason, "优先级") {
+						t.Fatalf("blocker reason must mention 优先级: %q", resolution.Reason)
 					}
 				case "warning":
 					warnings++
