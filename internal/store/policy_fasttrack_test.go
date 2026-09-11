@@ -397,3 +397,59 @@ func TestNoFastTrackDoesNotCreateJournal(t *testing.T) {
 		t.Fatal("no FastTrack created a compatibility journal")
 	}
 }
+
+func TestFastTrackFirstProposalAndConcurrentCreation(t *testing.T) {
+	repo, router, m, rule := fastTrackSetup(t)
+	ctx := context.Background()
+	if err := repo.DeleteRoutingRule(ctx, rule.ID, rule.Revision); err != nil {
+		t.Fatal(err)
+	}
+	previews := make([]policyv2.PlanEnvelope, 2)
+	for i, id := range []string{"new-a", "new-b"} {
+		draft := rule
+		draft.ID = id
+		draft.Revision = 0
+		plan, err := m.GeneratePlanWithOptions(ctx, "default", "structural", policyv2.PlanOptions{Proposal: &policyv2.PolicyProposal{RoutingRule: &draft}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Plan.Blockers) > 0 {
+			t.Fatalf("proposal blockers: %+v", plan.Plan.Blockers)
+		}
+		previews[i] = plan
+	}
+	state, _ := repo.LoadFastTrackState(ctx)
+	rules, _ := repo.ListRoutingRules(ctx)
+	if len(state.Records) != 0 || len(rules) != 0 {
+		t.Fatal("preview mutated persisted state")
+	}
+	type result struct {
+		job policyv2.ApplyJob
+		err error
+	}
+	results := make(chan result, 2)
+	for _, plan := range previews {
+		go func(plan policyv2.PlanEnvelope) {
+			job, err := m.ApplyPlanWithHash(ctx, "default", plan.PlanID, plan.PlanHash)
+			results <- result{job, err}
+		}(plan)
+	}
+	successes := 0
+	for range previews {
+		result := <-results
+		if result.err == nil {
+			successes++
+			job := waitPolicyV2Job(t, repo, result.job.ID)
+			if job.State != "committed" {
+				t.Fatalf("first proposal failed: %+v", job)
+			}
+		} else if !errors.Is(result.err, policyv2.ErrPlanStale) && !errors.Is(result.err, policyv2.ErrDeviceBusy) {
+			t.Fatal(result.err)
+		}
+	}
+	state, _ = repo.LoadFastTrackState(ctx)
+	rules, _ = repo.ListRoutingRules(ctx)
+	if successes != 1 || len(state.Records) != 1 || len(rules) != 1 || router.unsetCalls != 0 {
+		t.Fatalf("concurrent acquisition: successes=%d records=%d rules=%d", successes, len(state.Records), len(rules))
+	}
+}

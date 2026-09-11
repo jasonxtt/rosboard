@@ -16,11 +16,11 @@
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/18",
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "User authorized implementation of the simplified review. Keep Draft; isolated RouterOS unset verification and production acceptance remain outstanding.",
+  "notes": "Implementation and automated checks complete; Draft PR #18 awaits root review. RouterOS 7.22.3 runtime verification and production acceptance remain outstanding.",
   "meta": {}
 }
