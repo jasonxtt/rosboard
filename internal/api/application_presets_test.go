@@ -179,7 +179,7 @@ func TestApplicationPresetAPIListsPreviewsSplitsAndReusesTargetLists(t *testing.
 	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.PreviewID == "" || preview.Domain.ValidRules != 2 || preview.Domain.Ignored["DOMAIN-KEYWORD"] != 1 || preview.IP.ValidRules != 1 {
+	if preview.PreviewID == "" || preview.Domain.ValidRules != 3 || preview.Domain.Ignored["DOMAIN-KEYWORD"] != 0 || preview.IP.ValidRules != 1 {
 		t.Fatalf("unexpected preset preview: %#v", preview)
 	}
 

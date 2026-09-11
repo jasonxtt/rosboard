@@ -212,9 +212,9 @@ ON CONFLICT(id) DO UPDATE SET egress_id=excluded.egress_id, type=excluded.type, 
 		return fmt.Errorf("save proposed target list: %w", err)
 	}
 
-	counts := map[string]int{"valid": len(proposed.Rules)}
-	if proposed.Version.Counts != nil {
-		counts = proposed.Version.Counts
+	counts := proposed.Version.Counts
+	if counts == nil {
+		counts = map[string]int{"valid": len(proposed.Rules)}
 	}
 	countsJSON, err := json.Marshal(counts)
 	if err != nil {
@@ -340,7 +340,7 @@ func saveProposalRoutingRuleTx(ctx context.Context, tx *sql.Tx, value policyv2.R
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, include_keyword_domains, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, include_keyword_domains=excluded.include_keyword_domains, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), boolToInt(value.IncludeKeywordDomains), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
 		return fmt.Errorf("save proposed routing rule: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_routing_rule_targets WHERE rule_id = ?`, value.ID); err != nil {

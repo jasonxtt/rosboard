@@ -182,7 +182,7 @@ func TestPolicyV2ProposalCanRestorePendingPresetTarget(t *testing.T) {
 	}
 	if _, err := repository.CommitPolicyProposal(ctx, policyv2.PolicyProposal{TargetLists: []policyv2.ProposedTargetList{{
 		Target:  target,
-		Version: policyv2.TargetListVersion{ID: versionID, TargetListID: target.ID, SHA256: "preset-sha", CompressedYAML: []byte("preset-content"), State: "pending"},
+		Version: policyv2.TargetListVersion{ID: versionID, TargetListID: target.ID, SHA256: "preset-sha", CompressedYAML: []byte("preset-content"), State: "pending", Counts: map[string]int{"valid": 2, "DOMAIN-KEYWORD": 1}},
 		Rules:   []policyv2.TargetListRule{{VersionID: versionID, RuleType: "DOMAIN", Domain: "example.com"}},
 	}}}, state.DesiredRevision); err != nil {
 		t.Fatal(err)
@@ -193,5 +193,8 @@ func TestPolicyV2ProposalCanRestorePendingPresetTarget(t *testing.T) {
 	}
 	if restored.PendingDeletion || restored.PendingVersionID != versionID {
 		t.Fatalf("preset target was not restored: %#v", restored)
+	}
+	if len(restored.Versions) != 1 || restored.Versions[0].Counts["DOMAIN-KEYWORD"] != 1 {
+		t.Fatalf("proposed target version counts were not preserved: %#v", restored.Versions)
 	}
 }

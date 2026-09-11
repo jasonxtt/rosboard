@@ -713,10 +713,32 @@ type policyPlanPresetSelection struct {
 }
 
 type policyPlanProposalPayload struct {
-	Egress           *policyv2.Egress              `json:"egress"`
-	TrafficIngress   *policyv2.TrafficIngressScope `json:"trafficIngress"`
-	RoutingRule      *policyv2.RoutingRule         `json:"routingRule"`
-	PresetSelections []policyPlanPresetSelection   `json:"presetSelections"`
+	Egress                   *policyv2.Egress              `json:"egress"`
+	TrafficIngress           *policyv2.TrafficIngressScope `json:"trafficIngress"`
+	RoutingRule              *policyv2.RoutingRule         `json:"routingRule"`
+	PresetSelections         []policyPlanPresetSelection   `json:"presetSelections"`
+	includeKeywordDomainsSet bool
+}
+
+func (payload *policyPlanProposalPayload) UnmarshalJSON(data []byte) error {
+	type alias policyPlanProposalPayload
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*payload = policyPlanProposalPayload(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["routingRule"]; ok && string(raw) != "null" {
+		var routingFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &routingFields); err != nil {
+			return err
+		}
+		_, payload.includeKeywordDomainsSet = routingFields["includeKeywordDomains"]
+	}
+	return nil
 }
 
 func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDeviceContext, payload *policyPlanProposalPayload) (*policyv2.PolicyProposal, error) {
@@ -846,6 +868,9 @@ func (s *Server) preparePolicyPlanProposal(ctx context.Context, device policyDev
 			}
 		}
 		if existingRoutingRule != nil {
+			if !payload.includeKeywordDomainsSet {
+				rule.IncludeKeywordDomains = existingRoutingRule.IncludeKeywordDomains
+			}
 			rule, err = policyv2.PrepareRoutingRuleWrite(rule, existingRoutingRule)
 		} else {
 			rule, err = policyv2.PrepareRoutingRuleWrite(rule, nil)
@@ -935,7 +960,7 @@ func (s *Server) appendProposedPresetTargets(ctx context.Context, device policyD
 		for index, rule := range rules {
 			targetRules[index] = policyv2.TargetListRule{VersionID: version.ID, RuleType: rule.RuleType, Domain: rule.Domain}
 		}
-		targetVersion := policyv2.TargetListVersion{ID: version.ID, TargetListID: targetID, SHA256: version.SHA256, CompressedYAML: version.CompressedYAML, State: "pending", Counts: map[string]int{"valid": len(targetRules)}, CreatedAt: version.CreatedAt}
+		targetVersion := policyv2.TargetListVersion{ID: version.ID, TargetListID: targetID, SHA256: version.SHA256, CompressedYAML: version.CompressedYAML, State: "pending", Counts: content.Counts(), CreatedAt: version.CreatedAt}
 		proposal.TargetLists = append(proposal.TargetLists, policyv2.ProposedTargetList{Target: target, Version: targetVersion, Rules: targetRules})
 	}
 	return nil
@@ -1145,7 +1170,7 @@ func (s *Server) servePolicyURLPreview(writer http.ResponseWriter, request *http
 		"etag": preview.ETag, "lastModified": preview.LastModified,
 		"contentType": preview.ContentType, "sha256": preview.SHA256,
 		"notModified": preview.NotModified, "size": preview.Size,
-		"validRules": len(preview.Rules), "ignored": preview.Ignored,
+		"validRules": len(preview.Rules), "counts": preview.Counts(), "ignored": preview.Ignored,
 		"errorSamples": preview.ErrorSamples,
 		"rules":        rules,
 	})
@@ -1185,7 +1210,7 @@ func (s *Server) servePolicyUploadPreview(writer http.ResponseWriter, request *h
 	})
 	writePolicyJson(writer, http.StatusOK, map[string]any{
 		"previewId": previewID, "kind": kind, "filename": preview.Filename, "sha256": preview.SHA256, "size": preview.Size,
-		"validRules": len(preview.Rules), "ignored": preview.Ignored,
+		"validRules": len(preview.Rules), "counts": preview.Counts(), "ignored": preview.Ignored,
 		"errorSamples": preview.ErrorSamples,
 		"rules":        rules,
 	})
@@ -1238,7 +1263,7 @@ func (s *Server) servePolicyManualPreview(writer http.ResponseWriter, request *h
 	})
 	writePolicyJson(writer, http.StatusOK, map[string]any{
 		"previewId": previewID, "kind": kind, "filename": "手动输入", "sha256": content.SHA256, "size": content.Size,
-		"validRules": len(content.Rules), "ignored": content.Ignored,
+		"validRules": len(content.Rules), "counts": content.Counts(), "ignored": content.Ignored,
 		"errorSamples": content.ErrorSamples,
 		"rules":        rules,
 	})

@@ -68,9 +68,10 @@ func TestPrepareSourceContentAcceptsClashAndPlainLineListsByKind(t *testing.T) {
 			wantRules: []ParsedRule{
 				{Type: RuleTypeExact, Domain: "e13252.dscg.akamaiedge.net"},
 				{Type: RuleTypeSuffix, Domain: "netflix.com"},
+				{Type: RuleTypeKeyword, Domain: "netflix"},
 				{Type: RuleTypeSuffix, Domain: "plain.example"},
 			},
-			wantIgnored:   map[string]int{"IP-CIDR": 1, "DOMAIN-KEYWORD": 1},
+			wantIgnored:   map[string]int{"IP-CIDR": 1},
 			wantRawSHA256: true,
 		},
 		{

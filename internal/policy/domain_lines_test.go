@@ -61,7 +61,7 @@ func TestParseDomainLinesIgnoresBlankLinesAndEmptyInput(t *testing.T) {
 	}
 }
 
-func TestParseDomainLinesCategorizesIgnoredLines(t *testing.T) {
+func TestParseDomainLinesSupportsKeywordsAndCategorizesUnsupportedLines(t *testing.T) {
 	result, err := ParseDomainLines(strings.Join([]string{
 		"keyword:ads.example.com",
 		"regexp:^ads\\.",
@@ -75,18 +75,25 @@ func TestParseDomainLinesCategorizesIgnoredLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseDomainLines() error = %v", err)
 	}
-	if len(result.Rules) != 0 {
-		t.Fatalf("expected no valid rules, got %#v", result.Rules)
+	if len(result.Rules) != 2 {
+		t.Fatalf("expected two valid keyword rules, got %#v", result.Rules)
+	}
+	got := map[string]bool{}
+	for _, rule := range result.Rules {
+		got[string(rule.Type)+":"+rule.Domain] = true
+	}
+	for _, key := range []string{"DOMAIN-KEYWORD:ads.example.com", "DOMAIN-KEYWORD:ads"} {
+		if !got[key] {
+			t.Errorf("missing keyword %q in %#v", key, result.Rules)
+		}
 	}
 	for category, want := range map[string]int{
-		"keyword":        1,
-		"regexp":         1,
-		"include":        1,
-		"IP-CIDR":        1,
-		"DOMAIN-KEYWORD": 1,
-		"DOMAIN":         1,
-		"DOMAIN-SUFFIX":  1,
-		"invalid":        1,
+		"regexp":        1,
+		"include":       1,
+		"IP-CIDR":       1,
+		"DOMAIN":        1,
+		"DOMAIN-SUFFIX": 1,
+		"invalid":       1,
 	} {
 		if result.Ignored[category] != want {
 			t.Errorf("ignored[%s] = %d, want %d (all: %v)", category, result.Ignored[category], want, result.Ignored)
@@ -94,6 +101,19 @@ func TestParseDomainLinesCategorizesIgnoredLines(t *testing.T) {
 	}
 	if len(result.ErrorSamples) == 0 {
 		t.Fatal("expected bounded error samples")
+	}
+}
+
+func TestParseDomainLinesNormalizesKeywordPrefixAndClashForm(t *testing.T) {
+	result, err := ParseDomainLines("keyword: Video.Player+\nDOMAIN-KEYWORD, video.player+,REJECT\nkeyword:foo_bar")
+	if err != nil {
+		t.Fatalf("ParseDomainLines() error = %v", err)
+	}
+	if len(result.Rules) != 2 || result.Ignored["duplicate"] != 1 {
+		t.Fatalf("rules=%#v ignored=%#v", result.Rules, result.Ignored)
+	}
+	if result.Rules[0].Domain != "video.player+" || result.Rules[1].Domain != "foo_bar" {
+		t.Fatalf("normalized keyword rules = %#v", result.Rules)
 	}
 }
 
@@ -134,7 +154,7 @@ func TestParseDomainLinesRejectsOversizeAndTooManyRules(t *testing.T) {
 }
 
 func TestPrepareDomainLinesRoundTripsThroughClashParser(t *testing.T) {
-	prepared, err := PrepareDomainLines("- DOMAIN,ad.com,REJECT\n- DOMAIN-SUFFIX,google.com,auto\nfull:www.dingtalkcs.com\nexample.com\nnot a domain")
+	prepared, err := PrepareDomainLines("- DOMAIN,ad.com,REJECT\n- DOMAIN-SUFFIX,google.com,auto\nkeyword:Video.Player+\\\\\"\nfull:www.dingtalkcs.com\nexample.com\nnot a domain")
 	if err != nil {
 		t.Fatalf("PrepareDomainLines() error = %v", err)
 	}
@@ -154,8 +174,8 @@ func TestPrepareDomainLinesRoundTripsThroughClashParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseClashYAML(synthesized) error = %v: %s", err, decompressed)
 	}
-	if len(reparsed.Rules) != 4 {
-		t.Fatalf("round-trip rule count = %d, want 4: %#v", len(reparsed.Rules), reparsed.Rules)
+	if len(reparsed.Rules) != 5 {
+		t.Fatalf("round-trip rule count = %d, want 5: %#v", len(reparsed.Rules), reparsed.Rules)
 	}
 	got := map[string]bool{}
 	for _, rule := range reparsed.Rules {
@@ -164,6 +184,7 @@ func TestPrepareDomainLinesRoundTripsThroughClashParser(t *testing.T) {
 	for _, key := range []string{
 		"DOMAIN:ad.com",
 		"DOMAIN-SUFFIX:google.com",
+		"DOMAIN-KEYWORD:video.player+\\\\\"",
 		"DOMAIN:www.dingtalkcs.com",
 		"DOMAIN-SUFFIX:example.com",
 	} {

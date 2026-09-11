@@ -376,6 +376,12 @@ func buildDesiredForDomainWithTargetScope(ctx context.Context, repository Reposi
 						return DesiredResult{}, err
 					}
 					for _, rule := range rules {
+						// The compatibility path has no per-routing-rule keyword
+						// option. Keep historical rows fail-closed instead of
+						// promoting DOMAIN-KEYWORD to a plain DNS name matcher.
+						if !isDomainRule(rule.RuleType) {
+							continue
+						}
 						fields := map[string]string{"name": rule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": listBySource[source.ID], "disabled": disabled, "match-subdomain": "no"}
 						if rule.RuleType == "DOMAIN-SUFFIX" {
 							fields["match-subdomain"] = "yes"

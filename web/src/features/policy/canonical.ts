@@ -95,6 +95,7 @@ export type TargetListPreview = {
   filename?: string
   notModified?: boolean
   validRules: number
+  counts: Record<string, number>
   ignored: Record<string, number>
   errorSamples: string[]
   rules: TargetListRule[]
@@ -154,6 +155,7 @@ export type RoutingRule = {
   egressId: string
   priority: number
   enabled: boolean
+  includeKeywordDomains: boolean
   revision: number
 }
 
@@ -187,13 +189,15 @@ export type DiscoveryCandidate = { name: string; kind: string; include: string[]
 export type PolicyDiscovery = { available: boolean; reason?: string; warnings: string[]; snapshot: { fingerprint: string }; wans: DiscoveryWAN[]; trafficIngress: DiscoveryCandidate[] }
 export type PolicyDiscoverySnapshot = { discovery: PolicyDiscovery; sourceSelectors: PolicySourceSelectors }
 
-export type PlanIssue = { code: string; status: string; family?: string; egressID?: string; logicalID?: string; reason: string }
+export type PlanIssue = { code: string; status: string; family?: string; egressID?: string; logicalID?: string; reason: string; requiresAcknowledgement?: boolean }
 export type TargetVersionPromotion = { targetListId: string; versionId: string }
 export type PlanAcknowledgement = { code: string; required: boolean; accepted: boolean }
+export type KeywordImpact = { enabled: boolean; availableCount: number; projectedCount: number; keywords: string[]; introducedKeywords: string[]; requiresConfirmation: boolean; precedenceMode: string }
 export type PlanOperation = { seq: number; groupID?: string; egressID?: string; family?: string; phase: string; action: string; menu?: string; logicalID?: string; routerID?: string; ownership?: string; before?: Record<string, unknown>; after?: Record<string, unknown> }
 export type ExecutionGroup = { id: string; role: string; egressID?: string; family?: string; operationSeqs: number[] }
 export type FastTrackReport = { retainOnly?: boolean; consumers: number; rules: Array<{ id: string; menu: string; status: string; reason: string }> }
 export function planAcknowledgementLabel(code: string) {
+ if (code === 'routing_keyword_regexp_precedence') return '我已理解关键字域名 regexp 会优先于普通域名匹配，仍要继续。'
  return code.startsWith('fasttrack_') ? '我已了解 FastTrack 可能导致策略路由不稳定的风险，仍要继续。' : code
 }
 export function fastTrackSummary(report: FastTrackReport) {
@@ -224,6 +228,8 @@ export type PolicyPlan = {
   familyBlockers: PlanIssue[]
   warnings: PlanIssue[]
   acknowledgements: PlanAcknowledgement[]
+  keywordImpact?: KeywordImpact
+  requiresAcknowledgement?: boolean
   summary: Record<string, number>
   pendingReview: boolean
   operations: PlanOperation[]
@@ -328,7 +334,7 @@ function parsePreview(value: unknown): TargetListPreview {
   return {
     previewId: stringValue(object.previewId) || undefined, url: stringValue(object.url) || undefined,
     filename: stringValue(object.filename) || undefined, notModified: booleanValue(object.notModified),
-    validRules: numberValue(object.validRules), ignored: objectValue(object.ignored) as Record<string, number>,
+    validRules: numberValue(object.validRules), counts: objectValue(object.counts) as Record<string, number>, ignored: objectValue(object.ignored) as Record<string, number>,
     errorSamples: stringArray(object.errorSamples), rules: parseRules(object.rules),
     sha256: stringValue(object.sha256) || undefined, size: numberValue(object.size) || undefined,
   }
@@ -382,7 +388,7 @@ function parseRoutingRule(value: unknown): RoutingRule {
   const object = objectValue(value)
   const ingress = objectValue(object.ingress)
   const sourceScope = parseRoutingSourceScope(object.sourceScope)
-  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, ...(sourceScope ? { sourceScope } : {}), targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), revision: numberValue(object.revision) }
+  return { id: stringValue(object.id), name: stringValue(object.name), subject: parseSubject(object.subject), ingress: { interfaceLists: stringArray(ingress.interfaceLists), interfaces: stringArray(ingress.interfaces) }, ...(sourceScope ? { sourceScope } : {}), targetListIds: stringArray(object.targetListIds), egressId: stringValue(object.egressId), priority: numberValue(object.priority), enabled: booleanValue(object.enabled), includeKeywordDomains: booleanValue(object.includeKeywordDomains), revision: numberValue(object.revision) }
 }
 
 function parseRoutingSourceScope(value: unknown): RoutingSourceScope | undefined {
@@ -464,7 +470,7 @@ function parsePolicyDiscoverySnapshot(value: unknown): PolicyDiscoverySnapshot {
 
 function parsePlanIssue(value: unknown): PlanIssue {
   const object = objectValue(value)
-  return { code: stringValue(object.code), status: stringValue(object.status), family: stringValue(object.family) || undefined, egressID: stringValue(object.egressID ?? object.egressId) || undefined, logicalID: stringValue(object.logicalID ?? object.logicalId) || undefined, reason: stringValue(object.reason) }
+  return { code: stringValue(object.code), status: stringValue(object.status), family: stringValue(object.family) || undefined, egressID: stringValue(object.egressID ?? object.egressId) || undefined, logicalID: stringValue(object.logicalID ?? object.logicalId) || undefined, reason: stringValue(object.reason), requiresAcknowledgement: booleanValue(object.requiresAcknowledgement) }
 }
 
 function parsePlanOperation(value: unknown): PlanOperation {
@@ -480,12 +486,18 @@ function parseFastTrack(value: unknown): FastTrackReport | undefined {
 function parsePlan(value: unknown): PolicyPlan {
   const object = objectValue(value)
   const acknowledgements = Array.isArray(object.acknowledgements) ? object.acknowledgements.map((raw) => { const ack = objectValue(raw); return { code: stringValue(ack.code), required: booleanValue(ack.required), accepted: booleanValue(ack.accepted) } }) : []
+  const keywordObject = objectValue(object.keywordImpact)
+  const keywordImpact = object.keywordImpact && typeof object.keywordImpact === 'object' ? {
+    enabled: booleanValue(keywordObject.enabled), availableCount: numberValue(keywordObject.availableCount), projectedCount: numberValue(keywordObject.projectedCount),
+    keywords: stringArray(keywordObject.keywords), introducedKeywords: stringArray(keywordObject.introducedKeywords),
+    requiresConfirmation: booleanValue(keywordObject.requiresConfirmation), precedenceMode: stringValue(keywordObject.precedenceMode),
+  } : undefined
   const groups = Array.isArray(object.executionGroups) ? object.executionGroups.map((raw) => { const group = objectValue(raw); return { id: stringValue(group.id), role: stringValue(group.role), egressID: stringValue(group.egressID ?? group.egressId) || undefined, family: stringValue(group.family) || undefined, operationSeqs: Array.isArray(group.operationSeqs) ? group.operationSeqs.map(numberValue) : [] } }) : []
   const summary: Record<string, number> = {}
   for (const [key, raw] of Object.entries(objectValue(object.summary))) summary[key] = numberValue(raw)
   return {
     fastTrack: parseFastTrack(object.fastTrack), planID: stringValue(object.planID ?? object.planId), kind: stringValue(object.kind), lifecycle: stringValue(object.lifecycle), createdAt: stringValue(object.createdAt), expiresAt: stringValue(object.expiresAt) || undefined,
-    desiredRevision: numberValue(object.desiredRevision), domain: stringValue(object.domain) || undefined, accessRevision: numberValue(object.accessRevision) || undefined, actualFingerprint: stringValue(object.actualFingerprint), blockers: Array.isArray(object.blockers) ? object.blockers.map(parsePlanIssue) : [], familyBlockers: Array.isArray(object.familyBlockers) ? object.familyBlockers.map(parsePlanIssue) : [], warnings: Array.isArray(object.warnings) ? object.warnings.map(parsePlanIssue) : [], acknowledgements, summary, pendingReview: booleanValue(object.pendingReview), operations: Array.isArray(object.operations) ? object.operations.map(parsePlanOperation) : [], targetPromotions: Array.isArray(object.targetPromotions) ? object.targetPromotions.map((raw) => { const promotion = objectValue(raw); return { targetListId: stringValue(promotion.targetListId ?? promotion.targetID), versionId: stringValue(promotion.versionId) } }) : [], executionGroups: groups, planHash: stringValue(object.planHash), state: stringValue(object.state),
+    desiredRevision: numberValue(object.desiredRevision), domain: stringValue(object.domain) || undefined, accessRevision: numberValue(object.accessRevision) || undefined, actualFingerprint: stringValue(object.actualFingerprint), blockers: Array.isArray(object.blockers) ? object.blockers.map(parsePlanIssue) : [], familyBlockers: Array.isArray(object.familyBlockers) ? object.familyBlockers.map(parsePlanIssue) : [], warnings: Array.isArray(object.warnings) ? object.warnings.map(parsePlanIssue) : [], acknowledgements, keywordImpact, requiresAcknowledgement: booleanValue(object.requiresAcknowledgement), summary, pendingReview: booleanValue(object.pendingReview), operations: Array.isArray(object.operations) ? object.operations.map(parsePlanOperation) : [], targetPromotions: Array.isArray(object.targetPromotions) ? object.targetPromotions.map((raw) => { const promotion = objectValue(raw); return { targetListId: stringValue(promotion.targetListId ?? promotion.targetID), versionId: stringValue(promotion.versionId) } }) : [], executionGroups: groups, planHash: stringValue(object.planHash), state: stringValue(object.state),
   }
 }
 

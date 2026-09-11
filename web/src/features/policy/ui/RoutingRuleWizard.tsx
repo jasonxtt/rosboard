@@ -45,6 +45,29 @@ function targetKindLabel(kind: 'domain' | 'ip') {
   return kind === 'ip' ? 'IP' : '域名'
 }
 
+function KeywordDomainSetting({ targetLists, targetListIDs, enabled, onChange }: { targetLists: TargetList[]; targetListIDs: string[]; enabled: boolean; onChange: (value: boolean) => void }) {
+  const selectedTargets = targetListIDs.map((id) => targetLists.find((target) => target.id === id)).filter((target): target is TargetList => Boolean(target))
+  const keywordCount = selectedTargets.reduce((sum, target) => sum + (target.counts['DOMAIN-KEYWORD'] ?? 0), 0)
+  const hasUnmaterializedPreset = targetListIDs.some((id) => id.startsWith('preset:'))
+  const countSummary = keywordCount > 0 ? `当前目标列表包含 ${keywordCount} 条 DOMAIN-KEYWORD 规则。` : hasUnmaterializedPreset ? '预设目标的关键字数量将在生成预览时由后端计算。' : '当前目标列表暂无关键字规则。'
+  return (
+    <details className="settings-disclosure policy-advanced" open>
+      <summary className="settings-disclosure-summary">高级设置</summary>
+      <div className="settings-disclosure-body policy-advanced-body">
+        <label className="policy-checkbox">
+          <input type="checkbox" checked={enabled} onChange={(event) => onChange(event.target.checked)} />
+          <span>启用关键字域名规则</span>
+        </label>
+        <p className="pol-hint">允许使用目标列表中的 DOMAIN-KEYWORD 规则。</p>
+        <p className="pol-hint">关键字规则通过 RouterOS 正则表达式匹配。当一个域名同时匹配关键字规则和其他普通域名策略时，关键字规则可能优先于 Priority 更高的普通策略生效。</p>
+        <p className="pol-hint">关闭后，本策略不使用关键字域名规则。</p>
+        <p className="pol-hint">注意：设备上其他策略启用的关键字规则仍可能影响同时命中的域名。</p>
+        <p className="pol-hint">{countSummary}{keywordCount === 0 && !hasUnmaterializedPreset ? ' 如果列表后续更新加入 DOMAIN-KEYWORD，开启状态下这些规则将自动参与策略。' : ''}</p>
+      </div>
+    </details>
+  )
+}
+
 function targetNamesForReview(targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[]): string {
   const names: string[] = []
   const unresolvedPresets = new Set<string>()
@@ -130,6 +153,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
   const [ruleName, setRuleName] = useState(rule?.name ?? '')
   const [rulePriority, setRulePriority] = useState(String(rule?.priority ?? 100))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
+  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(rule ? rule.includeKeywordDomains : true)
   const [subject, setSubject] = useState<Subject>(() => rule?.subject ?? { mode: 'selected', members: [], prefixes: [] })
   const [sourceKind, setSourceKind] = useState<RoutingSourceSelectionKind>(() => initialSourceKind(rule))
   const [sourceInterfaces, setSourceInterfaces] = useState<string[]>(() => initialSourceInterfaces(rule))
@@ -301,6 +325,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
         egressId: draft.id,
         priority: Number(rulePriority) || 0,
         enabled,
+        includeKeywordDomains,
         revision: rule?.revision ?? 0,
       },
       ...(selections.length ? { presetSelections: selections } : {}),
@@ -475,6 +500,15 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
                 }}
                 onCreateTargetList={setCreatingTargetKind}
               />
+              <KeywordDomainSetting
+                targetLists={targetLists}
+                targetListIDs={targetListIDs}
+                enabled={includeKeywordDomains}
+                onChange={(value) => {
+                  markDraftChanged()
+                  setIncludeKeywordDomains(value)
+                }}
+              />
             </section>
             {targetErrors.length ? (
               <Notice tone="warn" title="访问目标校验未通过">
@@ -523,6 +557,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
                 envelope={plan}
                 summary={planSummary ?? undefined}
                 onBack={() => setActiveStep(2)}
+                onKeywordBack={() => setActiveStep(1)}
                 onRepreview={() => void generateCurrentPlan()}
                 onBusyChange={setApplying}
                 onApplied={async () => {

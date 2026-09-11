@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -55,7 +56,23 @@ func (s *Server) listPolicyRoutingRules(writer http.ResponseWriter, request *htt
 
 type routingRuleSavePayload struct {
 	policyv2.RoutingRule
-	DeferApply bool `json:"deferApply"`
+	DeferApply               bool `json:"deferApply"`
+	includeKeywordDomainsSet bool
+}
+
+func (payload *routingRuleSavePayload) UnmarshalJSON(data []byte) error {
+	type alias routingRuleSavePayload
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*payload = routingRuleSavePayload(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, payload.includeKeywordDomainsSet = fields["includeKeywordDomains"]
+	return nil
 }
 
 type routingRuleSubjectError struct {
@@ -185,13 +202,14 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 		payload.RoutingRule.ID = uuid.NewString()
 	}
 	canonicalSourceCompatibilityWrite := false
-	if payload.RoutingRule.SourceScope == nil {
-		if current, currentErr := device.repository.GetRoutingRule(request.Context(), payload.RoutingRule.ID); currentErr == nil {
-			canonicalSourceCompatibilityWrite = current.SourceScope != nil
-		} else if !errors.Is(currentErr, policyv2.ErrRoutingRuleNotFound) {
-			writeRoutingRuleSaveError(writer, currentErr)
-			return
+	if current, currentErr := device.repository.GetRoutingRule(request.Context(), payload.RoutingRule.ID); currentErr == nil {
+		canonicalSourceCompatibilityWrite = payload.RoutingRule.SourceScope == nil && current.SourceScope != nil
+		if !payload.includeKeywordDomainsSet {
+			payload.RoutingRule.IncludeKeywordDomains = current.IncludeKeywordDomains
 		}
+	} else if !errors.Is(currentErr, policyv2.ErrRoutingRuleNotFound) {
+		writeRoutingRuleSaveError(writer, currentErr)
+		return
 	}
 	if policyv2.RoutingSourceUsesSubjectPayload(payload.RoutingRule.SourceScope) && !canonicalSourceCompatibilityWrite {
 		canonical, err := s.canonicalizeRoutingRuleSubject(request.Context(), device, payload.RoutingRule)

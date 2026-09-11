@@ -1,5 +1,5 @@
 import { fastTrackSummary, fastTrackNoticeVisible, planAcknowledgementLabel } from '../canonical'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '../../../ui/Badge'
 import type { BadgeTone } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
@@ -24,6 +24,8 @@ type PlanReviewBodyProps = {
   onRepreview?: () => void | Promise<void>
   /** wizard uses this to block close/step jumps while an apply is running */
   onBusyChange?: (busy: boolean) => void
+  /** keyword confirmation returns directly to the wizard's advanced setting */
+  onKeywordBack?: () => void
 }
 
 const ACTION_TONES: Record<string, { tone: BadgeTone; symbol: string }> = {
@@ -156,7 +158,7 @@ function OperationRow({ operation }: { operation: PlanOperation }) {
 }
 
 /** Plan review body (§9.2): metadata, blockers, warnings, acks, grouped operations, apply → job. */
-export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack, onRepreview, onBusyChange }: PlanReviewBodyProps) {
+export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack, onRepreview, onBusyChange, onKeywordBack }: PlanReviewBodyProps) {
   const plan = envelope.plan
   const [acks, setAcks] = useState<Set<string>>(() => new Set(plan.acknowledgements.filter((ack) => ack.accepted).map((ack) => ack.code)))
   const [applying, setApplying] = useState(false)
@@ -165,9 +167,18 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
   const [error, setError] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [keywordModalOpen, setKeywordModalOpen] = useState(false)
+  const [showAllKeywords, setShowAllKeywords] = useState(false)
 
   const required = plan.acknowledgements.filter((ack) => ack.required)
   const ready = !plan.blockers.length && !plan.familyBlockers.length && !plan.pendingReview && required.every((ack) => acks.has(ack.code))
+  const keywordList = plan.keywordImpact?.introducedKeywords.length ? plan.keywordImpact.introducedKeywords : plan.keywordImpact?.keywords ?? []
+
+  useEffect(() => {
+    const needsKeywordConfirmation = plan.keywordImpact?.requiresConfirmation && plan.acknowledgements.some((ack) => ack.code === 'routing_keyword_regexp_precedence' && ack.required)
+    setKeywordModalOpen(Boolean(needsKeywordConfirmation && !plan.blockers.length && !plan.familyBlockers.length))
+    setShowAllKeywords(false)
+  }, [plan.planID, plan.keywordImpact?.requiresConfirmation, plan.blockers.length, plan.familyBlockers.length, plan.acknowledgements])
 
   const operationGroups = useMemo(() => {
     const groups = new Map<string, PlanOperation[]>()
@@ -356,6 +367,30 @@ export function PlanReviewBody({ deviceID, envelope, summary, onApplied, onBack,
           确认并应用
         </Button>
       </div>
+      {keywordModalOpen && plan.keywordImpact ? (
+        <Modal
+          open
+          persistent
+          title="此策略将启用关键字域名规则"
+          maxWidth={560}
+          onClose={() => setKeywordModalOpen(false)}
+          footer={
+            <>
+              <Button onClick={() => { setKeywordModalOpen(false); (onKeywordBack ?? onBack)?.() }}>返回高级设置</Button>
+              <Button variant="primary" onClick={() => { setAcks((current) => new Set(current).add('routing_keyword_regexp_precedence')); setKeywordModalOpen(false) }}>继续保存</Button>
+            </>
+          }
+        >
+          <p>{plan.keywordImpact.introducedKeywords.length ? '本次新增的关键字规则：' : '本策略将启用以下关键字规则：'}</p>
+          <ul>
+            {(showAllKeywords ? keywordList : keywordList.slice(0, 10)).map((keyword) => <li key={keyword}>{keyword}</li>)}
+          </ul>
+          {!showAllKeywords && keywordList.length > 10 ? <p><button type="button" className="link-button" onClick={() => setShowAllKeywords(true)}>查看全部（另有 {keywordList.length - 10} 条）</button></p> : null}
+          <p>关键字规则通过 RouterOS 正则表达式匹配。</p>
+          <p>如果访问域名同时匹配这些关键字和其他普通域名策略，这些关键字规则可能不遵循普通 Priority 顺序，并优先由当前策略处理。</p>
+          <p>如果不希望出现这种行为，可返回高级设置关闭「启用关键字域名规则」。</p>
+        </Modal>
+      ) : null}
     </div>
   )
 }
@@ -367,14 +402,15 @@ type PlanReviewModalProps = {
   onClose: () => void
   onApplied: () => void | Promise<void>
   onRepreview?: () => void | Promise<void>
+  onKeywordBack?: () => void
 }
 
 /** Standalone 计划审查 modal for pending desired-state changes (§9.2). */
-export function PlanReviewModal({ open, deviceID, envelope, onClose, onApplied, onRepreview }: PlanReviewModalProps) {
+export function PlanReviewModal({ open, deviceID, envelope, onClose, onApplied, onRepreview, onKeywordBack }: PlanReviewModalProps) {
   if (!envelope) return null
   return (
     <Modal open={open} onClose={onClose} title="审查变更计划" maxWidth={720} persistent>
-      <PlanReviewBody deviceID={deviceID} envelope={envelope} onApplied={onApplied} onBack={onClose} onRepreview={onRepreview} />
+      <PlanReviewBody deviceID={deviceID} envelope={envelope} onApplied={onApplied} onBack={onClose} onKeywordBack={onKeywordBack} onRepreview={onRepreview} />
     </Modal>
   )
 }

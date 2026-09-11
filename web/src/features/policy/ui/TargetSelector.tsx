@@ -191,6 +191,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
               <strong>{target.name}</strong>
               <small>
                 {target.kind === 'ip' ? 'IP' : '域名'} · {formatCount(target.counts.valid ?? 0)} 条
+                {target.kind !== 'ip' && (target.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? ` · 关键字 ${formatCount(target.counts['DOMAIN-KEYWORD'])} 条` : ''}
               </small>
             </span>
           </label>
