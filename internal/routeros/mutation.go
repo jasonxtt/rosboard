@@ -238,7 +238,7 @@ func (c *MutationClient) Patch(ctx context.Context, menu MutationMenu, id string
 // UnsetFirewallConnectionMark clears only the matcher, preserving the rule and all other fields.
 func (c *MutationClient) UnsetFirewallConnectionMark(ctx context.Context, menu MutationMenu, id string) error {
 	if menu != MenuIPFirewallFilter && menu != MenuIPv6FirewallFilter {
-		return errors.New("connection-mark unset requires a firewall filter menu")
+		return errors.New("取消 connection-mark 需要指定防火墙过滤规则菜单")
 	}
 	if _, err := c.objectEndpoint(menu, id); err != nil {
 		return err

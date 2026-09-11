@@ -124,7 +124,7 @@ func ensureFastTrack(ctx context.Context, applier *Applier, report *FastTrackRep
 			if err := store.SaveFastTrackState(ctx, state); err != nil {
 				return err
 			}
-			return errors.New("FastTrack adjustment read-back differs from intended configuration")
+			return errors.New("FastTrack 调整后的回读与预期配置不一致")
 		}
 		state.Records[index].Status = "applied"
 		if err := store.SaveFastTrackState(ctx, state); err != nil {
@@ -154,7 +154,7 @@ func releaseFastTrack(ctx context.Context, applier *Applier, automatic bool) err
 		return err
 	}
 	if len(desired.Blockers) > 0 {
-		return errors.New("routing cleanup is blocked")
+		return errors.New("路由清理存在阻断项")
 	}
 	actual, _, err := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, desired.Objects, PolicyDomainRouting)
 	if err != nil {
@@ -162,11 +162,11 @@ func releaseFastTrack(ctx context.Context, applier *Applier, automatic bool) err
 	}
 	remaining, blockers := DiffDesired(desired.Objects, actual)
 	if len(remaining) > 0 || len(blockers) > 0 {
-		return errors.New("routing cleanup has not been verified")
+		return errors.New("路由清理尚未验证完成")
 	}
 	for _, obj := range actual {
 		if obj.Ownership == "owned" && (obj.Menu == string(routeros.MenuIPFirewallMangle) || obj.Menu == string(routeros.MenuIPv6FirewallMangle)) {
-			return errors.New("owned routing mangle still exists")
+			return errors.New("受管的路由标记对象仍然存在")
 		}
 	}
 	for i := 0; i < len(state.Records); {
@@ -196,7 +196,7 @@ func releaseFastTrack(ctx context.Context, applier *Applier, automatic bool) err
 			} else if unset, ok := applier.Mutation.(fastTrackUnset); ok {
 				err = unset.UnsetFirewallConnectionMark(ctx, record.Menu, record.ID)
 			} else {
-				err = errors.New("FastTrack unset is unavailable")
+				err = errors.New("FastTrack 取消设置不可用")
 			}
 			if err != nil {
 				var rejected *routeros.HTTPError

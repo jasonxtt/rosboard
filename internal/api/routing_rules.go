@@ -306,7 +306,7 @@ func (s *Server) acquireRoutingRuleWrite(writer http.ResponseWriter, deviceID st
 	}
 	release, ok := s.policy.WriteGate().TryAcquire(deviceID)
 	if !ok {
-		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "job_conflict", "error": "device policy apply is active"})
+		writePolicyJson(writer, http.StatusConflict, map[string]any{"code": "job_conflict", "error": "该设备有正在执行的策略应用任务，请等待完成"})
 	}
 	return release, ok
 }
