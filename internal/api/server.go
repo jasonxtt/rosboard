@@ -1161,7 +1161,7 @@ func (s *Server) serveRecognitionSettings(writer http.ResponseWriter, request *h
 			MatchWindowMinutes:  device.MosDNS.MatchWindowMinutes,
 		}
 		if mosDNS.SyncIntervalMinutes == 0 {
-			mosDNS.SyncIntervalMinutes = 30
+			mosDNS.SyncIntervalMinutes = 5
 		}
 		if mosDNS.MatchWindowMinutes == 0 {
 			mosDNS.MatchWindowMinutes = 30

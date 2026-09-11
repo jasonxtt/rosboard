@@ -11,10 +11,23 @@ import (
 	"rosboard/internal/store"
 )
 
+// dnsFeatureMaxAge bounds how long a learned (client, answer IP) → domain
+// fingerprint stays usable for attribution. Pull-based sync lags far behind
+// answer TTLs, so TTLs are display-only; this single recency gate is the
+// staleness bound instead.
+const dnsFeatureMaxAge = 7 * 24 * time.Hour
+
+// ApplicationSourceMosDNS marks attribution backed by a DNS observation inside
+// the configured match window; ApplicationSourceMosDNSLearned marks attribution
+// from an older learned fingerprint.
+const (
+	ApplicationSourceMosDNS        = "mosdns"
+	ApplicationSourceMosDNSLearned = "mosdns-learned"
+)
+
 type dnsEvidence struct {
-	domain    string
-	queryTime time.Time
-	expiresAt time.Time
+	domain   string
+	lastSeen time.Time
 }
 
 type ApplicationResolver struct {
@@ -26,14 +39,12 @@ type ApplicationResolver struct {
 	mu            sync.RWMutex
 	refreshMu     sync.Mutex
 	cacheLoadedAt time.Time
-	cacheSince    time.Time
-	cacheUntil    time.Time
-	evidence      map[string][]dnsEvidence
+	evidence      map[string]dnsEvidence
 	entries       []applicationpreset.DomainEntry
 }
 
-// NewApplicationResolver uses only materialized curated preset TargetLists
-// for attribution.
+// NewApplicationResolver attributes connections with learned DNS fingerprints
+// and materialized curated preset TargetLists.
 func NewApplicationResolver(storage *store.Store, mosEnabled bool, matchWindowMinutes int) *ApplicationResolver {
 	return NewApplicationResolverWithRegistry(storage, applicationpreset.Default(), mosEnabled, matchWindowMinutes)
 }
@@ -50,18 +61,23 @@ func NewApplicationResolverWithRegistry(storage *store.Store, registry *applicat
 		registry:      registry,
 		matchWindow:   time.Duration(matchWindowMinutes) * time.Minute,
 		cacheDuration: 30 * time.Second,
-		evidence:      make(map[string][]dnsEvidence),
+		evidence:      make(map[string]dnsEvidence),
 	}
 }
 
-func (r *ApplicationResolver) Resolve(ctx context.Context, clientIP, answerIP string, at time.Time) (string, string, string, bool) {
+// Resolve returns the preset attribution for a connection. ok is false when
+// the matched domain is ambiguous or unknown to presets; domain is still
+// returned for display. source distinguishes in-window evidence
+// (ApplicationSourceMosDNS) from older learned fingerprints
+// (ApplicationSourceMosDNSLearned) and is only meaningful when ok is true.
+func (r *ApplicationResolver) Resolve(ctx context.Context, clientIP, answerIP string, at time.Time) (applicationID, application, domain, source string, ok bool) {
 	if r == nil {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	clientIP = mosclient.NormalizeClientIP(clientIP)
 	answerIP = mosclient.NormalizeAnswerIP(answerIP)
 	if clientIP == "" || answerIP == "" {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	if at.IsZero() {
 		at = time.Now().UTC()
@@ -69,23 +85,24 @@ func (r *ApplicationResolver) Resolve(ctx context.Context, clientIP, answerIP st
 		at = at.UTC()
 	}
 	if err := r.refresh(ctx, at); err != nil {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 	r.mu.RLock()
-	evidence := append([]dnsEvidence(nil), r.evidence[clientIP+"\x00"+answerIP]...)
+	candidate, found := r.evidence[clientIP+"\x00"+answerIP]
 	entries := append([]applicationpreset.DomainEntry(nil), r.entries...)
 	r.mu.RUnlock()
-	for _, candidate := range evidence {
-		if !candidate.validAt(at, r.matchWindow) {
-			continue
-		}
-		match := r.registry.MatchDomain(candidate.domain, entries)
-		if match.Ambiguous || match.Preset.ID == "" {
-			return "", "", candidate.domain, false
-		}
-		return match.Preset.ID, match.Preset.Name, candidate.domain, true
+	if !found || candidate.lastSeen.IsZero() || at.Sub(candidate.lastSeen) > dnsFeatureMaxAge {
+		return "", "", "", "", false
 	}
-	return "", "", "", false
+	match := r.registry.MatchDomain(candidate.domain, entries)
+	if match.Ambiguous || match.Preset.ID == "" {
+		return "", "", candidate.domain, "", false
+	}
+	source = ApplicationSourceMosDNSLearned
+	if at.Sub(candidate.lastSeen) <= r.matchWindow {
+		source = ApplicationSourceMosDNS
+	}
+	return match.Preset.ID, match.Preset.Name, candidate.domain, source, true
 }
 
 func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
@@ -94,11 +111,8 @@ func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
 	} else {
 		at = at.UTC()
 	}
-	since := at.Add(-r.matchWindow)
-	until := at.Add(2 * time.Minute)
-	now := time.Now().UTC()
 	r.mu.RLock()
-	fresh := r.cacheIsFresh(now, at)
+	fresh := r.cacheIsFresh(time.Now().UTC())
 	r.mu.RUnlock()
 	if fresh {
 		return nil
@@ -106,12 +120,12 @@ func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
 	r.refreshMu.Lock()
 	defer r.refreshMu.Unlock()
 	r.mu.RLock()
-	fresh = r.cacheIsFresh(time.Now().UTC(), at)
+	fresh = r.cacheIsFresh(time.Now().UTC())
 	r.mu.RUnlock()
 	if fresh {
 		return nil
 	}
-	observations, err := r.storage.DNSObservationsForMatch(ctx, since, until)
+	features, err := r.storage.DNSFeaturesForMatch(ctx, at.Add(-dnsFeatureMaxAge))
 	if err != nil {
 		return err
 	}
@@ -119,37 +133,28 @@ func (r *ApplicationResolver) refresh(ctx context.Context, at time.Time) error {
 	if err != nil {
 		return err
 	}
-	evidence := make(map[string][]dnsEvidence, len(observations))
-	for _, observation := range observations {
-		clientIP := mosclient.NormalizeClientIP(observation.ClientIP)
-		answerIP := mosclient.NormalizeAnswerIP(observation.AnswerIP)
-		domain := strings.TrimSpace(observation.Domain)
-		if clientIP == "" || answerIP == "" || domain == "" || observation.QueryTime.IsZero() || observation.TTL <= 0 {
+	evidence := make(map[string]dnsEvidence, len(features))
+	for _, feature := range features {
+		clientIP := mosclient.NormalizeClientIP(feature.ClientIP)
+		answerIP := mosclient.NormalizeAnswerIP(feature.AnswerIP)
+		domain := strings.TrimSpace(feature.Domain)
+		if clientIP == "" || answerIP == "" || domain == "" || feature.LastSeen.IsZero() {
 			continue
 		}
 		key := clientIP + "\x00" + answerIP
-		queryTime := observation.QueryTime.UTC()
-		evidence[key] = append(evidence[key], dnsEvidence{
-			domain:    domain,
-			queryTime: queryTime,
-			expiresAt: queryTime.Add(time.Duration(observation.TTL) * time.Second),
-		})
+		lastSeen := feature.LastSeen.UTC()
+		if current, ok := evidence[key]; !ok || lastSeen.After(current.lastSeen) {
+			evidence[key] = dnsEvidence{domain: domain, lastSeen: lastSeen}
+		}
 	}
 	r.mu.Lock()
 	r.evidence = evidence
 	r.entries = entries
-	r.cacheLoadedAt = now
-	r.cacheSince = since
-	r.cacheUntil = until
+	r.cacheLoadedAt = time.Now().UTC()
 	r.mu.Unlock()
 	return nil
 }
 
-func (r *ApplicationResolver) cacheIsFresh(now, at time.Time) bool {
-	return !r.cacheLoadedAt.IsZero() && now.Sub(r.cacheLoadedAt) < r.cacheDuration &&
-		!at.Before(r.cacheSince) && !at.After(r.cacheUntil)
-}
-
-func (evidence dnsEvidence) validAt(at time.Time, matchWindow time.Duration) bool {
-	return !evidence.queryTime.After(at) && at.Sub(evidence.queryTime) <= matchWindow && at.Before(evidence.expiresAt)
+func (r *ApplicationResolver) cacheIsFresh(now time.Time) bool {
+	return !r.cacheLoadedAt.IsZero() && now.Sub(r.cacheLoadedAt) < r.cacheDuration
 }

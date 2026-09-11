@@ -14,7 +14,7 @@ sample_retention_hours: 48
 #     mosdns:
 #       enabled: true
 #       base_url: "http://10.0.0.3"
-#       sync_interval_minutes: 30
+#       sync_interval_minutes: 5
 #       match_window_minutes: 30
 allowed_cidrs:
   - "127.0.0.0/8"

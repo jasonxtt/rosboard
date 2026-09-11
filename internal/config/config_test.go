@@ -24,7 +24,7 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	if len(cfg.Devices) != 1 || cfg.Devices[0].ID != DefaultDeviceID || !cfg.Devices[0].Enabled {
 		t.Fatalf("legacy routeros config was not normalized: %#v", cfg.Devices)
 	}
-	if cfg.Devices[0].MosDNS.Enabled || cfg.Devices[0].MosDNS.BaseURL != "" || cfg.Devices[0].MosDNS.SyncIntervalMinutes != 30 || cfg.Devices[0].MosDNS.MatchWindowMinutes != 30 {
+	if cfg.Devices[0].MosDNS.Enabled || cfg.Devices[0].MosDNS.BaseURL != "" || cfg.Devices[0].MosDNS.SyncIntervalMinutes != 5 || cfg.Devices[0].MosDNS.MatchWindowMinutes != 30 {
 		t.Fatalf("unexpected per-device MosDNS defaults: %#v", cfg.Devices[0].MosDNS)
 	}
 	if cfg.Devices[0].ProtocolAnalysis || cfg.Devices[0].FeatureLibrary.Enabled || cfg.Devices[0].FeatureLibrary.SourceURL != "" || cfg.Devices[0].FeatureLibrary.RefreshIntervalHours != 0 || cfg.Devices[0].FeatureLibrary.MatchWindowMinutes != 0 {

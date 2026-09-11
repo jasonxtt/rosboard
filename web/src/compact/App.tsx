@@ -269,7 +269,7 @@ function recognitionDraftFromSettings(settings: SettingsResponse, deviceID: stri
     mosdns: {
       enabled: device.mosdns?.enabled ?? false,
       baseUrl: device.mosdns ? mosDNSAddressFromBaseURL(device.mosdns.baseUrl) : '',
-      syncIntervalMinutes: device.mosdns?.syncIntervalMinutes || 30,
+      syncIntervalMinutes: device.mosdns?.syncIntervalMinutes || 5,
       matchWindowMinutes: device.mosdns?.matchWindowMinutes || 30,
     },
   }
@@ -2805,7 +2805,7 @@ function RecognitionSettingsForm(props: { settings: SettingsResponse; devices: D
       <label className="checkbox-label"><input type="checkbox" checked={draft.mosdns.enabled} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, enabled: event.target.checked } }))} /><span>启用 MosDNS 解析日志同步</span></label>
       <label><span>MosDNS 地址</span><input className="settings-input" type="text" inputMode="decimal" autoComplete="off" disabled={!draft.mosdns.enabled} required={draft.mosdns.enabled} value={draft.mosdns.baseUrl} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, baseUrl: event.target.value } }))} placeholder="10.0.0.3" /></label>
       <label><span>同步周期</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.syncIntervalMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, syncIntervalMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
-      <label><span>DNS 证据窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.matchWindowMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
+      <label><span>实时证据窗口</span><span className="number-input"><input className="settings-input" type="number" min={1} disabled={!draft.mosdns.enabled} required value={draft.mosdns.matchWindowMinutes} onChange={(event) => setDraft((current) => current && ({ ...current, mosdns: { ...current.mosdns, matchWindowMinutes: Number(event.target.value) } }))} /><small>分钟</small></span></label>
       {draft.mosdns.enabled && deviceStatus?.mosdns ? (
         <div className="settings-grid connection-runtime-grid">
           <SettingItem label="最近导入" value={`${deviceStatus.mosdns.lastImported} 条`} />
@@ -3421,7 +3421,7 @@ function ProtocolPage(props: { protocols: ProtocolStat[]; deviceID: string }) {
   const historyBytes = new Map<string, number>()
   history.forEach((sample) => historyBytes.set(sample.name, (historyBytes.get(sample.name) ?? 0) + (sample.uploadBps + sample.downloadBps) * 60 / 8))
   const historyTotal = Array.from(historyBytes.values()).reduce((sum, value) => sum + value, 0)
-  return <section className="panel compact-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.applicationId || `service:${item.service || item.name}`}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'mosdns' ? 'MosDNS + 预设匹配' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
+  return <section className="panel compact-panel"><div className="table-scroll"><table className="data-table"><thead><tr><th>应用分类</th><th>传输协议</th><th>连接数</th><th>当前上行</th><th>当前下行</th><th>活动连接累计</th><th>当前占比</th><th>近30分钟占比</th><th>识别方式</th></tr></thead><tbody>{props.protocols.length ? props.protocols.map((item) => { const bytes = item.uploadBytes + item.downloadBytes; const recent = historyBytes.get(item.name) ?? 0; return <tr key={`${item.applicationId || `service:${item.service || item.name}`}-${item.kind}`}><td>{item.name}</td><td>{item.kind}</td><td>{item.connections}</td><td>{formatBits(item.uploadBps)}</td><td>{formatBits(item.downloadBps)}</td><td>{formatBytes(bytes)}</td><td>{totalBytes ? `${(bytes / totalBytes * 100).toFixed(1)}%` : '-'}</td><td>{historyTotal ? `${(recent / historyTotal * 100).toFixed(1)}%` : '-'}</td><td>{item.source === 'mosdns' ? 'MosDNS + 预设匹配' : item.source === 'mosdns-learned' ? '特征推断' : item.source === 'mixed' ? 'DNS + 端口混合' : item.estimated ? '端口估算' : 'RouterOS 原生'}</td></tr> }) : <tr><td colSpan={9} className="empty-row">当前没有可统计的活动连接</td></tr>}</tbody></table></div></section>
 }
 
 function PolicyPage(props: { policies: PolicyStat[] }) {

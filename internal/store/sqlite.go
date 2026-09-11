@@ -965,9 +965,12 @@ func (s *Store) DNSObservationsForMatch(ctx context.Context, since, until time.T
 	return result, nil
 }
 
-func (s *Store) DNSFeaturesForMatch(ctx context.Context) ([]model.DNSFeature, error) {
+func (s *Store) DNSFeaturesForMatch(ctx context.Context, since time.Time) ([]model.DNSFeature, error) {
+	if since.IsZero() {
+		since = time.Unix(0, 0).UTC()
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl, effective_tag
-		FROM dns_features ORDER BY hit_count DESC, last_seen_ns DESC`)
+		FROM dns_features WHERE last_seen_ns >= ? ORDER BY last_seen_ns DESC, hit_count DESC`, since.UTC().UnixNano())
 	if err != nil {
 		return nil, fmt.Errorf("query DNS features: %w", err)
 	}
@@ -1007,6 +1010,16 @@ func (s *Store) PruneDNSObservations(ctx context.Context, before time.Time) erro
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM dns_observations WHERE query_time_ns < ?`, before.UTC().UnixNano()); err != nil {
 		return fmt.Errorf("prune MosDNS observations: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PruneDNSFeatures(ctx context.Context, before time.Time) error {
+	if before.IsZero() {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM dns_features WHERE last_seen_ns < ?`, before.UTC().UnixNano()); err != nil {
+		return fmt.Errorf("prune DNS features: %w", err)
 	}
 	return nil
 }

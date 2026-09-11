@@ -12,6 +12,7 @@ const PROTOCOLS_POLL_MS = 30_000
 
 function sourceBadge(item: ProtocolStat) {
   if (item.source === 'mosdns') return <Badge tone="accent">MosDNS 匹配</Badge>
+  if (item.source === 'mosdns-learned') return <Badge tone="accent">特征推断</Badge>
   if (item.source === 'mixed') return <Badge tone="accent">DNS + 端口混合</Badge>
   if (item.estimated) return <Badge tone="warn">端口估算</Badge>
   return <Badge tone="neutral">RouterOS 原生</Badge>
