@@ -34,7 +34,7 @@ test('both plan views expose FastTrack changes and require readable risk confirm
 test('keyword domain precedence stays in the warning without a second confirmation flow', async () => {
  const previous = globalThis.fetch
  globalThis.fetch = async () => new Response(JSON.stringify({ plan: {
-  planID: 'keyword-plan', planHash: 'keyword-hash', blockers: [], familyBlockers: [], warnings: [{ code: 'routing_keyword_regexp_precedence', status: 'warning', reason: 'RouterOS 会先匹配 regexp，再匹配普通域名；若不希望启用，请返回“高级设置”关闭“启用关键字域名规则”。' }], acknowledgements: [], operations: [], executionGroups: [], summary: {}, keywordImpact: { enabled: true, availableCount: 1, projectedCount: 1, keywords: ['video'], introducedKeywords: ['video'], requiresConfirmation: true, precedenceMode: 'routeros-regexp-first' },
+  planID: 'keyword-plan', planHash: 'keyword-hash', blockers: [], familyBlockers: [], warnings: [{ code: 'routing_keyword_regexp_precedence', status: 'warning', reason: 'RouterOS 会先匹配 regexp，再匹配普通域名；命中关键字时可能优先于普通策略路由或访问控制域名规则。若不希望启用，请返回“高级设置”关闭“启用关键字域名规则”。' }], acknowledgements: [], operations: [], executionGroups: [], summary: {}, keywordImpact: { enabled: true, availableCount: 1, projectedCount: 1, keywords: ['video'], introducedKeywords: ['video'], requiresConfirmation: false, precedenceMode: 'routeros-regexp-first' },
  } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
  try {
   const envelope = await generatePolicyPlan('device', 'structural')

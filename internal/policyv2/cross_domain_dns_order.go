@@ -347,7 +347,11 @@ func crossDomainRoutingDNSActuals(actual []ActualObject, includeDisabled bool) [
 		if !includeDisabled && !actualObjectActive(object) {
 			continue
 		}
-		if _, ok := actualDNSMatcher(object); !ok {
+		matcher, ok := actualDNSMatcher(object)
+		if !ok || matcher.RuleType == "DOMAIN-KEYWORD" {
+			// Keyword regexp is an explicit Routing opt-in and intentionally
+			// participates in RouterOS regexp-first matching. It is not part of
+			// the ordinary Access-before-Routing plain-domain ordering contract.
 			continue
 		}
 		result = append(result, object)

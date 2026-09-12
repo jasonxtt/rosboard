@@ -441,7 +441,7 @@ func directRoutingRuleBodyWithRevision(id, targetID, egressID string, includeKey
 	return string(body)
 }
 
-func TestPolicyV2DirectRoutingRuleKeywordSaveRequiresAcknowledgement(t *testing.T) {
+func TestPolicyV2DirectRoutingRuleKeywordSaveUsesExplicitOptIn(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
 	deviceStore, err := storage.OpenDevice("edge")
@@ -453,15 +453,31 @@ func TestPolicyV2DirectRoutingRuleKeywordSaveRequiresAcknowledgement(t *testing.
 	seedDirectRoutingRuleTarget(t, repository, "keyword-direct-target", policyv2.TargetListRule{RuleType: "DOMAIN-KEYWORD", Domain: "video"})
 
 	response := policyV2Request(t, server, http.MethodPost, "/rules", directRoutingRuleBody("keyword-direct-rule", "keyword-direct-target", "wan-keyword-direct", true))
-	if response.Code != http.StatusUnprocessableEntity || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_keyword_acknowledgement_required"`)) {
-		t.Fatalf("direct keyword save must be rejected before persistence: status=%d body=%s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("explicit keyword opt-in should save directly: status=%d body=%s", response.Code, response.Body.String())
 	}
-	if _, err := repository.GetRoutingRule(context.Background(), "keyword-direct-rule"); !errors.Is(err, policyv2.ErrRoutingRuleNotFound) {
-		t.Fatalf("rejected direct keyword save mutated desired state: %v", err)
+	stored, err := repository.GetRoutingRule(context.Background(), "keyword-direct-rule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.IncludeKeywordDomains {
+		t.Fatalf("explicit keyword opt-in was not persisted: %#v", stored)
+	}
+
+	response = policyV2Request(t, server, http.MethodPost, "/rules", directRoutingRuleBodyWithRevision("keyword-omitted-create", "keyword-direct-target", "wan-keyword-direct", nil, 0))
+	if response.Code != http.StatusOK {
+		t.Fatalf("omitted keyword field should default to false: status=%d body=%s", response.Code, response.Body.String())
+	}
+	omitted, err := repository.GetRoutingRule(context.Background(), "keyword-omitted-create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if omitted.IncludeKeywordDomains {
+		t.Fatalf("omitted keyword field unexpectedly enabled projection: %#v", omitted)
 	}
 }
 
-func TestPolicyV2DirectRoutingRuleKeywordUpdateRequiresAcknowledgement(t *testing.T) {
+func TestPolicyV2DirectRoutingRuleKeywordUpdateUsesExplicitOptIn(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
 	deviceStore, err := storage.OpenDevice("edge")
@@ -480,20 +496,21 @@ func TestPolicyV2DirectRoutingRuleKeywordUpdateRequiresAcknowledgement(t *testin
 		t.Fatal(err)
 	}
 
-	response := policyV2Request(t, server, http.MethodPut, "/rules/keyword-update-rule", directRoutingRuleBody("keyword-update-rule", "keyword-update-target", "wan-keyword-update", true))
-	if response.Code != http.StatusUnprocessableEntity || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_keyword_acknowledgement_required"`)) {
-		t.Fatalf("direct false-to-true keyword update must be rejected: status=%d body=%s", response.Code, response.Body.String())
+	trueValue := true
+	response := policyV2Request(t, server, http.MethodPut, "/rules/keyword-update-rule", directRoutingRuleBodyWithRevision("keyword-update-rule", "keyword-update-target", "wan-keyword-update", &trueValue, 1))
+	if response.Code != http.StatusOK {
+		t.Fatalf("direct false-to-true keyword update should save directly: status=%d body=%s", response.Code, response.Body.String())
 	}
 	stored, err := repository.GetRoutingRule(ctx, "keyword-update-rule")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.IncludeKeywordDomains || stored.Revision != 1 {
-		t.Fatalf("rejected direct keyword update mutated rule: %#v", stored)
+	if !stored.IncludeKeywordDomains || stored.Revision != 2 {
+		t.Fatalf("direct keyword opt-in update was not persisted: %#v", stored)
 	}
 }
 
-func TestPolicyV2DirectRoutingRuleKeywordAcknowledgedTransitionsRemainAvailable(t *testing.T) {
+func TestPolicyV2DirectRoutingRuleKeywordTransitionsRemainAvailable(t *testing.T) {
 	server, storage := newPolicyV2APIServer(t)
 	defer storage.Close()
 	deviceStore, err := storage.OpenDevice("edge")

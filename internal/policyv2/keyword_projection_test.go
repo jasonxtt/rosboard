@@ -109,6 +109,40 @@ func TestActualDNSMatcherRecognizesKeywordIdentityWithColonScopedIDs(t *testing.
 	}
 }
 
+func TestCrossDomainRoutingDNSActualsIgnoreKeywordRegexp(t *testing.T) {
+	actual := []ActualObject{
+		{LogicalID: "routing-dns:wan:target:DOMAIN-KEYWORD:facebook", Menu: string(routeros.MenuIPDNSStatic), Ownership: "owned", RouterID: "*1", Position: 1, Fields: map[string]string{"regexp": ".*facebook.*"}},
+		{LogicalID: "routing-dns:wan:target:DOMAIN-SUFFIX:example.com", Menu: string(routeros.MenuIPDNSStatic), Ownership: "owned", RouterID: "*2", Position: 2, Fields: map[string]string{"name": "example.com", "match-subdomain": "yes"}},
+	}
+	got := crossDomainRoutingDNSActuals(actual, false)
+	if len(got) != 1 || got[0].LogicalID != "routing-dns:wan:target:DOMAIN-SUFFIX:example.com" {
+		t.Fatalf("cross-domain ordering must ignore routing keyword regexp: %#v", got)
+	}
+}
+
+func TestCrossDomainProjectionIgnoresRoutingKeywordForPlainAccess(t *testing.T) {
+	repository := &keywordProjectionRepository{
+		sources: []Source{
+			{ID: "access-target", Kind: KindDomain, ActiveVersionID: "access-version"},
+			{ID: "routing-target", Kind: KindDomain, ActiveVersionID: "routing-version"},
+		},
+		egresses:     []Egress{{ID: "wan", Enabled: true}},
+		routingRules: []RoutingRule{{ID: "routing", Name: "Routing", EgressID: "wan", Enabled: true, IncludeKeywordDomains: true, TargetListIDs: []string{"routing-target"}}},
+		sourceRules: map[string][]SourceRule{
+			"access-version":  {{RuleType: "DOMAIN-SUFFIX", Domain: "115.com"}},
+			"routing-version": {{RuleType: "DOMAIN-KEYWORD", Domain: "facebook"}},
+		},
+	}
+	access := &keywordProjectionAccessRepository{rules: []accesscontrol.AccessRule{{ID: "access", Name: "Access", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"access-target"}}}}
+	resolutions, err := CrossDomainProjectionResolutions(context.Background(), repository, access, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolutions) != 0 {
+		t.Fatalf("routing keyword must not create an ordinary Access/Routing overlap: %#v", resolutions)
+	}
+}
+
 type keywordProjectionRepository struct {
 	Repository
 	RoutingRuleRepository
@@ -152,33 +186,4 @@ type keywordProjectionAccessRepository struct {
 
 func (r *keywordProjectionAccessRepository) ListRules(context.Context) ([]accesscontrol.AccessRule, error) {
 	return r.rules, nil
-}
-
-func TestRoutingKeywordAccessPrecedenceFailsClosedForPlainAccessMatchers(t *testing.T) {
-	repository := &keywordProjectionRepository{
-		sources:      []Source{{ID: "target", Kind: KindDomain, ActiveVersionID: "version"}},
-		egresses:     []Egress{{ID: "wan", Enabled: true}},
-		routingRules: []RoutingRule{{ID: "routing", Name: "Routing", EgressID: "wan", Enabled: true, IncludeKeywordDomains: true, TargetListIDs: []string{"target"}}},
-		sourceRules:  map[string][]SourceRule{"version": {{RuleType: "DOMAIN-KEYWORD", Domain: "video"}, {RuleType: "DOMAIN", Domain: "video.example"}}},
-	}
-	access := &keywordProjectionAccessRepository{rules: []accesscontrol.AccessRule{{ID: "access", Name: "Access", Enabled: true, TargetScope: accesscontrol.TargetScopeTargets, TargetListIDs: []string{"target"}}}}
-	result := DesiredResult{}
-	if err := appendRoutingKeywordAccessPrecedenceBlockers(context.Background(), repository, access, nil, &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Blockers) != 1 || result.Blockers[0].Code != routingKeywordAccessUnsafeCode {
-		t.Fatalf("keyword/access overlap must fail closed: %#v", result.Blockers)
-	}
-}
-
-func TestKeywordMayPrecedeAccessMatcherIsConservativeForSuffixRules(t *testing.T) {
-	if !keywordMayPrecedeAccessMatcher([]string{"video"}, SourceRule{RuleType: "DOMAIN-SUFFIX", Domain: "example.com"}) {
-		t.Fatal("any active keyword must conservatively block a suffix Access matcher")
-	}
-	if !keywordMayPrecedeAccessMatcher([]string{"video"}, SourceRule{RuleType: "DOMAIN", Domain: "video.example"}) {
-		t.Fatal("matching keyword must block an exact Access matcher")
-	}
-	if keywordMayPrecedeAccessMatcher([]string{"video"}, SourceRule{RuleType: "DOMAIN", Domain: "example.com"}) {
-		t.Fatal("nonmatching keyword must not block an exact Access matcher")
-	}
 }

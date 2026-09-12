@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchPolicyDiscoverySnapshot, generatePolicyPlan, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type PolicySourceSelectors, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
+import { fetchPolicyDiscoverySnapshot, generatePolicyPlan, initialIncludeKeywordDomains, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type PolicySourceSelectors, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
 import { TargetSelector } from './Selectors'
 import { TargetListModal } from './TargetLibraryPage'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from './gateway'
@@ -129,7 +129,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
   const [presetPresentations, setPresetPresentations] = useState<PresetPresentation[]>([])
   const [rulePriority, setRulePriority] = useState(String(rule?.priority ?? 100))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
-  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(rule ? rule.includeKeywordDomains : true)
+  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(() => initialIncludeKeywordDomains(rule))
   const [generating, setGenerating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -460,7 +460,7 @@ function KeywordDomainSetting({ targetLists, targetListIDs, enabled, onChange }:
   const keywordCount = selectedTargets.reduce((sum, target) => sum + (target.counts['DOMAIN-KEYWORD'] ?? 0), 0)
   const hasUnmaterializedPreset = targetListIDs.some((id) => id.startsWith('preset:'))
   const countSummary = keywordCount > 0 ? `当前目标列表包含 ${keywordCount} 条 DOMAIN-KEYWORD 规则。` : hasUnmaterializedPreset ? '预设目标的关键字数量将在生成预览时由后端计算。' : '当前目标列表暂无关键字规则。'
-  return <details className="settings-disclosure policy-advanced"><summary className="settings-disclosure-summary">高级设置</summary><div className="settings-disclosure-body policy-advanced-body"><label className="policy-checkbox"><input type="checkbox" checked={enabled} onChange={(event) => onChange(event.target.checked)} /><span>启用关键字域名规则</span></label><p className="policy-hint">允许使用目标列表中的 DOMAIN-KEYWORD 规则。</p><p className="policy-hint">关键字规则通过 RouterOS 正则表达式匹配。</p><p className="policy-hint">当一个域名同时匹配关键字规则和其他普通域名策略时，关键字规则可能优先于 Priority 更高的普通策略生效。</p><p className="policy-hint">关闭后，本策略不使用关键字域名规则。</p><p className="policy-hint">注意：设备上其他策略启用的关键字规则仍可能影响同时命中的域名。</p><p className="policy-hint">{countSummary}{keywordCount === 0 && !hasUnmaterializedPreset ? ' 如果列表后续更新加入 DOMAIN-KEYWORD，开启状态下这些规则将自动参与策略。' : ''}</p></div></details>
+  return <details className="settings-disclosure policy-advanced"><summary className="settings-disclosure-summary">高级设置</summary><div className="settings-disclosure-body policy-advanced-body"><label className="policy-checkbox"><input type="checkbox" checked={enabled} onChange={(event) => onChange(event.target.checked)} /><span>启用关键字域名规则</span></label><p className="policy-hint">启用后，TargetList 中的 DOMAIN-KEYWORD 将通过 RouterOS regexp 匹配。</p><p className="policy-hint">RouterOS 会优先匹配 regexp，再匹配普通 DOMAIN / DOMAIN-SUFFIX。因此，命中关键字的域名可能优先按本策略处理，即使同时命中更高优先级的普通策略路由或访问控制域名规则。</p><p className="policy-hint">关闭后，本策略将忽略 DOMAIN-KEYWORD，仅使用普通域名规则。</p><p className="policy-hint">{countSummary}{keywordCount === 0 && !hasUnmaterializedPreset ? ' 如果列表后续更新加入 DOMAIN-KEYWORD，开启状态下这些规则将自动参与策略。' : ''}</p></div></details>
 }
 
 function targetNamesForReview(targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[]) {

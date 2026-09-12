@@ -81,13 +81,15 @@ type PlanSummary struct {
 // routing rule opts into DOMAIN-KEYWORD content. The backend computes this
 // from parsed target rules so the UI never needs to interpret YAML.
 type KeywordImpact struct {
-	Enabled              bool     `json:"enabled"`
-	AvailableCount       int      `json:"availableCount"`
-	ProjectedCount       int      `json:"projectedCount"`
-	Keywords             []string `json:"keywords"`
-	IntroducedKeywords   []string `json:"introducedKeywords"`
-	RequiresConfirmation bool     `json:"requiresConfirmation"`
-	PrecedenceMode       string   `json:"precedenceMode"`
+	Enabled            bool     `json:"enabled"`
+	AvailableCount     int      `json:"availableCount"`
+	ProjectedCount     int      `json:"projectedCount"`
+	Keywords           []string `json:"keywords"`
+	IntroducedKeywords []string `json:"introducedKeywords"`
+	// Deprecated compatibility field. Explicit includeKeywordDomains=true is
+	// the complete user opt-in; keyword warnings never require a second gate.
+	RequiresConfirmation bool   `json:"requiresConfirmation"`
+	PrecedenceMode       string `json:"precedenceMode"`
 }
 
 type Plan struct {

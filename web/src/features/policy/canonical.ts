@@ -159,6 +159,11 @@ export type RoutingRule = {
   revision: number
 }
 
+export const DEFAULT_INCLUDE_KEYWORD_DOMAINS = false
+export function initialIncludeKeywordDomains(rule: Pick<RoutingRule, 'includeKeywordDomains'> | null): boolean {
+ return rule?.includeKeywordDomains ?? DEFAULT_INCLUDE_KEYWORD_DOMAINS
+}
+
 export type AccessRule = {
   id: string
   name: string
@@ -197,7 +202,6 @@ export type PlanOperation = { seq: number; groupID?: string; egressID?: string; 
 export type ExecutionGroup = { id: string; role: string; egressID?: string; family?: string; operationSeqs: number[] }
 export type FastTrackReport = { retainOnly?: boolean; consumers: number; rules: Array<{ id: string; menu: string; status: string; reason: string }> }
 export function planAcknowledgementLabel(code: string) {
- if (code === 'routing_keyword_regexp_precedence') return '我已理解关键字域名 regexp 会优先于普通域名匹配，仍要继续。'
  return code.startsWith('fasttrack_') ? '我已了解 FastTrack 可能导致策略路由不稳定的风险，仍要继续。' : code
 }
 export function fastTrackSummary(report: FastTrackReport) {

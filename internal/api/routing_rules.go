@@ -223,24 +223,6 @@ func (s *Server) savePolicyRoutingRule(writer http.ResponseWriter, request *http
 	if !acquired {
 		return
 	}
-	keywordImpact, keywordErr := policyv2.RoutingRuleKeywordImpactForSave(request.Context(), device.repository, payload.RoutingRule)
-	if keywordErr != nil {
-		release()
-		writePolicyJson(writer, http.StatusServiceUnavailable, map[string]any{
-			"code":  "keyword_acknowledgement_check_failed",
-			"error": "无法确认关键字域名变更是否需要确认，请稍后重试",
-		})
-		return
-	}
-	if keywordImpact != nil && keywordImpact.RequiresConfirmation {
-		release()
-		writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{
-			"code":    "routing_keyword_acknowledgement_required",
-			"error":   "启用 DOMAIN-KEYWORD regexp 匹配必须先通过策略变更计划确认，请使用预览/计划接口完成该变更",
-			"details": map[string]any{"keywordImpact": keywordImpact},
-		})
-		return
-	}
 	rule, err := device.repository.SaveRoutingRule(request.Context(), payload.RoutingRule)
 	release()
 	if err != nil {

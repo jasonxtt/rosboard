@@ -499,9 +499,6 @@ func buildPlanDesiredWithAccessRepository(ctx context.Context, applier *Applier,
 	if accessRepository == nil {
 		return desired, nil
 	}
-	if err := appendRoutingKeywordAccessPrecedenceBlockers(ctx, repository, accessRepository, targetScope, &desired); err != nil {
-		return DesiredResult{}, err
-	}
 	if domain != PolicyDomainCombined {
 		otherDomain := PolicyDomainRouting
 		if domain == PolicyDomainRouting {

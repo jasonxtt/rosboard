@@ -6,6 +6,7 @@ import { Toggle } from '../../../ui/Toggle'
 import {
   fetchPolicyDiscoverySnapshot,
   generatePolicyPlan,
+  initialIncludeKeywordDomains,
   type ApplicationPresetSelection,
   type Egress,
   type PlanEnvelope,
@@ -58,10 +59,9 @@ function KeywordDomainSetting({ targetLists, targetListIDs, enabled, onChange }:
           <input type="checkbox" checked={enabled} onChange={(event) => onChange(event.target.checked)} />
           <span>启用关键字域名规则</span>
         </label>
-        <p className="pol-hint">允许使用目标列表中的 DOMAIN-KEYWORD 规则。</p>
-        <p className="pol-hint">关键字规则通过 RouterOS 正则表达式匹配。当一个域名同时匹配关键字规则和其他普通域名策略时，关键字规则可能优先于 Priority 更高的普通策略生效。</p>
-        <p className="pol-hint">关闭后，本策略不使用关键字域名规则。</p>
-        <p className="pol-hint">注意：设备上其他策略启用的关键字规则仍可能影响同时命中的域名。</p>
+        <p className="pol-hint">启用后，TargetList 中的 DOMAIN-KEYWORD 将通过 RouterOS regexp 匹配。</p>
+        <p className="pol-hint">RouterOS 会优先匹配 regexp，再匹配普通 DOMAIN / DOMAIN-SUFFIX。因此，命中关键字的域名可能优先按本策略处理，即使同时命中更高优先级的普通策略路由或访问控制域名规则。</p>
+        <p className="pol-hint">关闭后，本策略将忽略 DOMAIN-KEYWORD，仅使用普通域名规则。</p>
         <p className="pol-hint">{countSummary}{keywordCount === 0 && !hasUnmaterializedPreset ? ' 如果列表后续更新加入 DOMAIN-KEYWORD，开启状态下这些规则将自动参与策略。' : ''}</p>
       </div>
     </details>
@@ -153,7 +153,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
   const [ruleName, setRuleName] = useState(rule?.name ?? '')
   const [rulePriority, setRulePriority] = useState(String(rule?.priority ?? 100))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
-  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(rule ? rule.includeKeywordDomains : true)
+  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(() => initialIncludeKeywordDomains(rule))
   const [subject, setSubject] = useState<Subject>(() => rule?.subject ?? { mode: 'selected', members: [], prefixes: [] })
   const [sourceKind, setSourceKind] = useState<RoutingSourceSelectionKind>(() => initialSourceKind(rule))
   const [sourceInterfaces, setSourceInterfaces] = useState<string[]>(() => initialSourceInterfaces(rule))

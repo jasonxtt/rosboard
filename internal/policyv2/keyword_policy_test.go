@@ -23,7 +23,7 @@ func TestKeywordImpactForProposalComputesCountsAndIntroducedKeywords(t *testing.
 	want := &KeywordImpact{
 		Enabled: true, AvailableCount: 2, ProjectedCount: 2,
 		Keywords: []string{"alpha", "zeta"}, IntroducedKeywords: []string{"alpha", "zeta"},
-		RequiresConfirmation: true, PrecedenceMode: "routeros-regexp-first",
+		RequiresConfirmation: false, PrecedenceMode: "routeros-regexp-first",
 	}
 	if !reflect.DeepEqual(impact, want) {
 		t.Fatalf("keyword impact = %#v, want %#v", impact, want)
@@ -114,18 +114,18 @@ func TestKeywordImpactIntroducesOnlyNewKeywordsAfterTargetChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !impact.RequiresConfirmation || !reflect.DeepEqual(impact.IntroducedKeywords, []string{"new"}) {
-		t.Fatalf("target refresh should report only introduced keywords: %#v", impact)
+	if impact.RequiresConfirmation || !reflect.DeepEqual(impact.IntroducedKeywords, []string{"new"}) {
+		t.Fatalf("target change should report introduced keywords without confirmation: %#v", impact)
 	}
 
-	// Turning the option back on after it was disabled is still a confirmation,
+	// Turning the option back on is already the complete explicit opt-in,
 	// even when the target keyword set itself is unchanged.
 	base.routingRules[0].IncludeKeywordDomains = false
 	impact, err = keywordImpactForProposal(context.Background(), base, planned, proposal, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !impact.RequiresConfirmation || !reflect.DeepEqual(impact.IntroducedKeywords, []string{"new", "old"}) {
-		t.Fatalf("re-enabling keyword projection should require confirmation: %#v", impact)
+	if impact.RequiresConfirmation || !reflect.DeepEqual(impact.IntroducedKeywords, []string{"new", "old"}) {
+		t.Fatalf("re-enabling keyword projection should not require confirmation: %#v", impact)
 	}
 }
