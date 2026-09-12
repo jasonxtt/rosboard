@@ -774,6 +774,11 @@ time,
     min-height: 40px;
   }
 
+  .copy-script-button {
+    min-height: 40px;
+    height: 40px;
+  }
+
   .modal-overlay {
     align-items: flex-end;
     padding: 0;
