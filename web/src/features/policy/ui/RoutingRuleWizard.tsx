@@ -6,6 +6,7 @@ import { Toggle } from '../../../ui/Toggle'
 import {
   fetchPolicyDiscoverySnapshot,
   generatePolicyPlan,
+  initialIncludeKeywordDomains,
   type ApplicationPresetSelection,
   type Egress,
   type PlanEnvelope,
@@ -43,6 +44,28 @@ const STEPS = ['基础信息与源地址', '访问目标', '出口', '审查并�
 
 function targetKindLabel(kind: 'domain' | 'ip') {
   return kind === 'ip' ? 'IP' : '域名'
+}
+
+function KeywordDomainSetting({ targetLists, targetListIDs, enabled, onChange }: { targetLists: TargetList[]; targetListIDs: string[]; enabled: boolean; onChange: (value: boolean) => void }) {
+  const selectedTargets = targetListIDs.map((id) => targetLists.find((target) => target.id === id)).filter((target): target is TargetList => Boolean(target))
+  const keywordCount = selectedTargets.reduce((sum, target) => sum + (target.counts['DOMAIN-KEYWORD'] ?? 0), 0)
+  const hasUnmaterializedPreset = targetListIDs.some((id) => id.startsWith('preset:'))
+  const countSummary = keywordCount > 0 ? `当前目标列表包含 ${keywordCount} 条 DOMAIN-KEYWORD 规则。` : hasUnmaterializedPreset ? '预设目标的关键字数量将在生成预览时由后端计算。' : '当前目标列表暂无关键字规则。'
+  return (
+    <details className="settings-disclosure policy-advanced">
+      <summary className="settings-disclosure-summary">高级设置</summary>
+      <div className="settings-disclosure-body policy-advanced-body">
+        <label className="policy-checkbox">
+          <input type="checkbox" checked={enabled} onChange={(event) => onChange(event.target.checked)} />
+          <span>启用关键字域名规则</span>
+        </label>
+        <p className="pol-hint">启用后，TargetList 中的 DOMAIN-KEYWORD 将通过 RouterOS regexp 匹配。</p>
+        <p className="pol-hint">RouterOS 会优先匹配 regexp，再匹配普通 DOMAIN / DOMAIN-SUFFIX。因此，命中关键字的域名可能优先按本策略处理，即使同时命中更高优先级的普通策略路由或访问控制域名规则。</p>
+        <p className="pol-hint">关闭后，本策略将忽略 DOMAIN-KEYWORD，仅使用普通域名规则。</p>
+        <p className="pol-hint">{countSummary}{keywordCount === 0 && !hasUnmaterializedPreset ? ' 如果列表后续更新加入 DOMAIN-KEYWORD，开启状态下这些规则将自动参与策略。' : ''}</p>
+      </div>
+    </details>
+  )
 }
 
 function targetNamesForReview(targetListIDs: string[], targetLists: TargetList[], presetPresentations: PresetPresentation[]): string {
@@ -130,6 +153,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
   const [ruleName, setRuleName] = useState(rule?.name ?? '')
   const [rulePriority, setRulePriority] = useState(String(rule?.priority ?? 100))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
+  const [includeKeywordDomains, setIncludeKeywordDomains] = useState(() => initialIncludeKeywordDomains(rule))
   const [subject, setSubject] = useState<Subject>(() => rule?.subject ?? { mode: 'selected', members: [], prefixes: [] })
   const [sourceKind, setSourceKind] = useState<RoutingSourceSelectionKind>(() => initialSourceKind(rule))
   const [sourceInterfaces, setSourceInterfaces] = useState<string[]>(() => initialSourceInterfaces(rule))
@@ -301,6 +325,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
         egressId: draft.id,
         priority: Number(rulePriority) || 0,
         enabled,
+        includeKeywordDomains,
         revision: rule?.revision ?? 0,
       },
       ...(selections.length ? { presetSelections: selections } : {}),
@@ -474,6 +499,15 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
                   setPresetPresentations(value)
                 }}
                 onCreateTargetList={setCreatingTargetKind}
+              />
+              <KeywordDomainSetting
+                targetLists={targetLists}
+                targetListIDs={targetListIDs}
+                enabled={includeKeywordDomains}
+                onChange={(value) => {
+                  markDraftChanged()
+                  setIncludeKeywordDomains(value)
+                }}
               />
             </section>
             {targetErrors.length ? (

@@ -40,7 +40,7 @@ export function CleanupCard({ cleanup, onClose }: CleanupCardProps) {
         <Button size="sm" onClick={download}>
           下载脚本
         </Button>
-        <CopyButton text={cleanup.script} label="复制清理脚本" />
+        <CopyButton text={cleanup.script} label="复制脚本" showText className="copy-script-button" />
       </div>
     </section>
   )

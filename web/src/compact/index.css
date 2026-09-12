@@ -969,6 +969,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .load-toolbar { padding: var(--pad-bar); }
 .toolbar-button.active { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
 .toolbar-button.active:hover { color: var(--on-primary); background: var(--primary-hover); border-color: var(--primary-hover); }
+.copy-script-button { color: var(--on-primary); background: var(--primary); border-color: var(--primary); font-weight: 600; }
+.copy-script-button:hover:not(:disabled) { color: var(--on-primary); background: var(--primary-hover); border-color: var(--primary-hover); }
+.copy-script-button:disabled { cursor: not-allowed; opacity: .55; }
 .load-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .metric-history svg { width: 100%; height: 170px; }
 .metric-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

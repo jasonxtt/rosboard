@@ -29,10 +29,11 @@ const (
 type RuleType string
 
 const (
-	RuleTypeExact  RuleType = "DOMAIN"
-	RuleTypeSuffix RuleType = "DOMAIN-SUFFIX"
-	RuleTypeIPCIDR RuleType = "IP-CIDR"
-	RuleTypeIP6    RuleType = "IP-CIDR6"
+	RuleTypeExact   RuleType = "DOMAIN"
+	RuleTypeSuffix  RuleType = "DOMAIN-SUFFIX"
+	RuleTypeKeyword RuleType = "DOMAIN-KEYWORD"
+	RuleTypeIPCIDR  RuleType = "IP-CIDR"
+	RuleTypeIP6     RuleType = "IP-CIDR6"
 )
 
 type ParsedRule struct {
@@ -180,29 +181,59 @@ func validateYAMLTree(root *yaml.Node) error {
 }
 
 func parseRule(raw string) (RuleType, string, error) {
-	separator := strings.IndexByte(raw, ',')
-	if separator < 0 {
+	fields := strings.Split(raw, ",")
+	if len(fields) < 2 {
 		return "", "", errors.New("rule has no type separator")
 	}
-	ruleType := strings.TrimSpace(raw[:separator])
-	domainText := strings.TrimSpace(raw[separator+1:])
+	ruleType := strings.TrimSpace(fields[0])
+	domainText := strings.TrimSpace(fields[1])
 	var typ RuleType
 	switch ruleType {
 	case string(RuleTypeExact):
 		typ = RuleTypeExact
 	case string(RuleTypeSuffix):
 		typ = RuleTypeSuffix
+	case string(RuleTypeKeyword):
+		typ = RuleTypeKeyword
 	default:
 		if ruleType == "" {
 			return "", "", errors.New("rule type is empty")
 		}
 		return RuleType(ruleType), "", errors.New("unsupported rule type")
 	}
+	if typ == RuleTypeKeyword {
+		keyword, err := normalizeKeyword(domainText)
+		if err != nil {
+			return typ, "", err
+		}
+		return typ, keyword, nil
+	}
 	domain, err := normalizeDomain(domainText)
 	if err != nil {
 		return typ, "", err
 	}
 	return typ, domain, nil
+}
+
+// normalizeKeyword intentionally does not apply hostname/IDNA validation:
+// DOMAIN-KEYWORD is a literal substring matcher and its punctuation is part
+// of the user-provided token. It still rejects whitespace/control characters
+// so a token cannot accidentally span fields or lines when projected into a
+// RouterOS regexp, and caps the value at one DNS-name-sized token.
+func normalizeKeyword(keyword string) (string, error) {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return "", errors.New("keyword is empty")
+	}
+	if len(keyword) > 253 {
+		return "", errors.New("keyword exceeds 253 bytes")
+	}
+	for _, r := range keyword {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return "", errors.New("keyword contains whitespace or control character")
+		}
+	}
+	return keyword, nil
 }
 
 func normalizeDomain(domain string) (string, error) {

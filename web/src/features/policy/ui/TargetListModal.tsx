@@ -262,6 +262,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
         <div className="pol-preview-result">
           <Notice tone={preview.errorSamples.length ? 'warn' : 'ok'} title="预览结果">
             有效规则 {formatCount(preview.validRules)} 条
+            {kind !== 'ip' && (preview.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? `；DOMAIN-KEYWORD ${formatCount(preview.counts['DOMAIN-KEYWORD'])} 条` : ''}
             {ignoredEntries.length ? `；忽略：${ignoredEntries.map(([key, count]) => `${key} ${count}`).join('、')}` : ''}
             {preview.errorSamples.length ? `；${preview.errorSamples.length} 条错误样例` : ''}。预览凭证 15 分钟内有效。
           </Notice>
@@ -277,6 +278,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
               <div className="pol-preview-rules-head">
                 <span className="field-label">前 {Math.min(preview.rules.length, 100)} 条规则</span>
                 <Badge tone="neutral">共 {formatCount(preview.validRules)} 条</Badge>
+                {kind !== 'ip' && (preview.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? <Badge tone="neutral">关键字 {formatCount(preview.counts['DOMAIN-KEYWORD'])}</Badge> : null}
               </div>
               <div className="pol-preview-rules-table table-scroll">
                 <table className="table">

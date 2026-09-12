@@ -89,7 +89,7 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
                 <td><strong>{target.name}</strong><span className="policy-sub-cell">{target.id}</span></td>
                 <td>{target.kind === 'ip' ? 'IP' : '域名'}</td>
                 <td>{target.sourceType === 'url' ? 'URL' : target.sourceType === 'upload' ? '上传' : '手动'}</td>
-                <td>{target.counts.valid ?? 0} 条<span className="policy-sub-cell">版本 {target.versions?.length ?? 0}</span></td>
+                <td>{target.counts.valid ?? 0} 条{target.kind !== 'ip' && (target.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? <span className="policy-sub-cell">关键字 {target.counts['DOMAIN-KEYWORD']} 条</span> : null}<span className="policy-sub-cell">版本 {target.versions?.length ?? 0}</span></td>
                 <td>{target.usage.routingRuleCount + target.usage.accessRuleCount} 条规则<span className="policy-sub-cell">路由 {target.usage.routingRuleCount} · 访问 {target.usage.accessRuleCount}</span></td>
                 <td><PolicyStatusBadge tone={status.tone}>{status.label}</PolicyStatusBadge></td>
                 <td><div className="action-links">
@@ -189,7 +189,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
       {sourceType === 'url' ? <PolicyField label="URL"><input className="settings-input" type="url" value={url} onChange={(event) => { setURL(event.target.value); setPreview(null) }} placeholder="https://example.com/list.txt" /></PolicyField> : sourceType === 'upload' ? <PolicyField label="文件"><input className="settings-input" type="file" accept=".txt,.list,.yaml,.yml,.csv" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null) }} /></PolicyField> : <PolicyField label="内容" hint={contentLoading ? '正在读取已保存内容…' : kind === 'ip' ? '每行一个 IP 或 CIDR。' : '每行一个域名；支持 exact / suffix 解析。'}><textarea className="settings-input policy-textarea" rows={8} disabled={contentLoading || Boolean(contentLoadError) || saving} value={text} onChange={(event) => { setText(event.target.value); setPreview(null) }} placeholder={kind === 'ip' ? '203.0.113.0/24' : 'example.com'} /></PolicyField>}
       {sourceType === 'url' ? <PolicyField label="刷新"><select className="select-control" value={schedule} onChange={(event) => setSchedule(event.target.value)}><option value="1h">每 1 小时</option><option value="6h">每 6 小时</option><option value="12h">每 12 小时</option><option value="24h">每天</option><option value="7d">每 7 天</option><option value="30d">每 30 天</option></select></PolicyField> : null}
       <button type="button" className="toolbar-button" disabled={!canPreview || contentLoading || !contentLoaded || Boolean(contentLoadError) || previewing} onClick={() => void doPreview()}>{previewing ? '正在预览…' : '预览并校验'}</button>
-      {preview ? <PolicyNotice tone={preview.errorSamples.length ? 'warn' : 'good'} title="预览结果">有效规则 {preview.validRules} 条{preview.errorSamples.length ? `，${preview.errorSamples.length} 条错误样例` : ''}。</PolicyNotice> : null}
+      {preview ? <PolicyNotice tone={preview.errorSamples.length ? 'warn' : 'good'} title="预览结果">有效规则 {preview.validRules} 条{kind !== 'ip' && (preview.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? `，DOMAIN-KEYWORD ${preview.counts['DOMAIN-KEYWORD']} 条` : ''}{preview.errorSamples.length ? `，${preview.errorSamples.length} 条错误样例` : ''}。</PolicyNotice> : null}
     </div>
   </PolicyModal>
 }

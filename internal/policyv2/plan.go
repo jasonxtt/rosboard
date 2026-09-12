@@ -25,12 +25,13 @@ type ActualObject struct {
 }
 
 type PlanIssue struct {
-	Code      string `json:"code"`
-	Status    string `json:"status"`
-	Family    string `json:"family,omitempty"`
-	EgressID  string `json:"egressID,omitempty"`
-	LogicalID string `json:"logicalID,omitempty"`
-	Reason    string `json:"reason"`
+	Code                    string `json:"code"`
+	Status                  string `json:"status"`
+	Family                  string `json:"family,omitempty"`
+	EgressID                string `json:"egressID,omitempty"`
+	LogicalID               string `json:"logicalID,omitempty"`
+	Reason                  string `json:"reason"`
+	RequiresAcknowledgement bool   `json:"requiresAcknowledgement,omitempty"`
 }
 
 type PlanAcknowledgement struct {
@@ -76,6 +77,21 @@ type PlanSummary struct {
 	FamilyBlockers  int `json:"familyBlockers"`
 }
 
+// KeywordImpact describes the device-level DNS projection created when a
+// routing rule opts into DOMAIN-KEYWORD content. The backend computes this
+// from parsed target rules so the UI never needs to interpret YAML.
+type KeywordImpact struct {
+	Enabled            bool     `json:"enabled"`
+	AvailableCount     int      `json:"availableCount"`
+	ProjectedCount     int      `json:"projectedCount"`
+	Keywords           []string `json:"keywords"`
+	IntroducedKeywords []string `json:"introducedKeywords"`
+	// Deprecated compatibility field. Explicit includeKeywordDomains=true is
+	// the complete user opt-in; keyword warnings never require a second gate.
+	RequiresConfirmation bool   `json:"requiresConfirmation"`
+	PrecedenceMode       string `json:"precedenceMode"`
+}
+
 type Plan struct {
 	FastTrack                *FastTrackReport                                   `json:"fastTrack,omitempty"`
 	PlanID                   string                                             `json:"planID"`
@@ -98,6 +114,8 @@ type Plan struct {
 	FamilyBlockers           []PlanIssue                                        `json:"familyBlockers,omitempty"`
 	Warnings                 []PlanIssue                                        `json:"warnings"`
 	Acknowledgements         []PlanAcknowledgement                              `json:"acknowledgements"`
+	KeywordImpact            *KeywordImpact                                     `json:"keywordImpact,omitempty"`
+	RequiresAcknowledgement  bool                                               `json:"requiresAcknowledgement,omitempty"`
 	OwnershipStrict          bool                                               `json:"ownershipStrict"`
 	Summary                  PlanSummary                                        `json:"summary"`
 	Operations               []PlanOperation                                    `json:"operations"`

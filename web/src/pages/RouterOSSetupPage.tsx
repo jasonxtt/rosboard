@@ -323,7 +323,7 @@ export default function RouterOSSetupPage({ onComplete }: { onComplete: () => vo
               </li>
             </ol>
             <div className="setup-script-tools">
-              <CopyButton text={session.script} label="复制接入脚本" />
+              <CopyButton text={session.script} label="复制脚本" showText className="copy-script-button" />
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"

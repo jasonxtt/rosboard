@@ -33,6 +33,7 @@ type crossDomainDNSActual struct {
 	RouterID       string `json:"routerID"`
 	Disabled       string `json:"disabled,omitempty"`
 	Name           string `json:"name,omitempty"`
+	Regexp         string `json:"regexp,omitempty"`
 	MatchSubdomain string `json:"matchSubdomain,omitempty"`
 	AddressList    string `json:"addressList,omitempty"`
 	ForwardTo      string `json:"forwardTo,omitempty"`
@@ -76,12 +77,19 @@ func domainDNSLogicalID(domain, targetID, egressID string, matcher SourceRule) s
 }
 
 func parseDomainDNSProjection(object DesiredObject) (crossDomainDNSConstraint, bool) {
-	if object.Menu != string(routeros.MenuIPDNSStatic) || strings.TrimSpace(object.Fields["name"]) == "" {
+	if object.Menu != string(routeros.MenuIPDNSStatic) {
 		return crossDomainDNSConstraint{}, false
 	}
 	matcher := SourceRule{RuleType: "DOMAIN", Domain: strings.TrimSpace(object.Fields["name"])}
-	if strings.EqualFold(strings.TrimSpace(object.Fields["match-subdomain"]), "yes") {
-		matcher.RuleType = "DOMAIN-SUFFIX"
+	if strings.TrimSpace(object.Fields["regexp"]) != "" {
+		matcher.RuleType = "DOMAIN-KEYWORD"
+	} else {
+		if matcher.Domain == "" {
+			return crossDomainDNSConstraint{}, false
+		}
+		if strings.EqualFold(strings.TrimSpace(object.Fields["match-subdomain"]), "yes") {
+			matcher.RuleType = "DOMAIN-SUFFIX"
+		}
 	}
 	logicalID := object.LogicalID
 	switch {
@@ -185,7 +193,7 @@ func fingerprintCrossDomainActual(actual []ActualObject) (string, error) {
 	for _, object := range ordered {
 		entries = append(entries, crossDomainDNSActual{
 			LogicalID: object.LogicalID, RouterID: object.RouterID, Disabled: object.Fields["disabled"],
-			Name: object.Fields["name"], MatchSubdomain: object.Fields["match-subdomain"],
+			Name: object.Fields["name"], Regexp: object.Fields["regexp"], MatchSubdomain: object.Fields["match-subdomain"],
 			AddressList: object.Fields["address-list"], ForwardTo: object.Fields["forward-to"],
 		})
 	}
@@ -339,7 +347,11 @@ func crossDomainRoutingDNSActuals(actual []ActualObject, includeDisabled bool) [
 		if !includeDisabled && !actualObjectActive(object) {
 			continue
 		}
-		if _, ok := actualDNSMatcher(object); !ok {
+		matcher, ok := actualDNSMatcher(object)
+		if !ok || matcher.RuleType == "DOMAIN-KEYWORD" {
+			// Keyword regexp is an explicit Routing opt-in and intentionally
+			// participates in RouterOS regexp-first matching. It is not part of
+			// the ordinary Access-before-Routing plain-domain ordering contract.
 			continue
 		}
 		result = append(result, object)
@@ -357,6 +369,12 @@ func actualDNSMatcher(object ActualObject) (SourceRule, bool) {
 	if object.Menu != string(routeros.MenuIPDNSStatic) {
 		return SourceRule{}, false
 	}
+	if strings.TrimSpace(object.Fields["regexp"]) != "" {
+		if domain, ok := routingKeywordDomainFromLogicalID(object.LogicalID); ok {
+			return SourceRule{RuleType: "DOMAIN-KEYWORD", Domain: domain}, true
+		}
+		return SourceRule{}, false
+	}
 	domain := strings.TrimSpace(object.Fields["name"])
 	if domain == "" {
 		return SourceRule{}, false
@@ -368,8 +386,21 @@ func actualDNSMatcher(object ActualObject) (SourceRule, bool) {
 	return SourceRule{RuleType: ruleType, Domain: domain}, true
 }
 
+func routingKeywordDomainFromLogicalID(logicalID string) (string, bool) {
+	if !strings.HasPrefix(logicalID, "routing-dns:") && !strings.HasPrefix(logicalID, "dns:") {
+		return "", false
+	}
+	const marker = ":DOMAIN-KEYWORD:"
+	index := strings.Index(logicalID, marker)
+	if index < 0 {
+		return "", false
+	}
+	domain := strings.TrimSpace(logicalID[index+len(marker):])
+	return domain, domain != ""
+}
+
 func crossDomainAccessActualMatchesDesired(actual ActualObject, desired DesiredObject) bool {
-	for _, key := range []string{"name", "type", "match-subdomain", "address-list", "forward-to"} {
+	for _, key := range []string{"name", "regexp", "type", "match-subdomain", "address-list", "forward-to"} {
 		if !equivalentRouterField(key, actual.Fields[key], desired.Fields[key]) {
 			return false
 		}

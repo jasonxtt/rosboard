@@ -38,18 +38,19 @@ type SubjectMember = subject.Member
 // RoutingRule is the authoritative policy-routing relation between a subject,
 // reusable target lists and one Egress.
 type RoutingRule struct {
-	ID            string              `json:"id"`
-	Name          string              `json:"name"`
-	Subject       Subject             `json:"subject"`
-	Ingress       TrafficIngressScope `json:"ingress"`
-	SourceScope   *RoutingSourceScope `json:"sourceScope,omitempty"`
-	TargetListIDs []string            `json:"targetListIds"`
-	EgressID      string              `json:"egressId"`
-	Priority      int                 `json:"priority"`
-	Enabled       bool                `json:"enabled"`
-	Revision      int64               `json:"revision"`
-	CreatedAt     time.Time           `json:"-"`
-	UpdatedAt     time.Time           `json:"-"`
+	ID                    string              `json:"id"`
+	Name                  string              `json:"name"`
+	Subject               Subject             `json:"subject"`
+	Ingress               TrafficIngressScope `json:"ingress"`
+	SourceScope           *RoutingSourceScope `json:"sourceScope,omitempty"`
+	TargetListIDs         []string            `json:"targetListIds"`
+	EgressID              string              `json:"egressId"`
+	Priority              int                 `json:"priority"`
+	Enabled               bool                `json:"enabled"`
+	IncludeKeywordDomains bool                `json:"includeKeywordDomains"`
+	Revision              int64               `json:"revision"`
+	CreatedAt             time.Time           `json:"-"`
+	UpdatedAt             time.Time           `json:"-"`
 }
 
 // RoutingRuleRepository is optional on the legacy Repository interface so
@@ -534,6 +535,10 @@ func isIPRule(ruleType string) bool {
 
 func isDomainRule(ruleType string) bool {
 	return ruleType == "DOMAIN" || ruleType == "DOMAIN-SUFFIX"
+}
+
+func isKeywordRule(ruleType string) bool {
+	return ruleType == "DOMAIN-KEYWORD"
 }
 
 // routingDomainProjection is one physical RouterOS DNS/address-list projection

@@ -263,7 +263,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
               <div className="script-block">
                 <textarea className="textarea script-area" readOnly value={session.script} rows={10} spellCheck={false} aria-label="更换账号脚本" />
                 <div className="script-block-actions">
-                  <CopyButton text={session.script} label="复制脚本" showText className="copy-prominent" />
+                  <CopyButton text={session.script} label="复制脚本" showText className="copy-script-button" />
                   <small className="faint">一键复制命令</small>
                   <small className="faint">脚本将在 {new Date(session.expiresAt).toLocaleString('zh-CN')} 过期</small>
                 </div>

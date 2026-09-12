@@ -175,6 +175,7 @@ export default function TargetLibraryPage() {
         return (
           <div className="pol-tl-counts">
             <span>{formatCount(entry.counts.valid ?? 0)} 条</span>
+            {entry.kind !== 'ip' && (entry.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? <small>关键字 {formatCount(entry.counts['DOMAIN-KEYWORD'])} 条</small> : null}
             <Badge tone={state.tone}>{state.label}</Badge>
           </div>
         )

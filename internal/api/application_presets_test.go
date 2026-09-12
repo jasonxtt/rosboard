@@ -22,6 +22,42 @@ import (
 	"rosboard/internal/routeros"
 )
 
+func TestApplicationPresetAPIListsEmbeddedCatalogForAuthenticatedRequest(t *testing.T) {
+	server, _ := newAuthServer(t, []string{"127.0.0.0/8"})
+	created := authRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, nil)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create admin status=%d body=%s", created.Code, created.Body.String())
+	}
+	cookie := responseCookie(t, created)
+	completed := authRequest(t, server, http.MethodPost, "/api/setup/complete", `{"skipRouterOS":true}`, cookie)
+	if completed.Code != http.StatusOK {
+		t.Fatalf("complete setup status=%d body=%s", completed.Code, completed.Body.String())
+	}
+
+	// The catalog is a compile-time resource. A production binary must not
+	// depend on the process working directory or a configured RouterOS device.
+	t.Chdir(t.TempDir())
+	response := authRequest(t, server, http.MethodGet, "/api/application-presets", "", cookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("embedded catalog status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Presets []applicationpreset.ApplicationPreset `json:"presets"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Presets) < 600 {
+		t.Fatalf("embedded catalog size=%d, want the full catalog", len(payload.Presets))
+	}
+	for _, preset := range payload.Presets {
+		if preset.ID == "youtube" {
+			return
+		}
+	}
+	t.Fatal("embedded catalog did not contain youtube")
+}
+
 type proposalPolicyRouter struct {
 	policyV2Router
 	mu      sync.Mutex
@@ -179,7 +215,7 @@ func TestApplicationPresetAPIListsPreviewsSplitsAndReusesTargetLists(t *testing.
 	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.PreviewID == "" || preview.Domain.ValidRules != 2 || preview.Domain.Ignored["DOMAIN-KEYWORD"] != 1 || preview.IP.ValidRules != 1 {
+	if preview.PreviewID == "" || preview.Domain.ValidRules != 3 || preview.Domain.Ignored["DOMAIN-KEYWORD"] != 0 || preview.IP.ValidRules != 1 {
 		t.Fatalf("unexpected preset preview: %#v", preview)
 	}
 

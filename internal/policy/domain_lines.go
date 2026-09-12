@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -14,8 +15,8 @@ import (
 // and trailing policy name ("- DOMAIN,ad.com,REJECT"), or the mosdns form
 // (plain domain, "domain:example.com", "full:example.com"). Plain and
 // "domain:" entries match the domain and its subdomains (DOMAIN-SUFFIX);
-// "full:" entries match exactly (DOMAIN). keyword:/regexp:/include: prefixes
-// and unknown Clash rule types are reported as ignored entries. Structural
+// "full:" entries match exactly (DOMAIN). regexp:/include: prefixes and
+// unknown Clash rule types are reported as ignored entries. Structural
 // errors (oversize input, too many valid rules) fail the whole result;
 // per-line problems only populate the ignored summary.
 func ParseDomainLines(text string) (ParseResult, error) {
@@ -68,7 +69,10 @@ func PrepareDomainLines(text string) (PreparedSourceContent, error) {
 	var builder strings.Builder
 	builder.WriteString("payload:\n")
 	for _, rule := range parsed.Rules {
-		fmt.Fprintf(&builder, "  - \"%s,%s\"\n", rule.Type, rule.Domain)
+		// Quote the complete Clash item so literal keyword punctuation (for
+		// example a quote or backslash) cannot make the synthesized YAML
+		// invalid. The parser still treats the rule type and value separately.
+		fmt.Fprintf(&builder, "  - %s\n", strconv.Quote(string(rule.Type)+","+rule.Domain))
 	}
 	yaml := []byte(builder.String())
 	digest := sha256.Sum256(yaml)
@@ -114,7 +118,13 @@ func parseDomainLine(line string) (RuleType, string, error) {
 			return RuleTypeSuffix, "", err
 		}
 		return RuleTypeSuffix, domain, nil
-	case strings.HasPrefix(lower, "keyword:"), strings.HasPrefix(lower, "regexp:"), strings.HasPrefix(lower, "include:"):
+	case strings.HasPrefix(lower, "keyword:"):
+		keyword, err := normalizeKeyword(strings.TrimSpace(line[len("keyword:"):]))
+		if err != nil {
+			return RuleTypeKeyword, "", err
+		}
+		return RuleTypeKeyword, keyword, nil
+	case strings.HasPrefix(lower, "regexp:"), strings.HasPrefix(lower, "include:"):
 		prefix, _, _ := strings.Cut(lower, ":")
 		return RuleType(prefix), "", errors.New("unsupported rule type")
 	}
@@ -136,11 +146,20 @@ func parseDomainLine(line string) (RuleType, string, error) {
 		typ = RuleTypeExact
 	case string(RuleTypeSuffix):
 		typ = RuleTypeSuffix
+	case string(RuleTypeKeyword):
+		typ = RuleTypeKeyword
 	default:
 		if ruleType == "" {
 			return "", "", errors.New("rule type is empty")
 		}
 		return RuleType(ruleType), "", errors.New("unsupported rule type")
+	}
+	if typ == RuleTypeKeyword {
+		keyword, err := normalizeKeyword(domainText)
+		if err != nil {
+			return typ, "", err
+		}
+		return typ, keyword, nil
 	}
 	domain, err := normalizeDomain(domainText)
 	if err != nil {

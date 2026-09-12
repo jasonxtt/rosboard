@@ -100,3 +100,38 @@ func TestParseClashYAMLRejectsDoubleTrailingDot(t *testing.T) {
 		t.Fatal("domain with more than one trailing dot was accepted")
 	}
 }
+
+func TestParseClashYAMLNormalizesAndDeduplicatesKeywords(t *testing.T) {
+	result, err := ParseClashYAML([]byte("payload:\n" +
+		"  - DOMAIN-KEYWORD, Video.Player+,REJECT\n" +
+		"  - DOMAIN-KEYWORD,video.player+\n" +
+		"  - DOMAIN-KEYWORD, foo.bar\\\\baz\n" +
+		"  - regexp,^video\\.player\n"))
+	if err != nil {
+		t.Fatalf("ParseClashYAML() error = %v", err)
+	}
+	if len(result.Rules) != 2 {
+		t.Fatalf("rules = %#v, want two keyword rules", result.Rules)
+	}
+	if result.Rules[0] != (ParsedRule{Type: RuleTypeKeyword, Domain: "video.player+"}) {
+		t.Fatalf("first keyword = %#v", result.Rules[0])
+	}
+	if result.Rules[1] != (ParsedRule{Type: RuleTypeKeyword, Domain: "foo.bar\\\\baz"}) {
+		t.Fatalf("second keyword = %#v", result.Rules[1])
+	}
+	if result.Ignored["duplicate"] != 1 || result.Ignored["regexp"] != 1 {
+		t.Fatalf("ignored = %#v", result.Ignored)
+	}
+}
+
+func TestNormalizeKeywordRejectsEmptyWhitespaceAndOverlongValues(t *testing.T) {
+	for _, value := range []string{"", "   ", "foo bar", strings.Repeat("x", 254)} {
+		if _, err := normalizeKeyword(value); err == nil {
+			t.Errorf("normalizeKeyword(%q) accepted invalid value", value)
+		}
+	}
+	got, err := normalizeKeyword("  MiXeD._-  ")
+	if err != nil || got != "mixed._-" {
+		t.Fatalf("normalizeKeyword() = %q, %v", got, err)
+	}
+}

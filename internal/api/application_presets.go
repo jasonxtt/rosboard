@@ -112,7 +112,7 @@ func preparedPresetSummary(content policy.PreparedSourceContent, kind string) ma
 		}
 		rules = append(rules, map[string]string{"type": string(rule.Type), key: rule.Domain})
 	}
-	return map[string]any{"validRules": len(content.Rules), "ignored": content.Ignored, "errorSamples": content.ErrorSamples, "rules": rules}
+	return map[string]any{"validRules": len(content.Rules), "counts": content.Counts(), "ignored": content.Ignored, "errorSamples": content.ErrorSamples, "rules": rules}
 }
 
 const minPresetPreviewRules = 100
@@ -204,7 +204,7 @@ func (s *Server) materializeApplicationPreset(writer http.ResponseWriter, reques
 				writePolicyJson(writer, http.StatusUnprocessableEntity, map[string]any{"code": "preset_preview_invalid", "error": err.Error()})
 				return
 			}
-			targetVersion := policyv2.TargetListVersion{ID: version.ID, TargetListID: target.ID, SHA256: version.SHA256, CompressedYAML: version.CompressedYAML, State: version.State, Error: version.Error, HTTPStatus: version.HTTPStatus, Counts: map[string]int{"valid": len(content.Rules)}, CreatedAt: version.CreatedAt}
+			targetVersion := policyv2.TargetListVersion{ID: version.ID, TargetListID: target.ID, SHA256: version.SHA256, CompressedYAML: version.CompressedYAML, State: version.State, Error: version.Error, HTTPStatus: version.HTTPStatus, Counts: content.Counts(), CreatedAt: version.CreatedAt}
 			targetRules := make([]policyv2.TargetListRule, len(rules))
 			for index, rule := range rules {
 				targetRules[index] = policyv2.TargetListRule{VersionID: version.ID, RuleType: rule.RuleType, Domain: rule.Domain}

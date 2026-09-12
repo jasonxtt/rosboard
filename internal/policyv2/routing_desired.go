@@ -12,11 +12,20 @@ import (
 )
 
 type routingTargetProjection struct {
-	id     string
-	source Source
-	rules  []SourceRule
-	list   string
-	active bool
+	id                    string
+	source                Source
+	rules                 []SourceRule
+	plainRules            []SourceRule
+	keywordRules          []SourceRule
+	list                  string
+	keywordList           string
+	active                bool
+	plainActive           bool
+	keywordActive         bool
+	keywordPriority       int
+	keywordRuleID         string
+	keywordPriorityActive bool
+	keywordPrioritySet    bool
 }
 
 type routingExecutionGroup struct {
@@ -55,6 +64,8 @@ type routingSubjectFamilyResolution struct {
 // DNS priority instead of the per-egress build order.
 type routingDNSStaticEntry struct {
 	priority  int
+	ruleID    string
+	keyword   bool
 	egressID  string
 	targetID  string
 	ruleType  string
@@ -143,6 +154,8 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 	routingDNSStatics := make([]routingDNSStaticEntry, 0)
 	byEgress := make(map[string]map[string]*routingTargetProjection)
 	for _, rule := range sortedRoutingRules(rules) {
+		materializedTargets := 0
+		effectiveTargets := 0
 		egress, ok := egressByID[rule.EgressID]
 		if !ok || egress.PendingDeletion {
 			if rule.Enabled {
@@ -162,15 +175,52 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 				result.Warnings = append(result.Warnings, PlanIssue{Code: "target_list_has_no_version", Status: "warning", LogicalID: rule.ID, EgressID: rule.EgressID, Reason: "目标列表尚无可应用版本：" + source.Name})
 				continue
 			}
+			materializedTargets++
+			plainRules := domainPlainRules(targetRules[targetID])
+			keywordRules := domainKeywordRules(targetRules[targetID])
+			if source.Kind != KindDomain || len(plainRules) > 0 || rule.IncludeKeywordDomains && len(keywordRules) > 0 {
+				effectiveTargets++
+			}
 			if byEgress[rule.EgressID] == nil {
 				byEgress[rule.EgressID] = make(map[string]*routingTargetProjection)
 			}
 			projection := byEgress[rule.EgressID][targetID]
 			if projection == nil {
-				projection = &routingTargetProjection{id: targetID, source: source, rules: targetRules[targetID], list: RoutingTargetListNameForSource(managerID, deviceID, rule.EgressID, source)}
+				projection = &routingTargetProjection{
+					id: targetID, source: source, rules: targetRules[targetID],
+					plainRules:  plainRules,
+					list:        RoutingTargetListNameForSource(managerID, deviceID, rule.EgressID, source),
+					keywordList: RoutingKeywordTargetListName(managerID, deviceID, rule.EgressID, source.ID),
+				}
 				byEgress[rule.EgressID][targetID] = projection
 			}
-			projection.active = projection.active || rule.Enabled
+			if source.Kind == KindDomain && rule.IncludeKeywordDomains {
+				projection.keywordRules = keywordRules
+			}
+			if source.Kind != KindDomain || len(plainRules) > 0 {
+				projection.plainActive = projection.plainActive || rule.Enabled
+			}
+			if source.Kind == KindDomain && len(keywordRules) > 0 && rule.IncludeKeywordDomains {
+				projection.keywordActive = projection.keywordActive || rule.Enabled
+				candidateActive := rule.Enabled && egress.Enabled
+				if candidateActive {
+					if !projection.keywordPriorityActive || rule.Priority < projection.keywordPriority || rule.Priority == projection.keywordPriority && rule.ID < projection.keywordRuleID {
+						projection.keywordPriority, projection.keywordRuleID = rule.Priority, rule.ID
+					}
+					projection.keywordPriorityActive = true
+					projection.keywordPrioritySet = true
+				} else if !projection.keywordPriorityActive && (!projection.keywordPrioritySet || rule.Priority < projection.keywordPriority || rule.Priority == projection.keywordPriority && rule.ID < projection.keywordRuleID) {
+					projection.keywordPriority, projection.keywordRuleID = rule.Priority, rule.ID
+					projection.keywordPrioritySet = true
+				}
+			}
+			projection.active = projection.plainActive || projection.keywordActive
+		}
+		if rule.Enabled && materializedTargets > 0 && effectiveTargets == 0 {
+			result.Blockers = append(result.Blockers, PlanIssue{
+				Code: "routing_target_empty_after_keyword_filter", Status: "blocker", LogicalID: rule.ID, EgressID: rule.EgressID,
+				Reason: "策略「" + displayName(rule.Name, rule.ID) + "」启用后所有目标列表都只包含被关闭的 DOMAIN-KEYWORD 规则，无法生成有效目标；请开启「启用关键字域名规则」或选择包含普通域名/IP规则的目标列表",
+			})
 		}
 	}
 
@@ -196,6 +246,9 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		targetByList := make(map[string]*routingTargetProjection, len(targets))
 		for _, target := range targets {
 			targetByList[target.list] = target
+			if target.keywordList != "" {
+				targetByList[target.keywordList] = target
+			}
 		}
 		addEgress := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
 			target := targetByList[firstNonEmptyString(fields["list"], fields["dst-address-list"], fields["address-list"])]
@@ -261,10 +314,33 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		}
 	}
 	reorderRoutingConnectionObjects(result)
-	sort.SliceStable(routingDNSStatics, func(i, j int) bool {
-		left, right := routingDNSStatics[i], routingDNSStatics[j]
+	sortRoutingDNSStaticEntries(routingDNSStatics)
+	for _, entry := range routingDNSStatics {
+		add(entry.logicalID, routeros.MenuIPDNSStatic, "dns", entry.label, entry.fields)
+	}
+	return nil
+}
+
+func sortRoutingDNSStaticEntries(entries []routingDNSStaticEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		left, right := entries[i], entries[j]
+		if left.keyword != right.keyword {
+			return left.keyword
+		}
 		if left.priority != right.priority {
 			return left.priority < right.priority
+		}
+		if left.keyword {
+			if left.ruleID != right.ruleID {
+				return left.ruleID < right.ruleID
+			}
+			if left.targetID != right.targetID {
+				return left.targetID < right.targetID
+			}
+			if left.domain != right.domain {
+				return left.domain < right.domain
+			}
+			return left.logicalID < right.logicalID
 		}
 		if left.egressID != right.egressID {
 			return left.egressID < right.egressID
@@ -280,10 +356,6 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 		}
 		return left.logicalID < right.logicalID
 	})
-	for _, entry := range routingDNSStatics {
-		add(entry.logicalID, routeros.MenuIPDNSStatic, "dns", entry.label, entry.fields)
-	}
-	return nil
 }
 
 func buildRoutingIngressProjections(result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), managerID, deviceID string, defaultScope TrafficIngressScope, allowDefaultScope bool, rules []RoutingRule) (map[string]string, map[string]bool) {
@@ -434,29 +506,49 @@ func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.
 	add("forwarder:"+egress.ID, routeros.MenuIPDNSForwarders, "dns", map[string]string{"name": forwarder, "dns-servers": alias, "disabled": forwarderDisabled})
 	strategyLabel := "策略 " + cleanReadableLabel(egress.Name)
 	for _, target := range targets {
-		staticDisabled := "yes"
-		if egress.Enabled && target.active {
-			staticDisabled = "no"
+		plainDisabled := "yes"
+		if egress.Enabled && target.plainActive {
+			plainDisabled = "no"
 		}
-		priority, ok := projectionPriorities[egress.ID+"\x00"+target.id]
+		keywordDisabled := "yes"
+		if egress.Enabled && target.keywordActive {
+			keywordDisabled = "no"
+		}
+		plainPriority, ok := projectionPriorities[egress.ID+"\x00"+target.id]
 		if !ok {
-			priority = projectionPriorityUnset
+			plainPriority = projectionPriorityUnset
 		}
-		for _, targetRule := range target.rules {
-			if !isDomainRule(targetRule.RuleType) {
-				continue
-			}
+		for _, targetRule := range projectionPlainRules(target) {
 			matchSubdomain := "no"
 			if targetRule.RuleType == "DOMAIN-SUFFIX" {
 				matchSubdomain = "yes"
 			}
 			logicalID := "routing-dns:" + egress.ID + ":" + target.id + ":" + targetRule.RuleType + ":" + targetRule.Domain
-			fields := map[string]string{"name": targetRule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": target.list, "disabled": staticDisabled, "match-subdomain": matchSubdomain}
+			fields := map[string]string{"name": targetRule.Domain, "type": "FWD", "forward-to": forwarder, "address-list": target.list, "disabled": plainDisabled, "match-subdomain": matchSubdomain}
 			*dnsStatics = append(*dnsStatics, routingDNSStaticEntry{
-				priority: priority, egressID: egress.ID, targetID: target.id,
+				priority: plainPriority, egressID: egress.ID, targetID: target.id,
 				ruleType: targetRule.RuleType, domain: targetRule.Domain,
 				logicalID: logicalID, label: routingObjectCommentLabel(logicalID, strategyLabel, target),
 				fields: fields,
+			})
+		}
+		keywordRules := projectionKeywordRules(target)
+		if target.keywordList == "" || len(keywordRules) == 0 {
+			continue
+		}
+		for _, keyword := range keywordRules {
+			logicalID := "routing-dns:" + egress.ID + ":" + target.id + ":" + keyword.RuleType + ":" + keyword.Domain
+			fields := map[string]string{
+				"regexp":       routerOSDNSKeywordRegexp(keyword.Domain),
+				"type":         "FWD",
+				"forward-to":   forwarder,
+				"address-list": target.keywordList,
+				"disabled":     keywordDisabled,
+			}
+			*dnsStatics = append(*dnsStatics, routingDNSStaticEntry{
+				priority: target.keywordPriority, ruleID: target.keywordRuleID, keyword: true,
+				egressID: egress.ID, targetID: target.id, ruleType: keyword.RuleType, domain: keyword.Domain,
+				logicalID: logicalID, label: routingObjectCommentLabel(logicalID, strategyLabel, target), fields: fields,
 			})
 		}
 	}
@@ -548,7 +640,7 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		seenTargets := make(map[string]bool)
 		for _, targetID := range rule.TargetListIDs {
 			target := byTarget[targetID]
-			if target == nil || seenTargets[targetID] || !routingTargetSupportsFamily(target, family.Family) {
+			if target == nil || seenTargets[targetID] || !routingTargetSupportsFamily(target, family.Family) || len(routingTargetListsForRule(target, rule)) == 0 {
 				continue
 			}
 			seenTargets[targetID] = true
@@ -590,26 +682,31 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			executionGroups[groupKey] = group
 		}
 		for _, target := range ruleTargets {
-			fields := map[string]string{"chain": "prerouting", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": target.list, "action": "mark-connection", "new-connection-mark": group.mark, "passthrough": "yes", "disabled": disabled}
-			if matcher.boundary == "ingress" || matcher.boundary == "excluded" {
-				fields["in-interface-list"] = matcher.ingressList
-			}
-			if matcher.inInterface != "" {
-				fields["in-interface"] = matcher.inInterface
-			}
-			if matcher.inInterfaceList != "" {
-				fields["in-interface-list"] = matcher.inInterfaceList
-			}
-			if matcher.subjectList != "" {
-				if matcher.boundary == "excluded" {
-					fields["src-address-list"] = "!" + matcher.subjectList
-				} else {
-					fields["src-address-list"] = matcher.subjectList
+			for _, targetList := range routingTargetListsForRule(target, rule) {
+				fields := map[string]string{"chain": "prerouting", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": targetList, "action": "mark-connection", "new-connection-mark": group.mark, "passthrough": "yes", "disabled": disabled}
+				if matcher.boundary == "ingress" || matcher.boundary == "excluded" {
+					fields["in-interface-list"] = matcher.ingressList
 				}
+				if matcher.inInterface != "" {
+					fields["in-interface"] = matcher.inInterface
+				}
+				if matcher.inInterfaceList != "" {
+					fields["in-interface-list"] = matcher.inInterfaceList
+				}
+				if matcher.subjectList != "" {
+					if matcher.boundary == "excluded" {
+						fields["src-address-list"] = "!" + matcher.subjectList
+					} else {
+						fields["src-address-list"] = matcher.subjectList
+					}
+				}
+				logicalID := "routing-rule-connection:" + rule.ID + ":" + familyName + ":" + target.id
+				if targetList == target.keywordList {
+					logicalID += ":keyword"
+				}
+				add(logicalID, mangleMenu, "activation", fields)
+				recordRoutingConnectionOrder(result, logicalID, rule)
 			}
-			logicalID := "routing-rule-connection:" + rule.ID + ":" + familyName + ":" + target.id
-			add(logicalID, mangleMenu, "activation", fields)
-			recordRoutingConnectionOrder(result, logicalID, rule)
 		}
 		if rule.Enabled {
 			for _, target := range ruleTargets {
@@ -663,8 +760,13 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 	}
 	routerMark := "rb_" + shortHash("routing-router:"+egress.ID+":"+familyName, 12)
 	for _, target := range activeTargets {
-		logicalID := "routing-router-connection:" + egress.ID + ":" + familyName + ":" + target.id
-		add(logicalID, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": target.list, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": egressDisabled})
+		for _, targetList := range routingTargetListsForRouterOutput(target) {
+			logicalID := "routing-router-connection:" + egress.ID + ":" + familyName + ":" + target.id
+			if targetList == target.keywordList {
+				logicalID += ":keyword"
+			}
+			add(logicalID, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": targetList, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": egressDisabled})
+		}
 	}
 	add("routing-router-routing:"+egress.ID+":"+familyName, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": egressDisabled})
 }
@@ -1032,6 +1134,63 @@ func routingTargetSupportsFamily(target *routingTargetProjection, family Address
 	return false
 }
 
+func routingTargetListsForRule(target *routingTargetProjection, rule RoutingRule) []string {
+	if target == nil {
+		return nil
+	}
+	if target.source.Kind != KindDomain {
+		if len(target.rules) == 0 {
+			return nil
+		}
+		return []string{target.list}
+	}
+	result := make([]string, 0, 2)
+	if len(projectionPlainRules(target)) > 0 {
+		result = append(result, target.list)
+	}
+	if rule.IncludeKeywordDomains && len(projectionKeywordRules(target)) > 0 && target.keywordList != "" {
+		result = append(result, target.keywordList)
+	}
+	return result
+}
+
+func routingTargetListsForRouterOutput(target *routingTargetProjection) []string {
+	if target == nil {
+		return nil
+	}
+	result := make([]string, 0, 2)
+	if target.source.Kind != KindDomain && target.list != "" {
+		result = append(result, target.list)
+	}
+	if target.source.Kind == KindDomain && len(projectionPlainRules(target)) > 0 && target.list != "" {
+		result = append(result, target.list)
+	}
+	if target.keywordList != "" && len(projectionKeywordRules(target)) > 0 && target.keywordActive {
+		result = append(result, target.keywordList)
+	}
+	return result
+}
+
+func projectionPlainRules(target *routingTargetProjection) []SourceRule {
+	if target == nil {
+		return nil
+	}
+	if target.plainRules != nil || target.keywordList != "" {
+		return target.plainRules
+	}
+	return domainPlainRules(target.rules)
+}
+
+func projectionKeywordRules(target *routingTargetProjection) []SourceRule {
+	if target == nil {
+		return nil
+	}
+	if target.keywordRules != nil || target.keywordList != "" {
+		return target.keywordRules
+	}
+	return domainKeywordRules(target.rules)
+}
+
 func sortedRoutingRules(rules []RoutingRule) []RoutingRule {
 	result := append([]RoutingRule{}, rules...)
 	sort.SliceStable(result, func(i, j int) bool {
@@ -1066,6 +1225,10 @@ func sortedBoolKeys(values map[string]bool) []string {
 
 func RoutingTargetListName(managerID, deviceID, egressID, targetID string) string {
 	return "rb_rt_" + shortHash("routing-target-list:"+managerID+":"+deviceID+":"+egressID+":"+targetID, 12)
+}
+
+func RoutingKeywordTargetListName(managerID, deviceID, egressID, targetID string) string {
+	return "rb_rtk_" + shortHash("routing-keyword-target-list:"+managerID+":"+deviceID+":"+egressID+":"+targetID, 12)
 }
 
 // RoutingTargetListNameForSource keeps custom target projections hash-only,

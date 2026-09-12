@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS policy_v2_routing_rules (
     ingress_interfaces_json TEXT NOT NULL DEFAULT '[]',
     priority INTEGER NOT NULL,
     enabled INTEGER NOT NULL,
+    include_keyword_domains INTEGER NOT NULL DEFAULT 0,
     revision INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -69,6 +70,9 @@ CREATE TABLE IF NOT EXISTS policy_v2_routing_rule_prefixes (
 	}
 	if _, err := s.db.Exec(`ALTER TABLE policy_v2_routing_rules ADD COLUMN source_scope_json TEXT DEFAULT NULL`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("add routing rule source scope: %w", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE policy_v2_routing_rules ADD COLUMN include_keyword_domains INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add routing rule keyword option: %w", err)
 	}
 	return nil
 }
@@ -379,18 +383,18 @@ func (r *PolicyRepository) ListRoutingRules(ctx context.Context) ([]policyv2.Rou
 	if err := r.EnsureRoutingRulesMigrated(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules ORDER BY priority, name, id`)
+	rows, err := r.store.db.QueryContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, include_keyword_domains, revision, created_at, updated_at FROM policy_v2_routing_rules ORDER BY priority, name, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list routing rules: %w", err)
 	}
 	result := make([]policyv2.RoutingRule, 0)
 	for rows.Next() {
 		var rule policyv2.RoutingRule
-		var enabled int
+		var enabled, includeKeywordDomains int
 		var sourceScopeJSON sql.NullString
 		var ingressLists, ingressInterfaces string
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &includeKeywordDomains, &rule.Revision, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan routing rule: %w", err)
 		}
 		rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
@@ -398,6 +402,7 @@ func (r *PolicyRepository) ListRoutingRules(ctx context.Context) ([]policyv2.Rou
 			return nil, fmt.Errorf("decode routing rule source scope: %w", err)
 		}
 		rule.Enabled = enabled != 0
+		rule.IncludeKeywordDomains = includeKeywordDomains != 0
 		rule.Ingress = decodeTrafficIngressScope(ingressLists, ingressInterfaces)
 		rule.CreatedAt, rule.UpdatedAt = timeFromUnix(createdAt), timeFromUnix(updatedAt)
 		result = append(result, rule)
@@ -432,11 +437,11 @@ func (r *PolicyRepository) GetRoutingRule(ctx context.Context, id string) (polic
 		return policyv2.RoutingRule{}, err
 	}
 	var rule policyv2.RoutingRule
-	var enabled int
+	var enabled, includeKeywordDomains int
 	var sourceScopeJSON sql.NullString
 	var ingressLists, ingressInterfaces string
 	var createdAt, updatedAt int64
-	err := r.store.db.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, id).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt)
+	err := r.store.db.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, include_keyword_domains, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, id).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &includeKeywordDomains, &rule.Revision, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return policyv2.RoutingRule{}, policyv2.ErrRoutingRuleNotFound
 	}
@@ -444,6 +449,7 @@ func (r *PolicyRepository) GetRoutingRule(ctx context.Context, id string) (polic
 		return policyv2.RoutingRule{}, fmt.Errorf("get routing rule: %w", err)
 	}
 	rule.Enabled = enabled != 0
+	rule.IncludeKeywordDomains = includeKeywordDomains != 0
 	rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
 	if err != nil {
 		return policyv2.RoutingRule{}, fmt.Errorf("decode routing rule source scope: %w", err)
@@ -541,7 +547,7 @@ func (r *PolicyRepository) SaveRoutingRule(ctx context.Context, value policyv2.R
 	if err != nil {
 		return policyv2.RoutingRule{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO policy_v2_routing_rules (id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, include_keyword_domains, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, egress_id=excluded.egress_id, subject_mode=excluded.subject_mode, source_scope_json=excluded.source_scope_json, ingress_interface_lists_json=excluded.ingress_interface_lists_json, ingress_interfaces_json=excluded.ingress_interfaces_json, priority=excluded.priority, enabled=excluded.enabled, include_keyword_domains=excluded.include_keyword_domains, revision=excluded.revision, updated_at=excluded.updated_at`, value.ID, value.Name, value.EgressID, value.Subject.Mode, sourceScopeJSON, string(ingressLists), string(ingressInterfaces), value.Priority, boolToInt(value.Enabled), boolToInt(value.IncludeKeywordDomains), value.Revision, unixTime(value.CreatedAt), unixTime(value.UpdatedAt)); err != nil {
 		return policyv2.RoutingRule{}, fmt.Errorf("save routing rule: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_v2_routing_rule_targets WHERE rule_id = ?`, value.ID); err != nil {
@@ -675,11 +681,11 @@ func loadRoutingRuleSourceStateTx(ctx context.Context, tx *sql.Tx, ruleID string
 		return nil, nil
 	}
 	var rule policyv2.RoutingRule
-	var enabled int
+	var enabled, includeKeywordDomains int
 	var sourceScopeJSON sql.NullString
 	var ingressLists, ingressInterfaces string
 	var createdAt, updatedAt int64
-	err := tx.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, ruleID).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &rule.Revision, &createdAt, &updatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT id, name, egress_id, subject_mode, source_scope_json, ingress_interface_lists_json, ingress_interfaces_json, priority, enabled, include_keyword_domains, revision, created_at, updated_at FROM policy_v2_routing_rules WHERE id = ?`, ruleID).Scan(&rule.ID, &rule.Name, &rule.EgressID, &rule.Subject.Mode, &sourceScopeJSON, &ingressLists, &ingressInterfaces, &rule.Priority, &enabled, &includeKeywordDomains, &rule.Revision, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -687,6 +693,7 @@ func loadRoutingRuleSourceStateTx(ctx context.Context, tx *sql.Tx, ruleID string
 		return nil, err
 	}
 	rule.Enabled = enabled != 0
+	rule.IncludeKeywordDomains = includeKeywordDomains != 0
 	rule.SourceScope, err = decodeRoutingSourceScope(sourceScopeJSON)
 	if err != nil {
 		return nil, err

@@ -220,7 +220,7 @@ export function QuickOnboardingWizard({ onSaved, busy }: QuickOnboardingWizardPr
           <Button size="sm" onClick={() => setScriptVisible((visible) => !visible)} title={scriptVisible ? '隐藏脚本' : '查看脚本'}>
             {scriptVisible ? '隐藏脚本' : '查看脚本'}
           </Button>
-          <CopyButton text={session.script} label="复制接入脚本" />
+          <CopyButton text={session.script} label="复制脚本" showText className="copy-script-button" />
           <Button size="sm" disabled={busy || checking} onClick={resetFlow}>
             重新生成脚本
           </Button>

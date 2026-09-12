@@ -233,7 +233,10 @@ func newProposalRepository(ctx context.Context, repository Repository, proposal 
 		source := proposed.Target.ToSource()
 		source.PendingVersionID = proposed.Version.ID
 		source.Versions = appendWithoutVersion(source.Versions, proposed.Version.ToSource())
-		source.Counts = map[string]int{"valid": len(proposed.Rules)}
+		source.Counts = cloneStringIntMap(proposed.Version.Counts)
+		if source.Counts == nil {
+			source.Counts = map[string]int{"valid": len(proposed.Rules)}
+		}
 		result.sources = replaceSource(result.sources, source)
 	}
 
