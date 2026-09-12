@@ -146,7 +146,10 @@ INSERT OR IGNORE INTO policy_v2_device_state (
 	// Existing databases are cut over while the schema is initialized. The
 	// same idempotent check remains available to callers for rows written by a
 	// pre-cutover compatibility path after initialization.
-	return s.migrateLegacyRoutingRules(context.Background())
+	if err := s.migrateLegacyRoutingRules(context.Background()); err != nil {
+		return err
+	}
+	return s.migrateKeywordSourceRules(context.Background())
 }
 
 func (r *PolicyRepository) ListEgresses(ctx context.Context) ([]policyv2.Egress, error) {

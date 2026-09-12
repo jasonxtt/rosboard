@@ -212,6 +212,15 @@ func TestRoutingSourcePayloadParticipatesInProposalAndDesiredHash(t *testing.T) 
 	if first == result.Hash {
 		t.Fatal("desired hash ignored canonical routing source kind/payload")
 	}
+	changedKeywordMode := rule
+	changedKeywordMode.IncludeKeywordDomains = true
+	result.routingSourceHashes = routingRuleSourceHashes([]RoutingRule{changedKeywordMode})
+	if err := hashDesiredResult(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Hash == first {
+		t.Fatal("desired hash ignored DOMAIN-KEYWORD routing mode")
+	}
 }
 
 func TestNormalizeRoutingSourceScopeInterfaceMultiSelectorAndExclusions(t *testing.T) {

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useApplicationPresets } from '../../../features/policy/applicationPresets'
 import {
-  fetchApplicationPresets,
   previewApplicationPreset,
   type ApplicationPresetSelection,
   type ApplicationPreset,
@@ -118,20 +118,14 @@ export function SubjectSelector({
 }
 
 export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, onPresetPresentationChange, onCreateTargetList }: { deviceID: string; targetLists: TargetList[]; selectedIDs: string[]; onChange: (ids: string[]) => void; onPresetPresentationChange?: (value: PresetPresentation[]) => void; onCreateTargetList?: (kind: PresetKind) => void }) {
-  const [presets, setPresets] = useState<ApplicationPreset[]>([])
+  const { presets, loading: presetsLoading, error: catalogError, reload: reloadPresets } = useApplicationPresets()
   const [previews, setPreviews] = useState<Record<string, PresetPreview>>({})
   const [category, setCategory] = useState('')
   const [query, setQuery] = useState('')
   const [presetLoading, setPresetLoading] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [presetError, setPresetError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
   const [openPresetID, setOpenPresetID] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    void fetchApplicationPresets().then((items) => { if (active) setPresets(items) }).catch(() => { if (active) setError('应用规则目录读取失败，请稍后重试') })
-    return () => { active = false }
-  }, [])
 
   const ordinaryTargets = useMemo(() => targetLists.filter((target) => target.sourceType !== 'preset' && !target.pendingDeletion), [targetLists])
   const domainTargets = ordinaryTargets.filter((target) => target.kind !== 'ip')
@@ -181,7 +175,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       return
     }
     setPresetLoading(preset.id)
-    setError(null)
+    setPresetError(null)
     try {
       const preview = await loadPreview(preset)
       const kinds = requestedKinds.filter((kind) => availableKinds(preview).includes(kind))
@@ -191,7 +185,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       onChange(nextSelectedIDs)
       publishPresetPresentations(nextSelectedIDs, nextPreviews)
     } catch (presetError) {
-      setError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
+      setPresetError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
     } finally {
       setPresetLoading(null)
     }
@@ -205,12 +199,12 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
     setOpenPresetID(preset.id)
     if (previews[preset.id]) return
     setPresetLoading(preset.id)
-    setError(null)
+    setPresetError(null)
     try {
       await loadPreview(preset)
     } catch (presetError) {
       setOpenPresetID(null)
-      setError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
+      setPresetError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
     } finally {
       setPresetLoading(null)
     }
@@ -223,14 +217,14 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       return
     }
     setPresetLoading(preset.id)
-    setError(null)
+    setPresetError(null)
     try {
       const preview = await loadPreview(preset)
       const kinds = availableKinds(preview)
       if (!kinds.length) throw new Error('所选应用规则没有可用的域名或 IP 规则')
       await changePresetKinds(preset, [kinds[0]])
     } catch (presetError) {
-      setError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
+      setPresetError(presetError instanceof Error ? presetError.message : '应用规则预览失败')
       setPresetLoading(null)
     }
   }
@@ -241,7 +235,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
     await changePresetKinds(preset, next)
   }
 
-  const renderTargetSection = (title: string, kind: PresetKind, targets: TargetList[]) => <section className="canonical-target-section"><div className="canonical-target-section-head"><h5>{title}</h5>{onCreateTargetList ? <button type="button" className="link-button" onClick={() => onCreateTargetList(kind)}>新增{kind === 'ip' ? ' IP' : '域名'}列表</button> : null}</div>{targets.map((target) => <label key={target.id} className={`access-multi-option${selectedIDs.includes(target.id) ? ' selected' : ''}`}><input type="checkbox" checked={selectedIDs.includes(target.id)} onChange={() => toggle(target.id)} /><span><strong>{target.name}</strong><small>{target.kind === 'ip' ? 'IP' : '域名'} · {target.counts.valid ?? 0} 条</small></span></label>)}{!targets.length ? <p className="policy-hint">暂无列表</p> : null}</section>
+  const renderTargetSection = (title: string, kind: PresetKind, targets: TargetList[]) => <section className="canonical-target-section"><div className="canonical-target-section-head"><h5>{title}</h5>{onCreateTargetList ? <button type="button" className="link-button" onClick={() => onCreateTargetList(kind)}>新增{kind === 'ip' ? ' IP' : '域名'}列表</button> : null}</div>{targets.map((target) => <label key={target.id} className={`access-multi-option${selectedIDs.includes(target.id) ? ' selected' : ''}`}><input type="checkbox" checked={selectedIDs.includes(target.id)} onChange={() => toggle(target.id)} /><span><strong>{target.name}</strong><small>{target.kind === 'ip' ? 'IP' : '域名'} · {target.counts.valid ?? 0} 条{target.kind !== 'ip' && (target.counts['DOMAIN-KEYWORD'] ?? 0) > 0 ? ` · 关键字 ${target.counts['DOMAIN-KEYWORD']} 条` : ''}</small></span></label>)}{!targets.length ? <p className="policy-hint">暂无列表</p> : null}</section>
 
   return <div className="canonical-selector">
     <div className="canonical-target-list">{renderTargetSection('我的域名列表', 'domain', domainTargets)}{renderTargetSection('我的 IP 列表', 'ip', ipTargets)}</div>
@@ -266,8 +260,10 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
           </div>
         })}
       </div>
-      {!visiblePresets.length ? <p className="policy-hint">没有匹配的应用规则。</p> : null}
-      {error ? <p className="policy-field-error">{error} <button type="button" className="link-button" onClick={() => setError(null)}>重试</button></p> : null}
+      {!catalogError && !presetsLoading && !visiblePresets.length ? <p className="policy-hint">没有匹配的应用规则。</p> : null}
+      {presetsLoading && !presets.length ? <p className="policy-hint">正在读取应用预设目录…</p> : null}
+      {catalogError ? <p className="policy-field-error">{catalogError} <button type="button" className="link-button" onClick={reloadPresets} disabled={presetsLoading}>{presetsLoading ? '重试中…' : '重试'}</button></p> : null}
+      {presetError ? <p className="policy-field-error">{presetError}</p> : null}
     </div> : null}
     {selectedIDs.length ? <p className="policy-hint">已选择 {selectedIDs.length} 个目标；生成预览后才会把应用 backing row 纳入待审阅 proposal。</p> : null}
   </div>

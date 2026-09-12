@@ -270,6 +270,10 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 			return PlanEnvelope{}, err
 		}
 	}
+	keywordImpact, err := keywordImpactForProposal(ctx, applier.Repo, planningRepository, proposal, targetScope)
+	if err != nil {
+		return PlanEnvelope{}, err
+	}
 	actual, allActual, fingerprint, err := scanManagedForPlan(ctx, applier.Mutation, applier.Repo, desired.Objects, desired.crossDomainDesired, domain, desired.crossDomainConstraints)
 	if err != nil {
 		return PlanEnvelope{}, err
@@ -329,6 +333,11 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		ActualFingerprint:        fingerprint, Blockers: blockers, FamilyBlockers: []PlanIssue{}, Warnings: desired.Warnings,
 		Acknowledgements: []PlanAcknowledgement{}, OwnershipStrict: true, Operations: operations,
 	}
+	logicalID := ""
+	if proposal != nil && proposal.RoutingRule != nil {
+		logicalID = proposal.RoutingRule.ID
+	}
+	appendKeywordImpactToPlan(&plan, keywordImpact, logicalID)
 	if domain != PolicyDomainAccess {
 		report, err := inspectFastTrack(ctx, applier, planningRepository, desired.Objects)
 		if err != nil {
@@ -338,6 +347,12 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 			report.RetainOnly = true
 		}
 		addFastTrackPlan(&plan, report)
+	}
+	for _, acknowledgement := range plan.Acknowledgements {
+		if acknowledgement.Required {
+			plan.RequiresAcknowledgement = true
+			break
+		}
 	}
 	plan.Summary = planSummary(operations, blockers, plan.Warnings)
 	if len(blockers) > 0 {
@@ -353,8 +368,9 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		ActualFingerprint string
 		AccessRevision    int64
 		Domain            PolicyDomain
+		KeywordImpact     *KeywordImpact
 		Operations        []PlanOperation
-	}{deviceID, planDesiredRevision, desired.Hash, proposalHash, fingerprint, desired.AccessRevision, domain, operations})
+	}{deviceID, planDesiredRevision, desired.Hash, proposalHash, fingerprint, desired.AccessRevision, domain, plan.KeywordImpact, operations})
 	if err != nil {
 		return PlanEnvelope{}, err
 	}

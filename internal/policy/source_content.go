@@ -31,6 +31,27 @@ type SourcePreview struct {
 	NotModified  bool
 }
 
+// Counts returns the stable aggregate and per-rule-type counts used by source
+// versions and target-list details. Valid rule types are kept separate from
+// ignored categories when they share a name.
+func (result ParseResult) Counts() map[string]int {
+	counts := map[string]int{"valid": len(result.Rules)}
+	validTypes := make(map[string]bool)
+	for _, rule := range result.Rules {
+		typ := string(rule.Type)
+		counts[typ]++
+		validTypes[typ] = true
+	}
+	for category, count := range result.Ignored {
+		if validTypes[category] {
+			counts["ignored:"+category] = count
+			continue
+		}
+		counts[category] = count
+	}
+	return counts
+}
+
 // PrepareSourceContent validates raw URL/upload content and parses it with the
 // parser matching the source kind ("domain" or "ip"). It accepts either the
 // existing Clash YAML payload or a supported line-list representation; an
@@ -103,10 +124,7 @@ func (prepared PreparedSourceContent) PendingVersion(deviceID, sourceID, version
 	if prepared.SHA256 == "" || len(prepared.Rules) == 0 || len(prepared.CompressedYAML) == 0 {
 		return SourceVersion{}, nil, errors.New("source content is not prepared")
 	}
-	counts := map[string]int{"valid": len(prepared.Rules)}
-	for category, count := range prepared.Ignored {
-		counts[category] = count
-	}
+	counts := prepared.ParseResult.Counts()
 	countsJSON, err := json.Marshal(counts)
 	if err != nil {
 		return SourceVersion{}, nil, fmt.Errorf("encode source counts: %w", err)

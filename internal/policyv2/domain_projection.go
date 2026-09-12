@@ -273,12 +273,32 @@ func routingDomainProjectionConsumers(ctx context.Context, repository Repository
 }
 
 func domainDomainRules(rules []SourceRule) []SourceRule {
+	return domainPlainRules(rules)
+}
+
+func domainPlainRules(rules []SourceRule) []SourceRule {
 	result := make([]SourceRule, 0, len(rules))
 	for _, rule := range rules {
 		if isDomainRule(rule.RuleType) {
 			result = append(result, rule)
 		}
 	}
+	return result
+}
+
+func domainKeywordRules(rules []SourceRule) []SourceRule {
+	result := make([]SourceRule, 0, len(rules))
+	for _, rule := range rules {
+		if isKeywordRule(rule.RuleType) {
+			result = append(result, rule)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Domain != result[j].Domain {
+			return result[i].Domain < result[j].Domain
+		}
+		return result[i].RuleType < result[j].RuleType
+	})
 	return result
 }
 

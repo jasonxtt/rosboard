@@ -449,6 +449,34 @@ time,
   color: var(--ink);
 }
 
+/* Text-labelled script actions use the same compact footprint as nearby buttons,
+   while the brand fill makes the copy action easy to spot. */
+.copy-script-button {
+  width: auto;
+  min-width: 84px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--grad-brand);
+  color: var(--accent-ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.copy-script-button:hover:not(:disabled) {
+  background: var(--grad-brand);
+  color: var(--accent-ink);
+  filter: brightness(1.08);
+}
+
+.copy-script-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .icon-btn .icon-btn-count {
   position: absolute;
   top: -5px;
@@ -744,6 +772,11 @@ time,
   /* §11: touch targets ≥40px on mobile */
   .btn {
     min-height: 40px;
+  }
+
+  .copy-script-button {
+    min-height: 40px;
+    height: 40px;
   }
 
   .modal-overlay {

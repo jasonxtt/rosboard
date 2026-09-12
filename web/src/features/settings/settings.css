@@ -356,26 +356,6 @@
   gap: var(--space-2);
 }
 
-/* 一键更换账号的醒目复制按钮（带文字标签） */
-.copy-prominent {
-  width: auto;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: var(--r-md);
-  background: var(--grad-brand);
-  color: var(--accent-ink);
-  font-weight: 650;
-  font-size: var(--text-sm);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-}
-
-.copy-prominent:hover {
-  filter: brightness(1.08);
-}
-
 /* ---------- verification dialog ---------- */
 
 .verify-dialog {

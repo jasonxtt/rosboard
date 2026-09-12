@@ -440,10 +440,11 @@ type routingSubjectMemberHash struct {
 }
 
 type routingRuleSourceHash struct {
-	ID          string              `json:"id"`
-	SourceScope *RoutingSourceScope `json:"sourceScope,omitempty"`
-	Subject     routingSubjectHash  `json:"subject"`
-	Ingress     TrafficIngressScope `json:"ingress"`
+	ID                    string              `json:"id"`
+	IncludeKeywordDomains bool                `json:"includeKeywordDomains"`
+	SourceScope           *RoutingSourceScope `json:"sourceScope,omitempty"`
+	Subject               routingSubjectHash  `json:"subject"`
+	Ingress               TrafficIngressScope `json:"ingress"`
 }
 
 func newRoutingRuleSourceHash(rule RoutingRule) routingRuleSourceHash {
@@ -457,7 +458,7 @@ func newRoutingRuleSourceHash(rule RoutingRule) routingRuleSourceHash {
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].TerminalID < members[j].TerminalID })
 	return routingRuleSourceHash{
-		ID: rule.ID, SourceScope: rule.SourceScope,
+		ID: rule.ID, IncludeKeywordDomains: rule.IncludeKeywordDomains, SourceScope: rule.SourceScope,
 		Subject: routingSubjectHash{Mode: rule.Subject.Mode, Members: members, Prefixes: append([]string(nil), rule.Subject.Prefixes...)},
 		Ingress: NormalizeTrafficIngressScopeUnvalidated(rule.Ingress),
 	}
