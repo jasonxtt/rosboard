@@ -44,7 +44,7 @@ type CopyButtonProps = {
   showText?: boolean
 }
 
-/** Copy-to-clipboard icon button with toast feedback. */
+/** Copy-to-clipboard button with toast feedback. */
 export function CopyButton({ text, label = '复制', className = '', showText = false }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
   return (
@@ -64,7 +64,7 @@ export function CopyButton({ text, label = '复制', className = '', showText = 
         }
       }}
     >
-      {copied ? (showText ? '✓ 已复制' : '✓') : showText ? `⧉ ${label}` : '⧉'}
+      {showText ? (copied ? '已复制' : label) : copied ? '✓' : '⧉'}
     </button>
   )
 }

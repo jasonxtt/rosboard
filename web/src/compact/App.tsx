@@ -2006,7 +2006,7 @@ function RouterOSCleanupCard(props: { cleanup: RouterOSCleanupResponse; onClose:
       <p className="routeros-cleanup-warning">只有确定不再恢复此设备时才执行。脚本会删除 rosboard 创建的专用用户；仅当专用组没有其他用户时才删除该组。</p>
       <textarea readOnly value={props.cleanup.script} rows={12} spellCheck={false} aria-label="RouterOS 账号清理脚本" />
       <div className="settings-actions">
-        <button type="button" className="toolbar-button" onClick={() => void copy()}>{copied ? '已复制' : '复制清理脚本'}</button>
+        <button type="button" className="toolbar-button copy-script-button" onClick={() => void copy()}>{copied ? '已复制' : '复制脚本'}</button>
       </div>
       {error ? <div className="settings-message" role="alert">{error}</div> : null}
     </section>
@@ -2607,7 +2607,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 			  <div className="provisioning-script-actions">
 				<button type="button" className="toolbar-button" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button>
 				<button type="button" className="toolbar-button" disabled={quickGenerating || quickCompleting} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>重新生成脚本</button>
-				<button type="button" className="toolbar-button" onClick={() => void copyScript()}>{quickCopied ? '已复制 ✓' : '复制脚本'}</button>
+				<button type="button" className="toolbar-button copy-script-button" onClick={() => void copyScript()}>{quickCopied ? '已复制' : '复制脚本'}</button>
 			  </div>
 			  {provisioningScriptVisible ? <div className="provisioning-script-area">
 				<textarea readOnly value={provisioningSession.script} rows={14} spellCheck={false} aria-label="RouterOS 接入脚本" />
@@ -2712,7 +2712,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 			<div className="remark-modal account-replacement-modal">
 				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
 				<div className="remark-modal-body">
-					<div className="provisioning-step-card"><strong>步骤 1：复制并执行脚本</strong><textarea readOnly value={replacementSession.script} rows={12} spellCheck={false} /><button type="button" className="toolbar-button" onClick={() => void copyReplacementScript()}>{replacementCopied ? '已复制 ✓' : '复制脚本'}</button></div>
+					<div className="provisioning-step-card"><strong>步骤 1：复制并执行脚本</strong><textarea readOnly value={replacementSession.script} rows={12} spellCheck={false} /><button type="button" className="toolbar-button copy-script-button" onClick={() => void copyReplacementScript()}>{replacementCopied ? '已复制' : '复制脚本'}</button></div>
 					<div className="provisioning-step-card"><strong>步骤 2：验证并替换</strong><p>在 RouterOS Terminal 执行成功后点击下方按钮，rosboard 会验证新账号、替换保存的凭据并重启。</p></div>
 					{replacementError ? <div className="settings-message" role="alert">{replacementError}</div> : null}
 					<div className="remark-modal-actions"><button type="button" className="close-button modal-action-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>取消</button><button type="button" className="primary-button modal-action-button" disabled={replacementBusy} onClick={() => void completeReplacement()}>{replacementBusy ? '正在验证…' : '验证并更换账号'}</button></div>
