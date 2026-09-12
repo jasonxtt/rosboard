@@ -24,6 +24,8 @@ const (
 //go:embed catalog.json
 var catalogJSON []byte
 
+var defaultRegistry = loadDefaultRegistry()
+
 type ApplicationPreset struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
@@ -77,6 +79,10 @@ type Registry struct {
 }
 
 func Default() *Registry {
+	return defaultRegistry
+}
+
+func loadDefaultRegistry() *Registry {
 	var presets []ApplicationPreset
 	if err := json.Unmarshal(catalogJSON, &presets); err != nil {
 		panic("application preset catalog is invalid: " + err.Error())

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Badge } from '../../../ui/Badge'
 import { Button } from '../../../ui/Button'
 import { SearchInput } from '../../../ui/SearchInput'
 import { Select } from '../../../ui/inputs'
+import { useApplicationPresets } from '../applicationPresets'
 import {
-  fetchApplicationPresets,
   previewApplicationPreset,
   type ApplicationPreset,
   type ApplicationPresetSelection,
@@ -53,28 +53,14 @@ type TargetSelectorProps = {
  * catalog (category browse, search, preview, domain/ip kind pick) + inline create.
  */
 export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, onPresetPresentationChange, onCreateTargetList }: TargetSelectorProps) {
-  const [presets, setPresets] = useState<ApplicationPreset[]>([])
+  const { presets, loading: presetsLoading, error: catalogError, reload: reloadPresets } = useApplicationPresets()
   const [previews, setPreviews] = useState<Record<string, PresetPreview>>({})
   const [category, setCategory] = useState('')
   const [query, setQuery] = useState('')
   const [presetLoading, setPresetLoading] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [presetError, setPresetError] = useState<string | null>(null)
   const [showPresets, setShowPresets] = useState(false)
   const [openPresetID, setOpenPresetID] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    fetchApplicationPresets()
-      .then((items) => {
-        if (active) setPresets(items)
-      })
-      .catch(() => {
-        if (active) setError('应用预设目录读取失败，请稍后重试')
-      })
-    return () => {
-      active = false
-    }
-  }, [])
 
   const ordinaryTargets = useMemo(() => targetLists.filter((target) => target.sourceType !== 'preset' && !target.pendingDeletion), [targetLists])
   const domainTargets = ordinaryTargets.filter((target) => target.kind !== 'ip')
@@ -133,7 +119,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       return
     }
     setPresetLoading(preset.id)
-    setError(null)
+    setPresetError(null)
     try {
       const preview = await loadPreview(preset)
       const kinds = requestedKinds.filter((kind) => availableKinds(preview).includes(kind))
@@ -143,7 +129,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       onChange(nextSelectedIDs)
       publishPresetPresentations(nextSelectedIDs, nextPreviews)
     } catch (presetError) {
-      setError(presetError instanceof Error ? presetError.message : '应用预设预览失败')
+      setPresetError(presetError instanceof Error ? presetError.message : '应用预设预览失败')
     } finally {
       setPresetLoading(null)
     }
@@ -155,14 +141,14 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
       return
     }
     setPresetLoading(preset.id)
-    setError(null)
+    setPresetError(null)
     try {
       const preview = await loadPreview(preset)
       const kinds = availableKinds(preview)
       if (!kinds.length) throw new Error('所选应用预设没有可用的域名或 IP 规则')
       await changePresetKinds(preset, [kinds[0]])
     } catch (presetError) {
-      setError(presetError instanceof Error ? presetError.message : '应用预设预览失败')
+      setPresetError(presetError instanceof Error ? presetError.message : '应用预设预览失败')
       setPresetLoading(null)
     }
   }
@@ -231,7 +217,9 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
             />
             <SearchInput value={query} onChange={setQuery} placeholder="搜索名称、ID、别名或分类" ariaLabel="搜索应用预设" />
           </div>
-          {error ? <Notice tone="err">{error}</Notice> : null}
+          {presetsLoading && !presets.length ? <Notice>正在读取应用预设目录…</Notice> : null}
+          {catalogError ? <Notice tone="err" action={<button type="button" className="link-button" onClick={reloadPresets} disabled={presetsLoading}>{presetsLoading ? '重试中…' : '重试'}</button>}>{catalogError}</Notice> : null}
+          {presetError ? <Notice tone="err">{presetError}</Notice> : null}
           <div className="pol-preset-grid">
             {visiblePresets.map((preset) => {
               const preview = previews[preset.id]
@@ -258,11 +246,11 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
                         setOpenPresetID(opening ? preset.id : null)
                         if (opening && !previews[preset.id]) {
                           setPresetLoading(preset.id)
-                          setError(null)
+                          setPresetError(null)
                           loadPreview(preset)
                             .catch((previewError) => {
                               setOpenPresetID(null)
-                              setError(previewError instanceof Error ? previewError.message : '应用预设预览失败')
+                              setPresetError(previewError instanceof Error ? previewError.message : '应用预设预览失败')
                             })
                             .finally(() => setPresetLoading(null))
                         }
@@ -303,7 +291,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
                 </div>
               )
             })}
-            {!visiblePresets.length ? <p className="pol-hint">没有匹配的应用预设。</p> : null}
+            {!catalogError && !presetsLoading && !visiblePresets.length ? <p className="pol-hint">没有匹配的应用预设。</p> : null}
           </div>
         </div>
       ) : null}

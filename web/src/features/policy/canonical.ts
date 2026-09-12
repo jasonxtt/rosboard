@@ -274,6 +274,19 @@ export class CanonicalPolicyError extends Error {
   }
 }
 
+export function applicationPresetCatalogErrorMessage(error: unknown): string {
+  if (error instanceof CanonicalPolicyError) {
+    if (error.status === 401) return '登录状态已失效，请重新登录后重试'
+    if (error.status === 403) return '当前网络或会话无权读取应用预设目录'
+    if (error.status === 404) return '当前面板不支持应用预设目录，请升级后重试'
+    if (error.status === 409) return '请先完成设备设置后再读取应用预设目录'
+    if (error.status >= 500) return '应用预设目录服务暂时不可用，请稍后重试'
+    if (error.status === 0) return '应用预设目录连接失败，请检查面板连接后重试'
+    if (error.code === 'invalid_catalog' || error.code === 'invalid_response') return '应用预设目录格式无效，请稍后重试'
+  }
+  return '应用预设目录读取失败，请稍后重试'
+}
+
 function objectValue(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -511,10 +524,11 @@ async function requestJSON<T>(path: string, deviceID: string, init: RequestInit 
   let response: Response
   try {
     response = await fetch(`${path}${query}`, init)
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     throw new CanonicalPolicyError('网络请求失败，请检查面板连接', 0, 'network_error')
   }
-  if (response.status === 401) window.dispatchEvent(new Event('rosboard:authentication-required'))
+  if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('rosboard:authentication-required'))
   const text = await response.text()
   let payload: unknown = null
   if (text.trim()) {
@@ -546,7 +560,16 @@ export function previewTargetList(deviceID: string, kind: 'domain' | 'ip', sourc
   return requestJSON(path, deviceID, jsonInit('POST', sourceType === 'url' ? { url: input, kind } : { text: input, kind }), parsePreview)
 }
 
-export function fetchApplicationPresets() { return requestJSON('/api/application-presets', '', { cache: 'no-store' }, (value) => (objectValue(value).presets as unknown[] ?? []).map((item) => { const object = objectValue(item); return { id: stringValue(object.id), name: stringValue(object.name), category: stringValue(object.category) || undefined, aliases: stringArray(object.aliases), rulePath: stringValue(object.rulePath) || undefined, ruleURL: stringValue(object.ruleURL) } })) }
+function parseApplicationPresets(value: unknown): ApplicationPreset[] {
+  const rawPresets = objectValue(value).presets
+  if (!Array.isArray(rawPresets)) throw new CanonicalPolicyError('服务返回了无效的应用预设目录', 200, 'invalid_catalog', value)
+  return rawPresets.map((item) => {
+    const object = objectValue(item)
+    return { id: stringValue(object.id), name: stringValue(object.name), category: stringValue(object.category) || undefined, aliases: stringArray(object.aliases), rulePath: stringValue(object.rulePath) || undefined, ruleURL: stringValue(object.ruleURL) }
+  })
+}
+
+export function fetchApplicationPresets(signal?: AbortSignal) { return requestJSON('/api/application-presets', '', { cache: 'no-store', credentials: 'same-origin', signal }, parseApplicationPresets) }
 export function previewApplicationPreset(deviceID: string, id: string) { return requestJSON(`/api/application-presets/${encodeURIComponent(id)}/preview`, deviceID, { method: 'POST' }, (value) => { const object = objectValue(value); return { previewId: stringValue(object.previewId), id: stringValue(object.id), name: stringValue(object.name), category: stringValue(object.category) || undefined, aliases: stringArray(object.aliases), existingTargetListIds: stringArray(object.existingTargetListIds), domain: parsePreview(object.domain), ip: parsePreview(object.ip) } }) }
 export function materializeApplicationPreset(deviceID: string, id: string, previewId: string, requestedKinds: Array<'domain' | 'ip'> = []) { return requestJSON(`/api/application-presets/${encodeURIComponent(id)}/target-lists?previewId=${encodeURIComponent(previewId)}`, deviceID, jsonInit('POST', { requestedKinds }), (value) => (objectValue(value).targetLists as unknown[] ?? []).map(parseTargetList)) }
 
