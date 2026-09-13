@@ -78,6 +78,33 @@ go build -o ./rosboard ./cmd/rosboard
 - RouterOS 7 或更高版本；使用 HTTP REST 时需 7.9+
 - 快速接入脚本会自动创建 `read,write,test,api,rest-api` 权限的专用账号（详见[接入文档](docs/routeros-access.md)）
 
+### 通过 HTTPS 反向代理访问
+
+rosboard 本身继续监听内部 HTTP 端口，由 Lucky、Caddy 等反向代理负责
+HTTPS 证书和公网访问时，可在 rosboard 的启动配置文件中加入：
+
+```yaml
+trusted_proxy_cidrs: true
+```
+
+这会信任任意直接连接到 rosboard 的代理来源，用于正确识别反代后的
+HTTPS 请求；适合 Caddy 运行在 Docker、rosboard 无法直接看到宿主机地址的
+场景。使用这个开关前，请通过防火墙或网络策略确保 `8080` 不能被不可信来源
+直接访问。省略该字段或设置为 `false`，则保持直连策略。
+
+如果能确定反向代理连接 rosboard 时的来源地址，也可以使用更严格的 CIDR
+列表，例如：
+
+```yaml
+trusted_proxy_cidrs:
+  - "127.0.0.1/32"
+```
+
+这里匹配的是 rosboard 实际看到的反向代理直接来源地址，不是浏览器客户端
+地址，也不一定是 Docker 宿主机地址。反向代理还必须保留公网 `Host`，或发送
+正确的 `X-Forwarded-Host`，并发送单一的 `X-Forwarded-Proto: https`。完整配置
+和 Docker/Lucky 示例见[部署与更新](docs/deployment.md#https-reverse-proxy)。
+
 ## 工作原理
 
 ```mermaid
