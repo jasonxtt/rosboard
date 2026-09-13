@@ -23,7 +23,7 @@ allowed_cidrs:
   - "192.168.0.0/16"
 # Optional: if an HTTPS reverse proxy terminates TLS before forwarding to
 # rosboard, list only the proxy's source address or CIDR here. The proxy must
-# preserve the external Host or send X-Forwarded-Host and send
-# X-Forwarded-Proto (for example, https).
+# preserve the external Host or send X-Forwarded-Host and always send one
+# X-Forwarded-Proto value (for example, https).
 # trusted_proxy_cidrs:
 #   - "127.0.0.1/32"

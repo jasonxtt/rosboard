@@ -356,8 +356,15 @@ func sameOriginWriteWithProxyTrust(request *http.Request, trustedProxy bool) boo
 }
 
 func (s *Server) effectiveRequestScheme(request *http.Request) string {
-	scheme, ok := effectiveRequestScheme(request, s.trustedProxy(request))
+	trustedProxy := s.trustedProxy(request)
+	scheme, ok := effectiveRequestScheme(request, trustedProxy)
 	if !ok {
+		if trustedProxy {
+			// A trusted proxy with an invalid scheme must not cause a session
+			// cookie to be emitted without Secure. The write admission check
+			// already rejects the request; this protects GET-based renewal too.
+			return "https"
+		}
 		return "http"
 	}
 	return scheme
@@ -377,13 +384,17 @@ func effectiveRequestScheme(request *http.Request, trustedProxy bool) (string, b
 	if !valid {
 		return "", false
 	}
-	if present {
-		switch strings.ToLower(forwarded) {
-		case "http", "https":
-			scheme = strings.ToLower(forwarded)
-		default:
-			return "", false
-		}
+	if !present {
+		// An HTTP upstream cannot reveal whether the public request was HTTP or
+		// HTTPS. Require the trusted proxy to declare the external scheme rather
+		// than silently treating a missing header as HTTP.
+		return "", false
+	}
+	switch strings.ToLower(forwarded) {
+	case "http", "https":
+		scheme = strings.ToLower(forwarded)
+	default:
+		return "", false
 	}
 	return scheme, true
 }

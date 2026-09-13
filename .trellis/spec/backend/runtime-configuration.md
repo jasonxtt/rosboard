@@ -8,8 +8,10 @@
 - Poll intervals, retention, listener, API allowlist, and data directory remain process-global.
 - `trusted_proxy_cidrs` is a startup-only process-global security boundary. It
   contains only immediate reverse-proxy peers allowed to provide sanitized
-  `X-Forwarded-Proto` / `X-Forwarded-Host` values; an empty list preserves
-  direct-connection behavior.
+  `X-Forwarded-Proto` / `X-Forwarded-Host` values; a trusted proxy must
+  provide one `X-Forwarded-Proto` value, while `X-Forwarded-Host` may be
+  omitted when the public Host is preserved; an empty list preserves direct-
+  connection behavior.
 - Legacy singular `routeros` YAML loads as one enabled device with ID `default`; the next settings save emits `devices` and omits the legacy block.
 - `ROSBOARD_ROUTEROS_*` overrides target the first configured device for backward compatibility.
 - Normal deletion sets `archived=true` and `enabled=false`; only `DELETE /api/devices/{id}/data` with exact device-name confirmation removes history and the YAML record.

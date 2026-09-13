@@ -32,8 +32,9 @@ same-origin/CSRF boundary for direct or untrusted requests.
 - [ ] HTTPS browser requests through a configured trusted proxy pass the
   login same-origin check when the proxy supplies matching forwarded scheme
   and host, and the issued cookie is `Secure`.
-- [ ] The same request is rejected when the peer is not trusted, the forwarded
-  scheme/host is missing or malformed, or the forwarded origin does not match.
+- [ ] The same request is rejected when the peer is not trusted, the required
+  forwarded protocol is missing or malformed, the forwarded host is malformed
+  when present, or the forwarded origin does not match.
 - [ ] Direct HTTP/HTTPS same-origin requests continue to behave as before.
 - [ ] Config validation rejects malformed or empty trusted proxy CIDR values.
 - [ ] Focused Go tests, full Go validation, and `git diff --check` pass.

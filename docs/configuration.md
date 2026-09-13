@@ -38,11 +38,13 @@ trusted_proxy_cidrs:
 ```
 
 The proxy must proxy to `http://127.0.0.1:8080`, preserve the public `Host` or
-send a sanitized `X-Forwarded-Host`, and send a single
-`X-Forwarded-Proto: https` value. rosboard trusts these forwarded values only
-when the TCP peer matches `trusted_proxy_cidrs`; direct clients cannot enable
-proxy mode by sending the headers themselves. Multiple comma-separated or
-otherwise malformed forwarded values are rejected.
+send a sanitized `X-Forwarded-Host` when it does not preserve the public Host,
+and always send a single `X-Forwarded-Proto` value such as `https`. rosboard
+trusts these forwarded values only when the TCP peer matches
+`trusted_proxy_cidrs`; direct clients cannot enable proxy mode by sending the
+headers themselves. A trusted proxy request without `X-Forwarded-Proto`, or
+with multiple comma-separated or otherwise malformed forwarded values, is
+rejected.
 
 If `allowed_cidrs` is non-empty, it must also allow the proxy's source address,
 because the API sees the proxy as the direct network peer. After editing the

@@ -22,10 +22,12 @@ The server-aware check will:
 1. Allow GET, HEAD, and OPTIONS as before.
 2. Reject `Sec-Fetch-Site: cross-site` writes and missing/malformed Origin.
 3. Derive the direct scheme from `request.TLS`.
-4. If the immediate peer is in `trusted_proxy_cidrs`, use a single strict
-   `X-Forwarded-Proto` token when present and a single strict
-   `X-Forwarded-Host` value when present. Missing values fall back to the
-   direct request values; malformed present values fail closed.
+4. If the immediate peer is in `trusted_proxy_cidrs`, require a single strict
+   `X-Forwarded-Proto` token and use a single strict `X-Forwarded-Host` value
+   when present. A missing forwarded protocol fails closed because an HTTP
+   upstream cannot reveal the public scheme; a missing forwarded host falls
+   back to the direct Host so a proxy may preserve the public Host. Malformed
+   present values fail closed.
 5. Parse the resulting scheme/host/port with the existing exact-origin parser
    and require scheme, normalized port, and host equality with the browser's
    Origin.
@@ -44,9 +46,9 @@ SameSite, expiry, and max-age remain unchanged.
 ## Compatibility and failure mode
 
 - No configured trusted proxy: current behavior is unchanged.
-- Trusted proxy with no forwarding headers: an HTTPS external request still
-  fails because the direct upstream connection is HTTP; this gives a clear
-  fail-closed result and prompts the operator to configure forwarding.
+- Trusted proxy with no `X-Forwarded-Proto`: the request fails closed because
+  an HTTP upstream cannot reveal the public scheme; this prompts the operator
+  to configure the required forwarding header.
 - A trusted proxy that sends `X-Forwarded-Host` but preserves Host is accepted;
   if it rewrites Host, the forwarded host must be present and valid.
 - Multiple comma-separated forwarding values are rejected instead of guessing

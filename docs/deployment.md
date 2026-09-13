@@ -43,7 +43,7 @@ Configure Lucky with the following logical values:
 - Public URL: `https://panel.example.com`
 - Upstream: `http://127.0.0.1:8080`
 - Preserve the public `Host`, or set a sanitized `X-Forwarded-Host: panel.example.com`
-- Set one `X-Forwarded-Proto: https` header
+- Always set one `X-Forwarded-Proto: https` header
 
 If Lucky runs on another host, replace `127.0.0.1/32` with the source IP or
 smallest stable CIDR that rosboard sees for Lucky's upstream connection. Do

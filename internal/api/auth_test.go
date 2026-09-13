@@ -259,11 +259,27 @@ func TestTrustedProxyCanPreserveExternalHost(t *testing.T) {
 	}
 }
 
+func TestTrustedProxyRequiresForwardedProto(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "panel.example", "http://panel.example", "", "")
+	if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
+		t.Fatalf("trusted proxy without forwarded proto status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
 func TestUntrustedPeerCannotUseForwardedHTTPS(t *testing.T) {
 	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
 	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "192.0.2.10:1234", "panel.example", "https://panel.example", "https", "panel.example")
 	if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
 		t.Fatalf("untrusted forwarded HTTPS request status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
+func TestUntrustedPeerIgnoresForwardedScheme(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "192.0.2.10:1234", "panel.example", "http://panel.example", "https", "panel.example")
+	if request.Code != http.StatusCreated {
+		t.Fatalf("untrusted peer's forwarded scheme was not ignored: status=%d body=%s", request.Code, request.Body.String())
 	}
 }
 
