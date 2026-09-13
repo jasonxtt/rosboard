@@ -15,6 +15,7 @@
 | `terminal_poll_interval_seconds` | 终端发现、地址与在线状态采集间隔，默认 `5` 秒；终端页当前速率由独立的 1 秒 conntrack 采集更新 |
 | `sample_retention_hours` | 历史采样保留时长 |
 | `allowed_cidrs` | 允许访问 `/api/*` 的客户端网段 |
+| `trusted_proxy_cidrs` | 可被信任提供 `X-Forwarded-Proto` / `X-Forwarded-Host` 的反向代理源地址或网段；仅启动配置可设置 |
 | `devices[].id` | 设备稳定标识；创建后不应修改 |
 | `devices[].name` | 面板中显示的设备名称 |
 | `devices[].enabled` | 是否在后台持续采集该设备 |
@@ -23,6 +24,30 @@
 | `devices[].mosdns.*` | MosDNS 审计日志归因：`enabled`、`base_url`、`sync_interval_minutes`（同步周期，默认 `5` 分钟）、`match_window_minutes`（实时证据窗口，默认 `30` 分钟；窗口内证据标记为「MosDNS 匹配」，更早学习到的指纹标记为「特征推断」） |
 
 设备由面板在连接测试通过后写入配置文件；每台设备至少需要一个采集接口和一个 IPv4/IPv6 本地 CIDR。支持 `ROSBOARD_LISTEN_ADDRESS` 和 `ROSBOARD_DATA_DIR` 环境变量覆盖。自动创建与后续更新的配置文件权限均为 `0600`。
+
+## HTTPS reverse proxy
+
+rosboard can remain on an internal HTTP listener while Lucky or another
+reverse proxy terminates HTTPS. This is a startup-only security setting and is
+not managed by the panel. Add only the proxy's immediate source address to
+`trusted_proxy_cidrs`:
+
+```yaml
+trusted_proxy_cidrs:
+  - "127.0.0.1/32"
+```
+
+The proxy must proxy to `http://127.0.0.1:8080`, preserve the public `Host` or
+send a sanitized `X-Forwarded-Host`, and send a single
+`X-Forwarded-Proto: https` value. rosboard trusts these forwarded values only
+when the TCP peer matches `trusted_proxy_cidrs`; direct clients cannot enable
+proxy mode by sending the headers themselves. Multiple comma-separated or
+otherwise malformed forwarded values are rejected.
+
+If `allowed_cidrs` is non-empty, it must also allow the proxy's source address,
+because the API sees the proxy as the direct network peer. After editing the
+file, restart rosboard; no 443 listener or certificate is required in
+rosboard itself.
 
 策略路由规则、访问控制规则和目标库**不写在 YAML 中**，而是保存在 SQLite 并由调和引擎下发到 RouterOS。
 

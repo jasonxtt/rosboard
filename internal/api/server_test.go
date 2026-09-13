@@ -127,6 +127,7 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
 		AllowedCIDRs:                []string{"127.0.0.0/8", "::1/128"},
+		TrustedProxyCIDRs:           []string{"127.0.0.1/32"},
 		RouterOS: config.RouterOSConfig{
 			BaseURL:           "http://router.test",
 			Username:          "admin",
@@ -191,6 +192,9 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), "super-secret") || strings.Contains(response.Body.String(), "routerosPassword\"") {
 		t.Fatalf("settings response exposed RouterOS password: %s", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "trustedProxy") || strings.Contains(response.Body.String(), "trusted_proxy") {
+		t.Fatalf("settings response exposed startup-only trusted proxy config: %s", response.Body.String())
 	}
 	if len(payload.Connection.AllowedCIDRs) != 2 || payload.Connection.AllowedCIDRs[1] != "::1/128" {
 		t.Fatalf("unexpected cidrs: %+v", payload.Connection.AllowedCIDRs)

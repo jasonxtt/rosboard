@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +21,7 @@ type Config struct {
 	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
 	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
 	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
+	TrustedProxyCIDRs           []string       `yaml:"trusted_proxy_cidrs,omitempty"`
 	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
 	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
 
@@ -225,6 +227,9 @@ func (c Config) validate() error {
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
 	}
+	if err := validateCIDRs("trusted_proxy_cidrs", c.TrustedProxyCIDRs); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {
 		if strings.TrimSpace(device.ID) == "" {
@@ -259,6 +264,19 @@ func (c Config) validate() error {
 		}
 		if err := c.RouterOS.TrafficScope.validate(); err != nil {
 			return fmt.Errorf("routeros.traffic_scope: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateCIDRs(field string, values []string) error {
+	for index, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, index)
+		}
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return fmt.Errorf("%s[%d] %q is invalid: %w", field, index, trimmed, err)
 		}
 	}
 	return nil

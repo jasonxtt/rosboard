@@ -35,6 +35,46 @@ func TestLoadDefaultsToTieredPollingIntervals(t *testing.T) {
 	}
 }
 
+func TestLoadAndSaveTrustedProxyCIDRs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	payload := []byte("trusted_proxy_cidrs:\n  - 127.0.0.1/32\n  - 2001:db8::/32\n")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedProxyCIDRs) != 2 || cfg.TrustedProxyCIDRs[0] != "127.0.0.1/32" || cfg.TrustedProxyCIDRs[1] != "2001:db8::/32" {
+		t.Fatalf("trusted proxy CIDRs did not load: %#v", cfg.TrustedProxyCIDRs)
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "trusted_proxy_cidrs:") || !strings.Contains(string(saved), "127.0.0.1/32") || !strings.Contains(string(saved), "2001:db8::/32") {
+		t.Fatalf("trusted proxy CIDRs were not persisted: %s", saved)
+	}
+}
+
+func TestValidateRejectsInvalidTrustedProxyCIDRs(t *testing.T) {
+	for _, value := range []string{"", "not-a-cidr"} {
+		t.Run(value, func(t *testing.T) {
+			cfg := Config{
+				PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3,
+				SampleRetentionHours: 48, TrustedProxyCIDRs: []string{value},
+			}
+			if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "trusted_proxy_cidrs") {
+				t.Fatalf("expected trusted proxy CIDR validation error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestLegacyPolicyAccessIsIgnoredAndRemovedOnSave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	payload := []byte("devices:\n  - id: edge\n    name: Edge\n    enabled: true\n    routeros:\n      base_url: http://router.test\n      username: monitor\n      password: monitor-secret\n    policy_access:\n      enabled: true\n      username: old-policy\n      password: old-secret\n")

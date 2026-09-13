@@ -23,7 +23,7 @@
 - Phases are `needs_admin`, `needs_login`, `needs_routeros`, and `ready`. `GET /api/bootstrap` is the frontend's only phase source.
 - Passwords contain 4-128 Unicode characters without composition rules. Argon2id hashes are stored; passwords and hashes never appear in API responses or logs.
 - Sessions last seven days, roll after sustained use, persist across restarts, and are revoked on credential change or local password reset.
-- Allowed CIDRs are checked before setup/auth. Authenticated write requests must be same-origin.
+- Allowed CIDRs are checked before setup/auth. Authenticated write requests must be same-origin; an HTTPS origin terminated by a reverse proxy is accepted only when the immediate proxy peer is listed in startup-only `trusted_proxy_cidrs` and supplies strict forwarded scheme/host values.
 - RouterOS connection fields are tested before collection fields are available. Required probes must pass; optional probe failures become warnings.
 - Verification tokens are memory-only, expire after 15 minutes, bind to normalized endpoint/username/password fingerprints, and are consumed only after successful YAML persistence.
 - Device saves require at least one verified traffic interface and one canonical IPv4/IPv6 CIDR. Normalized endpoints are unique across non-archived devices; archiving releases the endpoint for reuse.
@@ -58,7 +58,7 @@
 ### 6. Tests Required
 
 - Store/auth: singleton administrator concurrency, Argon2id verification, token hashing/expiry/renewal/revocation, atomic credential update, and full reset transaction.
-- API: phase matrix, allowed-CIDR ordering, same-origin writes, login throttling, password-free responses, setup completion, and unauthenticated rejection.
+- API: phase matrix, allowed-CIDR ordering, direct and trusted-proxy same-origin writes, login throttling, password-free responses, setup completion, and unauthenticated rejection.
 - RouterOS/API: required/optional probes, ticket expiry/fingerprint/replay, endpoint uniqueness, interface sampling permission, and CIDR canonicalization.
 - Restart regression: save-only onboarding and ready-phase creation emit `restarting=false` and do not call restart; deferred quick provisioning also persists without restart; setup completion persists, enters `ready`, and calls restart once.
 - Quality: `go test ./...`, targeted race tests, `go vet ./...`, frontend lint/build/audit, local browser verification, and deployed health/assets/polling checks.
