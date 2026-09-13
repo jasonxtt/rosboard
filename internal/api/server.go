@@ -33,25 +33,27 @@ import (
 )
 
 type Server struct {
-	restartPending atomic.Bool
-	updater        *update.Manager
-	mutationMu     sync.RWMutex
-	cfgMu          sync.RWMutex
-	deviceSaveMu   sync.Mutex
-	diagnosticsMu  sync.Mutex
-	cfg            config.Config
-	monitor        *service.Monitor
-	manager        *service.MonitorManager
-	policy         *policyv2.Manager
-	store          *store.Store
-	assets         fs.FS
-	allowedCIDRs   []*net.IPNet
-	fileServer     http.Handler
-	restart        func()
-	auth           *auth.Service
-	tickets        *verificationTickets
-	provisioning   *provisioningSessions
-	sourceFetcher  *policy.SourceFetcher
+	restartPending    atomic.Bool
+	updater           *update.Manager
+	mutationMu        sync.RWMutex
+	cfgMu             sync.RWMutex
+	deviceSaveMu      sync.Mutex
+	diagnosticsMu     sync.Mutex
+	cfg               config.Config
+	monitor           *service.Monitor
+	manager           *service.MonitorManager
+	policy            *policyv2.Manager
+	store             *store.Store
+	assets            fs.FS
+	allowedCIDRs      []*net.IPNet
+	trustedProxyCIDRs []*net.IPNet
+	trustAllProxies   bool
+	fileServer        http.Handler
+	restart           func()
+	auth              *auth.Service
+	tickets           *verificationTickets
+	provisioning      *provisioningSessions
+	sourceFetcher     *policy.SourceFetcher
 	// accessTerminalsFn lets tests inject a terminal snapshot; nil means the
 	// live monitor snapshot is used.
 	accessTerminalsFn func(deviceID string) []accesscontrol.Terminal
@@ -70,29 +72,33 @@ func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Serve
 
 func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
-		cfg:           cfg,
-		monitor:       monitor,
-		assets:        assets,
-		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:    http.FileServer(http.FS(assets)),
-		restart:       restart,
-		tickets:       newVerificationTickets(),
-		provisioning:  newProvisioningSessions(),
-		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
+		cfg:               cfg,
+		monitor:           monitor,
+		assets:            assets,
+		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
+		fileServer:        http.FileServer(http.FS(assets)),
+		restart:           restart,
+		tickets:           newVerificationTickets(),
+		provisioning:      newProvisioningSessions(),
+		sourceFetcher:     policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
 }
 
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
-		cfg:           cfg,
-		monitor:       monitor,
-		assets:        assets,
-		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:    http.FileServer(http.FS(assets)),
-		restart:       restart,
-		tickets:       newVerificationTickets(),
-		provisioning:  newProvisioningSessions(),
-		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
+		cfg:               cfg,
+		monitor:           monitor,
+		assets:            assets,
+		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
+		fileServer:        http.FileServer(http.FS(assets)),
+		restart:           restart,
+		tickets:           newVerificationTickets(),
+		provisioning:      newProvisioningSessions(),
+		sourceFetcher:     policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
 }
 
@@ -102,17 +108,19 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 		authService = auth.New(storage)
 	}
 	return &Server{
-		cfg:           cfg,
-		manager:       manager,
-		store:         storage,
-		assets:        assets,
-		allowedCIDRs:  parseAllowedCIDRs(cfg.AllowedCIDRs),
-		fileServer:    http.FileServer(http.FS(assets)),
-		restart:       restart,
-		auth:          authService,
-		tickets:       newVerificationTickets(),
-		provisioning:  newProvisioningSessions(),
-		sourceFetcher: policy.NewSourceFetcher(policy.FetcherOptions{}),
+		cfg:               cfg,
+		manager:           manager,
+		store:             storage,
+		assets:            assets,
+		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
+		fileServer:        http.FileServer(http.FS(assets)),
+		restart:           restart,
+		auth:              authService,
+		tickets:           newVerificationTickets(),
+		provisioning:      newProvisioningSessions(),
+		sourceFetcher:     policy.NewSourceFetcher(policy.FetcherOptions{}),
 	}
 }
 
@@ -147,7 +155,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			}
 			return
 		}
-		if s.auth != nil && !sameOriginWrite(request) {
+		if s.auth != nil && !s.sameOriginWrite(request) {
 			if isPolicyRoutingPath(request.URL.Path) || isTargetListPath(request.URL.Path) {
 				writePolicyError(writer, http.StatusForbidden, "cross_origin_denied", "cross-origin request denied", nil)
 			} else {
@@ -1269,7 +1277,7 @@ func (s *Server) serveFullReset(writer http.ResponseWriter, request *http.Reques
 	}
 	s.tickets.clear()
 	s.provisioning.clear()
-	clearSessionCookie(writer, request)
+	s.clearSessionCookie(writer, request)
 }
 
 func (s *Server) saveSettings(update func(*config.Config)) error {
@@ -1277,6 +1285,7 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	defer s.cfgMu.Unlock()
 	next := s.cfg
 	next.AllowedCIDRs = cloneStrings(s.cfg.AllowedCIDRs)
+	next.TrustedProxyCIDRs = s.cfg.TrustedProxyCIDRs.Clone()
 	next.RouterOS.TrafficInterfaces = cloneStrings(s.cfg.RouterOS.TrafficInterfaces)
 	next.RouterOS.TrafficScope = cloneTrafficScope(s.cfg.RouterOS.TrafficScope)
 	next.RouterOS.TerminalCIDRs = cloneStrings(s.cfg.RouterOS.TerminalCIDRs)
@@ -1547,11 +1556,7 @@ func (s *Server) allowed(request *http.Request) bool {
 	if len(s.allowedCIDRs) == 0 {
 		return true
 	}
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err != nil {
-		host = request.RemoteAddr
-	}
-	ip := net.ParseIP(host)
+	ip := requestRemoteIP(request)
 	if ip == nil {
 		return false
 	}
@@ -1563,7 +1568,34 @@ func (s *Server) allowed(request *http.Request) bool {
 	return false
 }
 
-func parseAllowedCIDRs(values []string) []*net.IPNet {
+func (s *Server) trustedProxy(request *http.Request) bool {
+	if s.trustAllProxies {
+		return true
+	}
+	if len(s.trustedProxyCIDRs) == 0 {
+		return false
+	}
+	ip := requestRemoteIP(request)
+	if ip == nil {
+		return false
+	}
+	for _, network := range s.trustedProxyCIDRs {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestRemoteIP(request *http.Request) net.IP {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		host = request.RemoteAddr
+	}
+	return net.ParseIP(host)
+}
+
+func parseCIDRs(values []string) []*net.IPNet {
 	result := make([]*net.IPNet, 0, len(values))
 	for _, value := range values {
 		_, network, err := net.ParseCIDR(strings.TrimSpace(value))

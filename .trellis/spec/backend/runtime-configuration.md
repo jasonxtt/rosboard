@@ -6,6 +6,12 @@
 
 - `devices[]` owns immutable `id`, operator `name`, `enabled`, `archived`, and per-device RouterOS REST credentials, traffic interfaces, and terminal CIDRs.
 - Poll intervals, retention, listener, API allowlist, and data directory remain process-global.
+- `trusted_proxy_cidrs` is a startup-only process-global setting. Omitted or
+  false preserves direct-connection behavior; true trusts forwarded origin
+  values from any immediate peer for Docker-friendly deployments; a CIDR
+  sequence retains strict source-address verification. A proxy must provide
+  one `X-Forwarded-Proto` value, while `X-Forwarded-Host` may be omitted when
+  the public Host is preserved.
 - Legacy singular `routeros` YAML loads as one enabled device with ID `default`; the next settings save emits `devices` and omits the legacy block.
 - `ROSBOARD_ROUTEROS_*` overrides target the first configured device for backward compatibility.
 - Normal deletion sets `archived=true` and `enabled=false`; only `DELETE /api/devices/{id}/data` with exact device-name confirmation removes history and the YAML record.
@@ -16,6 +22,8 @@
 - Config: legacy YAML normalizes to `default`; device YAML round-trips without a legacy block; duplicate IDs fail validation.
 - API: create/update/archive/restore validate connection fields; archive retains data; confirmed purge removes only the owning device.
 - Race: concurrent settings saves do not share mutable device slices or overwrite another save.
+- Config: trusted proxy boolean and CIDR-list forms load, persist, reject
+  malformed values, and are not exposed through the panel settings projection.
 
 ## Scenario: Local non-interactive YAML startup
 

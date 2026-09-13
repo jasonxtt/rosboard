@@ -76,7 +76,7 @@ func (s *Server) authenticateRequest(writer http.ResponseWriter, request *http.R
 	}
 	session, err := s.auth.Authenticate(request.Context(), cookie.Value)
 	if err != nil {
-		clearSessionCookie(writer, request)
+		s.clearSessionCookie(writer, request)
 		if errors.Is(err, auth.ErrInvalidSession) {
 			writeAPIError(writer, http.StatusUnauthorized, "authentication_required", "authentication required")
 		} else {
@@ -85,7 +85,7 @@ func (s *Server) authenticateRequest(writer http.ResponseWriter, request *http.R
 		return auth.Session{}, false
 	}
 	if session.Renewed {
-		setSessionCookie(writer, request, session)
+		s.setSessionCookie(writer, request, session)
 	}
 	return session, true
 }
@@ -145,10 +145,10 @@ func (s *Server) serveBootstrap(writer http.ResponseWriter, request *http.Reques
 			authenticated = true
 			username = session.Username
 			if session.Renewed {
-				setSessionCookie(writer, request, session)
+				s.setSessionCookie(writer, request, session)
 			}
 		} else {
-			clearSessionCookie(writer, request)
+			s.clearSessionCookie(writer, request)
 		}
 	}
 	phase := "needs_login"
@@ -196,7 +196,7 @@ func (s *Server) serveSetupAdmin(writer http.ResponseWriter, request *http.Reque
 		}
 		return
 	}
-	setSessionCookie(writer, request, session)
+	s.setSessionCookie(writer, request, session)
 	writeJSON(writer, http.StatusCreated, map[string]any{"ok": true, "phase": "needs_routeros", "username": session.Username})
 }
 
@@ -239,7 +239,7 @@ func (s *Server) serveLogin(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, http.StatusInternalServerError, "login_failed", "failed to create login session")
 		return
 	}
-	setSessionCookie(writer, request, session)
+	s.setSessionCookie(writer, request, session)
 	complete, _ := s.auth.OnboardingComplete(request.Context())
 	phase := "needs_routeros"
 	if complete {
@@ -257,7 +257,7 @@ func (s *Server) serveLogout(writer http.ResponseWriter, request *http.Request) 
 	if s.auth != nil {
 		_ = s.auth.Logout(request.Context(), session.Token)
 	}
-	clearSessionCookie(writer, request)
+	s.clearSessionCookie(writer, request)
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -279,7 +279,7 @@ func (s *Server) serveAccountCredentials(writer http.ResponseWriter, request *ht
 		writeAPIError(writer, http.StatusBadRequest, "invalid_credentials_update", err.Error())
 		return
 	}
-	clearSessionCookie(writer, request)
+	s.clearSessionCookie(writer, request)
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "username": username, "reauthenticate": true})
 }
 
@@ -309,23 +309,31 @@ func (s *Server) serveSetupComplete(writer http.ResponseWriter, request *http.Re
 	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "phase": "ready", "restarting": restarting})
 }
 
-func setSessionCookie(writer http.ResponseWriter, request *http.Request, session auth.Session) {
+func (s *Server) setSessionCookie(writer http.ResponseWriter, request *http.Request, session auth.Session) {
 	http.SetCookie(writer, &http.Cookie{
 		Name: auth.SessionCookieName, Value: session.Token, Path: "/", HttpOnly: true,
-		Secure: request.TLS != nil, SameSite: http.SameSiteStrictMode,
+		Secure: s.effectiveRequestScheme(request) == "https", SameSite: http.SameSiteStrictMode,
 		Expires: session.ExpiresAt, MaxAge: int(auth.SessionLifetime / time.Second),
 	})
 }
 
-func clearSessionCookie(writer http.ResponseWriter, request *http.Request) {
+func (s *Server) clearSessionCookie(writer http.ResponseWriter, request *http.Request) {
 	http.SetCookie(writer, &http.Cookie{
 		Name: auth.SessionCookieName, Value: "", Path: "/", HttpOnly: true,
-		Secure: request.TLS != nil, SameSite: http.SameSiteStrictMode,
+		Secure: s.effectiveRequestScheme(request) == "https", SameSite: http.SameSiteStrictMode,
 		Expires: time.Unix(1, 0), MaxAge: -1,
 	})
 }
 
 func sameOriginWrite(request *http.Request) bool {
+	return sameOriginWriteWithProxyTrust(request, false)
+}
+
+func (s *Server) sameOriginWrite(request *http.Request) bool {
+	return sameOriginWriteWithProxyTrust(request, s.trustedProxy(request))
+}
+
+func sameOriginWriteWithProxyTrust(request *http.Request, trustedProxy bool) bool {
 	if request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
 		return true
 	}
@@ -340,20 +348,92 @@ func sameOriginWrite(request *http.Request) bool {
 	if !ok {
 		return false
 	}
-	// URL.Scheme is populated from an absolute-form request target and is
-	// therefore client-controlled. The direct connection's TLS state is the
-	// trusted effective scheme; deployments terminating TLS upstream must use a
-	// separately configured HTTPS listener rather than accepting a forwarded
-	// scheme header here.
-	effectiveScheme := "http"
-	if request.TLS != nil {
-		effectiveScheme = "https"
-	}
-	requestScheme, requestHost, requestPort, ok := parseExactOrigin("//"+strings.TrimSpace(request.Host), effectiveScheme)
+	requestScheme, requestHost, requestPort, ok := effectiveRequestOrigin(request, trustedProxy)
 	if !ok || originScheme != requestScheme || originPort != requestPort || !sameOriginHost(originHost, requestHost) {
 		return false
 	}
 	return true
+}
+
+func (s *Server) effectiveRequestScheme(request *http.Request) string {
+	trustedProxy := s.trustedProxy(request)
+	scheme, ok := effectiveRequestScheme(request, trustedProxy)
+	if !ok {
+		if trustedProxy {
+			// A trusted proxy with an invalid scheme must not cause a session
+			// cookie to be emitted without Secure. The write admission check
+			// already rejects the request; this protects GET-based renewal too.
+			return "https"
+		}
+		return "http"
+	}
+	return scheme
+}
+
+func effectiveRequestScheme(request *http.Request, trustedProxy bool) (string, bool) {
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if !trustedProxy {
+		return scheme, true
+	}
+	// A forwarded scheme is trusted only after the caller has matched the
+	// immediate TCP peer against the startup-configured proxy CIDRs.
+	forwarded, present, valid := forwardedHeader(request, "X-Forwarded-Proto")
+	if !valid {
+		return "", false
+	}
+	if !present {
+		// An HTTP upstream cannot reveal whether the public request was HTTP or
+		// HTTPS. Require the trusted proxy to declare the external scheme rather
+		// than silently treating a missing header as HTTP.
+		return "", false
+	}
+	switch strings.ToLower(forwarded) {
+	case "http", "https":
+		scheme = strings.ToLower(forwarded)
+	default:
+		return "", false
+	}
+	return scheme, true
+}
+
+func effectiveRequestOrigin(request *http.Request, trustedProxy bool) (scheme, host, port string, ok bool) {
+	effectiveScheme, valid := effectiveRequestScheme(request, trustedProxy)
+	if !valid {
+		return "", "", "", false
+	}
+	scheme = effectiveScheme
+	host = strings.TrimSpace(request.Host)
+	if trustedProxy {
+		forwardedHost, present, valid := forwardedHeader(request, "X-Forwarded-Host")
+		if !valid {
+			return "", "", "", false
+		}
+		if present {
+			host = forwardedHost
+		}
+	}
+	return parseExactOrigin("//"+host, scheme)
+}
+
+// forwardedHeader accepts exactly one non-empty header value without a comma.
+// A trusted proxy must emit an unambiguous single-hop value; accepting a
+// comma-separated chain would require guessing which hop is authoritative.
+func forwardedHeader(request *http.Request, name string) (value string, present, valid bool) {
+	values := request.Header.Values(name)
+	if len(values) == 0 {
+		return "", false, true
+	}
+	if len(values) != 1 {
+		return "", true, false
+	}
+	value = strings.TrimSpace(values[0])
+	if value == "" || strings.Contains(value, ",") {
+		return "", true, false
+	}
+	return value, true, true
 }
 
 func parseExactOrigin(raw, defaultScheme string) (scheme, host, port string, ok bool) {
