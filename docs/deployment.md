@@ -24,6 +24,47 @@ systemctl status rosboard
 journalctl -u rosboard -f
 ```
 
+## HTTPS reverse proxy
+
+To publish the panel through Lucky or Caddy, terminate HTTPS at the reverse
+proxy and forward the request to the local rosboard HTTP listener. For a
+same-host deployment, add this to `/opt/rosboard/config.yaml`:
+
+```yaml
+trusted_proxy_cidrs: true
+```
+
+This convenience mode trusts forwarded origin headers from any proxy peer, so
+it avoids having to discover a Docker bridge/container source address. Use it
+only when port `8080` is not exposed to an untrusted network. If a stable
+proxy source is available, the stricter form remains supported:
+
+```yaml
+trusted_proxy_cidrs:
+  - "127.0.0.1/32"
+```
+
+Configure the reverse proxy with the following logical values:
+
+- Public URL: `https://panel.example.com`
+- Upstream: `http://127.0.0.1:8080`
+- Preserve the public `Host`, or set a sanitized `X-Forwarded-Host: panel.example.com`
+- Always set one `X-Forwarded-Proto: https` header
+
+If Lucky runs on another host, replace `127.0.0.1/32` with the source IP or
+smallest stable CIDR that rosboard sees for Lucky's upstream connection. Do
+not use the browser client's address and do not use `0.0.0.0/0`. Restart the
+service after editing the YAML:
+
+```bash
+sudo systemctl restart rosboard
+```
+
+The setting is intentionally absent from the panel settings API. rosboard
+ignores forwarded headers from untrusted peers, continues to serve its own
+HTTP listener on port 8080, and sets the session cookie as `Secure` when the
+trusted proxy reports the external request as HTTPS.
+
 ## 版本与在线更新（从 v0.2.0 开始）
 
 在「面板设置 → 维护设置 → 版本与更新」中手动检查 GitHub 正式版本。只有更新的版本、匹配的 Linux 安装包和完整校验文件都存在时，才能确认安装；不提供后台自动检查、自动安装、重新安装或降级。页面只显示最近一次更新结果，详细错误见 `journalctl -u rosboard`。确认「完全重新初始化」时也会清除更新器保留的恢复副本。

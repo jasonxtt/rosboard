@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,19 +13,71 @@ import (
 )
 
 type Config struct {
-	Path                        string         `yaml:"-"`
-	ListenAddress               string         `yaml:"listen_address"`
-	DataDir                     string         `yaml:"data_dir"`
-	PollIntervalSeconds         int            `yaml:"poll_interval_seconds"`
-	RealtimePollIntervalSeconds int            `yaml:"realtime_poll_interval_seconds"`
-	TerminalPollIntervalSeconds int            `yaml:"terminal_poll_interval_seconds"`
-	SampleRetentionHours        int            `yaml:"sample_retention_hours"`
-	AllowedCIDRs                []string       `yaml:"allowed_cidrs"`
-	RouterOS                    RouterOSConfig `yaml:"routeros,omitempty"`
-	Devices                     []DeviceConfig `yaml:"devices,omitempty"`
+	Path                        string             `yaml:"-"`
+	ListenAddress               string             `yaml:"listen_address"`
+	DataDir                     string             `yaml:"data_dir"`
+	PollIntervalSeconds         int                `yaml:"poll_interval_seconds"`
+	RealtimePollIntervalSeconds int                `yaml:"realtime_poll_interval_seconds"`
+	TerminalPollIntervalSeconds int                `yaml:"terminal_poll_interval_seconds"`
+	SampleRetentionHours        int                `yaml:"sample_retention_hours"`
+	AllowedCIDRs                []string           `yaml:"allowed_cidrs"`
+	TrustedProxyCIDRs           TrustedProxyConfig `yaml:"trusted_proxy_cidrs,omitempty"`
+	RouterOS                    RouterOSConfig     `yaml:"routeros,omitempty"`
+	Devices                     []DeviceConfig     `yaml:"devices,omitempty"`
 
 	// ProtocolAnalysis is runtime-only (see ProtocolAnalysisConfig).
 	ProtocolAnalysis ProtocolAnalysisConfig `yaml:"-"`
+}
+
+// TrustedProxyConfig controls whether rosboard uses the external origin
+// reported by a reverse proxy. The YAML value accepts either true/false or a
+// CIDR sequence. true is a convenience mode for deployments where the proxy
+// source address is difficult to keep stable (for example, a Docker
+// container); a CIDR sequence keeps the stricter source-address allowlist.
+type TrustedProxyConfig struct {
+	TrustAll bool
+	CIDRs    []string
+}
+
+func (c *TrustedProxyConfig) UnmarshalYAML(node *yaml.Node) error {
+	*c = TrustedProxyConfig{}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if node.Tag != "!!bool" {
+			return errors.New("trusted_proxy_cidrs must be a boolean or a CIDR list")
+		}
+		var enabled bool
+		if err := node.Decode(&enabled); err != nil {
+			return fmt.Errorf("trusted_proxy_cidrs must be a boolean or a CIDR list: %w", err)
+		}
+		c.TrustAll = enabled
+		return nil
+	case yaml.SequenceNode:
+		if err := node.Decode(&c.CIDRs); err != nil {
+			return fmt.Errorf("trusted_proxy_cidrs must be a boolean or a CIDR list: %w", err)
+		}
+		return nil
+	default:
+		return errors.New("trusted_proxy_cidrs must be a boolean or a CIDR list")
+	}
+}
+
+func (c TrustedProxyConfig) MarshalYAML() (any, error) {
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
+	if c.TrustAll {
+		return true, nil
+	}
+	return c.CIDRs, nil
+}
+
+func (c TrustedProxyConfig) IsZero() bool {
+	return !c.TrustAll && len(c.CIDRs) == 0
+}
+
+func (c TrustedProxyConfig) Clone() TrustedProxyConfig {
+	return TrustedProxyConfig{TrustAll: c.TrustAll, CIDRs: append([]string(nil), c.CIDRs...)}
 }
 
 type MosDNSConfig struct {
@@ -225,6 +278,9 @@ func (c Config) validate() error {
 	if c.SampleRetentionHours <= 0 {
 		return errors.New("sample_retention_hours must be positive")
 	}
+	if err := c.TrustedProxyCIDRs.validate(); err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(c.Devices))
 	for index, device := range c.Devices {
 		if strings.TrimSpace(device.ID) == "" {
@@ -262,6 +318,26 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
+}
+
+func validateCIDRs(field string, values []string) error {
+	for index, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, index)
+		}
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return fmt.Errorf("%s[%d] %q is invalid: %w", field, index, trimmed, err)
+		}
+	}
+	return nil
+}
+
+func (c TrustedProxyConfig) validate() error {
+	if c.TrustAll && len(c.CIDRs) > 0 {
+		return errors.New("trusted_proxy_cidrs cannot combine true with a CIDR list")
+	}
+	return validateCIDRs("trusted_proxy_cidrs", c.CIDRs)
 }
 
 // NormalizeMosDNSBaseURL keeps the config/client contract URL-shaped while

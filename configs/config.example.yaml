@@ -21,3 +21,12 @@ allowed_cidrs:
   - "::1/128"
   - "10.0.0.0/8"
   - "192.168.0.0/16"
+# Optional: if an HTTPS reverse proxy terminates TLS before forwarding to
+# rosboard, set this to true to trust forwarded origin headers from any proxy
+# peer. Use this only when the rosboard listener is reachable through a
+# controlled proxy path. Omitted/false preserves direct-connection behavior.
+# trusted_proxy_cidrs: true
+#
+# For stricter source-address verification, a CIDR list is also supported:
+# trusted_proxy_cidrs:
+#   - "127.0.0.1/32"

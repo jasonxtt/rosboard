@@ -18,10 +18,22 @@ import (
 )
 
 func newAuthServer(t *testing.T, allowedCIDRs []string) (*Server, *store.Store) {
-	return newAuthServerWithRestart(t, allowedCIDRs, nil)
+	return newAuthServerWithProxy(t, allowedCIDRs, nil, nil)
 }
 
 func newAuthServerWithRestart(t *testing.T, allowedCIDRs []string, restart func()) (*Server, *store.Store) {
+	return newAuthServerWithProxy(t, allowedCIDRs, nil, restart)
+}
+
+func newAuthServerWithProxy(t *testing.T, allowedCIDRs, trustedProxyCIDRs []string, restart func()) (*Server, *store.Store) {
+	return newAuthServerWithProxyConfig(t, allowedCIDRs, config.TrustedProxyConfig{CIDRs: trustedProxyCIDRs}, restart)
+}
+
+func newAuthServerWithAllProxies(t *testing.T, allowedCIDRs []string) (*Server, *store.Store) {
+	return newAuthServerWithProxyConfig(t, allowedCIDRs, config.TrustedProxyConfig{TrustAll: true}, nil)
+}
+
+func newAuthServerWithProxyConfig(t *testing.T, allowedCIDRs []string, trustedProxy config.TrustedProxyConfig, restart func()) (*Server, *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	storage, err := store.Open(dir)
@@ -38,7 +50,7 @@ func newAuthServerWithRestart(t *testing.T, allowedCIDRs []string, restart func(
 	cfg := config.Config{
 		Path: filepath.Join(dir, "config.yaml"), DataDir: dir, ListenAddress: ":8080",
 		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		AllowedCIDRs: allowedCIDRs,
+		AllowedCIDRs: allowedCIDRs, TrustedProxyCIDRs: trustedProxy,
 	}
 	return NewServerWithAuth(cfg, nil, storage, nil, restart, authService), storage
 }
@@ -55,6 +67,28 @@ func authRequest(t *testing.T, server *Server, method, path, body string, cookie
 	}
 	if cookie != nil {
 		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	return response
+}
+
+func proxyAuthRequest(t *testing.T, server *Server, method, path, body, remoteAddr, host, origin, forwardedProto, forwardedHost string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, "http://upstream.example"+path, strings.NewReader(body))
+	request.RemoteAddr = remoteAddr
+	request.Host = host
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if origin != "" {
+		request.Header.Set("Origin", origin)
+	}
+	if forwardedProto != "" {
+		request.Header.Set("X-Forwarded-Proto", forwardedProto)
+	}
+	if forwardedHost != "" {
+		request.Header.Set("X-Forwarded-Host", forwardedHost)
 	}
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -102,7 +136,7 @@ func TestAuthBootstrapOnboardingAndLogoutFlow(t *testing.T) {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
 	cookie := responseCookie(t, created)
-	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.MaxAge != int(auth.SessionLifetime/time.Second) {
+	if !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || cookie.MaxAge != int(auth.SessionLifetime/time.Second) {
 		t.Fatalf("unsafe session cookie: %#v", cookie)
 	}
 
@@ -199,6 +233,95 @@ func TestCrossSiteWriteIsRejected(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestTrustedProxyAcceptsForwardedHTTPSAndSecuresSessionCookie(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	created := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "upstream.example:8080", "https://panel.example", "https", "panel.example")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("trusted proxy setup status=%d body=%s", created.Code, created.Body.String())
+	}
+	createdCookie := responseCookie(t, created)
+	if !createdCookie.Secure {
+		t.Fatalf("trusted HTTPS proxy did not receive a Secure cookie: %#v", createdCookie)
+	}
+	if err := server.auth.Logout(t.Context(), createdCookie.Value); err != nil {
+		t.Fatalf("revoke initial test session: %v", err)
+	}
+
+	login := proxyAuthRequest(t, server, http.MethodPost, "/api/auth/login", `{"username":"admin","password":"1234"}`, "127.0.0.1:1234", "upstream.example:8080", "https://panel.example", "https", "panel.example")
+	if login.Code != http.StatusOK {
+		t.Fatalf("trusted proxy login status=%d body=%s", login.Code, login.Body.String())
+	}
+	if cookie := responseCookie(t, login); !cookie.Secure {
+		t.Fatalf("trusted HTTPS proxy login cookie was not Secure: %#v", cookie)
+	}
+}
+
+func TestTrustAllProxyAcceptsForwardedHTTPSFromAnyPeer(t *testing.T) {
+	server, _ := newAuthServerWithAllProxies(t, nil)
+	created := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "172.18.0.3:1234", "upstream.example:8080", "https://panel.example", "https", "panel.example")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("trust-all proxy setup status=%d body=%s", created.Code, created.Body.String())
+	}
+	if cookie := responseCookie(t, created); !cookie.Secure {
+		t.Fatalf("trust-all HTTPS proxy did not receive a Secure cookie: %#v", cookie)
+	}
+}
+
+func TestTrustedProxyCanPreserveExternalHost(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "panel.example", "https://panel.example", "https", "")
+	if request.Code != http.StatusCreated {
+		t.Fatalf("trusted proxy with preserved host status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
+func TestTrustedProxyRequiresForwardedProto(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "panel.example", "http://panel.example", "", "")
+	if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
+		t.Fatalf("trusted proxy without forwarded proto status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
+func TestUntrustedPeerCannotUseForwardedHTTPS(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "192.0.2.10:1234", "panel.example", "https://panel.example", "https", "panel.example")
+	if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
+		t.Fatalf("untrusted forwarded HTTPS request status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
+func TestUntrustedPeerIgnoresForwardedScheme(t *testing.T) {
+	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "192.0.2.10:1234", "panel.example", "http://panel.example", "https", "panel.example")
+	if request.Code != http.StatusCreated {
+		t.Fatalf("untrusted peer's forwarded scheme was not ignored: status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
+func TestTrustedProxyRejectsAmbiguousOrMissingForwardedOrigin(t *testing.T) {
+	cases := []struct {
+		name           string
+		forwardedProto string
+		forwardedHost  string
+	}{
+		{name: "missing proto", forwardedHost: "panel.example"},
+		{name: "invalid proto", forwardedProto: "ftp", forwardedHost: "panel.example"},
+		{name: "multiple proto", forwardedProto: "https, http", forwardedHost: "panel.example"},
+		{name: "multiple host", forwardedProto: "https", forwardedHost: "panel.example, other.example"},
+		{name: "path host", forwardedProto: "https", forwardedHost: "panel.example/path"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
+			request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "upstream.example:8080", "https://panel.example", testCase.forwardedProto, testCase.forwardedHost)
+			if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
+				t.Fatalf("invalid forwarded origin status=%d body=%s", request.Code, request.Body.String())
+			}
+		})
 	}
 }
 
