@@ -330,7 +330,7 @@ func sameOriginWrite(request *http.Request) bool {
 }
 
 func (s *Server) sameOriginWrite(request *http.Request) bool {
-	return sameOriginWriteWithProxyTrust(request, s.trustedProxy(request))
+	return sameOriginWriteWithProxyTrust(request, s.trustedProxyOrigin(request))
 }
 
 func sameOriginWriteWithProxyTrust(request *http.Request, trustedProxy bool) bool {
@@ -356,7 +356,7 @@ func sameOriginWriteWithProxyTrust(request *http.Request, trustedProxy bool) boo
 }
 
 func (s *Server) effectiveRequestScheme(request *http.Request) string {
-	trustedProxy := s.trustedProxy(request)
+	trustedProxy := s.trustedProxyOrigin(request)
 	scheme, ok := effectiveRequestScheme(request, trustedProxy)
 	if !ok {
 		if trustedProxy {
@@ -434,6 +434,11 @@ func forwardedHeader(request *http.Request, name string) (value string, present,
 		return "", true, false
 	}
 	return value, true, true
+}
+
+func hasForwardedOriginHeaders(request *http.Request) bool {
+	return len(request.Header.Values("X-Forwarded-Proto")) > 0 ||
+		len(request.Header.Values("X-Forwarded-Host")) > 0
 }
 
 func parseExactOrigin(raw, defaultScheme string) (scheme, host, port string, ok bool) {

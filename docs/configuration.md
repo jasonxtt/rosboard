@@ -35,11 +35,13 @@ managed by the panel. The simplest setup is:
 trusted_proxy_cidrs: true
 ```
 
-`true` trusts forwarded origin headers from any immediate proxy peer. Use it
-only when port `8080` is protected by a controlled network path or firewall.
-Omitting the field or setting it to `false` preserves direct-connection
-behavior. Deployments that can identify a stable proxy source should use the
-stricter CIDR form instead:
+`true` trusts forwarded origin headers from any immediate proxy peer. A request
+without `X-Forwarded-Proto` or `X-Forwarded-Host` is treated as a direct
+connection and uses its actual scheme and Host, so LAN IP access remains
+available even when this switch is enabled. Use it only when port `8080` is
+protected by a controlled network path or firewall. Omitting the field or
+setting it to `false` preserves direct-connection behavior. Deployments that
+can identify a stable proxy source should use the stricter CIDR form instead:
 
 ```yaml
 trusted_proxy_cidrs:
@@ -51,9 +53,10 @@ send a sanitized `X-Forwarded-Host` when it does not preserve the public Host,
 and always send a single `X-Forwarded-Proto` value such as `https`. With the
 CIDR form, rosboard trusts these forwarded values only when the TCP peer
 matches the configured list. With `true`, source-address verification is
-intentionally disabled. In both modes, missing, ambiguous, or malformed
-forwarded origin values are rejected because rosboard cannot safely determine
-the external scheme otherwise.
+intentionally disabled for requests that carry forwarding headers. Once a
+forwarding header is present, missing, ambiguous, or malformed forwarded origin
+values are rejected because rosboard cannot safely determine the external
+scheme otherwise.
 
 If `allowed_cidrs` is non-empty, it must also allow the proxy's source address,
 because the API sees the proxy as the direct network peer. After editing the

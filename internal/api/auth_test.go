@@ -270,6 +270,25 @@ func TestTrustAllProxyAcceptsForwardedHTTPSFromAnyPeer(t *testing.T) {
 	}
 }
 
+func TestTrustAllAllowsDirectHTTPWithoutForwardedOriginHeaders(t *testing.T) {
+	server, _ := newAuthServerWithAllProxies(t, nil)
+	created := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "10.0.0.20:1234", "10.0.0.6:8080", "http://10.0.0.6:8080", "", "")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("trust-all direct HTTP setup status=%d body=%s", created.Code, created.Body.String())
+	}
+	if cookie := responseCookie(t, created); cookie.Secure {
+		t.Fatalf("direct HTTP request received a Secure cookie: %#v", cookie)
+	}
+}
+
+func TestTrustAllRejectsIncompleteForwardedOriginHeaders(t *testing.T) {
+	server, _ := newAuthServerWithAllProxies(t, nil)
+	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "172.18.0.3:1234", "upstream.example:8080", "https://panel.example", "", "panel.example")
+	if request.Code != http.StatusForbidden || !strings.Contains(request.Body.String(), "cross-origin request denied") {
+		t.Fatalf("trust-all incomplete forwarded origin status=%d body=%s", request.Code, request.Body.String())
+	}
+}
+
 func TestTrustedProxyCanPreserveExternalHost(t *testing.T) {
 	server, _ := newAuthServerWithProxy(t, nil, []string{"127.0.0.1/32"}, nil)
 	request := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "127.0.0.1:1234", "panel.example", "https://panel.example", "https", "")

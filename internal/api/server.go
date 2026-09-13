@@ -1587,6 +1587,19 @@ func (s *Server) trustedProxy(request *http.Request) bool {
 	return false
 }
 
+func (s *Server) trustedProxyOrigin(request *http.Request) bool {
+	if !s.trustedProxy(request) {
+		return false
+	}
+	// Trust-all is also used for mixed deployments where users may reach the
+	// panel directly over the LAN. Without forwarding headers, use the direct
+	// request scheme and Host instead of treating the LAN client as a proxy.
+	if s.trustAllProxies && !hasForwardedOriginHeaders(request) {
+		return false
+	}
+	return true
+}
+
 func requestRemoteIP(request *http.Request) net.IP {
 	host, _, err := net.SplitHostPort(request.RemoteAddr)
 	if err != nil {

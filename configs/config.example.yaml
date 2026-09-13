@@ -23,7 +23,8 @@ allowed_cidrs:
   - "192.168.0.0/16"
 # Optional: if an HTTPS reverse proxy terminates TLS before forwarding to
 # rosboard, set this to true to trust forwarded origin headers from any proxy
-# peer. Use this only when the rosboard listener is reachable through a
+# peer. Requests without forwarding headers remain direct requests, so LAN IP
+# access continues to work. Use this only when the listener is protected by a
 # controlled proxy path. Omitted/false preserves direct-connection behavior.
 # trusted_proxy_cidrs: true
 #
