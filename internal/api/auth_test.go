@@ -26,6 +26,14 @@ func newAuthServerWithRestart(t *testing.T, allowedCIDRs []string, restart func(
 }
 
 func newAuthServerWithProxy(t *testing.T, allowedCIDRs, trustedProxyCIDRs []string, restart func()) (*Server, *store.Store) {
+	return newAuthServerWithProxyConfig(t, allowedCIDRs, config.TrustedProxyConfig{CIDRs: trustedProxyCIDRs}, restart)
+}
+
+func newAuthServerWithAllProxies(t *testing.T, allowedCIDRs []string) (*Server, *store.Store) {
+	return newAuthServerWithProxyConfig(t, allowedCIDRs, config.TrustedProxyConfig{TrustAll: true}, nil)
+}
+
+func newAuthServerWithProxyConfig(t *testing.T, allowedCIDRs []string, trustedProxy config.TrustedProxyConfig, restart func()) (*Server, *store.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	storage, err := store.Open(dir)
@@ -42,7 +50,7 @@ func newAuthServerWithProxy(t *testing.T, allowedCIDRs, trustedProxyCIDRs []stri
 	cfg := config.Config{
 		Path: filepath.Join(dir, "config.yaml"), DataDir: dir, ListenAddress: ":8080",
 		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
-		AllowedCIDRs: allowedCIDRs, TrustedProxyCIDRs: trustedProxyCIDRs,
+		AllowedCIDRs: allowedCIDRs, TrustedProxyCIDRs: trustedProxy,
 	}
 	return NewServerWithAuth(cfg, nil, storage, nil, restart, authService), storage
 }
@@ -248,6 +256,17 @@ func TestTrustedProxyAcceptsForwardedHTTPSAndSecuresSessionCookie(t *testing.T) 
 	}
 	if cookie := responseCookie(t, login); !cookie.Secure {
 		t.Fatalf("trusted HTTPS proxy login cookie was not Secure: %#v", cookie)
+	}
+}
+
+func TestTrustAllProxyAcceptsForwardedHTTPSFromAnyPeer(t *testing.T) {
+	server, _ := newAuthServerWithAllProxies(t, nil)
+	created := proxyAuthRequest(t, server, http.MethodPost, "/api/setup/admin", `{"username":"admin","password":"1234","passwordConfirmation":"1234"}`, "172.18.0.3:1234", "upstream.example:8080", "https://panel.example", "https", "panel.example")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("trust-all proxy setup status=%d body=%s", created.Code, created.Body.String())
+	}
+	if cookie := responseCookie(t, created); !cookie.Secure {
+		t.Fatalf("trust-all HTTPS proxy did not receive a Secure cookie: %#v", cookie)
 	}
 }
 

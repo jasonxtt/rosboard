@@ -15,7 +15,7 @@
 | `terminal_poll_interval_seconds` | 终端发现、地址与在线状态采集间隔，默认 `5` 秒；终端页当前速率由独立的 1 秒 conntrack 采集更新 |
 | `sample_retention_hours` | 历史采样保留时长 |
 | `allowed_cidrs` | 允许访问 `/api/*` 的客户端网段 |
-| `trusted_proxy_cidrs` | 可被信任提供 `X-Forwarded-Proto` / `X-Forwarded-Host` 的反向代理源地址或网段；仅启动配置可设置 |
+| `trusted_proxy_cidrs` | HTTPS 反向代理信任开关；`true` 信任所有代理来源，或填写 CIDR 列表进行来源限制；仅启动配置可设置 |
 | `devices[].id` | 设备稳定标识；创建后不应修改 |
 | `devices[].name` | 面板中显示的设备名称 |
 | `devices[].enabled` | 是否在后台持续采集该设备 |
@@ -27,10 +27,19 @@
 
 ## HTTPS reverse proxy
 
-rosboard can remain on an internal HTTP listener while Lucky or another
-reverse proxy terminates HTTPS. This is a startup-only security setting and is
-not managed by the panel. Add only the proxy's immediate source address to
-`trusted_proxy_cidrs`:
+rosboard can remain on an internal HTTP listener while Lucky, Caddy, or another
+reverse proxy terminates HTTPS. This is a startup-only setting and is not
+managed by the panel. The simplest setup is:
+
+```yaml
+trusted_proxy_cidrs: true
+```
+
+`true` trusts forwarded origin headers from any immediate proxy peer. Use it
+only when port `8080` is protected by a controlled network path or firewall.
+Omitting the field or setting it to `false` preserves direct-connection
+behavior. Deployments that can identify a stable proxy source should use the
+stricter CIDR form instead:
 
 ```yaml
 trusted_proxy_cidrs:
@@ -39,12 +48,12 @@ trusted_proxy_cidrs:
 
 The proxy must proxy to `http://127.0.0.1:8080`, preserve the public `Host` or
 send a sanitized `X-Forwarded-Host` when it does not preserve the public Host,
-and always send a single `X-Forwarded-Proto` value such as `https`. rosboard
-trusts these forwarded values only when the TCP peer matches
-`trusted_proxy_cidrs`; direct clients cannot enable proxy mode by sending the
-headers themselves. A trusted proxy request without `X-Forwarded-Proto`, or
-with multiple comma-separated or otherwise malformed forwarded values, is
-rejected.
+and always send a single `X-Forwarded-Proto` value such as `https`. With the
+CIDR form, rosboard trusts these forwarded values only when the TCP peer
+matches the configured list. With `true`, source-address verification is
+intentionally disabled. In both modes, missing, ambiguous, or malformed
+forwarded origin values are rejected because rosboard cannot safely determine
+the external scheme otherwise.
 
 If `allowed_cidrs` is non-empty, it must also allow the proxy's source address,
 because the API sees the proxy as the direct network peer. After editing the

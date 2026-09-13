@@ -2,9 +2,12 @@
 
 ## Configuration
 
-Add `TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs,omitempty"`` to the
-process-global `config.Config`. `config.Load` validates every non-empty value
-with `net.ParseCIDR`; invalid or blank entries fail startup rather than being
+Add a custom `TrustedProxyConfig` value to the process-global `config.Config`
+under `trusted_proxy_cidrs`. YAML accepts `false`/`true` or a CIDR
+sequence. `false` and an omitted value disable proxy-origin handling, `true`
+trusts any immediate peer, and a sequence enables the original strict CIDR
+allowlist. `config.Load` validates every non-empty CIDR value with
+`net.ParseCIDR`; invalid or blank entries fail startup rather than being
 silently ignored. Existing `allowed_cidrs` behavior remains unchanged.
 
 `api.Server` parses the configured trusted ranges at construction time. The
@@ -22,7 +25,8 @@ The server-aware check will:
 1. Allow GET, HEAD, and OPTIONS as before.
 2. Reject `Sec-Fetch-Site: cross-site` writes and missing/malformed Origin.
 3. Derive the direct scheme from `request.TLS`.
-4. If the immediate peer is in `trusted_proxy_cidrs`, require a single strict
+4. If proxy trust is enabled—either by `trusted_proxy_cidrs: true` or by the
+   immediate peer matching a configured CIDR—require a single strict
    `X-Forwarded-Proto` token and use a single strict `X-Forwarded-Host` value
    when present. A missing forwarded protocol fails closed because an HTTP
    upstream cannot reveal the public scheme; a missing forwarded host falls
@@ -45,7 +49,11 @@ SameSite, expiry, and max-age remain unchanged.
 
 ## Compatibility and failure mode
 
-- No configured trusted proxy: current behavior is unchanged.
+- No configured trusted proxy, or `trusted_proxy_cidrs: false`: current
+  behavior is unchanged.
+- `trusted_proxy_cidrs: true`: any immediate peer may provide the forwarded
+  origin values; this is intentionally convenient but must be protected by
+  the network deployment.
 - Trusted proxy with no `X-Forwarded-Proto`: the request fails closed because
   an HTTP upstream cannot reveal the public scheme; this prompts the operator
   to configure the required forwarding header.
@@ -56,12 +64,14 @@ SameSite, expiry, and max-age remain unchanged.
 
 ## User operation
 
-The example and deployment docs will show:
+The example and deployment docs will show the convenience form:
 
 ```yaml
-trusted_proxy_cidrs:
-  - "127.0.0.1/32"
+trusted_proxy_cidrs: true
 ```
+
+The strict CIDR-list form remains documented for deployments with stable proxy
+source addresses.
 
 Lucky terminates HTTPS, proxies to `http://127.0.0.1:8080`, preserves the
 external host or sends `X-Forwarded-Host`, and sends

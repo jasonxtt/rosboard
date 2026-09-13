@@ -26,19 +26,25 @@ journalctl -u rosboard -f
 
 ## HTTPS reverse proxy
 
-To publish the panel through Lucky, terminate HTTPS at Lucky and forward the
-request to the local rosboard HTTP listener. For a same-host Lucky deployment,
-add this to `/opt/rosboard/config.yaml`:
+To publish the panel through Lucky or Caddy, terminate HTTPS at the reverse
+proxy and forward the request to the local rosboard HTTP listener. For a
+same-host deployment, add this to `/opt/rosboard/config.yaml`:
 
 ```yaml
-allowed_cidrs:
-  - "127.0.0.1/32"
+trusted_proxy_cidrs: true
+```
 
+This convenience mode trusts forwarded origin headers from any proxy peer, so
+it avoids having to discover a Docker bridge/container source address. Use it
+only when port `8080` is not exposed to an untrusted network. If a stable
+proxy source is available, the stricter form remains supported:
+
+```yaml
 trusted_proxy_cidrs:
   - "127.0.0.1/32"
 ```
 
-Configure Lucky with the following logical values:
+Configure the reverse proxy with the following logical values:
 
 - Public URL: `https://panel.example.com`
 - Upstream: `http://127.0.0.1:8080`

@@ -127,7 +127,7 @@ func TestSettingsReturnsEffectiveConfig(t *testing.T) {
 		TerminalPollIntervalSeconds: 3,
 		SampleRetentionHours:        48,
 		AllowedCIDRs:                []string{"127.0.0.0/8", "::1/128"},
-		TrustedProxyCIDRs:           []string{"127.0.0.1/32"},
+		TrustedProxyCIDRs:           config.TrustedProxyConfig{CIDRs: []string{"127.0.0.1/32"}},
 		RouterOS: config.RouterOSConfig{
 			BaseURL:           "http://router.test",
 			Username:          "admin",

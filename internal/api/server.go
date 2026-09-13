@@ -47,6 +47,7 @@ type Server struct {
 	assets            fs.FS
 	allowedCIDRs      []*net.IPNet
 	trustedProxyCIDRs []*net.IPNet
+	trustAllProxies   bool
 	fileServer        http.Handler
 	restart           func()
 	auth              *auth.Service
@@ -75,7 +76,8 @@ func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, asse
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
-		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
 		fileServer:        http.FileServer(http.FS(assets)),
 		restart:           restart,
 		tickets:           newVerificationTickets(),
@@ -90,7 +92,8 @@ func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
-		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
 		fileServer:        http.FileServer(http.FS(assets)),
 		restart:           restart,
 		tickets:           newVerificationTickets(),
@@ -110,7 +113,8 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 		store:             storage,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
-		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs),
+		trustedProxyCIDRs: parseCIDRs(cfg.TrustedProxyCIDRs.CIDRs),
+		trustAllProxies:   cfg.TrustedProxyCIDRs.TrustAll,
 		fileServer:        http.FileServer(http.FS(assets)),
 		restart:           restart,
 		auth:              authService,
@@ -1281,7 +1285,7 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	defer s.cfgMu.Unlock()
 	next := s.cfg
 	next.AllowedCIDRs = cloneStrings(s.cfg.AllowedCIDRs)
-	next.TrustedProxyCIDRs = cloneStrings(s.cfg.TrustedProxyCIDRs)
+	next.TrustedProxyCIDRs = s.cfg.TrustedProxyCIDRs.Clone()
 	next.RouterOS.TrafficInterfaces = cloneStrings(s.cfg.RouterOS.TrafficInterfaces)
 	next.RouterOS.TrafficScope = cloneTrafficScope(s.cfg.RouterOS.TrafficScope)
 	next.RouterOS.TerminalCIDRs = cloneStrings(s.cfg.RouterOS.TerminalCIDRs)
@@ -1565,6 +1569,9 @@ func (s *Server) allowed(request *http.Request) bool {
 }
 
 func (s *Server) trustedProxy(request *http.Request) bool {
+	if s.trustAllProxies {
+		return true
+	}
 	if len(s.trustedProxyCIDRs) == 0 {
 		return false
 	}
