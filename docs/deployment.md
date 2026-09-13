@@ -35,9 +35,11 @@ trusted_proxy_cidrs: true
 ```
 
 This convenience mode trusts forwarded origin headers from any proxy peer, so
-it avoids having to discover a Docker bridge/container source address. Use it
-only when port `8080` is not exposed to an untrusted network. If a stable
-proxy source is available, the stricter form remains supported:
+it avoids having to discover a Docker bridge/container source address. A direct
+request without forwarding headers continues to use its actual scheme and Host,
+so LAN IP access remains available. Use it only when port `8080` is not exposed
+to an untrusted network. If a stable proxy source is available, the stricter
+form remains supported:
 
 ```yaml
 trusted_proxy_cidrs:
@@ -63,7 +65,9 @@ sudo systemctl restart rosboard
 The setting is intentionally absent from the panel settings API. rosboard
 ignores forwarded headers from untrusted peers, continues to serve its own
 HTTP listener on port 8080, and sets the session cookie as `Secure` when the
-trusted proxy reports the external request as HTTPS.
+trusted proxy reports the external request as HTTPS. In trust-all mode, a direct
+request without forwarding headers is not forced through the proxy-origin
+validation path.
 
 ## 版本与在线更新（从 v0.2.0 开始）
 

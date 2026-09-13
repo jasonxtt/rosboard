@@ -16,6 +16,9 @@ same-origin/CSRF boundary for direct or untrusted requests.
   expose this setting as a panel-managed UI field or API write operation.
 - Trust `X-Forwarded-Proto` and `X-Forwarded-Host` according to the selected
   mode while retaining strict single-value/origin validation.
+- When `trusted_proxy_cidrs: true` is enabled, a request without forwarding
+  headers must continue to use direct-connection origin handling so LAN IP
+  access and direct HTTP/HTTPS same-origin writes remain available.
 - Validate forwarded values strictly enough to prevent ambiguous proxy chains,
   invalid schemes, ports, paths, userinfo, or host injection from being used
   for same-origin decisions.
