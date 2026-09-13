@@ -25,13 +25,16 @@ The server-aware check will:
 1. Allow GET, HEAD, and OPTIONS as before.
 2. Reject `Sec-Fetch-Site: cross-site` writes and missing/malformed Origin.
 3. Derive the direct scheme from `request.TLS`.
-4. If proxy trust is enabled—either by `trusted_proxy_cidrs: true` or by the
-   immediate peer matching a configured CIDR—require a single strict
+4. If the immediate peer matches a configured CIDR, require a single strict
    `X-Forwarded-Proto` token and use a single strict `X-Forwarded-Host` value
-   when present. A missing forwarded protocol fails closed because an HTTP
-   upstream cannot reveal the public scheme; a missing forwarded host falls
-   back to the direct Host so a proxy may preserve the public Host. Malformed
-   present values fail closed.
+   when present. In `trusted_proxy_cidrs: true` mode, use the forwarded-origin
+   path only when `X-Forwarded-Proto` or `X-Forwarded-Host` is present; without
+   either header, treat the request as direct and use its actual scheme and
+   Host. Once a trust-all request supplies a forwarding header, a missing
+   forwarded protocol still fails closed because an HTTP upstream cannot
+   reveal the public scheme. A missing forwarded host falls back to the direct
+   Host so a proxy may preserve the public Host. Malformed present values fail
+   closed.
 5. Parse the resulting scheme/host/port with the existing exact-origin parser
    and require scheme, normalized port, and host equality with the browser's
    Origin.
@@ -52,11 +55,12 @@ SameSite, expiry, and max-age remain unchanged.
 - No configured trusted proxy, or `trusted_proxy_cidrs: false`: current
   behavior is unchanged.
 - `trusted_proxy_cidrs: true`: any immediate peer may provide the forwarded
-  origin values; this is intentionally convenient but must be protected by
-  the network deployment.
-- Trusted proxy with no `X-Forwarded-Proto`: the request fails closed because
-  an HTTP upstream cannot reveal the public scheme; this prompts the operator
-  to configure the required forwarding header.
+  origin values; a request without forwarding headers remains direct. This is
+  intentionally convenient but must be protected by the network deployment.
+- Trusted proxy with forwarding headers but no `X-Forwarded-Proto`: the request
+  fails closed because an HTTP upstream cannot reveal the public scheme; this
+  prompts the operator to configure the required forwarding header. A direct
+  request without forwarding headers is not subject to this proxy requirement.
 - A trusted proxy that sends `X-Forwarded-Host` but preserves Host is accepted;
   if it rewrites Host, the forwarded host must be present and valid.
 - Multiple comma-separated forwarding values are rejected instead of guessing
