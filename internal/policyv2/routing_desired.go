@@ -436,7 +436,8 @@ func dedupeRoutingDNSStaticEntries(result *DesiredResult, entries []routingDNSSt
 			Status:   "warning",
 			EgressID: key.egressID,
 			Reason: fmt.Sprintf(
-				"同一出口的目标列表「%s」与「%s」包含重叠域名 %s；RouterOS 不允许同时启用两条相同的 DNS Static 条目，已合并为一条，重叠域名的解析地址将进入「%s」的地址列表。",
+				"出口「%s」的目标列表「%s」与「%s」包含重叠域名 %s；RouterOS 不允许同时启用两条相同的 DNS Static 条目，已合并为一条，重叠域名的解析地址将进入「%s」的地址列表。",
+				displayName(egressNameByID[key.egressID], key.egressID),
 				displayName(targetNameByID[key.winner], key.winner), displayName(targetNameByID[key.loser], key.loser),
 				domainListPhrase(domains), displayName(targetNameByID[key.winner], key.winner)),
 		})

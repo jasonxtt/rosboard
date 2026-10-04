@@ -68,7 +68,7 @@ func TestRoutingDNSStaticMergeAcrossTargetLists(t *testing.T) {
 			continue
 		}
 		foundWarning = true
-		for _, want := range []string{"Anthropic 域名", "Claude 域名", "anthropic.com"} {
+		for _, want := range []string{"WAN A", "Anthropic 域名", "Claude 域名", "anthropic.com"} {
 			if !strings.Contains(warning.Reason, want) {
 				t.Fatalf("merge warning must mention %q, got %q", want, warning.Reason)
 			}
@@ -101,7 +101,7 @@ func TestDedupeRoutingDNSStaticPrefersEnabledProjection(t *testing.T) {
 	if len(result.Warnings) != 1 {
 		t.Fatalf("merge must emit exactly one warning, got %#v", result.Warnings)
 	}
-	if !strings.Contains(result.Warnings[0].Reason, "B 域名") || !strings.Contains(result.Warnings[0].Reason, "A 域名") {
+	if !strings.Contains(result.Warnings[0].Reason, "WAN A") || !strings.Contains(result.Warnings[0].Reason, "B 域名") || !strings.Contains(result.Warnings[0].Reason, "A 域名") {
 		t.Fatalf("warning must name both target lists, got %q", result.Warnings[0].Reason)
 	}
 }
