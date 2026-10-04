@@ -52,8 +52,10 @@ ENV ROSBOARD_UPDATE_DISABLED=1
 WORKDIR /var/lib/rosboard
 VOLUME ["/var/lib/rosboard"]
 COPY --from=builder --chown=rosboard:rosboard /out/rosboard /usr/local/bin/rosboard
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 USER rosboard
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q -O /dev/null "http://127.0.0.1:${ROSBOARD_PORT:-8080}/" || exit 1
-ENTRYPOINT ["/usr/local/bin/rosboard"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
