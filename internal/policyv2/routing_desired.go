@@ -2,6 +2,7 @@ package policyv2
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"sort"
 	"strings"
@@ -73,6 +74,10 @@ type routingDNSStaticEntry struct {
 	logicalID string
 	label     string
 	fields    map[string]string
+	// egressName and targetName carry display names for merge warnings;
+	// they never take part in the RouterOS fields or the desired identity.
+	egressName string
+	targetName string
 }
 
 type routingConnectionOrder struct {
@@ -315,6 +320,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 	}
 	reorderRoutingConnectionObjects(result)
 	sortRoutingDNSStaticEntries(routingDNSStatics)
+	routingDNSStatics = dedupeRoutingDNSStaticEntries(result, routingDNSStatics)
 	for _, entry := range routingDNSStatics {
 		add(entry.logicalID, routeros.MenuIPDNSStatic, "dns", entry.label, entry.fields)
 	}
@@ -356,6 +362,108 @@ func sortRoutingDNSStaticEntries(entries []routingDNSStaticEntry) {
 		}
 		return left.logicalID < right.logicalID
 	})
+}
+
+// dedupeRoutingDNSStaticEntries merges deferred DNS Static entries whose
+// RouterOS identity collides. RouterOS rejects enabling a second DNS Static
+// entry with the same name, type, forward-to and match-subdomain/regexp as an
+// already enabled one ("failure: entry already exists") even when their
+// address-list or comment differ, so two target lists of the same egress that
+// both contain a domain cannot both be projected. Entries are assumed to be
+// sorted by sortRoutingDNSStaticEntries; the first entry per identity wins,
+// except that a disabled projection always loses to an enabled one from an
+// active consumer. Every merge emits one warning naming both target lists.
+func dedupeRoutingDNSStaticEntries(result *DesiredResult, entries []routingDNSStaticEntry) []routingDNSStaticEntry {
+	if len(entries) == 0 {
+		return entries
+	}
+	kept := make([]routingDNSStaticEntry, 0, len(entries))
+	indexByIdentity := make(map[string]int, len(entries))
+	type mergeKey struct {
+		egressID string
+		winner   string
+		loser    string
+	}
+	domainsByMerge := make(map[mergeKey][]string)
+	for _, entry := range entries {
+		identity := dnsStaticIdentityKey(entry.fields)
+		index, seen := indexByIdentity[identity]
+		if !seen {
+			indexByIdentity[identity] = len(kept)
+			kept = append(kept, entry)
+			continue
+		}
+		winner, loser := kept[index], entry
+		if winner.fields["disabled"] == "yes" && loser.fields["disabled"] == "no" {
+			winner, loser = loser, winner
+			kept[index] = winner
+		}
+		key := mergeKey{egressID: winner.egressID, winner: winner.targetID, loser: loser.targetID}
+		domainsByMerge[key] = append(domainsByMerge[key], loser.domain)
+	}
+	if len(domainsByMerge) == 0 {
+		return kept
+	}
+	keys := make([]mergeKey, 0, len(domainsByMerge))
+	for key := range domainsByMerge {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := keys[i], keys[j]
+		if left.egressID != right.egressID {
+			return left.egressID < right.egressID
+		}
+		if left.winner != right.winner {
+			return left.winner < right.winner
+		}
+		return left.loser < right.loser
+	})
+	egressNameByID := make(map[string]string, len(entries))
+	targetNameByID := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		if _, ok := egressNameByID[entry.egressID]; !ok && entry.egressName != "" {
+			egressNameByID[entry.egressID] = entry.egressName
+		}
+		if _, ok := targetNameByID[entry.targetID]; !ok && entry.targetName != "" {
+			targetNameByID[entry.targetID] = entry.targetName
+		}
+	}
+	for _, key := range keys {
+		domains := domainsByMerge[key]
+		sort.Strings(domains)
+		result.Warnings = append(result.Warnings, PlanIssue{
+			Code:     "routing_dns_projection_merged",
+			Status:   "warning",
+			EgressID: key.egressID,
+			Reason: fmt.Sprintf(
+				"出口「%s」的目标列表「%s」与「%s」包含重叠域名 %s；RouterOS 不允许同时启用两条相同的 DNS Static 条目，已合并为一条，重叠域名的解析地址将进入「%s」的地址列表。",
+				displayName(egressNameByID[key.egressID], key.egressID),
+				displayName(targetNameByID[key.winner], key.winner), displayName(targetNameByID[key.loser], key.loser),
+				domainListPhrase(domains), displayName(targetNameByID[key.winner], key.winner)),
+		})
+	}
+	return kept
+}
+
+// dnsStaticIdentityKey returns the field identity RouterOS uses to reject
+// duplicate DNS Static entries. address-list and comment are deliberately
+// excluded: RouterOS ignores them in its duplicate check.
+func dnsStaticIdentityKey(fields map[string]string) string {
+	return strings.Join([]string{
+		fields["name"], fields["type"], fields["forward-to"], fields["regexp"], fields["address"], fields["match-subdomain"],
+	}, "\x00")
+}
+
+func domainListPhrase(domains []string) string {
+	const maxListed = 3
+	parts := make([]string, 0, min(len(domains), maxListed))
+	for _, domain := range domains[:min(len(domains), maxListed)] {
+		parts = append(parts, domain)
+	}
+	if len(domains) > maxListed {
+		parts = append(parts, fmt.Sprintf("等 %d 个域名", len(domains)))
+	}
+	return strings.Join(parts, "、")
 }
 
 func buildRoutingIngressProjections(result *DesiredResult, add func(string, routeros.MutationMenu, string, string, map[string]string), managerID, deviceID string, defaultScope TrafficIngressScope, allowDefaultScope bool, rules []RoutingRule) (map[string]string, map[string]bool) {
@@ -529,7 +637,7 @@ func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.
 				priority: plainPriority, egressID: egress.ID, targetID: target.id,
 				ruleType: targetRule.RuleType, domain: targetRule.Domain,
 				logicalID: logicalID, label: routingObjectCommentLabel(logicalID, strategyLabel, target),
-				fields: fields,
+				fields: fields, egressName: egress.Name, targetName: displayName(target.source.Name, target.id),
 			})
 		}
 		keywordRules := projectionKeywordRules(target)
@@ -549,6 +657,7 @@ func buildRoutingDomainObjects(result *DesiredResult, add func(string, routeros.
 				priority: target.keywordPriority, ruleID: target.keywordRuleID, keyword: true,
 				egressID: egress.ID, targetID: target.id, ruleType: keyword.RuleType, domain: keyword.Domain,
 				logicalID: logicalID, label: routingObjectCommentLabel(logicalID, strategyLabel, target), fields: fields,
+				egressName: egress.Name, targetName: displayName(target.source.Name, target.id),
 			})
 		}
 	}
