@@ -63,6 +63,17 @@ rosboard 把一台或多台 RouterOS 设备集中到一个适合局域网部署�
 
 3. 打开 `http://<服务器地址>:8080`：先创建管理员账号，再按「快速接入」引导把一段自动生成的脚本粘贴到 RouterOS Terminal，即完成设备接入。首次保存设备时会自动创建 `/opt/rosboard/config.yaml`，无需预先编辑任何配置。
 
+### 使用 Docker
+
+```bash
+mkdir -p /opt/rosboard-docker && chown 1000:1000 /opt/rosboard-docker
+docker run -d --name rosboard --network host \
+  -v /opt/rosboard-docker:/var/lib/rosboard \
+  --restart unless-stopped jasonxtt/rosboard:latest
+```
+
+推荐宿主网络（面板默认连 `http://10.0.0.1` 的 RouterOS），桥接网络等其他事项见 [Docker 部署](docs/docker.md)。
+
 ### 从源码构建
 
 ```bash
@@ -125,6 +136,7 @@ rosboard 按周期从 RouterOS 采集运行状态；策略路由与访问控制�
 | [接入 RouterOS](docs/routeros-access.md) | 快速接入流程、账号权限模型、版本与 HTTP/HTTPS 要求 |
 | [配置参考](docs/configuration.md) | 全部配置字段、环境变量、采集周期与页面刷新行为 |
 | [部署与更新](docs/deployment.md) | systemd 部署、supervisor 守护、在线更新原理、发布产物 |
+| [Docker 部署](docs/docker.md) | 镜像与标签、网络模式、卷布局、升级方式 |
 | [安全说明](docs/security.md) | 安全模型、密码重置、完全重新初始化 |
 | [开发指南](docs/development.md) | 开发环境、测试与构建、项目结构、双 UI |
 
@@ -139,7 +151,7 @@ rosboard 按周期从 RouterOS 采集运行状态；策略路由与访问控制�
 
 ## 当前限制
 
-- 以 Linux + systemd 部署为主，暂未提供 Docker 镜像
+- 以 Linux 部署为主，支持 systemd 与 Docker（见 [Docker 部署](docs/docker.md)）
 - RouterOS 硬件能力与版本差异可能导致部分健康、IPv6 或策略数据不可用
 
 ## License

@@ -1,0 +1,27 @@
+.git
+.github
+.trellis
+.zcode
+.agents
+.codex
+.opencode
+dist/
+dist-bundle/
+preview-ikuai/
+data/
+web/node_modules/
+# 镜像内的 UI 必须来自 webui-builder 阶段，防止过期的已提交 dist 泄漏进镜像
+internal/ui/dist/
+docs/images/
+configs/
+.rosboard-update/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config.yaml
+config.local.yaml
+.DS_Store
+rosboard
+rosboard-supervisor
