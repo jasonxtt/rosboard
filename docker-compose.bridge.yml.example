@@ -1,6 +1,6 @@
 # 备选方式：桥接网络 + 端口映射。
-# 注意：默认 RouterOS 地址 http://10.0.0.1 在桥接网络里指不到路由器，
-# 必须显式设置 ROSBOARD_ROUTEROS_BASE_URL 为容器可达的地址。
+# 注意：引导时填写的 RouterOS 局域网地址（如 10.0.0.1）在桥接网络里
+# 容器不一定可达，必须显式设置 ROSBOARD_ROUTEROS_BASE_URL 为容器可达的地址。
 #
 # 使用前：
 #   mkdir -p /opt/rosboard-docker && chown 1000:1000 /opt/rosboard-docker
