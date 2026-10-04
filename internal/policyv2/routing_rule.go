@@ -582,7 +582,11 @@ type DomainProjectionResolution struct {
 // contexts; rule Priority decides the winner among ACTIVE projections only:
 //
 //	same physical projection            → one projection, no comparison
-//	projections sharing an active rule  → intra-rule OR of TargetLists, allowed
+//	projections sharing an active rule  → intra-rule OR of TargetLists; the
+//	                                      desired-state build later merges the
+//	                                      duplicate DNS Static entries this OR
+//	                                      produces (RouterOS refuses to enable
+//	                                      two entries with the same identity)
 //	projection without an active consumer → kept out of arbitration entirely
 //	overlap, different effective Priority
 //	                       → warning; the higher-priority projection is ordered
