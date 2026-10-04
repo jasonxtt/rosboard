@@ -1,5 +1,7 @@
 # 部署与更新
 
+除 systemd 外也支持 Docker 部署（镜像随版本发布到 Docker Hub），见 [Docker 部署](docker.md)。
+
 ## systemd 部署
 
 仓库提供了 [`deploy/rosboard.service`](../deploy/rosboard.service)。以下示例在 Linux 上将程序安装到 `/opt/rosboard`：
@@ -87,6 +89,6 @@ validation path.
 
 根目录的 [`VERSION`](../VERSION) 是唯一的发布开关。普通代码提交不会创建 Release。准备下一版时，在任务分支上将 `VERSION` 改为新的正式语义版本；经过验证与验收后合并到 `main`，由 GitHub Actions 发布。不要为触发发布直接向 `main` 推送开发代码。
 
-Actions 会运行后端测试、前端测试/lint/build/资源检查，并生成 `linux_amd64`、`linux_amd64-v3`、`linux_arm64`、`linux_armv7` 压缩包及 `sha256sums.txt`。版本号、提交号、构建时间和架构会注入可执行文件；`./rosboard version` 输出这些信息的 JSON。普通 `go build` 显示为开发构建，不能在线更新。
+Actions 会运行后端测试、前端测试/lint/build/资源检查，并生成 `linux_amd64`、`linux_amd64-v3`、`linux_arm64`、`linux_armv7` 压缩包及 `sha256sums.txt`；同一触发条件下 [`docker.yml`](../.github/workflows/docker.yml) 会构建并推送多架构 Docker 镜像（`jasonxtt/rosboard`）。版本号、提交号、构建时间和架构会注入可执行文件；`./rosboard version` 输出这些信息的 JSON。普通 `go build` 显示为开发构建，不能在线更新。
 
 附件全部生成后先上传到 Draft Release，再发布正式版，避免在线更新读到未上传完整的版本。同一版本号已存在时失败，不覆盖既有 Release。`amd64-v3` 仅用于支持 x86-64-v3 的处理器；通用 x86 服务器使用 `amd64`。

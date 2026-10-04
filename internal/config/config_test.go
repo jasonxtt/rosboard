@@ -476,3 +476,37 @@ func TestLoadPreservesExplicitSortOrder(t *testing.T) {
 		t.Fatalf("reordering must not mix up device payloads, got %+v", cfg.Devices)
 	}
 }
+
+func TestLoadOverridesListenPortFromEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	t.Setenv("ROSBOARD_PORT", "9090")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ListenAddress != ":9090" {
+		t.Fatalf("ROSBOARD_PORT was not applied: %q", cfg.ListenAddress)
+	}
+
+	// 显式 ROSBOARD_LISTEN_ADDRESS 优先于 ROSBOARD_PORT
+	t.Setenv("ROSBOARD_LISTEN_ADDRESS", "127.0.0.1:8081")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ListenAddress != "127.0.0.1:8081" {
+		t.Fatalf("ROSBOARD_LISTEN_ADDRESS should take precedence: %q", cfg.ListenAddress)
+	}
+}
+
+func TestLoadRejectsInvalidPortFromEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	for _, value := range []string{"abc", "0", "70000", "-1"} {
+		t.Setenv("ROSBOARD_PORT", value)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected error for ROSBOARD_PORT=%q", value)
+		}
+	}
+}
