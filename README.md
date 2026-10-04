@@ -72,7 +72,7 @@ docker run -d --name rosboard --network host \
   --restart unless-stopped jasonxtt/rosboard:latest
 ```
 
-推荐宿主网络（面板默认连 `http://10.0.0.1` 的 RouterOS），桥接网络等其他事项见 [Docker 部署](docs/docker.md)。
+推荐宿主网络（你填写的 RouterOS 局域网地址直接可达），桥接网络等其他事项见 [Docker 部署](docs/docker.md)。
 
 ### 从源码构建
 
