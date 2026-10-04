@@ -67,6 +67,12 @@ docker compose pull && docker compose up -d
 
 配置和数据都在卷里，容器重建后直接恢复。
 
+## 进程重启语义
+
+保存设备、修改关键配置后，程序会**主动优雅退出再启动**（systemd 部署下由 systemd 拉起）。镜像内的 entrypoint 会在容器里自动把进程拉起来，即使 `docker run` 时忘了 `--restart` 也能自愈；进程异常崩溃（非 0 退出）时 entrypoint 不做循环，交给 Docker 的重启策略处理。
+
+因此**仍建议**始终带上 `--restart unless-stopped`（compose 示例已带）：它额外覆盖崩溃自愈、Docker 守护进程重启后自动拉起这两种 entrypoint 兜不住的情况。
+
 ## 运维
 
 ```bash
