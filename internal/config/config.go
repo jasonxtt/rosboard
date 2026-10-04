@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -178,7 +179,9 @@ func Load(path string) (Config, error) {
 		}
 	}
 
-	overrideFromEnv(&cfg)
+	if err := overrideFromEnv(&cfg); err != nil {
+		return Config{}, err
+	}
 	cfg.normalizeDevices()
 
 	if err := cfg.validate(); err != nil {
@@ -240,10 +243,17 @@ func Save(path string, cfg Config) error {
 	return nil
 }
 
-func overrideFromEnv(cfg *Config) {
+func overrideFromEnv(cfg *Config) error {
 	target := &cfg.RouterOS
 	if len(cfg.Devices) > 0 {
 		target = &cfg.Devices[0].RouterOS
+	}
+	if value := strings.TrimSpace(os.Getenv("ROSBOARD_PORT")); value != "" {
+		port, err := strconv.Atoi(value)
+		if err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("ROSBOARD_PORT must be a port number between 1 and 65535, got %q", value)
+		}
+		cfg.ListenAddress = fmt.Sprintf(":%d", port)
 	}
 	if value := strings.TrimSpace(os.Getenv("ROSBOARD_LISTEN_ADDRESS")); value != "" {
 		cfg.ListenAddress = value
@@ -263,6 +273,7 @@ func overrideFromEnv(cfg *Config) {
 		target.Password = value
 		cfg.RouterOS.Password = value
 	}
+	return nil
 }
 
 func (c Config) validate() error {

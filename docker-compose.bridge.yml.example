@@ -1,0 +1,22 @@
+# 备选方式：桥接网络 + 端口映射。
+# 注意：默认 RouterOS 地址 http://10.0.0.1 在桥接网络里指不到路由器，
+# 必须显式设置 ROSBOARD_ROUTEROS_BASE_URL 为容器可达的地址。
+#
+# 使用前：
+#   mkdir -p /opt/rosboard-docker && chown 1000:1000 /opt/rosboard-docker
+#   cp docker-compose.bridge.yml.example docker-compose.yml
+#   docker compose up -d
+# 反向代理场景请在 config.yaml 设置 trusted_proxy_cidrs: true
+# （详见 docs/deployment.md 的 HTTPS 反向代理一节）。
+
+services:
+  rosboard:
+    image: jasonxtt/rosboard:latest
+    container_name: rosboard
+    ports:
+      - "8080:8080"    # 改外部端口只需改左边，容器内仍是 8080
+    environment:
+      - ROSBOARD_ROUTEROS_BASE_URL=http://10.0.0.1
+    volumes:
+      - /opt/rosboard-docker:/var/lib/rosboard
+    restart: unless-stopped
