@@ -49,7 +49,8 @@ skip the interactive preview server. Production builds must exclude its fixtures
   segments, and select folders independently for rootfs and mount sources. Keep
   original RouterOS relative paths when an existing container is unchanged.
 - New rootfs defaults end in `rootfs`; persistent mounts remain outside it.
-  The Files virtual root and whole disks cannot serve as new rootfs directories.
+  Runtime and mount directories may share an application parent; folder names
+  are not fixed. The Files virtual root and whole disks cannot serve as new rootfs directories.
 - Bound archive upload size and JSON metadata; inspect without extracting or
   executing. Temporary staging is private and removed on success/failure. This
   phase accepts single-image Linux Docker-save tar only. Simulation stores only

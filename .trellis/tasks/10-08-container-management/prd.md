@@ -26,6 +26,9 @@ Go build/test/vet and relevant race checks; frontend test/lint/build and dual-UI
   delete tool or shell is requested.
 - Keep new rootfs separate from persistent configuration/data under a common
   per-container parent. Preserve every existing container path on edit.
+- Label `root-dir` as the container runtime directory. Explicitly allow a shared
+  application parent, e.g. `nginx/rootdir` and `nginx/data/config`; persistent
+  mount sources remain outside the runtime directory. Folder names are not fixed.
 - Access services through container-IP:application-port. Remove the port-mapping
   section and list column. No port mappings or NAT objects enter the container
   contract, reads, simulation, adoption or deletion.

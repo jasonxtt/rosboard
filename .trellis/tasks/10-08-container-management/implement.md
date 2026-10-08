@@ -78,3 +78,18 @@ Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoin
   snapshot/Files. Both preview URLs respond. No real mutations were performed.
 - Same branch/Draft PR; manual visual acceptance and real-write acceptance remain
   pending. No production deployment, merge or task completion.
+
+## Runtime directory terminology checkpoint
+
+- Renamed the shared `root-dir` field and picker to container runtime directory.
+  Storage guidance explicitly allows one application parent with separate runtime
+  and persistent subdirectories, e.g. `nginx/rootdir` and `nginx/data/config`.
+- Updated the existing validation message to use the same terminology. Directory
+  validation and path preservation behavior are unchanged; no new mutations.
+- Frontend 73 tests, lint/build/dual-UI checks, Go build/test/vet and Trellis
+  context/diff checks passed. Four existing fasttrack JSX-key warnings remain.
+- Vite-proxy resolution accepted the shared-parent example and preserved both
+  paths; a mount source inside the runtime directory remained invalid with the
+  updated message. Vite serves the new label/guidance. Preview restarted.
+- Same task branch and Draft PR; production deployment and real-write acceptance
+  remain pending.
