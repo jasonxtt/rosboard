@@ -8,7 +8,7 @@
 - [x] gofmt; go build ./...; go test ./...; go vet ./...; targeted race.
 - [x] npm --prefix web test; lint; build; check:ui-build; git diff --check.
 - [x] Document mapping and manual desktop/mobile theme/device-switch QA.
-- [ ] Inspect exact staged diff, checkpoint commit/push and one Draft PR.
+- [x] Inspect exact staged diff, checkpoint commit/push and one Draft PR.
 
 Rollback: remove this feature branch/stop preview; no RouterOS writes or production replacement occurs. Keep task active for future real-write acceptance.
 
@@ -23,3 +23,5 @@ Rollback: remove this feature branch/stop preview; no RouterOS writes or product
 - HTTP preview through Vite verified missing-field errors, defaults, env special characters/newlines, read-only mounts, TCP/UDP, download/create/start phases, duplicate suppression, pending-task restoration, recovery and device isolation. Fixtures were reset after verification.
 - Manual visual acceptance remains pending: desktop/mobile, both themes/UI variants, long names and large table. Instructions are in `web/dev/README.md`.
 - No production deployment, merge, release or complete task archival. Real writes and update/delete data retention still require independent RouterOS verification.
+
+Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoint `8624091`). Task status stays `in_progress`; manual visual acceptance and future real writes are pending.

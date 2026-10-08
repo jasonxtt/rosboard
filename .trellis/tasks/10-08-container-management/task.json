@@ -15,8 +15,8 @@
   "branch": "codex/container-management",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "8624091a008a29495aa2870c6e3e831068102bba",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/30",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -27,6 +27,6 @@
     "web/src/features/containers",
     "web/dev/README.md"
   ],
-  "notes": "User approved implementation. Keep Draft PR and task active pending manual UI acceptance and later independent RouterOS write verification.",
+  "notes": "Phase 1 checkpoint pushed in Draft PR #30. Awaiting user visual acceptance/root review. Full task remains active; real RouterOS writes, independent RouterOS validation and production acceptance are deferred.",
   "meta": {}
 }
