@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { errorMessage } from '../../lib/api'
 import { resolveDraft } from './api'
 import { normalizedImage } from './drafts'
+import { DirectoryPicker } from './DirectoryPicker'
+import { ImageUpload } from './ImageUpload'
 import type { Draft, Item, Resolution, Snapshot } from './types'
 
 function Field({
@@ -98,7 +100,9 @@ export function ContainerEditor({
     [resolution, setResolution] = useState<Resolution | null>(null),
     [error, setError] = useState(''),
     [validating, setValidating] = useState(false),
-    [submitted, setSubmitted] = useState(false)
+    [submitted, setSubmitted] = useState(false),
+    [uploading, setUploading] = useState(false),
+    [picker, setPicker] = useState<'root' | number | null>(null)
   const lifetime = useRef<{ active: boolean; submit?: AbortController }>({
     active: true,
   })
@@ -178,7 +182,11 @@ export function ContainerEditor({
           <h2>{item ? '编辑容器' : '创建容器'}</h2>
           <p>所有配置在这一页。带 * 的项目需填写，其余项目保留默认值。</p>
         </div>
-        <button type="button" onClick={onClose} disabled={busy || validating}>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={busy || validating || uploading}
+        >
           返回列表
         </button>
       </div>
@@ -190,22 +198,61 @@ export function ContainerEditor({
             '此容器尚未接管，当前只可预览配置。'}
         </div>
       )}
-      <fieldset className="ct-form-grid" disabled={busy || validating}>
+      <fieldset
+        className="ct-form-grid"
+        disabled={busy || validating || uploading}
+      >
         <Section
           title="镜像"
           number="01"
-          description="从镜像仓库拉取，保留镜像本身的默认配置。"
+          description="从仓库拉取或上传本地镜像归档，继承镜像默认配置。"
         >
-          <Field
-            label="镜像引用"
-            value={draft.image}
-            onChange={(v) => patch('image', v)}
-            required
-            error={issue('image')}
-            hint={
-              normalizedImage(draft.image) || '例如 ghcr.io/example/service:1.0'
-            }
-          />
+          <label className="ct-field">
+            <span>镜像来源</span>
+            <select
+              value={draft.imageSource}
+              onChange={(e) => patch('imageSource', e.target.value)}
+            >
+              <option value="registry">镜像仓库</option>
+              <option value="archive">本地上传</option>
+            </select>
+          </label>
+          {draft.imageSource === 'archive' ? (
+            <>
+              <ImageUpload
+                deviceId={deviceId}
+                enabled={snapshot.capabilities.writes}
+                archiveFile={draft.archiveFile}
+                onBusy={setUploading}
+                onUploaded={(archive) =>
+                  setDraft((d) => ({
+                    ...d,
+                    image: archive.reference,
+                    archiveId: archive.id,
+                    archiveFile: archive.remotePath,
+                  }))
+                }
+              />
+              {issue('archiveId') && (
+                <strong role="alert">{issue('archiveId')}</strong>
+              )}
+              {issue('imageSource') && (
+                <strong role="alert">{issue('imageSource')}</strong>
+              )}
+            </>
+          ) : (
+            <Field
+              label="镜像引用"
+              value={draft.image}
+              onChange={(v) => patch('image', v)}
+              required
+              error={issue('image')}
+              hint={
+                normalizedImage(draft.image) ||
+                '例如 ghcr.io/example/service:1.0'
+              }
+            />
+          )}
           <Field
             label="容器名称"
             value={draft.name}
@@ -302,7 +349,7 @@ export function ContainerEditor({
         <Section
           title="存储与挂载"
           number="03"
-          description="容器根目录与数据目录独立配置。共享挂载保持原归属。"
+          description="rootfs 存放容器文件系统；配置与数据通过独立目录挂载。"
         >
           <Field
             label="根目录"
@@ -315,6 +362,18 @@ export function ContainerEditor({
                 : '自动选择空闲空间最大的可用磁盘'
             }
           />
+          <button
+            type="button"
+            className="ct-add"
+            onClick={() => setPicker('root')}
+          >
+            浏览根目录
+          </button>
+          <p className="ct-storage-hint">
+            建议同一容器父目录下分开存放：<code>rootfs/</code> 用作根目录，
+            <code>volumes/config/</code> 和 <code>volumes/data/</code>{' '}
+            用作挂载源。根目录使用专属空目录，更新镜像时保留挂载数据。
+          </p>
           <small>
             可用磁盘：
             {snapshot.options.disks
@@ -339,6 +398,13 @@ export function ContainerEditor({
                   )
                 }
               />
+              <button
+                type="button"
+                className="ct-add"
+                onClick={() => setPicker(i)}
+              >
+                浏览挂载源 {i + 1}
+              </button>
               <Field
                 label="容器目标目录"
                 value={m.target}
@@ -368,12 +434,13 @@ export function ContainerEditor({
               </label>
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setPicker(null)
                   patch(
                     'mounts',
                     draft.mounts.filter((_, j) => i !== j),
                   )
-                }
+                }}
               >
                 移除挂载 {i + 1}
               </button>
@@ -394,15 +461,40 @@ export function ContainerEditor({
           >
             ＋ 添加挂载
           </button>
+          {picker !== null && (
+            <DirectoryPicker
+              key={String(picker)}
+              deviceId={deviceId}
+              writable={snapshot.capabilities.writes}
+              purpose={picker === 'root' ? '根目录' : `挂载源 ${picker + 1}`}
+              allowFiles={picker !== 'root'}
+              onClose={() => setPicker(null)}
+              onSelect={(path) => {
+                if (picker === 'root') patch('rootDir', path)
+                else
+                  patch(
+                    'mounts',
+                    draft.mounts.map((m, i) =>
+                      i === picker ? { ...m, source: path } : m,
+                    ),
+                  )
+                setPicker(null)
+              }}
+            />
+          )}
         </Section>
         <Section
-          title="发布端口"
+          title="端口映射"
           number="04"
-          description="默认不发布端口。每条配置对应独立的 IPv4 dst-nat 规则。"
+          description="路由器 IP:端口 → 容器 IP:端口。直接访问容器 IP 时可留空。"
         >
+          <small>
+            RouterOS 使用 dst-nat
+            实现这里的端口映射；访问能否通过，还取决于设备现有路由与防火墙。
+          </small>
           {draft.ports.length === 0 && (
             <p className="ct-empty-inline">
-              未发布端口 · 镜像声明的端口不会自动公开
+              未配置端口映射 · 不自动映射镜像声明的端口
             </p>
           )}
           {draft.ports.map((p, i) => (
@@ -426,7 +518,7 @@ export function ContainerEditor({
               </label>
               <div className="ct-pair">
                 <Field
-                  label="主机端口"
+                  label="路由器端口"
                   value={p.host ? String(p.host) : ''}
                   type="number"
                   onChange={(v) =>
@@ -453,7 +545,7 @@ export function ContainerEditor({
                 />
               </div>
               <Field
-                label="绑定 IPv4"
+                label="路由器 IPv4"
                 value={p.bindAddress}
                 onChange={(v) =>
                   patch(
@@ -736,7 +828,7 @@ export function ContainerEditor({
           <button
             className="ct-primary"
             type="submit"
-            disabled={busy || validating}
+            disabled={busy || validating || uploading}
           >
             {validating
               ? '正在校验…'

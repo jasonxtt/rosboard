@@ -3,9 +3,11 @@ package containers
 import (
 	"context"
 	"errors"
+	"os"
 	"rosboard/internal/config"
 	"rosboard/internal/routeros"
 	"testing"
+	"time"
 )
 
 type fakeReader struct {
@@ -105,4 +107,28 @@ func TestSnapshotCoalescingCancellationAndCredentialIsolation(t *testing.T) {
 	if err != nil || len(changed.Items) != 1 || changed.Items[0].Name != "new-account" {
 		t.Fatal("credential change reused old snapshot", err)
 	}
+}
+
+// Explicit opt-in only; credentials come from the process and never fixtures.
+func TestContainerIndependentRouterOSRead(t *testing.T) {
+	base := os.Getenv("ROSBOARD_CONTAINER_TEST_URL")
+	if base == "" {
+		t.Skip("independent RouterOS integration is opt-in")
+	}
+	device := config.DeviceConfig{ID: "integration", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: base, Username: os.Getenv("ROSBOARD_CONTAINER_TEST_USER"), Password: os.Getenv("ROSBOARD_CONTAINER_TEST_PASSWORD")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	service := NewService()
+	snapshot, err := service.Snapshot(ctx, device)
+	if err != nil {
+		t.Fatal("RouterOS snapshot read failed")
+	}
+	if !snapshot.Capabilities.Supported || snapshot.Capabilities.Writes || snapshot.Options.Architecture == "" {
+		t.Fatal("invalid read-only capabilities")
+	}
+	listing, err := service.Directories(ctx, device, snapshot.Options.Disks, "/")
+	if err != nil || len(listing.Entries) == 0 {
+		t.Fatal("RouterOS directory metadata read failed")
+	}
+	t.Logf("version=%s architecture=%s containers=%d root entries=%d", snapshot.Capabilities.Version, snapshot.Options.Architecture, len(snapshot.Items), len(listing.Entries))
 }

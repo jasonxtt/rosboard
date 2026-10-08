@@ -14,3 +14,24 @@ User approved implementation on 2026-10-08. This phase delivers native Container
 
 ## Acceptance
 Go build/test/vet and relevant race checks; frontend test/lint/build and dual-UI build isolation. Provide a local interactive simulation and desktop/mobile light/dark manual review steps. Keep branch and PR Draft; no production deployment, merge or full task archival before acceptance. Real writes require independent RouterOS validation later.
+
+
+## Follow-up requirements: local images and Files navigation
+
+- Let users choose a registry image or upload one Linux Docker-save `.tar`
+  image, with clear format/architecture/size errors and retained form values.
+- Add a small Files picker for rootfs and mount sources: navigate actual folders,
+  create a child folder in simulation, and select it immediately. Show existing
+  files as context and allow mount sources to select a file. No general editor,
+  delete tool or shell is requested.
+- Keep new rootfs separate from persistent configuration/data under a common
+  per-container parent. Preserve every existing container path on edit.
+- Rename published ports to port mappings. Explain router-IP:port to
+  container-IP:port and that direct container access permits leaving it empty.
+- Maintain current read-only production scope. Simulate upload/mkdir clearly;
+  provide optional read-only test-device browsing and independently verify file
+  capabilities before a future complete write pipeline. Credentials stay private.
+
+Acceptance includes malformed/oversized/incompatible archives, device isolation,
+source selection, navigation/create/select, collisions/traversal rejection, both
+UI variants and cancelled work on device switch. Keep the same Draft PR and task.

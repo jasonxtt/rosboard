@@ -23,6 +23,7 @@ const (
 	ContainerNAT        ContainerMenu = "ip/firewall/nat"
 	ContainerResource   ContainerMenu = "system/resource"
 	ContainerLogs       ContainerMenu = "container/log"
+	ContainerFiles      ContainerMenu = "file"
 )
 
 // ContainerRead is a closed GET-only reader. Credentials and config-json are
@@ -31,7 +32,7 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 	props := ""
 	switch menu {
 	case ContainerList:
-		props = ".id,name,remote-image,tag,interface,root-dir,cmd,entrypoint,user,workdir,start-on-boot,logging,restart-policy,cpu-list,cpu-usage,memory-usage,memory-high,memory-max,running,stopped,starting,stopping,extracting,downloading,error,status,envlists,envlist,mountlists,mounts,healthcheck-cmd,healthcheck-interval,healthcheck-timeout,healthcheck-retries,healthcheck-start-period,default-cmd,default-entrypoint,default-user,default-workdir,default-healthcheck-cmd"
+		props = ".id,name,remote-image,file,tag,interface,root-dir,cmd,entrypoint,user,workdir,start-on-boot,logging,restart-policy,cpu-list,cpu-usage,memory-usage,memory-high,memory-max,running,stopped,starting,stopping,extracting,downloading,error,status,envlists,envlist,mountlists,mounts,healthcheck-cmd,healthcheck-interval,healthcheck-timeout,healthcheck-retries,healthcheck-start-period,default-cmd,default-entrypoint,default-user,default-workdir,default-healthcheck-cmd"
 	case ContainerConfig:
 		props = "memory-high,memory-max"
 	case ContainerVETH:
@@ -54,6 +55,8 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 		props = ".id,chain,action,protocol,dst-address,dst-port,to-addresses,to-ports,disabled"
 	case ContainerResource:
 		props = "version,architecture-name"
+	case ContainerFiles:
+		props = ".id,name,type,size"
 	case ContainerLogs:
 		props = ".id,container,time,message"
 	default:

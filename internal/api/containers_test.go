@@ -23,6 +23,9 @@ type containerAPIReader struct {
 
 func (f *containerAPIReader) ContainerRead(_ context.Context, menu routeros.ContainerMenu) ([]routeros.RouterOSObject, error) {
 	f.calls++
+	if menu == routeros.ContainerFiles {
+		return []routeros.RouterOSObject{{"name": "sata1/" + f.name, "type": "directory"}}, nil
+	}
 	if menu == routeros.ContainerList {
 		return []routeros.RouterOSObject{{".id": "*7", "name": f.name, "stopped": "true"}}, nil
 	}
@@ -37,7 +40,7 @@ func TestContainerAPIDeviceScopeAndWriteDenial(t *testing.T) {
 		method, path string
 		status       int
 		want         string
-	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
+	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"GET", "/api/containers/directories?device=a", 200, "sata1"}, {"POST", "/api/containers/directories?device=a", 403, "container_read_only"}, {"POST", "/api/containers/images/upload?device=a", 403, "container_read_only"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
 		if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.want) {

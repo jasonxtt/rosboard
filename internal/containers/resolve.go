@@ -43,10 +43,40 @@ func Resolve(d Draft, s Snapshot) Resolution {
 	if d.ExistingID != "" && existing == nil {
 		r.Errors["existingId"] = "容器不存在于当前设备"
 	}
-	if existing == nil || d.Image != existing.Config.Image {
+	if e.ImageSource == "" {
+		e.ImageSource = "registry"
+	}
+	imageFile := ""
+	switch e.ImageSource {
+	case "registry":
+		e.ArchiveID, e.ArchiveFile = "", ""
+	case "archive":
+		if existing != nil && e.ArchiveID == "" && e.ArchiveFile == existing.Config.ArchiveFile && e.ArchiveFile != "" {
+			imageFile = existing.Config.ArchiveFile
+			e.Image = existing.Image
+		} else {
+			for _, archive := range s.Options.Archives {
+				if archive.ID == e.ArchiveID {
+					imageFile = archive.RemotePath
+					e.Image = archive.Reference
+					e.ArchiveFile = archive.RemotePath
+					if archive.Architecture != OCIArchitecture(s.Options.Architecture) {
+						r.Errors["archiveId"] = "镜像架构与当前设备不匹配"
+					}
+					break
+				}
+			}
+			if imageFile == "" {
+				r.Errors["archiveId"] = "请先上传并校验本地镜像归档"
+			}
+		}
+	default:
+		r.Errors["imageSource"] = "镜像来源无效"
+	}
+	if e.ImageSource == "registry" && (existing == nil || d.Image != existing.Config.Image) {
 		e.Image = NormalizeImage(e.Image)
 	}
-	if e.Image == "" {
+	if e.ImageSource == "registry" && e.Image == "" {
 		r.Errors["image"] = "请填写镜像"
 	} else if strings.ContainsAny(e.Image, " \t\r\n") || strings.HasPrefix(e.Image, "-") {
 		r.Errors["image"] = "镜像引用不能包含空格"
@@ -163,11 +193,27 @@ func Resolve(d Draft, s Snapshot) Resolution {
 		if best == nil {
 			r.Errors["rootDir"] = "没有可用磁盘，请指定存储目录"
 		} else {
-			e.RootDir = path.Join("/", best.Name, "rosboard", "containers", e.Name)
-			r.Defaults = append(r.Defaults, "存储目录："+e.RootDir)
+			e.RootDir = path.Join("/", best.Name, "rosboard", "containers", e.Name, "rootfs")
+			r.Defaults = append(r.Defaults, "容器文件系统目录："+e.RootDir)
 		}
-	} else if !strings.HasPrefix(e.RootDir, "/") || strings.Contains(e.RootDir, "..") || e.RootDir == "/" {
-		r.Errors["rootDir"] = "请使用独立的绝对目录，不能包含 .."
+	} else if existing == nil || e.RootDir != existing.Config.RootDir {
+		normalized, err := DirectoryPath(e.RootDir)
+		if err != nil || !strings.HasPrefix(e.RootDir, "/") || normalized == "/" {
+			r.Errors["rootDir"] = "请使用独立的绝对目录，不能包含 .."
+		} else {
+			e.RootDir = normalized
+			for _, disk := range s.Options.Disks {
+				if normalized == "/"+strings.Trim(disk.Name, "/") {
+					r.Errors["rootDir"] = "请选择磁盘中的专属文件夹，不能直接使用整个磁盘"
+				}
+			}
+			for _, item := range s.Items {
+				other, _ := DirectoryPath(item.Config.RootDir)
+				if item.ID != d.ExistingID && item.Config.RootDir != "" && other == normalized {
+					r.Errors["rootDir"] = "此目录已被其他容器使用"
+				}
+			}
+		}
 	}
 	keys := map[string]bool{}
 	for i, env := range e.Env {
@@ -185,10 +231,24 @@ func Resolve(d Draft, s Snapshot) Resolution {
 		if mount.Mode != "" && mount.Mode != "rw" && mount.Mode != "ro" && mount.Mode != "rw,noexec" && mount.Mode != "ro,noexec" {
 			r.Errors[fmt.Sprintf("mounts.%d", i)] = "不支持的挂载模式"
 		}
-		if !strings.HasPrefix(mount.Source, "/") || !strings.HasPrefix(mount.Target, "/") || mount.Target == "/" || strings.Contains(mount.Target, "..") || targets[mount.Target] {
+		source, sourceErr := DirectoryPath(mount.Source)
+		target, targetErr := DirectoryPath(mount.Target)
+		existingSource := false
+		if existing != nil {
+			for _, old := range existing.Config.Mounts {
+				if old.Source == mount.Source {
+					existingSource = true
+				}
+			}
+		}
+		if (!strings.HasPrefix(mount.Source, "/") && !existingSource) || mount.Source == "" || sourceErr != nil || targetErr != nil || !strings.HasPrefix(mount.Target, "/") || target == "/" || targets[target] {
 			r.Errors[fmt.Sprintf("mounts.%d", i)] = "挂载需填写绝对源目录和唯一的容器目标目录"
 		}
-		targets[mount.Target] = true
+		targets[target] = true
+		root, _ := DirectoryPath(e.RootDir)
+		if existing == nil && sourceErr == nil && (source == root || strings.HasPrefix(source, root+"/")) {
+			r.Errors[fmt.Sprintf("mounts.%d", i)] = "持久化挂载源需放在 rootfs 目录之外"
+		}
 	}
 	ports := map[string]bool{}
 	for i, port := range e.Ports {
@@ -295,6 +355,12 @@ func Resolve(d Draft, s Snapshot) Resolution {
 	}
 	if e.Health.Mode == "inherit" {
 		r.Defaults = append(r.Defaults, "健康检查继承镜像")
+	}
+	if e.ImageSource == "archive" {
+		delete(r.ContainerFields, "remote-image")
+		if imageFile != "" {
+			r.ContainerFields["file"] = imageFile
+		}
 	}
 	return r
 }

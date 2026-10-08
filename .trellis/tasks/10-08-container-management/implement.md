@@ -25,3 +25,39 @@ Rollback: remove this feature branch/stop preview; no RouterOS writes or product
 - No production deployment, merge, release or complete task archival. Real writes and update/delete data retention still require independent RouterOS verification.
 
 Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoint `8624091`). Task status stays `in_progress`; manual visual acceptance and future real writes are pending.
+
+
+## Follow-up execution
+
+- [x] Record local-image and Files-picker scope; keep production reads only.
+- [x] Add Docker-save metadata validation and device-scoped archive projection.
+- [x] Add typed file metadata reads and safe directory normalization/listing.
+- [x] Add shared upload/picker components with isolated styles for both UIs.
+- [x] Add simulated upload/mkdir and optional real read-only preview routing.
+- [x] Verify format/architecture/isolation, directory paths/collisions, selected
+  fields and device-switch cancellation contracts.
+- [x] Run required Go/frontend checks; verify Vite proxy integration and scoped
+  independent test-device file capabilities; clean temporary RouterOS objects.
+- [x] Review public staged paths/diff, commit/push same branch and update Draft PR.
+- [ ] User desktop/mobile, light/dark visual review; future complete write gate.
+
+
+### Follow-up checkpoint results
+
+- Single-image Docker-save tar inspection, device-scoped archive metadata and
+  `file` projection implemented; registry and archive sources are exclusive.
+- Shared picker and image uploader implemented in both isolated UI styles.
+  Real Files directory reads use the typed client. Upload/mkdir remain simulated.
+- New rootfs defaults and separate persistent mount guidance implemented;
+  existing relative RouterOS paths remain unchanged on edit.
+- Frontend 73 tests passed; Go build/test/vet and scoped race checks passed;
+  lint/build/dual-UI checks and development preview TypeScript check passed.
+  Four existing fasttrack JSX-key lint warnings remain.
+- The opt-in independent RouterOS read test passed. REST mkdir/read-back and
+  SFTP archive round-trip/hash verification passed; temporary objects cleaned.
+  No actual container import/start/update/delete was attempted.
+- Vite-proxy runtime verification passed for real read-only snapshot/Files and
+  simulated multipart upload, mkdir, projection, archive import/start and reset.
+- Manual desktop/mobile/theme visual acceptance remains pending. Full task stays
+  active and Draft; production deployment and complete write acceptance remain
+  separate.

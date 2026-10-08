@@ -572,3 +572,107 @@
 .ct textarea {
   resize: vertical;
 }
+
+.ct .ct-storage-hint {
+  color: var(--ct-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.ct .ct-directory-picker {
+  border: 1px solid var(--ct-accent);
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  background: var(--ct-bg);
+}
+.ct .ct-directory-picker header,
+.ct .ct-directory-picker footer,
+.ct .ct-directory-create {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.ct .ct-directory-picker header > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ct .ct-directory-picker nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+.ct .ct-directory-picker nav button {
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.ct .ct-directory-picker ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.ct .ct-directory-picker li {
+  border-bottom: 1px solid var(--ct-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+}
+.ct .ct-directory-picker li > button:first-child {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.ct .ct-file-name {
+  color: var(--ct-muted);
+  font-size: 12px;
+  padding: 5px 8px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ct .ct-directory-create .ct-field {
+  flex: 1;
+  min-width: 0;
+}
+.ct .ct-directory-picker footer code,
+.ct .ct-image-upload code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ct .ct-directory-picker footer > button,
+.ct .ct-directory-create > button {
+  flex-shrink: 0;
+}
+.ct .ct-image-upload {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.ct .ct-image-upload input[type='file'] {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+}
+@media (max-width: 480px) {
+  .ct .ct-directory-picker {
+    padding: 10px;
+  }
+  .ct .ct-directory-picker footer,
+  .ct .ct-directory-create {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

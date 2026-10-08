@@ -38,6 +38,17 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	switch {
+	case len(parts) == 1 && parts[0] == "directories":
+		if _, err := containers.DirectoryPath(request.URL.Query().Get("path")); err != nil {
+			writeAPIError(writer, 400, "invalid_path", "目录路径无效")
+			return
+		}
+		listing, err := s.containers.Directories(ctx, device, snapshot.Options.Disks, request.URL.Query().Get("path"))
+		if err != nil {
+			writeAPIError(writer, 502, "directory_read_failed", "读取目录失败，请检查路径与 RouterOS 文件读取权限")
+			return
+		}
+		writeJSON(writer, 200, listing)
 	case resolving:
 		writeJSON(writer, 200, containers.Resolve(draft, snapshot))
 	case len(parts) == 1 && parts[0] == "options":

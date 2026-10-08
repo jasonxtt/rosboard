@@ -2,6 +2,7 @@ import {
   ApiError,
   apiGet,
   apiPost,
+  apiPostForm,
   safeObject,
   safeArray,
   safeString,
@@ -10,6 +11,8 @@ import {
   scoped,
 } from '../../lib/api'
 import type {
+  ImageArchive,
+  DirectoryListing,
   Network,
   Draft,
   Item,
@@ -59,6 +62,9 @@ export function parseDraft(v: unknown): Draft {
     existingId: safeString(o.existingId),
     name: safeString(o.name),
     image: safeString(o.image),
+    imageSource: safeString(o.imageSource) || 'registry',
+    archiveId: safeString(o.archiveId),
+    archiveFile: safeString(o.archiveFile),
     network: parseNetwork(o.network),
     rootDir: safeString(o.rootDir),
     command: safeString(o.command),
@@ -119,6 +125,8 @@ export function parseItem(v: unknown): Item {
 function parseOptions(v: unknown): Options {
   const o = safeObject(v)
   return {
+    architecture: safeString(o.architecture),
+    archives: safeArray<unknown>(o.archives).map(parseArchive),
     bridges: strings(o.bridges),
     interfaces: strings(o.interfaces),
     usedIPs: strings(o.usedIPs),
@@ -236,5 +244,90 @@ export const fetchLogs = (device: string, id: string, signal?: AbortSignal) =>
           message: safeString(o.message),
         }
       }),
+    signal,
+  )
+
+export function parseArchive(value: unknown): ImageArchive {
+  const o = safeObject(value)
+  return {
+    id: safeString(o.id),
+    name: safeString(o.name),
+    reference: safeString(o.reference),
+    architecture: safeString(o.architecture),
+    bytes: safeNumber(o.bytes),
+    sha256: safeString(o.sha256),
+    remotePath: safeString(o.remotePath),
+  }
+}
+export const uploadImage = (
+  device: string,
+  file: File,
+  signal?: AbortSignal,
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  return apiPostForm(
+    endpoint(device, '/images/upload'),
+    form,
+    (value) => {
+      const archive = parseArchive(value)
+      if (
+        !archive.id ||
+        !archive.reference ||
+        !archive.remotePath.startsWith('/') ||
+        archive.bytes <= 0 ||
+        !/^[a-f0-9]{64}$/.test(archive.sha256)
+      )
+        throw new ApiError('镜像校验响应无效', 200, 'invalid_response')
+      return archive
+    },
+    signal,
+  )
+}
+export const fetchDirectories = (
+  device: string,
+  path: string,
+  signal?: AbortSignal,
+) =>
+  apiGet(
+    endpoint(device, '/directories') + '&path=' + encodeURIComponent(path),
+    (value): DirectoryListing => {
+      const o = safeObject(value)
+      if (
+        typeof o.path !== 'string' ||
+        !o.path.startsWith('/') ||
+        !Array.isArray(o.entries)
+      )
+        throw new ApiError('目录响应无效', 200, 'invalid_response')
+      return {
+        path: o.path,
+        entries: o.entries.map((value) => {
+          const e = safeObject(value)
+          return {
+            name: safeString(e.name),
+            path: safeString(e.path),
+            directory: safeBoolean(e.directory),
+            bytes: safeNumber(e.bytes),
+          }
+        }),
+      }
+    },
+    signal,
+  )
+export const createDirectory = (
+  device: string,
+  parent: string,
+  name: string,
+  signal?: AbortSignal,
+) =>
+  apiPost(
+    endpoint(device, '/directories'),
+    { parent, name },
+    (value) => {
+      const path = safeString(safeObject(value).path)
+      if (!path.startsWith('/') || path === '/')
+        throw new ApiError('新建目录响应无效', 200, 'invalid_response')
+      return path
+    },
     signal,
   )
