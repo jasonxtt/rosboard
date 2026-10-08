@@ -1,0 +1,754 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { errorMessage } from '../../lib/api'
+import { resolveDraft } from './api'
+import { normalizedImage } from './drafts'
+import type { Draft, Item, Resolution, Snapshot } from './types'
+
+function Field({
+  label,
+  value,
+  onChange,
+  hint,
+  error,
+  required = false,
+  disabled = false,
+  type = 'text',
+  multiline = false,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  hint?: string
+  error?: string
+  required?: boolean
+  disabled?: boolean
+  type?: string
+  multiline?: boolean
+}) {
+  return (
+    <label className="ct-field">
+      <span>
+        {label}
+        {required && <em aria-label="必填"> *</em>}
+      </span>
+      {multiline ? (
+        <textarea
+          rows={2}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          aria-invalid={!!error}
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          aria-invalid={!!error}
+        />
+      )}
+      {hint && <small>{hint}</small>}
+      {error && <strong role="alert">{error}</strong>}
+    </label>
+  )
+}
+function Section({
+  title,
+  number,
+  children,
+  description,
+}: {
+  title: string
+  number: string
+  children: ReactNode
+  description: string
+}) {
+  return (
+    <section className="ct-card ct-section">
+      <header>
+        <span className="ct-section-number">{number}</span>
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
+      </header>
+      <div className="ct-section-body">{children}</div>
+    </section>
+  )
+}
+export function ContainerEditor({
+  deviceId,
+  snapshot,
+  initial,
+  item,
+  busy,
+  onSubmit,
+  onClose,
+}: {
+  deviceId: string
+  snapshot: Snapshot
+  initial: Draft
+  item: Item | null
+  busy: boolean
+  onSubmit: (draft: Draft) => Promise<void>
+  onClose: () => void
+}) {
+  const [draft, setDraft] = useState(() => structuredClone(initial)),
+    [resolution, setResolution] = useState<Resolution | null>(null),
+    [error, setError] = useState(''),
+    [validating, setValidating] = useState(false),
+    [submitted, setSubmitted] = useState(false)
+  const lifetime = useRef<{ active: boolean; submit?: AbortController }>({
+    active: true,
+  })
+  useEffect(() => {
+    const state = lifetime.current
+    state.active = true
+    return () => {
+      state.active = false
+      state.submit?.abort()
+    }
+  }, [])
+  const sequence = useRef(0),
+    locked = !!item?.sharedVeth.length
+  const patch = <K extends keyof Draft>(key: K, value: Draft[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }))
+  const net = (key: keyof Draft['network'], value: string) =>
+    patch('network', { ...draft.network, [key]: value })
+  const health = (key: keyof Draft['health'], value: string) =>
+    patch('health', { ...draft.health, [key]: value })
+  const issue = (key: string) =>
+    submitted ? resolution?.errors[key] : undefined
+  useEffect(() => {
+    const current = ++sequence.current
+    const controller = new AbortController()
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void resolveDraft(deviceId, draft, controller.signal)
+        .then((r) => {
+          if (!cancelled && sequence.current === current) {
+            setResolution(r)
+            setError('')
+          }
+        })
+        .catch((e) => {
+          if (!cancelled && sequence.current === current)
+            setError(errorMessage(e))
+        })
+    }, 350)
+    return () => {
+      clearTimeout(timer)
+      cancelled = true
+      controller.abort()
+    }
+  }, [deviceId, draft])
+  const submit = async () => {
+    const current = sequence.current
+    const controller = new AbortController()
+    lifetime.current.submit = controller
+    setValidating(true)
+    setSubmitted(true)
+    setError('')
+    try {
+      const r = await resolveDraft(deviceId, draft, controller.signal)
+      if (!lifetime.current.active || sequence.current !== current) return
+      setResolution(r)
+      if (Object.keys(r.errors).length === 0) await onSubmit(r.effective)
+    } catch (e) {
+      if (lifetime.current.active) setError(errorMessage(e))
+    } finally {
+      if (lifetime.current.active) setValidating(false)
+    }
+  }
+  return (
+    <form
+      className="ct-editor"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+      noValidate
+    >
+      <div className="ct-editor-heading">
+        <div>
+          <span className="ct-eyebrow">
+            {item ? 'CONTAINER CONFIGURATION' : 'NEW CONTAINER'}
+          </span>
+          <h2>{item ? '编辑容器' : '创建容器'}</h2>
+          <p>所有配置在这一页。带 * 的项目需填写，其余项目保留默认值。</p>
+        </div>
+        <button type="button" onClick={onClose} disabled={busy || validating}>
+          返回列表
+        </button>
+      </div>
+      {item && (
+        <div className="ct-notice">
+          原有值已保留。环境变量列表：{item.envLists.join(', ') || '无'}
+          ；挂载列表：{item.mountLists.join(', ') || '无'}。
+          {item.ownership === 'unmanaged' &&
+            '此容器尚未接管，当前只可预览配置。'}
+        </div>
+      )}
+      <fieldset className="ct-form-grid" disabled={busy || validating}>
+        <Section
+          title="镜像"
+          number="01"
+          description="从镜像仓库拉取，保留镜像本身的默认配置。"
+        >
+          <Field
+            label="镜像引用"
+            value={draft.image}
+            onChange={(v) => patch('image', v)}
+            required
+            error={issue('image')}
+            hint={
+              normalizedImage(draft.image) || '例如 ghcr.io/example/service:1.0'
+            }
+          />
+          <Field
+            label="容器名称"
+            value={draft.name}
+            onChange={(v) => patch('name', v)}
+            error={issue('name')}
+            hint={
+              resolution?.effective.name
+                ? `最终名称：${resolution.effective.name}`
+                : '留空按镜像名称生成唯一名称'
+            }
+          />
+        </Section>
+        <Section
+          title="网络"
+          number="02"
+          description="专属 VETH 接入已有 bridge。出站沿用设备现有配置。"
+        >
+          {locked && (
+            <p className="ct-notice">
+              VETH 与 {item?.sharedVeth.join(', ')} 共享，网络参数已锁定。
+            </p>
+          )}
+          <Field
+            label="VETH 名称"
+            value={draft.network.veth}
+            onChange={(v) => net('veth', v)}
+            required
+            disabled={locked}
+            error={issue('network.veth')}
+          />
+          <label className="ct-field">
+            <span>
+              已有 bridge <em>*</em>
+            </span>
+            <select
+              value={draft.network.bridge}
+              onChange={(e) => net('bridge', e.target.value)}
+              disabled={locked}
+              aria-invalid={!!issue('network.bridge')}
+            >
+              <option value="">请选择 bridge</option>
+              {snapshot.options.bridges.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+            {issue('network.bridge') && (
+              <strong role="alert">{issue('network.bridge')}</strong>
+            )}
+          </label>
+          <div className="ct-pair">
+            <Field
+              label="静态 IPv4 / 掩码"
+              value={draft.network.address}
+              onChange={(v) => net('address', v)}
+              required
+              disabled={locked}
+              error={issue('network.address')}
+              hint="例如 172.20.0.2/24"
+            />
+            <Field
+              label="IPv4 网关"
+              value={draft.network.gateway}
+              onChange={(v) => net('gateway', v)}
+              required
+              disabled={locked}
+              error={issue('network.gateway')}
+            />
+          </div>
+          <div className="ct-pair">
+            <Field
+              label="IPv6 / 掩码"
+              value={draft.network.address6}
+              onChange={(v) => net('address6', v)}
+              disabled={locked}
+              error={issue('network.address6')}
+            />
+            <Field
+              label="IPv6 网关"
+              value={draft.network.gateway6}
+              onChange={(v) => net('gateway6', v)}
+              disabled={locked}
+              error={issue('network.gateway6')}
+            />
+          </div>
+          <Field
+            label="自定义 MAC"
+            value={draft.network.mac}
+            onChange={(v) => net('mac', v)}
+            disabled={locked}
+            error={issue('network.mac')}
+            hint="留空由 RouterOS 生成"
+          />
+        </Section>
+        <Section
+          title="存储与挂载"
+          number="03"
+          description="容器根目录与数据目录独立配置。共享挂载保持原归属。"
+        >
+          <Field
+            label="根目录"
+            value={draft.rootDir}
+            onChange={(v) => patch('rootDir', v)}
+            error={issue('rootDir')}
+            hint={
+              resolution?.effective.rootDir
+                ? `最终目录：${resolution.effective.rootDir}`
+                : '自动选择空闲空间最大的可用磁盘'
+            }
+          />
+          <small>
+            可用磁盘：
+            {snapshot.options.disks
+              .filter((d) => d.writable)
+              .map(
+                (d) =>
+                  `${d.name} · ${(d.freeBytes / 2 ** 30).toFixed(1)} GiB 空闲`,
+              )
+              .join(' / ') || '无'}
+          </small>
+          {draft.mounts.map((m, i) => (
+            <div className="ct-repeat" key={i}>
+              <Field
+                label="主机源目录"
+                value={m.source}
+                onChange={(v) =>
+                  patch(
+                    'mounts',
+                    draft.mounts.map((x, j) =>
+                      j === i ? { ...x, source: v } : x,
+                    ),
+                  )
+                }
+              />
+              <Field
+                label="容器目标目录"
+                value={m.target}
+                onChange={(v) =>
+                  patch(
+                    'mounts',
+                    draft.mounts.map((x, j) =>
+                      j === i ? { ...x, target: v } : x,
+                    ),
+                  )
+                }
+              />
+              <label className="ct-check">
+                <input
+                  type="checkbox"
+                  checked={m.readOnly}
+                  onChange={(e) =>
+                    patch(
+                      'mounts',
+                      draft.mounts.map((x, j) =>
+                        j === i ? { ...x, readOnly: e.target.checked } : x,
+                      ),
+                    )
+                  }
+                />
+                只读
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  patch(
+                    'mounts',
+                    draft.mounts.filter((_, j) => i !== j),
+                  )
+                }
+              >
+                移除挂载 {i + 1}
+              </button>
+              {issue(`mounts.${i}`) && (
+                <strong role="alert">{issue(`mounts.${i}`)}</strong>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ct-add"
+            onClick={() =>
+              patch('mounts', [
+                ...draft.mounts,
+                { source: '', target: '', readOnly: false },
+              ])
+            }
+          >
+            ＋ 添加挂载
+          </button>
+        </Section>
+        <Section
+          title="发布端口"
+          number="04"
+          description="默认不发布端口。每条配置对应独立的 IPv4 dst-nat 规则。"
+        >
+          {draft.ports.length === 0 && (
+            <p className="ct-empty-inline">
+              未发布端口 · 镜像声明的端口不会自动公开
+            </p>
+          )}
+          {draft.ports.map((p, i) => (
+            <div className="ct-repeat" key={i}>
+              <label className="ct-field">
+                <span>协议</span>
+                <select
+                  value={p.protocol}
+                  onChange={(e) =>
+                    patch(
+                      'ports',
+                      draft.ports.map((x, j) =>
+                        j === i ? { ...x, protocol: e.target.value } : x,
+                      ),
+                    )
+                  }
+                >
+                  <option value="tcp">TCP</option>
+                  <option value="udp">UDP</option>
+                </select>
+              </label>
+              <div className="ct-pair">
+                <Field
+                  label="主机端口"
+                  value={p.host ? String(p.host) : ''}
+                  type="number"
+                  onChange={(v) =>
+                    patch(
+                      'ports',
+                      draft.ports.map((x, j) =>
+                        j === i ? { ...x, host: Number(v) } : x,
+                      ),
+                    )
+                  }
+                />
+                <Field
+                  label="容器端口"
+                  value={p.container ? String(p.container) : ''}
+                  type="number"
+                  onChange={(v) =>
+                    patch(
+                      'ports',
+                      draft.ports.map((x, j) =>
+                        j === i ? { ...x, container: Number(v) } : x,
+                      ),
+                    )
+                  }
+                />
+              </div>
+              <Field
+                label="绑定 IPv4"
+                value={p.bindAddress}
+                onChange={(v) =>
+                  patch(
+                    'ports',
+                    draft.ports.map((x, j) =>
+                      j === i ? { ...x, bindAddress: v } : x,
+                    ),
+                  )
+                }
+                hint="留空匹配所有设备地址，请结合现有防火墙使用"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  patch(
+                    'ports',
+                    draft.ports.filter((_, j) => i !== j),
+                  )
+                }
+              >
+                移除端口 {i + 1}
+              </button>
+              {issue(`ports.${i}`) && (
+                <strong role="alert">{issue(`ports.${i}`)}</strong>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ct-add"
+            onClick={() =>
+              patch('ports', [
+                ...draft.ports,
+                { protocol: 'tcp', host: 0, container: 0, bindAddress: '' },
+              ])
+            }
+          >
+            ＋ 添加端口
+          </button>
+        </Section>
+        <Section
+          title="环境变量"
+          number="05"
+          description="只添加显式覆盖，值中的空格、引号和特殊字符原样保留。"
+        >
+          {draft.env.length === 0 && (
+            <p className="ct-empty-inline">继承镜像中的环境变量</p>
+          )}
+          {draft.env.map((v, i) => (
+            <div className="ct-repeat" key={i}>
+              <div className="ct-pair">
+                <Field
+                  label="变量名"
+                  value={v.key}
+                  onChange={(value) =>
+                    patch(
+                      'env',
+                      draft.env.map((x, j) =>
+                        j === i ? { ...x, key: value } : x,
+                      ),
+                    )
+                  }
+                />
+                <Field
+                  label="变量值"
+                  multiline
+                  value={v.value}
+                  onChange={(value) =>
+                    patch(
+                      'env',
+                      draft.env.map((x, j) => (j === i ? { ...x, value } : x)),
+                    )
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  patch(
+                    'env',
+                    draft.env.filter((_, j) => i !== j),
+                  )
+                }
+              >
+                移除变量 {i + 1}
+              </button>
+              {issue(`env.${i}`) && (
+                <strong role="alert">{issue(`env.${i}`)}</strong>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ct-add"
+            onClick={() => patch('env', [...draft.env, { key: '', value: '' }])}
+          >
+            ＋ 添加变量
+          </button>
+        </Section>
+        <Section
+          title="启动配置"
+          number="06"
+          description="空值不覆盖镜像。创建后的启动行为与开机启动分别设置。"
+        >
+          <Field
+            label="命令 CMD"
+            value={draft.command}
+            onChange={(v) => patch('command', v)}
+            hint={item?.imageDefaults.cmd || '继承镜像命令'}
+          />
+          <Field
+            label="入口 ENTRYPOINT"
+            value={draft.entrypoint}
+            onChange={(v) => patch('entrypoint', v)}
+            hint={item?.imageDefaults.entrypoint || '继承镜像入口'}
+          />
+          <div className="ct-pair">
+            <Field
+              label="用户"
+              value={draft.user}
+              onChange={(v) => patch('user', v)}
+              hint={item?.imageDefaults.user || '继承镜像用户'}
+            />
+            <Field
+              label="工作目录"
+              value={draft.workdir}
+              onChange={(v) => patch('workdir', v)}
+              hint={item?.imageDefaults.workdir || '继承镜像工作目录'}
+            />
+          </div>
+          {!item && (
+            <label className="ct-check">
+              <input
+                type="checkbox"
+                checked={draft.startAfterCreate}
+                onChange={(e) => patch('startAfterCreate', e.target.checked)}
+              />
+              创建后启动
+            </label>
+          )}
+          <label className="ct-check">
+            <input
+              type="checkbox"
+              checked={draft.startOnBoot}
+              onChange={(e) => patch('startOnBoot', e.target.checked)}
+            />
+            开机自动启动
+          </label>
+          <label className="ct-check">
+            <input
+              type="checkbox"
+              checked={draft.logging}
+              onChange={(e) => patch('logging', e.target.checked)}
+            />
+            记录容器日志
+          </label>
+          <label className="ct-field">
+            <span>自动重启策略</span>
+            <select
+              value={draft.restartPolicy || 'no'}
+              onChange={(e) => patch('restartPolicy', e.target.value)}
+            >
+              <option value="no">不自动重启（默认）</option>
+              <option value="on-failure">失败时重启</option>
+              <option value="always">总是重启</option>
+            </select>
+          </label>
+        </Section>
+        <Section
+          title="资源限制"
+          number="07"
+          description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
+        >
+          <div className="ct-pair">
+            <Field
+              label="内存 high"
+              value={draft.memoryHigh}
+              onChange={(v) => patch('memoryHigh', v)}
+              error={issue('memoryHigh')}
+              hint={`全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+            />
+            <Field
+              label="内存 max"
+              value={draft.memoryMax}
+              onChange={(v) => patch('memoryMax', v)}
+              error={issue('memoryMax')}
+              hint={`全局：${snapshot.options.memoryMax || 'unlimited'}`}
+            />
+          </div>
+          <Field
+            label="CPU 编号列表"
+            value={draft.cpuList}
+            onChange={(v) => patch('cpuList', v)}
+            error={issue('cpuList')}
+            hint="留空使用默认；例如 0,1"
+          />
+        </Section>
+        <Section
+          title="健康检查"
+          number="08"
+          description="默认继承镜像已有的健康检查，可在这里显式覆盖。"
+        >
+          <label className="ct-field">
+            <span>检查模式</span>
+            <select
+              value={draft.health.mode}
+              onChange={(e) => health('mode', e.target.value)}
+            >
+              <option value="inherit">继承镜像（默认）</option>
+              <option value="override">覆盖镜像检查</option>
+            </select>
+          </label>
+          <Field
+            label="检查命令"
+            value={draft.health.command}
+            onChange={(v) => health('command', v)}
+            disabled={draft.health.mode !== 'override'}
+            error={issue('health.command')}
+            hint={
+              item?.imageDefaults['healthcheck-cmd'] ||
+              '例如 CMD-SHELL curl -f http://127.0.0.1/health'
+            }
+          />
+          <div className="ct-pair">
+            <Field
+              label="间隔"
+              error={issue('health.interval')}
+              value={draft.health.interval}
+              onChange={(v) => health('interval', v)}
+              disabled={draft.health.mode !== 'override'}
+              hint="例如 30s"
+            />
+            <Field
+              label="超时"
+              error={issue('health.timeout')}
+              value={draft.health.timeout}
+              onChange={(v) => health('timeout', v)}
+              disabled={draft.health.mode !== 'override'}
+              hint="例如 5s"
+            />
+          </div>
+          <div className="ct-pair">
+            <Field
+              label="重试次数"
+              value={draft.health.retries}
+              onChange={(v) => health('retries', v)}
+              disabled={draft.health.mode !== 'override'}
+              error={issue('health.retries')}
+            />
+            <Field
+              label="启动宽限期"
+              error={issue('health.startPeriod')}
+              value={draft.health.startPeriod}
+              onChange={(v) => health('startPeriod', v)}
+              disabled={draft.health.mode !== 'override'}
+              hint="例如 20s"
+            />
+          </div>
+        </Section>
+      </fieldset>
+      <footer className="ct-card ct-resolution">
+        <h3>最终采用的配置</h3>
+        <div className="ct-defaults">
+          {resolution?.defaults.map((v) => <span key={v}>{v}</span>) || (
+            <span>正在解析默认值…</span>
+          )}
+        </div>
+        {error && <p role="alert">{error}</p>}
+        {submitted &&
+          resolution &&
+          Object.keys(resolution.errors).length > 0 && (
+            <p role="alert">请修正标出的配置，已填写内容会保留。</p>
+          )}
+        <div className="ct-actions">
+          <small>
+            {snapshot.capabilities.writes
+              ? '模拟服务 · 所有操作只影响模拟数据'
+              : '只读模式 · 可校验配置，真实写入尚未启用'}
+          </small>
+          <button
+            className="ct-primary"
+            type="submit"
+            disabled={busy || validating}
+          >
+            {validating
+              ? '正在校验…'
+              : snapshot.capabilities.writes &&
+                  (!item || item.ownership === 'managed')
+                ? item
+                  ? '保存配置'
+                  : '创建容器'
+                : '校验配置（只读）'}
+          </button>
+        </div>
+      </footer>
+    </form>
+  )
+}

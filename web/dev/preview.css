@@ -1,0 +1,45 @@
+body {
+  margin: 0;
+  background: #0e0d15;
+  font-family: system-ui;
+}
+[data-theme="light"] body {
+  background: #eeedf3;
+}
+.container-preview {
+  max-width: 1800px;
+  padding: 28px;
+  margin: auto;
+}
+.container-preview > nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  color: #c3bdd5;
+  font-size: 13px;
+}
+.container-preview > nav a {
+  color: #a58aff;
+}
+.container-preview > nav button,
+.container-preview > nav select {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid #4b435e;
+  background: #211d30;
+  color: #ded9ed;
+}
+.container-preview > p {
+  color: #e27791;
+}
+@media (max-width: 600px) {
+  .container-preview {
+    padding: 12px;
+  }
+  .container-preview > nav {
+    gap: 10px;
+  }
+}

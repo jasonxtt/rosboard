@@ -23,6 +23,7 @@ import (
 	"rosboard/internal/auth"
 	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
+	"rosboard/internal/containers"
 	"rosboard/internal/diagnostics"
 	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
@@ -33,6 +34,7 @@ import (
 )
 
 type Server struct {
+	containers        *containers.Service
 	restartPending    atomic.Bool
 	updater           *update.Manager
 	mutationMu        sync.RWMutex
@@ -73,6 +75,7 @@ func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Serve
 func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewService(),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -89,6 +92,7 @@ func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, asse
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewService(),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -109,6 +113,7 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 	}
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewService(),
 		manager:           manager,
 		store:             storage,
 		assets:            assets,
@@ -200,6 +205,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/api/containers" || strings.HasPrefix(request.URL.Path, "/api/containers/") {
+		s.serveContainers(writer, request)
+		return
+	}
 	if updatePath(request.URL.Path) {
 		s.serveUpdate(writer, request)
 		return
