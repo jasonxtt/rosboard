@@ -119,8 +119,10 @@ export function ContainerEditor({
     [submitted, setSubmitted] = useState(false),
     [uploading, setUploading] = useState(false),
     [picker, setPicker] = useState<'root' | number | null>(null),
-    [advancedNetwork, setAdvancedNetwork] = useState(false)
+    [advancedNetwork, setAdvancedNetwork] = useState(false),
+    [advancedStartup, setAdvancedStartup] = useState(false)
   const advancedNetworkID = useId(),
+    advancedStartupID = useId(),
     directoryID = useId()
   const lifetime = useRef<{ active: boolean; submit?: AbortController }>({
     active: true,
@@ -183,6 +185,12 @@ export function ContainerEditor({
         )
       )
         setAdvancedNetwork(true)
+      if (
+        ['command', 'entrypoint', 'user', 'workdir'].some(
+          (key) => r.errors[key],
+        )
+      )
+        setAdvancedStartup(true)
       if (Object.keys(r.errors).length === 0) await onSubmit(r.effective)
     } catch (e) {
       if (lifetime.current.active) setError(errorMessage(e))
@@ -372,7 +380,8 @@ export function ContainerEditor({
           </div>
           <button
             type="button"
-            className="ct-network-toggle"
+            className="ct-advanced-toggle"
+            aria-label="网络高级设置"
             aria-expanded={advancedNetwork}
             aria-controls={advancedNetworkID}
             onClick={() => setAdvancedNetwork((open) => !open)}
@@ -384,7 +393,10 @@ export function ContainerEditor({
               draft.network.mac) && <small>已配置</small>}
           </button>
           {advancedNetwork && (
-            <div className="ct-network-advanced" id={advancedNetworkID}>
+            <div
+              className="ct-network-advanced ct-advanced-fields"
+              id={advancedNetworkID}
+            >
               <div className="ct-pair">
                 <Field
                   label="IPv6 / 掩码"
@@ -600,34 +612,8 @@ export function ContainerEditor({
         <Section
           title="启动配置"
           number="05"
-          description="空值不覆盖镜像。创建后的启动行为与开机启动分别设置。"
+          description="设置何时启动、自动重启和日志记录。通常无需修改高级设置。"
         >
-          <Field
-            label="命令 CMD"
-            value={draft.command}
-            onChange={(v) => patch('command', v)}
-            hint={item?.imageDefaults.cmd || '继承镜像命令'}
-          />
-          <Field
-            label="入口 ENTRYPOINT"
-            value={draft.entrypoint}
-            onChange={(v) => patch('entrypoint', v)}
-            hint={item?.imageDefaults.entrypoint || '继承镜像入口'}
-          />
-          <div className="ct-pair">
-            <Field
-              label="用户"
-              value={draft.user}
-              onChange={(v) => patch('user', v)}
-              hint={item?.imageDefaults.user || '继承镜像用户'}
-            />
-            <Field
-              label="工作目录"
-              value={draft.workdir}
-              onChange={(v) => patch('workdir', v)}
-              hint={item?.imageDefaults.workdir || '继承镜像工作目录'}
-            />
-          </div>
           {!item && (
             <label className="ct-check">
               <input
@@ -665,6 +651,61 @@ export function ContainerEditor({
               <option value="always">总是重启</option>
             </select>
           </label>
+          <button
+            type="button"
+            className="ct-advanced-toggle"
+            aria-label="启动高级设置"
+            aria-expanded={advancedStartup}
+            aria-controls={advancedStartupID}
+            onClick={() => setAdvancedStartup((open) => !open)}
+          >
+            <span aria-hidden="true">{advancedStartup ? '▴' : '▾'}</span>
+            高级设置
+            {(draft.command ||
+              draft.entrypoint ||
+              draft.user ||
+              draft.workdir) && <small>已配置</small>}
+          </button>
+          {advancedStartup && (
+            <div
+              className="ct-startup-advanced ct-advanced-fields"
+              id={advancedStartupID}
+            >
+              <small>
+                留空使用镜像自带的启动设置。编辑已有容器时保留原值。
+              </small>
+              <Field
+                label="命令 CMD"
+                value={draft.command}
+                onChange={(v) => patch('command', v)}
+                error={issue('command')}
+                hint={item?.imageDefaults.cmd || '继承镜像命令'}
+              />
+              <Field
+                label="入口 ENTRYPOINT"
+                value={draft.entrypoint}
+                onChange={(v) => patch('entrypoint', v)}
+                error={issue('entrypoint')}
+                hint={item?.imageDefaults.entrypoint || '继承镜像入口'}
+              />
+              <div className="ct-pair">
+                <Field
+                  label="用户"
+                  value={draft.user}
+                  onChange={(v) => patch('user', v)}
+                  error={issue('user')}
+                  hint={item?.imageDefaults.user || '继承镜像用户'}
+                />
+                <Field
+                  label="工作目录"
+                  value={draft.workdir}
+                  onChange={(v) => patch('workdir', v)}
+                  error={issue('workdir')}
+                  hint={item?.imageDefaults.workdir || '继承镜像工作目录'}
+                />
+              </div>
+            </div>
+          )}
         </Section>
         <Section
           title="资源限制"
@@ -698,18 +739,29 @@ export function ContainerEditor({
         <Section
           title="健康检查"
           number="07"
-          description="默认继承镜像已有的健康检查，可在这里显式覆盖。"
+          description="定时在容器内执行命令，确认服务能否正常响应。通常保留镜像设置即可。"
         >
           <label className="ct-field">
-            <span>检查模式</span>
+            <span>检查方式</span>
             <select
               value={draft.health.mode}
               onChange={(e) => health('mode', e.target.value)}
             >
-              <option value="inherit">继承镜像（默认）</option>
-              <option value="override">覆盖镜像检查</option>
+              <option value="inherit">使用镜像自带的检查（推荐）</option>
+              <option value="override">自定义检查</option>
             </select>
+            {issue('health.mode') && (
+              <strong role="alert">{issue('health.mode')}</strong>
+            )}
           </label>
+          <p className="ct-health-hint">
+            例如：定时访问 Nginx
+            的网页，确认服务有响应。镜像未提供检查时，默认不会检查，也不影响容器启动。
+            检查异常后的停机、重启或通知需要另行配置。
+          </p>
+          <small>
+            下列设置仅在“自定义检查”时生效；留空沿用镜像或 RouterOS 默认值。
+          </small>
           <Field
             label="检查命令"
             value={draft.health.command}
@@ -718,42 +770,43 @@ export function ContainerEditor({
             error={issue('health.command')}
             hint={
               item?.imageDefaults['healthcheck-cmd'] ||
-              '例如 CMD-SHELL curl -f http://127.0.0.1/health'
+              '例如 curl -f http://127.0.0.1:80/；127.0.0.1 指容器自身，端口按应用修改，镜像内需有 curl。'
             }
           />
           <div className="ct-pair">
             <Field
-              label="间隔"
+              label="检查间隔"
               error={issue('health.interval')}
               value={draft.health.interval}
               onChange={(v) => health('interval', v)}
               disabled={draft.health.mode !== 'override'}
-              hint="例如 30s"
+              hint="每隔多久检查一次，例如 30s（30 秒）"
             />
             <Field
-              label="超时"
+              label="单次检查超时"
               error={issue('health.timeout')}
               value={draft.health.timeout}
               onChange={(v) => health('timeout', v)}
               disabled={draft.health.mode !== 'override'}
-              hint="例如 5s"
+              hint="一次检查最多等待多久，例如 5s（5 秒）"
             />
           </div>
           <div className="ct-pair">
             <Field
-              label="重试次数"
+              label="连续失败次数"
               value={draft.health.retries}
               onChange={(v) => health('retries', v)}
               disabled={draft.health.mode !== 'override'}
               error={issue('health.retries')}
+              hint="连续失败多少次才标记异常，例如 3"
             />
             <Field
-              label="启动宽限期"
+              label="启动准备时间"
               error={issue('health.startPeriod')}
               value={draft.health.startPeriod}
               onChange={(v) => health('startPeriod', v)}
               disabled={draft.health.mode !== 'override'}
-              hint="例如 20s"
+              hint="给服务启动留出时间，例如 20s（20 秒）；期间的失败不计入连续失败次数"
             />
           </div>
         </Section>

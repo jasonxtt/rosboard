@@ -272,12 +272,12 @@ func Resolve(d Draft, s Snapshot) Resolution {
 	}
 	if e.Health.Mode == "override" {
 		if strings.TrimSpace(e.Health.Command) == "" {
-			r.Errors["health.command"] = "覆盖健康检查时需填写命令"
+			r.Errors["health.command"] = "自定义检查时请填写在容器内执行的命令"
 		}
 		if e.Health.Retries != "" {
 			n, err := strconv.Atoi(e.Health.Retries)
 			if err != nil || n < 1 {
-				r.Errors["health.retries"] = "重试次数需为正整数"
+				r.Errors["health.retries"] = "连续失败次数需为正整数"
 			}
 		}
 	}
@@ -323,7 +323,7 @@ func Resolve(d Draft, s Snapshot) Resolution {
 		}
 	}
 	if e.Health.Mode == "inherit" {
-		r.Defaults = append(r.Defaults, "健康检查继承镜像")
+		r.Defaults = append(r.Defaults, "健康检查沿用镜像设置；镜像未提供时不检查")
 	}
 	if e.ImageSource == "archive" {
 		delete(r.ContainerFields, "remote-image")

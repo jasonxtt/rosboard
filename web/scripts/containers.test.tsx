@@ -321,6 +321,12 @@ test('edit retains values and shared VETH fields are locked without hiding secti
     )
     assert.equal(field('VETH 名称').disabled, true)
     assert.equal(field('IPv4 网关').disabled, true)
+    assert.equal(document.querySelector('.ct-startup-advanced'), null)
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="启动高级设置"]')!
+        .click(),
+    )
     assert.equal(field('命令 CMD').value, 'serve --exact')
     assert.equal(field('容器运行目录').value, '/sata1/existing')
     assert.equal(field('变量值').value, item.config.env[0].value)
@@ -837,6 +843,163 @@ test('inline environment delete removes only its own row and retains verbatim va
     assert.equal(document.querySelectorAll('.ct-env-row').length, 1)
     await act(async () => button('校验配置').click())
     assert.deepEqual(submitted?.env, [draft.env[1]])
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('startup controls precede collapsed advanced fields and preserve all overrides through submit', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  Object.assign(draft, {
+    command: 'serve --original',
+    entrypoint: '/app/bin/server',
+    user: '1000:1000',
+    workdir: '/app/data',
+  })
+  let submitted: Draft | undefined
+  globalThis.fetch = async (_url, init) =>
+    response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async (d) => {
+            submitted = d
+          }}
+        />,
+      ),
+    )
+    const toggle = document.querySelector<HTMLButtonElement>(
+      '[aria-label="启动高级设置"]',
+    )!
+    const section = toggle.closest('section')!
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(section.querySelector('.ct-startup-advanced'), null)
+    assert.equal(section.querySelectorAll('.ct-check input').length, 3)
+    assert.equal(
+      section.querySelector('.ct-section-body')!.lastElementChild,
+      toggle,
+    )
+    await act(async () => toggle.click())
+    assert.equal(field('命令 CMD').value, draft.command)
+    assert.equal(field('入口 ENTRYPOINT').value, draft.entrypoint)
+    assert.equal(field('用户').value, draft.user)
+    assert.equal(field('工作目录').value, draft.workdir)
+    await act(async () => {
+      const input = field('命令 CMD') as HTMLInputElement
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, 'serve --changed')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => toggle.click())
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted?.command, 'serve --changed')
+    assert.equal(submitted?.entrypoint, draft.entrypoint)
+    assert.equal(submitted?.user, draft.user)
+    assert.equal(submitted?.workdir, draft.workdir)
+    await act(async () => toggle.click())
+    assert.equal(field('命令 CMD').value, 'serve --changed')
+    assert.equal(
+      document
+        .querySelector('[aria-label="网络高级设置"]')!
+        .getAttribute('aria-expanded'),
+      'false',
+    )
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('health check choices gate custom settings and retain the command when switching back to image defaults', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  let submitted: Draft | undefined
+  globalThis.fetch = async (_url, init) => {
+    const d = JSON.parse(String(init?.body)) as Draft
+    return response({
+      effective: d,
+      defaults: [],
+      errors:
+        d.health.mode === 'override' && !d.health.command
+          ? { 'health.command': '自定义检查时请填写在容器内执行的命令' }
+          : {},
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async (d) => {
+            submitted = d
+          }}
+        />,
+      ),
+    )
+    const mode = field('检查方式') as HTMLSelectElement
+    assert.equal(mode.value, 'inherit')
+    assert.equal(field('检查命令').disabled, true)
+    assert.match(document.body.textContent!, /镜像未提供检查时，默认不会检查/)
+    assert.doesNotMatch(
+      document.body.textContent!,
+      /CMD-SHELL|启动宽限期|覆盖镜像检查/,
+    )
+    await act(async () => {
+      mode.value = 'override'
+      mode.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
+    })
+    for (const label of [
+      '检查命令',
+      '检查间隔',
+      '单次检查超时',
+      '连续失败次数',
+      '启动准备时间',
+    ])
+      assert.equal(field(label).disabled, false)
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted, undefined)
+    assert.match(document.body.textContent!, /请填写在容器内执行的命令/)
+    await act(async () => {
+      const input = field('检查命令') as HTMLInputElement
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, 'curl -f http://127.0.0.1:80/')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted?.health.mode, 'override')
+    assert.equal(submitted?.health.command, 'curl -f http://127.0.0.1:80/')
+    await act(async () => {
+      mode.value = 'inherit'
+      mode.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
+    })
+    assert.equal(field('检查命令').disabled, true)
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted?.health.mode, 'inherit')
+    assert.equal(submitted?.health.command, 'curl -f http://127.0.0.1:80/')
   } finally {
     await act(async () => root.unmount())
     env.restore()

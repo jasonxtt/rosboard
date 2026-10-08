@@ -697,7 +697,7 @@
   }
 }
 
-.ct .ct-network-toggle {
+.ct .ct-advanced-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -706,9 +706,15 @@
   color: var(--ct-accent);
   background: transparent;
 }
-.ct .ct-network-advanced {
+.ct .ct-advanced-fields {
   display: grid;
   gap: 14px;
+}
+.ct .ct-health-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ct-muted);
 }
 .ct .ct-env-row {
   display: grid;

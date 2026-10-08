@@ -74,7 +74,7 @@ func simulationFixture(device string) containers.Snapshot {
 		if i == 0 {
 			state = "stopped"
 		}
-		s.Items = append(s.Items, containers.Item{ID: d.ExistingID, Name: name, Status: state, Image: d.Image, Network: n, CPU: fmt.Sprint(i * 3), Memory: fmt.Sprintf("%d MiB", 24+i*16), StartOnBoot: d.StartOnBoot, Ownership: "unmanaged", SharedVETH: shared, EnvLists: []string{"shared-env"}, MountLists: []string{"shared-config"}, Config: d, ImageDefaults: map[string]string{"cmd": "server --config /etc/config", "entrypoint": "/entrypoint.sh", "user": "1000", "workdir": "/app", "healthcheck-cmd": "CMD-SHELL curl -f localhost/health"}})
+		s.Items = append(s.Items, containers.Item{ID: d.ExistingID, Name: name, Status: state, Image: d.Image, Network: n, CPU: fmt.Sprint(i * 3), Memory: fmt.Sprintf("%d MiB", 24+i*16), StartOnBoot: d.StartOnBoot, Ownership: "unmanaged", SharedVETH: shared, EnvLists: []string{"shared-env"}, MountLists: []string{"shared-config"}, Config: d, ImageDefaults: map[string]string{"cmd": "server --config /etc/config", "entrypoint": "/entrypoint.sh", "user": "1000", "workdir": "/app", "healthcheck-cmd": "curl -f http://127.0.0.1:80/"}})
 		if n.VETH != "veth-shared" {
 			s.Options.Interfaces = append(s.Options.Interfaces, n.VETH)
 			s.Options.UsedIPs = append(s.Options.UsedIPs, n.Address)

@@ -79,3 +79,11 @@ type a path while it is open, close it and confirm the value remains; selecting
 a folder updates only root-dir. Delete an env row with its right-hand trash icon
 and confirm other names and multiline values remain. Check both UIs/themes at
 1440px and 390px. Full-panel entry is **主机设置 → 容器管理** in each UI.
+
+Startup acceptance: start/log/restart controls appear before a separate advanced
+arrow; CMD, ENTRYPOINT, user and workdir are hidden by default. Existing overrides
+show an indicator and survive collapse/reopen and submit. Health checks default
+to image inheritance; custom mode enables command/timing fields, missing command
+keeps the draft with an inline error, and switching back retains entered values
+without projecting overrides. Read the service-response example and timing hints
+in both themes; the probe runs inside the container and requires the named tool.
