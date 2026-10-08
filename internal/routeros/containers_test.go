@@ -17,7 +17,7 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 			t.Errorf("mutation: %s", r.Method)
 		}
 		props := r.URL.Query().Get(".proplist")
-		for _, forbidden := range []string{"password", "registry-url", "config-json", "sensitive"} {
+		for _, forbidden := range []string{"password", "registry-url", "config-json", "sensitive", "contents"} {
 			if strings.Contains(props, forbidden) {
 				t.Errorf("secret property requested: %s", props)
 			}
@@ -39,6 +39,9 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 	rows, err := client.ContainerRead(context.Background(), ContainerList)
 	if err != nil || len(rows) != 1 || rows[0]["stopped"] != "true" {
 		t.Fatal(rows, err)
+	}
+	if _, err := client.ContainerRead(context.Background(), ContainerFiles); err != nil {
+		t.Fatal(err)
 	}
 	rows, err = client.ContainerRead(context.Background(), ContainerConfig)
 	if err != nil || rows[0]["memory-high"] != "256M" {

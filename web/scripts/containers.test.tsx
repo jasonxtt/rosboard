@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import React, { act } from 'react'
-import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 import { ContainerEditor } from '../src/features/containers/ContainerEditor.tsx'
 import { ContainerPage } from '../src/features/containers/ContainerPage.tsx'
@@ -20,6 +19,20 @@ import {
 } from '../src/features/containers/api.ts'
 import type { Draft } from '../src/features/containers/types.ts'
 
+// React detects input-event support at import time. Initialize a DOM before
+// loading react-dom so native typing exercises the real controlled-input path.
+const bootstrapDOM = new JSDOM('<!doctype html><html><body></body></html>')
+const previousBootstrap = {
+  window: globalThis.window,
+  document: globalThis.document,
+}
+Object.assign(globalThis, {
+  window: bootstrapDOM.window,
+  document: bootstrapDOM.window.document,
+})
+const { createRoot } = await import('react-dom/client')
+Object.assign(globalThis, previousBootstrap)
+bootstrapDOM.window.close()
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true })
 const existing = () =>
   parseItem({
@@ -249,7 +262,7 @@ test('flat editor shows every section, keeps required errors inline and retains 
         '镜像',
         '网络',
         '存储与挂载',
-        '发布端口',
+        '端口映射',
         '环境变量',
         '启动配置',
         '资源限制',
@@ -422,6 +435,199 @@ test('pending unknown task is restored and recovered without another mutation', 
     assert.ok(calls.some((c) => c.includes('/jobs/old/recover?device=a')))
     assert.ok(calls.every((c) => !c.includes('/actions')))
     assert.equal(button('创建容器').disabled, false)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('local archive upload uses multipart, keeps device scope and authenticates errors', async () => {
+  const previous = globalThis.fetch
+  const calls: { path: string; init?: RequestInit }[] = []
+  const { uploadImage, parseDraft } = await import(
+    '../src/features/containers/api.ts'
+  )
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    return response(
+      {
+        id: 'archive-a',
+        name: 'image.tar',
+        reference: 'local/app:v1',
+        architecture: 'amd64',
+        bytes: 4,
+        sha256: 'a'.repeat(64),
+        remotePath: '/sata1/images/a.tar',
+      },
+      201,
+    )
+  }
+  try {
+    const image = new File(['data'], 'image.tar', { type: 'application/x-tar' })
+    const result = await uploadImage('device / 2', image)
+    assert.match(calls[0].path, /images\/upload\?device=device%20%2F%202/)
+    assert.ok(calls[0].init?.body instanceof FormData)
+    assert.equal(calls[0].init?.headers, undefined)
+    assert.equal(calls[0].init?.credentials, 'same-origin')
+    assert.equal(result.reference, 'local/app:v1')
+    assert.equal(parseDraft({}).imageSource, 'registry')
+    assert.equal(
+      parseDraft({
+        imageSource: 'archive',
+        archiveId: 'a',
+        archiveFile: 'sata1/a.tar',
+      }).archiveFile,
+      'sata1/a.tar',
+    )
+  } finally {
+    globalThis.fetch = previous
+  }
+})
+
+test('directory picker navigates actual names, creates a child and selects it without changing other fields', async () => {
+  const { DirectoryPicker } = await import(
+    '../src/features/containers/DirectoryPicker.tsx'
+  )
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  let selected = '',
+    created: unknown
+  globalThis.fetch = async (url, init) => {
+    if (init?.method === 'POST') {
+      created = JSON.parse(String(init.body))
+      return response({ path: '/sata1/rootfs' }, 201)
+    }
+    const path = new URL(String(url), 'http://localhost').searchParams.get(
+      'path',
+    )!
+    return response({
+      path,
+      entries:
+        path === '/'
+          ? [{ name: 'sata1', path: '/sata1', directory: true }]
+          : path === '/sata1'
+            ? [
+                {
+                  name: 'config.yaml',
+                  path: '/sata1/config.yaml',
+                  directory: false,
+                  bytes: 128,
+                },
+              ]
+            : [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <DirectoryPicker
+          deviceId="a"
+          writable
+          purpose="根目录"
+          onClose={() => {}}
+          onSelect={(p) => {
+            selected = p
+          }}
+        />,
+      ),
+    )
+    await settle()
+    assert.equal(button('选用此目录').disabled, true)
+    await act(async () => button('sata1').click())
+    await settle()
+    assert.ok(document.body.textContent?.includes('config.yaml'))
+    assert.equal(
+      [...document.querySelectorAll('button')].some((b) =>
+        b.textContent?.includes('选用文件'),
+      ),
+      false,
+    )
+    await act(async () => {
+      const input = field('新文件夹名称') as HTMLInputElement
+      // Trigger React's controlled input handler without importing a testing framework.
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, 'rootfs')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => button('新建文件夹').click())
+    await settle()
+    assert.deepEqual(created, { parent: '/sata1', name: 'rootfs' })
+    await act(async () => button('选用此目录').click())
+    assert.equal(selected, '/sata1/rootfs')
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('readonly local upload stays disabled while directory selection updates only the chosen mount', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  draft.mounts = [
+    { source: '/sata1/original', target: '/etc/app', readOnly: true },
+  ]
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/directories')) {
+      const path = new URL(String(url), 'http://localhost').searchParams.get(
+        'path',
+      )!
+      return response({
+        path,
+        entries:
+          path === '/'
+            ? [{ name: 'sata1', path: '/sata1', directory: true }]
+            : [],
+      })
+    }
+    return response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    )
+    await act(async () => {
+      const source = field('镜像来源')
+      source.value = 'archive'
+      source.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    assert.equal((field('本地镜像归档') as HTMLInputElement).disabled, true)
+    assert.match(document.body.textContent!, /真实镜像上传尚未启用/)
+    await act(async () => button('浏览挂载源').click())
+    await settle()
+    await act(async () => button('sata1').click())
+    await settle()
+    assert.equal(
+      [...document.querySelectorAll('button')].some(
+        (b) => b.textContent === '新建文件夹',
+      ),
+      false,
+    )
+    await act(async () => button('选用此目录').click())
+    assert.equal(field('主机源目录').value, '/sata1')
+    assert.equal(field('容器目标目录').value, '/etc/app')
+    assert.equal(field('根目录').value, '')
+    assert.equal(
+      (document.querySelector('.ct-check input') as HTMLInputElement).checked,
+      true,
+    )
+    assert.equal(document.querySelectorAll('.ct-section').length, 8)
   } finally {
     await act(async () => root.unmount())
     env.restore()

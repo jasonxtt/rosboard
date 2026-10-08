@@ -35,11 +35,33 @@ type Health struct {
 	Retries     string `json:"retries"`
 	StartPeriod string `json:"startPeriod"`
 }
+type ImageArchive struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Reference    string `json:"reference"`
+	Architecture string `json:"architecture"`
+	Bytes        int64  `json:"bytes"`
+	SHA256       string `json:"sha256"`
+	RemotePath   string `json:"remotePath"`
+}
+type DirectoryEntry struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Directory bool   `json:"directory"`
+	Bytes     int64  `json:"bytes"`
+}
+type DirectoryListing struct {
+	Path    string           `json:"path"`
+	Entries []DirectoryEntry `json:"entries"`
+}
 type Draft struct {
 	DraftID          string        `json:"draftId"`
 	ExistingID       string        `json:"existingId"`
 	Name             string        `json:"name"`
 	Image            string        `json:"image"`
+	ImageSource      string        `json:"imageSource"`
+	ArchiveID        string        `json:"archiveId"`
+	ArchiveFile      string        `json:"archiveFile"`
 	Network          Network       `json:"network"`
 	RootDir          string        `json:"rootDir"`
 	Command          string        `json:"command"`
@@ -64,12 +86,14 @@ type Disk struct {
 	Writable  bool   `json:"writable"`
 }
 type Options struct {
-	Bridges    []string `json:"bridges"`
-	Interfaces []string `json:"interfaces"`
-	UsedIPs    []string `json:"usedIPs"`
-	Disks      []Disk   `json:"disks"`
-	MemoryHigh string   `json:"memoryHigh"`
-	MemoryMax  string   `json:"memoryMax"`
+	Architecture string         `json:"architecture"`
+	Archives     []ImageArchive `json:"archives"`
+	Bridges      []string       `json:"bridges"`
+	Interfaces   []string       `json:"interfaces"`
+	UsedIPs      []string       `json:"usedIPs"`
+	Disks        []Disk         `json:"disks"`
+	MemoryHigh   string         `json:"memoryHigh"`
+	MemoryMax    string         `json:"memoryMax"`
 }
 type Capabilities struct {
 	Supported bool     `json:"supported"`

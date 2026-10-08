@@ -7,7 +7,7 @@ import (
 )
 
 func draftFixture() Draft {
-	return Draft{DraftID: "abcd12", Image: "registry.example:5000/team/service", Network: Network{VETH: "new-veth", Bridge: "br-containers", Address: "172.20.0.8/24", Gateway: "172.20.0.1"}, Env: []Environment{}, Mounts: []Mount{}, Ports: []Port{}, StartAfterCreate: true, StartOnBoot: true, Logging: true, RestartPolicy: "no", Health: Health{Mode: "inherit"}}
+	return Draft{DraftID: "abcd12", ImageSource: "registry", Image: "registry.example:5000/team/service", Network: Network{VETH: "new-veth", Bridge: "br-containers", Address: "172.20.0.8/24", Gateway: "172.20.0.1"}, Env: []Environment{}, Mounts: []Mount{}, Ports: []Port{}, StartAfterCreate: true, StartOnBoot: true, Logging: true, RestartPolicy: "no", Health: Health{Mode: "inherit"}}
 }
 func optionsFixture() Snapshot {
 	return Snapshot{Items: []Item{}, Options: Options{Bridges: []string{"br-containers"}, Interfaces: []string{"ether1"}, UsedIPs: []string{"172.20.0.1/24"}, Disks: []Disk{{Name: "usb1", FreeBytes: 100, Writable: true}, {Name: "sata1", FreeBytes: 200, Writable: true}, {Name: "unmounted", FreeBytes: 1000, Writable: false}}, MemoryHigh: "256M", MemoryMax: "512M"}}
@@ -19,7 +19,7 @@ func TestResolveDefaultsAndExplicitOverrides(t *testing.T) {
 	if len(r.Errors) > 0 {
 		t.Fatal(r.Errors)
 	}
-	if r.Effective.Image != "registry.example:5000/team/service:latest" || r.Effective.Name != "service-abcd12" || r.Effective.RootDir != "/sata1/rosboard/containers/service-abcd12" {
+	if r.Effective.Image != "registry.example:5000/team/service:latest" || r.Effective.Name != "service-abcd12" || r.Effective.RootDir != "/sata1/rosboard/containers/service-abcd12/rootfs" {
 		t.Fatalf("wrong defaults: %+v", r.Effective)
 	}
 	for _, field := range []string{"cmd", "entrypoint", "user", "workdir", "cpu-list", "memory-high", "memory-max"} {

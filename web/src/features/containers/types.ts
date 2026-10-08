@@ -28,11 +28,27 @@ export type Health = {
   retries: string
   startPeriod: string
 }
+export type ImageArchive = {
+  id: string
+  name: string
+  reference: string
+  architecture: string
+  bytes: number
+  sha256: string
+  remotePath: string
+}
+export type DirectoryListing = {
+  path: string
+  entries: { name: string; path: string; directory: boolean; bytes: number }[]
+}
 export type Draft = {
   draftId: string
   existingId: string
   name: string
   image: string
+  imageSource: string
+  archiveId: string
+  archiveFile: string
   network: Network
   rootDir: string
   command: string
@@ -69,6 +85,8 @@ export type Item = {
   imageDefaults: Record<string, string>
 }
 export type Options = {
+  architecture: string
+  archives: ImageArchive[]
   bridges: string[]
   interfaces: string[]
   usedIPs: string[]

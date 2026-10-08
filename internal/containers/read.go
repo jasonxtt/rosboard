@@ -107,6 +107,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 	}
 	for _, row := range data[routeros.ContainerResource] {
 		result.Capabilities.Version = row["version"]
+		result.Options.Architecture = row["architecture-name"]
 	}
 	for _, row := range data[routeros.ContainerConfig] {
 		result.Options.MemoryHigh = row["memory-high"]
@@ -158,8 +159,16 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 			}
 		}
 		draft := Draft{ExistingID: row[".id"], Name: row["name"], Image: row["remote-image"], Network: n, RootDir: row["root-dir"], Command: row["cmd"], Entrypoint: row["entrypoint"], User: row["user"], Workdir: row["workdir"], Env: []Environment{}, Mounts: []Mount{}, Ports: []Port{}, MemoryHigh: row["memory-high"], MemoryMax: row["memory-max"], CPUList: row["cpu-list"], StartOnBoot: isTrue(row["start-on-boot"]), Logging: isTrue(row["logging"]), RestartPolicy: row["restart-policy"], Health: Health{Mode: "inherit"}}
+		draft.ImageSource = "registry"
+		if row["file"] != "" && row["remote-image"] == "" {
+			draft.ImageSource = "archive"
+			draft.ArchiveFile = row["file"]
+		}
 		if draft.Image == "" {
 			draft.Image = row["tag"]
+			if draft.Image == "" && draft.ArchiveFile != "" {
+				draft.Image = draft.ArchiveFile
+			}
 		}
 		if row["healthcheck-cmd"] != "" {
 			draft.Health = Health{Mode: "override", Command: row["healthcheck-cmd"], Interval: row["healthcheck-interval"], Timeout: row["healthcheck-timeout"], Retries: row["healthcheck-retries"], StartPeriod: row["healthcheck-start-period"]}

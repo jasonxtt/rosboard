@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"rosboard/internal/routeros"
 	"strings"
 	"sync"
 	"testing"
@@ -40,20 +41,22 @@ type simulation struct {
 	requests   map[string]string
 	signatures map[string][32]byte
 	resources  map[string]map[string][]string
+	files      map[string][]routeros.RouterOSObject
 	latest     map[string]string
 	now        func() time.Time
 }
 
 func newSimulation() *simulation {
-	m := &simulation{devices: map[string]containers.Snapshot{}, jobs: map[string]*simulatedJob{}, requests: map[string]string{}, signatures: map[string][32]byte{}, resources: map[string]map[string][]string{}, now: time.Now, latest: map[string]string{}}
+	m := &simulation{devices: map[string]containers.Snapshot{}, jobs: map[string]*simulatedJob{}, requests: map[string]string{}, signatures: map[string][32]byte{}, resources: map[string]map[string][]string{}, now: time.Now, latest: map[string]string{}, files: map[string][]routeros.RouterOSObject{}}
 	for _, id := range []string{"demo-router", "demo-edge"} {
 		m.devices[id] = simulationFixture(id)
 		m.resources[id] = map[string][]string{}
+		m.files[id] = simulationFiles(id)
 	}
 	return m
 }
 func simulationFixture(device string) containers.Snapshot {
-	s := containers.Snapshot{Items: []containers.Item{}, Options: containers.Options{Bridges: []string{"br-containers", "br-services"}, Interfaces: []string{"ether1", "br-containers", "br-services", "veth-shared"}, UsedIPs: []string{"172.20.0.1/24", "172.20.0.2/24"}, Disks: []containers.Disk{{Name: "usb1", FreeBytes: 1 << 30, Writable: true}, {Name: "sata1", FreeBytes: 8 << 30, Writable: true}}, MemoryHigh: "256M", MemoryMax: "512M"}, Capabilities: containers.Capabilities{Supported: true, Writes: true, Mode: "simulation", Version: "7.23.5", Logs: true, Fields: []string{"memory-high", "memory-max", "restart-policy", "cpu-list", "healthcheck-cmd"}, Warnings: []string{}}}
+	s := containers.Snapshot{Items: []containers.Item{}, Options: containers.Options{Architecture: "x86_64", Archives: []containers.ImageArchive{}, Bridges: []string{"br-containers", "br-services"}, Interfaces: []string{"ether1", "br-containers", "br-services", "veth-shared"}, UsedIPs: []string{"172.20.0.1/24", "172.20.0.2/24"}, Disks: []containers.Disk{{Name: "usb1", FreeBytes: 1 << 30, Writable: true}, {Name: "sata1", FreeBytes: 8 << 30, Writable: true}}, MemoryHigh: "256M", MemoryMax: "512M"}, Capabilities: containers.Capabilities{Supported: true, Writes: true, Mode: "simulation", Version: "7.23.5", Logs: true, Fields: []string{"memory-high", "memory-max", "restart-policy", "cpu-list", "healthcheck-cmd"}, Warnings: []string{}}}
 	names := []string{"mosdns", "dns-metrics", "nginx", "redis"}
 	if device == "demo-edge" {
 		names = []string{"edge-proxy"}
@@ -94,6 +97,25 @@ func (m *simulation) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/containers")
+	if path == "/images/upload" && r.Method == http.MethodPost {
+		m.uploadImage(w, r, device, s)
+		return
+	}
+	if path == "/directories" {
+		if r.Method == http.MethodGet {
+			listing, err := containers.DirectoryView(m.files[device], s.Options.Disks, r.URL.Query().Get("path"))
+			if err != nil {
+				writeAPIError(w, 400, "invalid_path", "目录不存在或路径无效")
+				return
+			}
+			writeJSON(w, 200, listing)
+			return
+		}
+		if r.Method == http.MethodPost {
+			m.mkdir(w, r, device, s)
+			return
+		}
+	}
 	if path == "/actions" && r.Method == http.MethodPost {
 		m.action(w, r, device, s)
 		return
@@ -143,6 +165,7 @@ func (m *simulation) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		m.devices[device] = simulationFixture(device)
 		delete(m.latest, device)
+		m.files[device] = simulationFiles(device)
 		m.resources[device] = map[string][]string{}
 		if path == "/_many" {
 			s = m.devices[device]
@@ -302,6 +325,9 @@ func (m *simulation) advance(job *simulatedJob) {
 	case elapsed < 2*time.Second:
 		if job.Action == "create" || job.Action == "update" {
 			job.Phase = "下载镜像"
+			if job.draft.ImageSource == "archive" {
+				job.Phase = "从本地归档导入镜像"
+			}
 		} else {
 			job.Phase = "读取现有配置"
 		}
@@ -361,6 +387,7 @@ func (m *simulation) apply(job *simulatedJob) {
 		}
 		m.resources[job.DeviceID][id] = owned
 		s.Items = append(s.Items, item)
+		m.files[job.DeviceID] = append(m.files[job.DeviceID], routeros.RouterOSObject{"name": strings.TrimPrefix(d.RootDir, "/"), "type": "directory"})
 		s.Options.Interfaces = append(s.Options.Interfaces, d.Network.VETH)
 		s.Options.UsedIPs = append(s.Options.UsedIPs, d.Network.Address)
 		job.TargetID = id
@@ -509,6 +536,6 @@ func TestContainerPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log("Container simulation listening on 127.0.0.1:8099 (test-only, no RouterOS credentials)")
-	t.Fatal(http.Serve(listener, newSimulation()))
+	t.Log("Container preview listening on 127.0.0.1:8099 (test-only)")
+	t.Fatal(http.Serve(listener, containerPreviewHandler(newSimulation())))
 }

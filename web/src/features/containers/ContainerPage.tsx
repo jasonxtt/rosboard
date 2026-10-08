@@ -429,7 +429,7 @@ export function ContainerPage({
                     <th>Bridge</th>
                     <th>{heading('cpu', 'CPU')}</th>
                     <th>{heading('memory', '内存')}</th>
-                    <th>发布端口</th>
+                    <th>端口映射</th>
                     <th>开机启动</th>
                     <th>归属</th>
                     <th>操作</th>

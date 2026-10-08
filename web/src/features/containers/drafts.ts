@@ -11,6 +11,9 @@ export function newDraft(): Draft {
     existingId: '',
     name: '',
     image: '',
+    imageSource: 'registry',
+    archiveId: '',
+    archiveFile: '',
     network: {
       veth: '',
       bridge: '',
