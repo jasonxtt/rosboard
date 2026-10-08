@@ -52,10 +52,17 @@ and errors. No configuration tab or wizard hides sections. Optional IPv6/MAC
 and startup command/entrypoint/user/workdir collapse under separate advanced
 toggles; validation errors expand those fields without clearing their values.
 Startup behavior, logging and restart policy precede startup advanced settings.
-Health-check labels explain service response checks and unchanged image defaults.
-Runtime-directory input supports direct typing and inline Files browsing.
+Health-check labels explain service response checks; custom fields appear only
+in override mode. Resource limits default off for new drafts; edits with explicit
+limits start on. Turning off submits inheritance without discarding hidden input.
+Runtime-directory input supports direct typing and a bound Files picker. Its
+compact breadcrumb scrolls horizontally; pending creation and renaming use
+focused inline rows. Enter/valid blur saves once and Escape cancels locally.
+Folders sort first; files are muted and cannot become a runtime root. Recursive
+folder deletion displays its exact name/path and all-content warning.
 
-Production capabilities fail closed for writes. The development preview uses
+Container lifecycle capabilities fail closed for writes; directory CRUD uses
+the independent `directoryWrites` capability and device-scoped API. The development preview uses
 fake device APIs and a separate HTML entry. Check both lazy container CSS graphs
 and absence of the preview entry/fixtures in `check:ui-build`. Device remounts
 cancel reads and clear drafts, logs and job selection; subsequent reads restore

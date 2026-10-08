@@ -2,17 +2,20 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"rosboard/internal/containers"
+	"rosboard/internal/routeros"
 )
 
 func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(request.URL.Path, "/api/containers"), "/"), "/")
 	resolving := len(parts) == 1 && parts[0] == "resolve"
-	if request.Method != http.MethodGet && !(resolving && request.Method == http.MethodPost) {
+	directories := len(parts) == 1 && parts[0] == "directories"
+	if request.Method != http.MethodGet && !((resolving || directories) && request.Method == http.MethodPost) {
 		writeAPIError(writer, http.StatusForbidden, "container_read_only", "当前阶段仅支持读取；真实 RouterOS 操作尚未启用")
 		return
 	}
@@ -39,13 +42,34 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 	}
 	switch {
 	case len(parts) == 1 && parts[0] == "directories":
+		if request.Method == http.MethodPost {
+			var operation containers.DirectoryRequest
+			if decodeJSONBody(writer, request, &operation) != nil {
+				return
+			}
+			var gate *routeros.DeviceWriteGate
+			if s.policy != nil {
+				gate = s.policy.WriteGate()
+			}
+			result, err := s.containers.MutateDirectory(ctx, device, snapshot.Options.Disks, gate, operation)
+			if err != nil {
+				writeDirectoryError(writer, err)
+				return
+			}
+			status := http.StatusOK
+			if operation.Action == "mkdir" {
+				status = http.StatusCreated
+			}
+			writeJSON(writer, status, result)
+			return
+		}
 		if _, err := containers.DirectoryPath(request.URL.Query().Get("path")); err != nil {
 			writeAPIError(writer, 400, "invalid_path", "目录路径无效")
 			return
 		}
 		listing, err := s.containers.Directories(ctx, device, snapshot.Options.Disks, request.URL.Query().Get("path"))
 		if err != nil {
-			writeAPIError(writer, 502, "directory_read_failed", "读取目录失败，请检查路径与 RouterOS 文件读取权限")
+			writeDirectoryError(writer, err)
 			return
 		}
 		writeJSON(writer, 200, listing)
@@ -80,4 +104,13 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 	default:
 		writeAPIError(writer, 404, "not_found", "接口不存在")
 	}
+}
+
+func writeDirectoryError(writer http.ResponseWriter, err error) {
+	var directory *containers.DirectoryError
+	if errors.As(err, &directory) {
+		writeAPIError(writer, directory.Status, directory.Code, directory.Message)
+		return
+	}
+	writeAPIError(writer, 502, "directory_read_failed", "读取目录失败，请检查路径与 RouterOS 文件读取权限")
 }

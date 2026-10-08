@@ -1,8 +1,8 @@
 {
   "id": "container-management",
   "name": "container-management",
-  "title": "Native container management: read-only API and simulation",
-  "description": "Phase 1: native read-only container APIs, dual-UI flat editor, isolated simulation and regression checks.",
+  "title": "Native container management with real Files picker and simulation",
+  "description": "Native Container reads, dual-UI single-page configuration, real RouterOS directory CRUD and isolated lifecycle simulation.",
   "status": "in_progress",
   "dev_type": "fullstack",
   "scope": "containers",
@@ -27,6 +27,6 @@
     "web/src/features/containers",
     "web/dev/README.md"
   ],
-  "notes": "Phase 1 continues in Draft PR #30. Direct container-IP access replaces port mappings. Network/startup advanced toggles, inline runtime Files browsing, row trash icons and plain-language health checks are implemented. The isolated full dual-UI test service on port 8080 passed authentication, real snapshot/Files, startup preservation, health inheritance/override projection, write denial and embedded-asset checks. Upload/mkdir and container mutations remain simulation-only. Awaiting full-panel visual acceptance/root review; real writes and production acceptance remain deferred.",
+  "notes": "Continues on the same branch and Draft PR #30. The attached storage follow-up authorizes real directory mkdir/rename/recursive removal independently; Container lifecycle and image uploads remain simulation-only. Bound Files picker, inline edits, exact-path all-content deletion confirmation, fresh ID/type/reference guards, shared device locking and read-back recovery are implemented. Files use long **opaque IDs that may change on rename. The complete isolated test service passed real CRUD, request replay, cleanup, auth, defaults and exact embedded asset checks. Health inheritance hides custom details; resource limits default off and preserve edit values. 88 frontend tests and Go/race/build/vet/UI-isolation checks passed. Replay records are in memory; user visual/root review and future complete Container write/production acceptance remain pending.",
   "meta": {}
 }

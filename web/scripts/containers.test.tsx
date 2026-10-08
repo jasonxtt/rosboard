@@ -17,7 +17,18 @@ import {
   fetchContainers,
   performAction,
 } from '../src/features/containers/api.ts'
-import type { Draft } from '../src/features/containers/types.ts'
+import { DirectoryPicker } from '../src/features/containers/DirectoryPicker.tsx'
+import {
+  directoryNameError,
+  directoryPath,
+  replaceDirectory,
+} from '../src/features/containers/directoryPaths.ts'
+import type {
+  Draft,
+  DirectoryEntry,
+  DirectoryMutation,
+  DirectoryRequest,
+} from '../src/features/containers/types.ts'
 
 // React detects input-event support at import time. Initialize a DOM before
 // loading react-dom so native typing exercises the real controlled-input path.
@@ -84,6 +95,7 @@ const snapshot = (writes = false) =>
     },
     capabilities: {
       supported: true,
+      directoryWrites: writes,
       writes,
       mode: writes ? 'simulation' : 'read-only',
       logs: true,
@@ -136,8 +148,13 @@ function button(text: string) {
   return b
 }
 function field(label: string) {
-  const f = [...document.querySelectorAll<HTMLLabelElement>('.ct-field')]
-    .find((f) => f.querySelector('span')?.textContent?.startsWith(label))
+  const f = [...document.querySelectorAll<HTMLElement>('.ct-field')]
+    .find((f) =>
+      (
+        f.querySelector('span')?.textContent ||
+        f.querySelector('label')?.textContent
+      )?.startsWith(label),
+    )
     ?.querySelector<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >('input,select,textarea')
@@ -475,7 +492,9 @@ test('local archive upload uses multipart, keeps device scope and authenticates 
     )
   }
   try {
-    const image = new File(['data'], 'image.tar', { type: 'application/x-tar' })
+    const image = new File(['data'], 'image.tar', {
+      type: 'application/x-tar',
+    })
     const result = await uploadImage('device / 2', image)
     assert.match(calls[0].path, /images\/upload\?device=device%20%2F%202/)
     assert.ok(calls[0].init?.body instanceof FormData)
@@ -493,84 +512,6 @@ test('local archive upload uses multipart, keeps device scope and authenticates 
     )
   } finally {
     globalThis.fetch = previous
-  }
-})
-
-test('directory picker navigates actual names, creates a child and selects it without changing other fields', async () => {
-  const { DirectoryPicker } = await import(
-    '../src/features/containers/DirectoryPicker.tsx'
-  )
-  const env = installDOM(),
-    root = createRoot(document.getElementById('root')!)
-  let selected = '',
-    created: unknown
-  globalThis.fetch = async (url, init) => {
-    if (init?.method === 'POST') {
-      created = JSON.parse(String(init.body))
-      return response({ path: '/sata1/rootfs' }, 201)
-    }
-    const path = new URL(String(url), 'http://localhost').searchParams.get(
-      'path',
-    )!
-    return response({
-      path,
-      entries:
-        path === '/'
-          ? [{ name: 'sata1', path: '/sata1', directory: true }]
-          : path === '/sata1'
-            ? [
-                {
-                  name: 'config.yaml',
-                  path: '/sata1/config.yaml',
-                  directory: false,
-                  bytes: 128,
-                },
-              ]
-            : [],
-    })
-  }
-  try {
-    await act(async () =>
-      root.render(
-        <DirectoryPicker
-          deviceId="a"
-          writable
-          purpose="容器运行目录"
-          onClose={() => {}}
-          onSelect={(p) => {
-            selected = p
-          }}
-        />,
-      ),
-    )
-    await settle()
-    assert.equal(button('选用此目录').disabled, true)
-    await act(async () => button('sata1').click())
-    await settle()
-    assert.ok(document.body.textContent?.includes('config.yaml'))
-    assert.equal(
-      [...document.querySelectorAll('button')].some((b) =>
-        b.textContent?.includes('选用文件'),
-      ),
-      false,
-    )
-    await act(async () => {
-      const input = field('新文件夹名称') as HTMLInputElement
-      // Trigger React's controlled input handler without importing a testing framework.
-      Object.getOwnPropertyDescriptor(
-        env.dom.window.HTMLInputElement.prototype,
-        'value',
-      )!.set!.call(input, 'rootfs')
-      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
-    })
-    await act(async () => button('新建文件夹').click())
-    await settle()
-    assert.deepEqual(created, { parent: '/sata1', name: 'rootfs' })
-    await act(async () => button('选用此目录').click())
-    assert.equal(selected, '/sata1/rootfs')
-  } finally {
-    await act(async () => root.unmount())
-    env.restore()
   }
 })
 
@@ -631,7 +572,7 @@ test('readonly local upload stays disabled while directory selection updates onl
       ),
       false,
     )
-    await act(async () => button('选用此目录').click())
+    await act(async () => button('选择此目录').click())
     assert.equal(field('主机源目录').value, '/sata1')
     assert.equal(field('容器目标目录').value, '/etc/app')
     assert.equal(field('容器运行目录').value, '')
@@ -764,10 +705,7 @@ test('runtime input supports typing and inline Files browsing without changing m
       input.getAttribute('aria-controls')!,
     )!
     assert.ok(picker?.classList.contains('ct-directory-picker'))
-    assert.equal(
-      input.closest('label')!.nextElementSibling!.nextElementSibling,
-      picker,
-    )
+    assert.equal(input.closest('.ct-field')!.nextElementSibling, picker)
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         env.dom.window.HTMLInputElement.prototype,
@@ -775,7 +713,11 @@ test('runtime input supports typing and inline Files browsing without changing m
       )!.set!.call(input, '/sata1/manual')
       input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
     })
-    await act(async () => button('关闭目录浏览').click())
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="关闭目录浏览"]')!
+        .click(),
+    )
     assert.equal(input.value, '/sata1/manual')
     await act(async () =>
       input.dispatchEvent(
@@ -790,7 +732,7 @@ test('runtime input supports typing and inline Files browsing without changing m
     await settle()
     await act(async () => button('nginx').click())
     await settle()
-    await act(async () => button('选用此目录').click())
+    await act(async () => button('选择此目录').click())
     assert.equal(input.value, '/sata1/nginx')
     assert.equal(document.querySelector('.ct-directory-picker'), null)
     assert.equal(field('主机源目录').value, draft.mounts[0].source)
@@ -960,8 +902,10 @@ test('health check choices gate custom settings and retain the command when swit
     )
     const mode = field('检查方式') as HTMLSelectElement
     assert.equal(mode.value, 'inherit')
-    assert.equal(field('检查命令').disabled, true)
-    assert.equal(field('检查命令').closest('label')!.querySelector('em'), null)
+    assert.doesNotMatch(
+      document.body.textContent!,
+      /自定义检查需填写命令|检查间隔|启动准备时间/,
+    )
     assert.match(document.body.textContent!, /镜像未提供检查时，默认不会检查/)
     assert.doesNotMatch(
       document.body.textContent!,
@@ -971,7 +915,9 @@ test('health check choices gate custom settings and retain the command when swit
       mode.value = 'override'
       mode.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
     })
-    assert.ok(field('检查命令').closest('label')!.querySelector('[aria-label="必填"]'))
+    assert.ok(
+      field('检查命令').closest('label')!.querySelector('[aria-label="必填"]'),
+    )
     for (const label of [
       '检查命令',
       '检查间隔',
@@ -998,12 +944,639 @@ test('health check choices gate custom settings and retain the command when swit
       mode.value = 'inherit'
       mode.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
     })
-    assert.equal(field('检查命令').disabled, true)
+    assert.doesNotMatch(
+      document.body.textContent!,
+      /自定义检查需填写命令|检查间隔|启动准备时间/,
+    )
     await act(async () => button('校验配置').click())
     assert.equal(submitted?.health.mode, 'inherit')
     assert.equal(submitted?.health.command, 'curl -f http://127.0.0.1:80/')
   } finally {
     await act(async () => root.unmount())
     env.restore()
+  }
+})
+
+function typeInput(input: HTMLInputElement, value: string, dom: JSDOM) {
+  Object.getOwnPropertyDescriptor(
+    dom.window.HTMLInputElement.prototype,
+    'value',
+  )!.set!.call(input, value)
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+}
+function keyInput(input: HTMLInputElement, key: string, dom: JSDOM) {
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent('keydown', { key, bubbles: true }),
+  )
+}
+function inlineName(label = '新文件夹名称') {
+  const input = document.querySelector<HTMLInputElement>(
+    `[aria-label="${label}"]`,
+  )
+  assert.ok(input)
+  return input
+}
+function directoryFetchFixture() {
+  let counter = 16
+  const entries: DirectoryEntry[] = [
+    {
+      id: '*1',
+      name: 'sata1',
+      path: '/sata1',
+      directory: true,
+      bytes: 0,
+      protected: '磁盘挂载点',
+    },
+    {
+      id: '*2',
+      name: 'docker',
+      path: '/sata1/docker',
+      directory: true,
+      bytes: 0,
+      protected: '',
+    },
+    {
+      id: '*3',
+      name: 'data',
+      path: '/sata1/docker/data',
+      directory: true,
+      bytes: 0,
+      protected: '',
+    },
+    {
+      id: '*4',
+      name: 'config.yaml',
+      path: '/sata1/docker/config.yaml',
+      directory: false,
+      bytes: 1024,
+      protected: '',
+    },
+    {
+      id: '*5',
+      name: 'child',
+      path: '/sata1/docker/data/child',
+      directory: true,
+      bytes: 0,
+      protected: '',
+    },
+  ]
+  const requests: DirectoryRequest[] = [],
+    reads: string[] = []
+  const fetcher: typeof fetch = async (url, init) => {
+    if (init?.method === 'POST') {
+      const req = JSON.parse(String(init.body)) as DirectoryRequest
+      requests.push(req)
+      const target =
+        req.action === 'mkdir'
+          ? req.parent + '/' + req.name
+          : req.action === 'rename'
+            ? req.path!.slice(0, req.path!.lastIndexOf('/')) + '/' + req.name
+            : req.path!
+      if (req.action === 'mkdir')
+        entries.push({
+          id: '*' + (++counter).toString(16),
+          name: req.name!,
+          path: target,
+          directory: true,
+          protected: '',
+          bytes: 0,
+        })
+      if (req.action === 'rename')
+        for (const entry of entries) {
+          if (
+            entry.path === req.path ||
+            entry.path.startsWith(req.path + '/')
+          ) {
+            entry.path = target + entry.path.slice(req.path!.length)
+            entry.name = entry.path.slice(entry.path.lastIndexOf('/') + 1)
+            entry.id = '*' + (++counter).toString(16)
+          }
+        }
+      if (req.action === 'delete')
+        for (let i = entries.length - 1; i >= 0; i--)
+          if (
+            entries[i].path === target ||
+            entries[i].path.startsWith(target + '/')
+          )
+            entries.splice(i, 1)
+      return response(
+        {
+          action: req.action,
+          requestId: req.requestId,
+          path: target,
+          previousPath: req.path || '',
+          state: 'succeeded',
+        },
+        req.action === 'mkdir' ? 201 : 200,
+      )
+    }
+    const path = new URL(String(url), 'http://localhost').searchParams.get(
+      'path',
+    )!
+    reads.push(path)
+    if (path !== '/' && !entries.some((e) => e.path === path && e.directory))
+      return response({ code: 'directory_not_found', error: '目录不存在' }, 404)
+    return response({
+      path,
+      id: entries.find((e) => e.path === path)?.id || '',
+      canCreate: path !== '/',
+      entries: entries
+        .filter(
+          (e) => (e.path.slice(0, e.path.lastIndexOf('/')) || '/') === path,
+        )
+        .sort(
+          (a, b) =>
+            Number(b.directory) - Number(a.directory) ||
+            a.name.localeCompare(b.name),
+        ),
+    })
+  }
+  return { entries, requests, reads, fetcher }
+}
+async function renderPicker(initialPath = '/sata1/docker', allowFiles = false) {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!),
+    fixture = directoryFetchFixture()
+  const values = {
+    selected: '',
+    closed: false,
+    mutations: [] as DirectoryMutation[],
+  }
+  globalThis.fetch = fixture.fetcher
+  await act(async () =>
+    root.render(
+      <DirectoryPicker
+        deviceId="test"
+        writable
+        initialPath={initialPath}
+        purpose="容器运行目录"
+        allowFiles={allowFiles}
+        onSelect={(p) => {
+          values.selected = p
+        }}
+        onClose={() => {
+          values.closed = true
+        }}
+        onMutation={(r) => values.mutations.push(r)}
+      />,
+    ),
+  )
+  await settle()
+  return {
+    ...env,
+    root,
+    fixture,
+    values,
+    cleanup: async () => {
+      await act(async () => root.unmount())
+      env.restore()
+    },
+  }
+}
+
+test('directory paths reject traversal and preserve Unicode and spaces when synchronizing inputs', () => {
+  assert.equal(directoryNameError('配置 文件夹'), '')
+  for (const name of ['', '.', '..', 'a/b', 'a\\b', 'bad\tname'])
+    assert.ok(directoryNameError(name))
+  assert.equal(
+    directoryPath('sata1/docker/配置 文件夹'),
+    '/sata1/docker/配置 文件夹',
+  )
+  assert.equal(directoryPath('/sata1/../escape'), null)
+  assert.equal(
+    replaceDirectory(
+      '/sata1/docker/data/config',
+      '/sata1/docker/data',
+      '/sata1/docker/renamed',
+    ),
+    '/sata1/docker/renamed/config',
+  )
+  assert.equal(
+    replaceDirectory('/sata1/docker/database', '/sata1/docker/data', ''),
+    '/sata1/docker/database',
+  )
+})
+
+test('bound picker opens at current path, browses ancestors and root, and keeps files unselectable', async () => {
+  const env = await renderPicker('sata1/docker')
+  try {
+    assert.equal(env.fixture.reads[0], '/sata1/docker')
+    assert.ok(document.body.textContent?.includes('1.0 KiB'))
+    assert.equal(
+      document.querySelector('.ct-directory-picker header strong'),
+      null,
+    )
+    assert.equal(
+      document.querySelectorAll('.ct-directory-file button').length,
+      0,
+    )
+    assert.ok(
+      document.querySelector(
+        '.ct-directory-row:first-child .ct-directory-folder',
+      ),
+    )
+    await act(async () => button('data').click())
+    await settle()
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('nav [aria-current="location"]')!
+        .click(),
+    )
+    await settle()
+    await act(async () => button('docker').click())
+    await settle()
+    assert.equal(env.fixture.reads.at(-1), '/sata1/docker')
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('nav button')!.click(),
+    )
+    await settle()
+    assert.equal(button('选择此目录').disabled, true)
+    assert.equal(button('新建文件夹').disabled, true)
+    assert.equal(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="文件夹 sata1 操作"]',
+      )!.disabled,
+      true,
+    )
+    await act(async () => button('sata1').click())
+    await settle()
+    await act(async () => button('选择此目录').click())
+    assert.equal(env.values.selected, '/sata1')
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('inline creation focuses/selects a draft row and Enter saves once while remaining in parent', async () => {
+  const env = await renderPicker()
+  try {
+    await act(async () => button('新建文件夹').click())
+    const input = inlineName()
+    assert.equal(document.activeElement, input)
+    assert.equal(input.selectionStart, 0)
+    assert.equal(input.selectionEnd, input.value.length)
+    assert.equal(env.fixture.requests.length, 0)
+    await act(async () => typeInput(input, '配置 文件夹', env.dom))
+    await act(async () => {
+      keyInput(input, 'Enter', env.dom)
+      keyInput(input, 'Enter', env.dom)
+    })
+    await settle()
+    assert.equal(env.fixture.requests.length, 1)
+    assert.equal(env.fixture.requests[0].action, 'mkdir')
+    assert.equal(env.fixture.requests[0].expectedId, '*2')
+    assert.equal(env.fixture.requests[0].name, '配置 文件夹')
+    assert.equal(env.fixture.reads.at(-1), '/sata1/docker')
+    await act(async () => button('配置 文件夹').click())
+    await settle()
+    await act(async () => button('选择此目录').click())
+    assert.equal(env.values.selected, '/sata1/docker/配置 文件夹')
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('inline creation Escape cancels, invalid blur stays local, and valid blur commits', async () => {
+  const env = await renderPicker()
+  try {
+    await act(async () => button('新建文件夹').click())
+    await act(async () => keyInput(inlineName(), 'Escape', env.dom))
+    assert.equal(env.fixture.requests.length, 0)
+    assert.equal(document.querySelector('[aria-label="新文件夹名称"]'), null)
+    await act(async () => button('新建文件夹').click())
+    const input = inlineName()
+    await act(async () => typeInput(input, '../bad', env.dom))
+    await act(async () => {
+      input.blur()
+      keyInput(input, 'Enter', env.dom)
+    })
+    assert.equal(env.fixture.requests.length, 0)
+    assert.ok(input.getAttribute('aria-invalid'))
+    await act(async () => {
+      input.focus()
+      typeInput(input, 'blur-saved', env.dom)
+    })
+    await act(async () => input.blur())
+    await settle()
+    assert.equal(env.fixture.requests.length, 1)
+    assert.equal(env.fixture.requests[0].name, 'blur-saved')
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('inline rename Escape retains name, successful rename retains children, and failure restores original', async () => {
+  const env = await renderPicker()
+  const actions = () =>
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="文件夹 data 操作"]',
+    )!
+  try {
+    await act(async () => actions().click())
+    await act(async () => button('重命名').click())
+    const input = inlineName('重命名文件夹')
+    assert.equal(document.activeElement, input)
+    assert.equal(input.selectionEnd, 4)
+    await act(async () => keyInput(input, 'Escape', env.dom))
+    assert.equal(env.fixture.requests.length, 0)
+    await act(async () => actions().click())
+    await act(async () => button('重命名').click())
+    globalThis.fetch = async (url, init) =>
+      init?.method === 'POST'
+        ? response(
+            { code: 'directory_permission_denied', error: '目录权限不足' },
+            403,
+          )
+        : env.fixture.fetcher(url, init)
+    await act(async () =>
+      typeInput(inlineName('重命名文件夹'), 'rejected', env.dom),
+    )
+    await act(async () =>
+      keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
+    )
+    await settle()
+    assert.equal(document.querySelector('[aria-label="重命名文件夹"]'), null)
+    assert.ok(actions())
+    assert.match(document.body.textContent!, /目录权限不足/)
+    globalThis.fetch = env.fixture.fetcher
+    await act(async () => actions().click())
+    await act(async () => button('重命名').click())
+    await act(async () =>
+      typeInput(inlineName('重命名文件夹'), 'renamed', env.dom),
+    )
+    await act(async () =>
+      keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
+    )
+    await settle()
+    assert.ok(
+      env.fixture.entries.some((e) => e.path === '/sata1/docker/renamed/child'),
+    )
+    assert.equal(env.values.mutations[0].previousPath, '/sata1/docker/data')
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('nonempty directory deletion requires exact name/path warning and explicit confirmation', async () => {
+  const env = await renderPicker()
+  try {
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    const confirm = document.querySelector('[role="alertdialog"]')!
+    assert.match(confirm.textContent!, /data/)
+    assert.match(confirm.textContent!, /\/sata1\/docker\/data/)
+    assert.match(confirm.textContent!, /全部文件和子目录/)
+    assert.equal(env.fixture.requests.length, 0)
+    await act(async () => button('取消').click())
+    assert.equal(env.fixture.requests.length, 0)
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    await act(async () => button('删除全部内容').click())
+    await settle()
+    assert.equal(env.fixture.requests[0].confirmPath, '/sata1/docker/data')
+    assert.equal(
+      env.fixture.entries.some((e) => e.path.startsWith('/sata1/docker/data')),
+      false,
+    )
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('invalid initial directory falls back to root without selecting or replacing a form value', async () => {
+  for (const initial of ['/sata1/absent', '/sata1/../bad']) {
+    const env = await renderPicker(initial)
+    try {
+      await settle()
+      assert.equal(env.fixture.reads.at(-1), '/')
+      assert.equal(env.values.selected, '')
+      assert.match(document.body.textContent!, /原输入保留/)
+      assert.equal(button('选择此目录').disabled, true)
+    } finally {
+      await env.cleanup()
+    }
+  }
+})
+
+test('unknown directory outcome disables further writes and recovers only by request ID', async () => {
+  const env = await renderPicker()
+  try {
+    let original: DirectoryRequest | undefined
+    globalThis.fetch = async (url, init) => {
+      if (init?.method !== 'POST') return env.fixture.fetcher(url, init)
+      const req = JSON.parse(String(init.body)) as DirectoryRequest
+      if (req.action !== 'recover') {
+        original = req
+        await env.fixture.fetcher(url, init)
+        return response(
+          { code: 'directory_outcome_unknown', error: '尚未确认' },
+          409,
+        )
+      }
+      assert.equal(req.requestId, original?.requestId)
+      return response({
+        action: 'mkdir',
+        requestId: req.requestId,
+        path: '/sata1/docker/pending',
+        state: 'succeeded',
+      })
+    }
+    await act(async () => button('新建文件夹').click())
+    await act(async () => typeInput(inlineName(), 'pending', env.dom))
+    await act(async () => keyInput(inlineName(), 'Enter', env.dom))
+    await settle()
+    assert.equal(button('新建文件夹').disabled, true)
+    assert.equal(button('选择此目录').disabled, true)
+    assert.equal(button('刷新确认结果').disabled, false)
+    await act(async () => button('刷新确认结果').click())
+    await settle()
+    assert.equal(env.fixture.requests.length, 1)
+    assert.equal(button('新建文件夹').disabled, false)
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('resource switch starts off, preserves hidden values, submits inheritance off, and retains existing limits on edit', async () => {
+  for (const editing of [false, true]) {
+    const env = installDOM(),
+      root = createRoot(document.getElementById('root')!)
+    const draft = editing ? editDraft(existing()) : newDraft()
+    if (editing) {
+      draft.memoryHigh = '128M'
+      draft.memoryMax = '256M'
+      draft.cpuList = '0,1'
+    }
+    let submitted: Draft | undefined
+    globalThis.fetch = async (_url, init) =>
+      response({
+        effective: JSON.parse(String(init?.body)),
+        errors: {},
+        defaults: [],
+      })
+    try {
+      await act(async () =>
+        root.render(
+          <ContainerEditor
+            deviceId="test"
+            snapshot={snapshot()}
+            initial={draft}
+            item={editing ? existing() : null}
+            busy={false}
+            onClose={() => {}}
+            onSubmit={async (d) => {
+              submitted = d
+            }}
+          />,
+        ),
+      )
+      const toggle = document.querySelector<HTMLInputElement>(
+        '.ct-resource-toggle input',
+      )!
+      assert.equal(toggle.checked, editing)
+      if (!editing) {
+        assert.doesNotMatch(
+          document.body.textContent!,
+          /内存 high|CPU 编号列表/,
+        )
+        await act(async () => toggle.click())
+        await act(async () =>
+          typeInput(field('内存 max') as HTMLInputElement, '256M', env.dom),
+        )
+      }
+      assert.equal(field('内存 max').value, '256M')
+      await act(async () => toggle.click())
+      await act(async () => button('校验配置').click())
+      assert.equal(submitted?.memoryHigh, '')
+      assert.equal(submitted?.memoryMax, '')
+      assert.equal(submitted?.cpuList, '')
+      await act(async () => toggle.click())
+      assert.equal(field('内存 max').value, '256M')
+      await act(async () => button('校验配置').click())
+      assert.equal(submitted?.memoryMax, '256M')
+      if (editing) assert.equal(submitted?.cpuList, '0,1')
+    } finally {
+      await act(async () => root.unmount())
+      env.restore()
+    }
+  }
+})
+
+test('real directory capability updates bound root and mount inputs after rename and preserves them on failed delete', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!),
+    fixture = directoryFetchFixture()
+  const draft = newDraft(),
+    data = snapshot()
+  draft.rootDir = '/sata1/docker/data'
+  draft.mounts = [
+    {
+      source: '/sata1/docker/data/child',
+      target: '/etc/config',
+      readOnly: true,
+    },
+  ]
+  data.capabilities.directoryWrites = true
+  globalThis.fetch = async (url, init) =>
+    String(url).includes('/directories')
+      ? fixture.fetcher(url, init)
+      : response({
+          effective: JSON.parse(String(init?.body)),
+          errors: {},
+          defaults: [],
+        })
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="test"
+          snapshot={data}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    )
+    await act(async () => (field('容器运行目录') as HTMLInputElement).click())
+    await settle()
+    assert.equal(fixture.reads[0], draft.rootDir)
+    await act(async () => button('docker').click())
+    await settle()
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
+        .click(),
+    )
+    await act(async () => button('重命名').click())
+    await act(async () =>
+      typeInput(inlineName('重命名文件夹'), 'renamed', env.dom),
+    )
+    await act(async () =>
+      keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
+    )
+    await settle()
+    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
+    assert.equal(field('容器目标目录').value, '/etc/config')
+    const directoryFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) =>
+      init?.method === 'POST' && String(url).includes('/directories')
+        ? response(
+            { code: 'directory_permission_denied', error: '删除权限不足' },
+            403,
+          )
+        : directoryFetch(url, init)
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    await act(async () => button('删除全部内容').click())
+    await settle()
+    assert.match(document.body.textContent!, /删除权限不足/)
+    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
+    globalThis.fetch = directoryFetch
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    await act(async () => button('删除全部内容').click())
+    await settle()
+    assert.equal(field('容器运行目录').value, '')
+    assert.equal(field('主机源目录').value, '')
+    assert.equal(field('容器目标目录').value, '/etc/config')
+    assert.equal(data.capabilities.writes, false)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('mount source picker retains file selection while runtime picker excludes file actions', async () => {
+  const env = await renderPicker('/sata1/docker', true)
+  try {
+    await act(async () => button('选用文件').click())
+    assert.equal(env.values.selected, '/sata1/docker/config.yaml')
+    assert.equal(
+      document.querySelectorAll('.ct-directory-file [aria-label*="操作"]')
+        .length,
+      0,
+    )
+  } finally {
+    await env.cleanup()
   }
 })

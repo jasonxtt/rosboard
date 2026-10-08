@@ -10,7 +10,7 @@
 - [x] Document mapping and manual desktop/mobile theme/device-switch QA.
 - [x] Inspect exact staged diff, checkpoint commit/push and one Draft PR.
 
-Rollback: remove this feature branch/stop preview; no RouterOS writes or production replacement occurs. Keep task active for future real-write acceptance.
+Rollback the application by redeploying the prior test build. User-requested real directory writes are not undone by reverting the code; scoped verification folders are cleaned separately. No production replacement occurs. Keep the task active for future complete write acceptance.
 
 ## Phase 1 verification checkpoint
 
@@ -142,3 +142,42 @@ Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoin
   operations or production delivery were performed.
 - Same task branch and Draft PR. User desktop/mobile/theme visual review and
   future real-write acceptance remain pending.
+
+
+## Bound Files picker and optional details checkpoint
+
+- Implemented the attached storage requirements on the shared editor and existing
+  directory API. Runtime input/right arrow opens at a valid existing input path;
+  unavailable/invalid input falls back to the root without replacing the value.
+  Breadcrumb ancestors are clickable and horizontally scrollable. Folders come
+  first, files are muted with sizes, and only mount sources can select files.
+- New folders use a focused/selected local row; Enter/valid blur saves the final
+  name once, Escape cancels, and creation remains in the parent. Rename uses the
+  same inline editor and restores the original row after failure. Deletion
+  explicitly confirms the full name/path and all files/subdirectories. The user
+  permits nonempty removal. Matching form paths follow successful rename and
+  clear after deletion; API failures preserve form values.
+- Added typed RouterOS Files commands and separate directory write capability.
+  Server re-reads IDs/types, disk paths and container root/mount references,
+  protects root/disk/used paths, serializes with the policy device write gate,
+  suppresses repeated writes and read-backs unknown results. Existing container
+  and image operations remain disabled on real RouterOS.
+- Real 7.23.5 Files IDs use long `**opaque` values and may change on rename;
+  separate ID validation and path/descendant confirmation were verified. The
+  in-memory replay/recovery records are not a durable production journal.
+- Image-inherited health checks hide custom fields. Resource limits default off
+  for new drafts, hide details, preserve input when toggled and submit inheritance
+  while off. Existing explicit resource settings initialize enabled.
+- Go build/test/vet and scoped race checks passed. Frontend **88 tests** passed;
+  lint passed with four pre-existing fasttrack JSX-key warnings. Build, dual-UI
+  isolation/simulation exclusion, Trellis context and diff checks passed.
+- Deployed the complete isolated test service using its existing private account,
+  config/data and test-device scope. Auth, health, actual directory CRUD, request
+  replay, Unicode descendant rename, changed IDs, confirmed recursive deletion,
+  root/disk/stale-ID/path guards, pure defaults, Container/image write denial and
+  exact hashes of nine embedded UI assets passed. All temporary verification
+  directories were removed and absence verified.
+- Local simulator uses the same Files contract and safety implementation with
+  test-only storage adapters. Manual review remains user-led at 1440px/390px,
+  both UI variants/themes. Same work branch/Draft PR; no production deployment,
+  merge, task completion or full Container write acceptance.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -40,7 +41,7 @@ func TestContainerAPIDeviceScopeAndWriteDenial(t *testing.T) {
 		method, path string
 		status       int
 		want         string
-	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"GET", "/api/containers/directories?device=a", 200, "sata1"}, {"POST", "/api/containers/directories?device=a", 403, "container_read_only"}, {"POST", "/api/containers/images/upload?device=a", 403, "container_read_only"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
+	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"GET", "/api/containers/directories?device=a", 200, "sata1"}, {"POST", "/api/containers/directories?device=a", 400, "invalid_json"}, {"POST", "/api/containers/images/upload?device=a", 403, "container_read_only"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
 		if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.want) {
@@ -255,12 +256,69 @@ func TestContainerReadsAndResolutionRequireSessionAndSameOrigin(t *testing.T) {
 	if visible.Code != 200 || visible.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("authenticated read failed or cached", visible.Code)
 	}
-	request := httptest.NewRequest("POST", "http://example.com/api/containers/resolve?device=a", strings.NewReader(`{}`))
-	request.AddCookie(cookie)
-	request.Header.Set("Origin", "http://attacker.test")
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, request)
-	if w.Code != 403 {
-		t.Fatal("cross-origin resolve allowed")
+	for _, route := range []string{"resolve", "directories"} {
+		request := httptest.NewRequest("POST", "http://example.com/api/containers/"+route+"?device=a", strings.NewReader(`{}`))
+		request.AddCookie(cookie)
+		request.Header.Set("Origin", "http://attacker.test")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, request)
+		if w.Code != 403 {
+			t.Fatal("cross-origin write allowed", route)
+		}
 	}
+}
+
+type directoryAPIReader struct{ simulationDirectoryClient }
+
+func (c directoryAPIReader) ContainerRead(ctx context.Context, menu routeros.ContainerMenu) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.ContainerDisk {
+		return []routeros.RouterOSObject{{"mount-point": "sata1", "fs": "ext4", "mounted": "true", "free": "4000000000"}}, nil
+	}
+	if menu == routeros.ContainerResource {
+		return []routeros.RouterOSObject{{"version": "7.23.5", "architecture-name": "x86_64"}}, nil
+	}
+	return c.simulationDirectoryClient.ContainerRead(ctx, menu)
+}
+func TestRealDirectoryAPIContractScopeCRUDAndContainerWriteIsolation(t *testing.T) {
+	m := newSimulation()
+	cfg := config.Config{Devices: []config.DeviceConfig{{ID: "demo-router", Enabled: true}, {ID: "demo-edge", Enabled: true}}}
+	s := NewServer(cfg, nil, fstest.MapFS{})
+	s.containers.ReaderFor = func(d config.DeviceConfig) containers.Reader {
+		return directoryAPIReader{simulationDirectoryClient{m, d.ID}}
+	}
+	s.containers.DirectoryWriterFor = func(d config.DeviceConfig) containers.DirectoryWriter { return simulationDirectoryClient{m, d.ID} }
+	call := func(method, url string, body any, status int) []byte {
+		t.Helper()
+		raw, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(method, url, bytes.NewReader(raw)))
+		if w.Code != status {
+			t.Fatalf("%s => %d %s", url, w.Code, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+	endpoint := "/api/containers/directories?device=demo-router"
+	raw := call("GET", "/api/containers?device=demo-router", nil, 200)
+	if !bytes.Contains(raw, []byte(`"directoryWrites":true`)) || !bytes.Contains(raw, []byte(`"writes":false`)) {
+		t.Fatal(string(raw))
+	}
+	req := containers.DirectoryRequest{Action: "mkdir", RequestID: "api-create-root", Parent: "/sata1/rosboard/containers", Name: "配置 文件夹"}
+	call("POST", endpoint, req, 201)
+	call("POST", endpoint, req, 201)
+	var listing containers.DirectoryListing
+	json.Unmarshal(call("GET", endpoint+"&path=/sata1/rosboard/containers", nil, 200), &listing)
+	if len(listing.Entries) != 1 || listing.Entries[0].Name != req.Name {
+		t.Fatal(listing)
+	}
+	entry := listing.Entries[0]
+	call("GET", "/api/containers/directories?device=demo-edge&path="+url.QueryEscape(entry.Path), nil, 404)
+	call("POST", endpoint, containers.DirectoryRequest{Action: "mkdir", RequestID: "api-create-child", Parent: entry.Path, Name: "nested"}, 201)
+	call("POST", endpoint, containers.DirectoryRequest{Action: "rename", RequestID: "api-rename-root", Path: entry.Path, Name: "renamed", ExpectedID: entry.ID}, 200)
+	json.Unmarshal(call("GET", endpoint+"&path=/sata1/rosboard/containers", nil, 200), &listing)
+	entry = listing.Entries[0]
+	call("POST", endpoint, containers.DirectoryRequest{Action: "delete", RequestID: "api-delete-root", Path: entry.Path, ExpectedID: entry.ID, ConfirmPath: entry.Path}, 200)
+	call("GET", endpoint+"&path="+entry.Path, nil, 404)
+	call("POST", endpoint, containers.DirectoryRequest{Action: "delete", RequestID: "api-delete-disk", Path: "/sata1", ExpectedID: "*1", ConfirmPath: "/sata1"}, 403)
+	call("POST", endpoint, containers.DirectoryRequest{Action: "upload", RequestID: "api-invalid-action"}, 400)
+	call("POST", "/api/containers/actions?device=demo-router", map[string]string{"action": "start"}, 403)
 }

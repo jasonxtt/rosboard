@@ -23,10 +23,14 @@ type cachedSnapshot struct {
 }
 type pendingSnapshot struct{ done chan struct{} }
 type Service struct {
-	ReaderFor func(config.DeviceConfig) Reader
-	mu        sync.Mutex
-	cache     map[[32]byte]cachedSnapshot
-	pending   map[[32]byte]pendingSnapshot
+	ReaderFor          func(config.DeviceConfig) Reader
+	DirectoryWriterFor func(config.DeviceConfig) DirectoryWriter
+	directoryMu        sync.Mutex
+	directoryRecords   map[string]*directoryRecord
+	directoryGate      *routeros.DeviceWriteGate
+	mu                 sync.Mutex
+	cache              map[[32]byte]cachedSnapshot
+	pending            map[[32]byte]pendingSnapshot
 }
 
 // Snapshot coalesces reads per device and caches them briefly, so live default
@@ -78,6 +82,8 @@ func (s *Service) Snapshot(ctx context.Context, d config.DeviceConfig) (Snapshot
 func NewService() *Service {
 	return &Service{ReaderFor: func(d config.DeviceConfig) Reader {
 		return routeros.NewClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
+	}, DirectoryWriterFor: func(d config.DeviceConfig) DirectoryWriter {
+		return routeros.NewMutationClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
 	}}
 }
 
@@ -93,6 +99,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 		return result, fmt.Errorf("read containers: %w", err)
 	}
 	result.Capabilities.Supported = true
+	result.Capabilities.DirectoryWrites = s.DirectoryWriterFor != nil
 	data := map[routeros.ContainerMenu][]routeros.RouterOSObject{}
 	for _, menu := range []routeros.ContainerMenu{routeros.ContainerResource, routeros.ContainerConfig, routeros.ContainerVETH, routeros.ContainerBridge, routeros.ContainerBridgePort, routeros.ContainerInterfaces, routeros.ContainerAddresses, routeros.ContainerDisk, routeros.ContainerEnvs, routeros.ContainerMounts, routeros.ContainerLogs} {
 		objects, err := reader.ContainerRead(ctx, menu)

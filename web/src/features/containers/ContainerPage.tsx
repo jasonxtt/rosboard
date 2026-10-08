@@ -294,7 +294,7 @@ export function ContainerPage({
           <p>镜像、网络与运行状态，集中管理。</p>
         </div>
         <span className="ct-mode">
-          {c.mode === 'simulation' ? '模拟预览' : '只读模式'}
+          {c.mode === 'simulation' ? '模拟预览' : '容器只读'}
           {c.version && ` · ROS ${c.version}`}
         </span>
         <button onClick={() => setNonce((n) => n + 1)} disabled={loading}>
@@ -314,7 +314,9 @@ export function ContainerPage({
       <div className="ct-notice">
         {c.mode === 'simulation'
           ? '这里的数据与所有操作均为模拟，可测试创建、失败和恢复。'
-          : '当前提供真实只读数据及配置校验，容器写入尚未启用。'}
+          : c.directoryWrites
+            ? '容器读取与配置校验已接入。目录新建、重命名和删除直接写入所选 RouterOS；容器启停等写入尚未启用。'
+            : '当前提供真实只读数据及配置校验，容器写入尚未启用。'}
       </div>
       {c.warnings.map((w) => (
         <p className="ct-notice" key={w}>

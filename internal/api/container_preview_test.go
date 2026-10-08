@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"rosboard/internal/config"
 	"rosboard/internal/containers"
 )
 
@@ -35,15 +36,17 @@ type simulatedRequest struct {
 	Scenario  string           `json:"scenario"`
 }
 type simulation struct {
-	mu         sync.Mutex
-	devices    map[string]containers.Snapshot
-	jobs       map[string]*simulatedJob
-	requests   map[string]string
-	signatures map[string][32]byte
-	resources  map[string]map[string][]string
-	files      map[string][]routeros.RouterOSObject
-	latest     map[string]string
-	now        func() time.Time
+	mu          sync.Mutex
+	devices     map[string]containers.Snapshot
+	jobs        map[string]*simulatedJob
+	requests    map[string]string
+	signatures  map[string][32]byte
+	resources   map[string]map[string][]string
+	files       map[string][]routeros.RouterOSObject
+	directories *containers.Service
+	fileCounter int
+	latest      map[string]string
+	now         func() time.Time
 }
 
 func newSimulation() *simulation {
@@ -53,10 +56,14 @@ func newSimulation() *simulation {
 		m.resources[id] = map[string][]string{}
 		m.files[id] = simulationFiles(id)
 	}
+	m.directories = &containers.Service{
+		ReaderFor:          func(d config.DeviceConfig) containers.Reader { return simulationDirectoryClient{m, d.ID} },
+		DirectoryWriterFor: func(d config.DeviceConfig) containers.DirectoryWriter { return simulationDirectoryClient{m, d.ID} },
+	}
 	return m
 }
 func simulationFixture(device string) containers.Snapshot {
-	s := containers.Snapshot{Items: []containers.Item{}, Options: containers.Options{Architecture: "x86_64", Archives: []containers.ImageArchive{}, Bridges: []string{"br-containers", "br-services"}, Interfaces: []string{"ether1", "br-containers", "br-services", "veth-shared"}, UsedIPs: []string{"172.20.0.1/24", "172.20.0.2/24"}, Disks: []containers.Disk{{Name: "usb1", FreeBytes: 1 << 30, Writable: true}, {Name: "sata1", FreeBytes: 8 << 30, Writable: true}}, MemoryHigh: "256M", MemoryMax: "512M"}, Capabilities: containers.Capabilities{Supported: true, Writes: true, Mode: "simulation", Version: "7.23.5", Logs: true, Fields: []string{"memory-high", "memory-max", "restart-policy", "cpu-list", "healthcheck-cmd"}, Warnings: []string{}}}
+	s := containers.Snapshot{Items: []containers.Item{}, Options: containers.Options{Architecture: "x86_64", Archives: []containers.ImageArchive{}, Bridges: []string{"br-containers", "br-services"}, Interfaces: []string{"ether1", "br-containers", "br-services", "veth-shared"}, UsedIPs: []string{"172.20.0.1/24", "172.20.0.2/24"}, Disks: []containers.Disk{{Name: "usb1", FreeBytes: 1 << 30, Writable: true}, {Name: "sata1", FreeBytes: 8 << 30, Writable: true}}, MemoryHigh: "256M", MemoryMax: "512M"}, Capabilities: containers.Capabilities{Supported: true, Writes: true, DirectoryWrites: true, Mode: "simulation", Version: "7.23.5", Logs: true, Fields: []string{"memory-high", "memory-max", "restart-policy", "cpu-list", "healthcheck-cmd"}, Warnings: []string{}}}
 	names := []string{"mosdns", "dns-metrics", "nginx", "redis"}
 	if device == "demo-edge" {
 		names = []string{"edge-proxy"}
@@ -103,9 +110,9 @@ func (m *simulation) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "/directories" {
 		if r.Method == http.MethodGet {
-			listing, err := containers.DirectoryView(m.files[device], s.Options.Disks, r.URL.Query().Get("path"))
+			listing, err := m.directories.Directories(r.Context(), config.DeviceConfig{ID: device}, s.Options.Disks, r.URL.Query().Get("path"))
 			if err != nil {
-				writeAPIError(w, 400, "invalid_path", "目录不存在或路径无效")
+				writeDirectoryError(w, err)
 				return
 			}
 			writeJSON(w, 200, listing)

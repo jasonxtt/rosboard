@@ -13,6 +13,8 @@ import {
 import type {
   ImageArchive,
   DirectoryListing,
+  DirectoryMutation,
+  DirectoryRequest,
   Network,
   Draft,
   Item,
@@ -133,6 +135,7 @@ function parseOptions(v: unknown): Options {
 function parseCapabilities(v: unknown): Capabilities {
   const o = safeObject(v)
   return {
+    directoryWrites: safeBoolean(o.directoryWrites),
     supported: safeBoolean(o.supported),
     writes:
       safeBoolean(o.writes) &&
@@ -289,9 +292,14 @@ export const fetchDirectories = (
         throw new ApiError('目录响应无效', 200, 'invalid_response')
       return {
         path: o.path,
+        id: safeString(o.id),
+        canCreate: safeBoolean(o.canCreate),
+        pending: o.pending ? parseDirectoryMutation(o.pending) : null,
         entries: o.entries.map((value) => {
           const e = safeObject(value)
           return {
+            id: safeString(e.id),
+            protected: safeString(e.protected),
             name: safeString(e.name),
             path: safeString(e.path),
             directory: safeBoolean(e.directory),
@@ -302,20 +310,35 @@ export const fetchDirectories = (
     },
     signal,
   )
-export const createDirectory = (
+function parseDirectoryMutation(value: unknown): DirectoryMutation {
+  const o = safeObject(value)
+  if (
+    !['mkdir', 'rename', 'delete', 'recover'].includes(safeString(o.action)) ||
+    !['pending', 'succeeded', 'unknown'].includes(safeString(o.state)) ||
+    !safeString(o.requestId) ||
+    !safeString(o.path).startsWith('/')
+  )
+    throw new ApiError(
+      '目录操作响应无效，请刷新确认结果',
+      200,
+      'invalid_response',
+    )
+  return {
+    action: o.action as DirectoryRequest['action'],
+    state: o.state as DirectoryMutation['state'],
+    requestId: safeString(o.requestId),
+    path: safeString(o.path),
+    previousPath: safeString(o.previousPath),
+  }
+}
+export const mutateDirectory = (
   device: string,
-  parent: string,
-  name: string,
+  request: DirectoryRequest,
   signal?: AbortSignal,
 ) =>
   apiPost(
     endpoint(device, '/directories'),
-    { parent, name },
-    (value) => {
-      const path = safeString(safeObject(value).path)
-      if (!path.startsWith('/') || path === '/')
-        throw new ApiError('新建目录响应无效', 200, 'invalid_response')
-      return path
-    },
+    request,
+    parseDirectoryMutation,
     signal,
   )

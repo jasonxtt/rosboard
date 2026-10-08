@@ -60,7 +60,7 @@ write locking, resumability/unknown-result handling, disk headroom and cleanup.
 
 This checkpoint supports Docker-save single-image tar metadata validation only.
 The simulator discards bytes after inspection and stores opaque metadata scoped
-to one device. Real upload and mkdir handlers remain blocked. Optional test
+to one device. At that checkpoint real upload and mkdir handlers remained blocked; directory writes were subsequently authorized as documented below. Optional test
 preview reads actual directories; simulations remain isolated from it.
 
 Use sibling `rootfs` and `volumes` folders under a per-container parent. Rootfs
@@ -101,3 +101,28 @@ only the entered healthcheck fields. `stop-on-unhealthy` and notifications are
 separate options, not implied by this form or its restart policy.
 
 Reference: https://manual.mikrotik.com/docs/containers/#healthcheck
+
+
+## Real directory-picker verification (2026-10-08)
+
+The user explicitly authorized real directory CRUD and permits recursive removal
+of nonempty folders after confirmation explaining all contents are deleted.
+Scoped testing on the independent RouterOS 7.23.5 device verified:
+
+- POST `/rest/file/add`: fixed `type=directory`, final full relative name.
+- POST `/rest/file/set`: opaque `numbers` ID and final relative name. A folder
+  containing a Unicode/space child was renamed; descendants followed the rename.
+  **Files use long `**opaque` IDs distinct from configuration `*hex` IDs.
+  Opaque IDs changed after rename**, so old/new path and descendant read-back,
+  rather than stable ID equality, is the confirmation criterion.
+- POST `/rest/file/remove`: exact opaque ID removed the parent and its child.
+- Unique temporary directories were removed in a final cleanup and read-back
+  showed no remaining probe entries. No container lifecycle writes were performed.
+
+The implementation uses fixed typed commands, fresh metadata and container-path
+protection, shared device write gates, expected-ID preconditions, explicit full
+path delete confirmation, no mutation retries, and read-back recovery for unknown
+outcomes. Browsing never reads file contents. Operation records are in memory;
+production durability and container lifecycle acceptance remain separate work.
+
+Official Files reference: https://manual.mikrotik.com/docs/system-information-and-utilities/files/

@@ -3,10 +3,12 @@ package api
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -16,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"rosboard/internal/config"
 	"rosboard/internal/containers"
 	"rosboard/internal/routeros"
 )
@@ -25,34 +28,90 @@ func simulationFiles(device string) []routeros.RouterOSObject {
 	for _, item := range simulationFixture(device).Items {
 		rows = append(rows, routeros.RouterOSObject{"name": strings.TrimPrefix(item.Config.RootDir, "/"), "type": "directory"})
 	}
+	for i, row := range rows {
+		row[".id"] = fmt.Sprintf("*%X", i+1)
+	}
 	return rows
 }
 func (m *simulation) mkdir(w http.ResponseWriter, r *http.Request, device string, s containers.Snapshot) {
-	var req struct {
-		Parent string `json:"parent"`
-		Name   string `json:"name"`
-	}
+	var req containers.DirectoryRequest
 	if decodeJSONBody(w, r, &req) != nil {
 		return
 	}
-	listing, err := containers.DirectoryView(m.files[device], s.Options.Disks, req.Parent)
-	if err != nil || listing.Path == "/" || req.Name == "" || req.Name == "." || req.Name == ".." || len(req.Name) > 128 || strings.ContainsAny(req.Name, "/\\\x00\r\n") {
-		writeAPIError(w, 400, "invalid_directory", "请在磁盘目录中创建文件夹，名称不能包含路径分隔符")
+	result, err := m.directories.MutateDirectory(r.Context(), config.DeviceConfig{ID: device}, s.Options.Disks, nil, req)
+	if err != nil {
+		writeDirectoryError(w, err)
 		return
 	}
-	for _, entry := range listing.Entries {
-		if entry.Name == req.Name {
-			writeAPIError(w, 409, "directory_exists", "同名文件或目录已存在")
-			return
+	status := 200
+	if req.Action == "mkdir" {
+		status = 201
+	}
+	writeJSON(w, status, result)
+}
+
+type simulationDirectoryClient struct {
+	m      *simulation
+	device string
+}
+
+func (c simulationDirectoryClient) ContainerRead(_ context.Context, menu routeros.ContainerMenu) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.ContainerFiles {
+		return c.m.files[c.device], nil
+	}
+	rows := []routeros.RouterOSObject{}
+	for _, item := range c.m.devices[c.device].Items {
+		if menu == routeros.ContainerList {
+			rows = append(rows, routeros.RouterOSObject{"root-dir": item.Config.RootDir})
+		}
+		if menu == routeros.ContainerMounts {
+			for _, m := range item.Config.Mounts {
+				rows = append(rows, routeros.RouterOSObject{"src": m.Source})
+			}
 		}
 	}
-	target := path.Join(listing.Path, req.Name)
-	if _, err := containers.DirectoryPath(target); err != nil {
-		writeAPIError(w, 400, "invalid_directory", "文件夹名称无效")
-		return
+	return rows, nil
+}
+func (c simulationDirectoryClient) CreateDirectory(_ context.Context, p string) error {
+	c.m.fileCounter++
+	c.m.files[c.device] = append(c.m.files[c.device], routeros.RouterOSObject{".id": fmt.Sprintf("*%X", 256+c.m.fileCounter), "name": strings.TrimPrefix(p, "/"), "type": "directory"})
+	return nil
+}
+func (c simulationDirectoryClient) RenameDirectory(_ context.Context, id, target string) error {
+	old := ""
+	for _, row := range c.m.files[c.device] {
+		if row[".id"] == id {
+			old = "/" + row["name"]
+			break
+		}
 	}
-	m.files[device] = append(m.files[device], routeros.RouterOSObject{"name": strings.TrimPrefix(target, "/"), "type": "directory"})
-	writeJSON(w, 201, map[string]string{"path": target})
+	for _, row := range c.m.files[c.device] {
+		p := "/" + row["name"]
+		if p == old || strings.HasPrefix(p, old+"/") {
+			row["name"] = strings.TrimPrefix(target+strings.TrimPrefix(p, old), "/")
+			c.m.fileCounter++
+			row[".id"] = fmt.Sprintf("*%X", 256+c.m.fileCounter)
+		}
+	}
+	return nil
+}
+func (c simulationDirectoryClient) RemoveDirectory(_ context.Context, id string) error {
+	old := ""
+	for _, row := range c.m.files[c.device] {
+		if row[".id"] == id {
+			old = "/" + row["name"]
+			break
+		}
+	}
+	rows := []routeros.RouterOSObject{}
+	for _, row := range c.m.files[c.device] {
+		p := "/" + row["name"]
+		if p != old && !strings.HasPrefix(p, old+"/") {
+			rows = append(rows, row)
+		}
+	}
+	c.m.files[c.device] = rows
+	return nil
 }
 func (m *simulation) uploadImage(w http.ResponseWriter, r *http.Request, device string, s containers.Snapshot) {
 	if len(s.Options.Archives) >= 8 {
@@ -122,18 +181,18 @@ func (m *simulation) uploadImage(w http.ResponseWriter, r *http.Request, device 
 
 func TestSimulationDirectoryMkdirScopeAndCollisions(t *testing.T) {
 	m := newSimulation()
-	simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"parent": "/sata1/rosboard/containers", "name": "app"}, 201)
+	simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"action": "mkdir", "requestId": uuidForTest() + "directory", "parent": "/sata1/rosboard/containers", "name": "app"}, 201)
 	raw := simulationCall(t, m, "GET", "/api/containers/directories?device=demo-router&path=/sata1/rosboard/containers", nil, 200)
 	if !strings.Contains(string(raw), `"path":"/sata1/rosboard/containers/app"`) {
 		t.Fatal(string(raw))
 	}
-	simulationCall(t, m, "GET", "/api/containers/directories?device=demo-edge&path=/sata1/rosboard/containers/app", nil, 400)
-	simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"parent": "/sata1/rosboard/containers", "name": "app"}, 409)
+	simulationCall(t, m, "GET", "/api/containers/directories?device=demo-edge&path=/sata1/rosboard/containers/app", nil, 404)
+	simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"action": "mkdir", "requestId": uuidForTest() + "directory", "parent": "/sata1/rosboard/containers", "name": "app"}, 409)
 	for _, name := range []string{"../escape", "app/nested", ".", ".."} {
-		simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"parent": "/sata1", "name": name}, 400)
+		simulationCall(t, m, "POST", "/api/containers/directories?device=demo-router", map[string]string{"action": "mkdir", "requestId": uuidForTest() + "directory", "parent": "/sata1", "name": name}, 400)
 	}
 	simulationCall(t, m, "POST", "/api/containers/_reset?device=demo-router", nil, 200)
-	simulationCall(t, m, "GET", "/api/containers/directories?device=demo-router&path=/sata1/rosboard/containers/app", nil, 400)
+	simulationCall(t, m, "GET", "/api/containers/directories?device=demo-router&path=/sata1/rosboard/containers/app", nil, 404)
 }
 func TestSimulationImageUploadAndDeviceScopedCreation(t *testing.T) {
 	m := newSimulation()

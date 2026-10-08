@@ -8,6 +8,26 @@ Simulation is a Go test-only HTTP server enabled by `ROSBOARD_CONTAINER_PREVIEW=
 
 Future writes must add typed allowlisted mutations, durable object ownership, device write gate and read-back reconciliation. Real image update/delete data retention is outside phase 1. Production gate remains unchanged.
 
+## Real directory-picker follow-up
+
+The latest user attachment explicitly expands directory handling to real RouterOS
+mkdir/rename/remove. This exception does not enable container/image operations.
+Keep the existing directory route, with a typed action request, separate directory
+capability, strict RouterOS path helpers and exact metadata IDs. Directory calls
+use the existing MutationClient transport/no-retry policy and the shared device
+write gate. Verify effects by metadata read-back, including uncertain outcomes;
+never route a RouterOS path into local filesystem I/O.
+
+The input wrapper, picker navigation/operations hook, inline name editor and
+folder menu share the existing UI-native CSS. Opening uses the initial input
+path, with recoverable root fallback. Inline creation reserves no temporary
+RouterOS object until a valid final name is submitted. Rename updates matching
+draft paths, while server protection prevents changing disk/system roots and
+directories referenced by existing container roots/mounts. Directory reads and
+write errors remain local to the picker; outstanding actions cannot be repeated
+blindly. Health/resource details are conditionally visible while their local
+values survive toggles; disabled resource overrides are omitted from resolution.
+
 Startup behavior/logging/restart remain visible before an independent, collapsed
 advanced group for CMD/ENTRYPOINT/user/workdir. Hidden overrides stay in the
 parent draft and are submitted unchanged; field errors expand the group. Health
@@ -18,7 +38,7 @@ Custom examples use actual RouterOS command syntax, without Dockerfile markers.
 ## Follow-up: local image archives and storage navigation
 
 The user requested a local image upload option, a small RouterOS Files directory
-picker with mkdir. Services use direct container-IP access without port mappings.
+picker with inline mkdir, rename and confirmed recursive deletion. Services use direct container-IP access without port mappings.
 Continue on the same branch and Draft PR. New defaults use a per-container `rootfs` directory; mounted
 configuration/data directories are separate siblings. Preserve existing paths.
 

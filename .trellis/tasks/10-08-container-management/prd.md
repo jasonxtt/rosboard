@@ -1,6 +1,6 @@
 # Native container management — phase 1
 
-User approved implementation on 2026-10-08. This phase delivers native Container reads, a complete single-page editor, and a development-only interactive simulation. Production RouterOS mutations are deferred.
+User approved implementation on 2026-10-08. This phase delivers native Container reads, a complete single-page editor, and a development-only interactive simulation. Container mutations remain deferred; the later directory-picker follow-up explicitly authorizes real RouterOS directory CRUD.
 
 ## Requirements
 - Arcane-inspired scoped appearance, Dockhand-style searchable/sortable container table, Portainer-inspired flat creation/edit form in both Aurora and Compact.
@@ -65,3 +65,33 @@ UI variants and cancelled work on device switch. Keep the same Draft PR and task
 - Preserve health contracts and default inheritance. Do not enable real writes
   or add implicit stop/restart/notification actions.
 - Update the same isolated full-panel test deployment and Draft PR.
+
+## Bound directory picker and optional detail follow-up
+
+- Hide custom health fields in image-inheritance mode. Resource overrides start
+  off for new drafts; show details when enabled and preserve existing overrides
+  on edit. Disabling resource overrides uses inherited settings without losing
+  the values retained in the editor.
+- Bind the runtime input and dropdown to a compact RouterOS directory picker.
+  Locate its valid existing path on open; fall back to `/` for missing/invalid
+  paths while retaining the input. Folder navigation does not select; explicit
+  selection fills root-dir and closes the picker. Preserve mount behavior.
+- Clickable, scrollable breadcrumbs expose every ancestor. List folders first,
+  files afterward with muted styling/size; files cannot serve as root-dir.
+- A single create click adds an inline name input with focus/selected default
+  text. Enter saves, Esc cancels, and a valid blur saves. Rename uses the same
+  inline interaction; per-folder menus contain rename/delete. Delete requires
+  a confirmation naming the exact folder/path and stating that all files and
+  subdirectories will be removed. The user explicitly permits nonempty deletion;
+  root/disk/system roots and container-used paths are protected.
+- Extend the existing directory API with real mkdir/rename/remove through typed
+  RouterOS calls. Operations never touch the rosboard host filesystem. Validate
+  path/name, resolve exact opaque IDs, preserve Unicode/spaces, reject traversal
+  and stale targets, serialize per device, and read back mutation results.
+- Handle permissions, timeout/unknown result, missing/stale directories and
+  duplicate actions in the picker without losing the container form. Keep
+  previous listings during refresh, refresh after operations, and keep the
+  current directory after creation. Adapt draft references after renaming.
+- Do not add file deletion, general file editing or a new UI framework. Keep
+  container/image writes disabled and use the same task branch/Draft PR/test
+  deployment. Verify actual RouterOS CRUD with isolated temporary directories.
