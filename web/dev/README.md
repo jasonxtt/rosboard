@@ -34,12 +34,16 @@ RouterOS archive destination is simulated. An accepted archive is projected to
 OCI-only, compressed archives, docker-export and multi-image archives are not yet
 supported. Select rootfs separately from persistent mount sources.
 
-Directory browsing: **浏览根目录** or **浏览挂载源** opens the Files picker.
+Directory browsing: **浏览运行目录** or **浏览挂载源** opens the Files picker.
 Click folders/breadcrumbs, optionally create a child folder, then choose it.
 Files are read-only context; a mount source may also select an existing file.
 The virtual Files root and whole disk cannot be used as container rootfs.
 New defaults are `/disk/rosboard/containers/name/rootfs`; keep persistent config
 and data outside rootfs, e.g. `volumes/config` and `volumes/data` siblings.
+The field is labelled **容器运行目录（root-dir）**. Runtime and persistent
+directories may share an application parent, for example `nginx/rootdir` and
+`nginx/data/config`; the mount source must remain outside the runtime directory.
+Folder names are user choices; `rootfs` is the generated default name only.
 Existing container paths are preserved. New folders/storage remain on deletion.
 
 An optional real test device can be added with process-only environment values:

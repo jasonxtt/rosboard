@@ -349,10 +349,10 @@ export function ContainerEditor({
         <Section
           title="存储与挂载"
           number="03"
-          description="rootfs 存放容器文件系统；配置与数据通过独立目录挂载。"
+          description="容器运行目录与配置、数据挂载可共用父目录，分别使用子目录。"
         >
           <Field
-            label="根目录"
+            label="容器运行目录（root-dir）"
             value={draft.rootDir}
             onChange={(v) => patch('rootDir', v)}
             error={issue('rootDir')}
@@ -367,12 +367,12 @@ export function ContainerEditor({
             className="ct-add"
             onClick={() => setPicker('root')}
           >
-            浏览根目录
+            浏览运行目录
           </button>
           <p className="ct-storage-hint">
-            建议同一容器父目录下分开存放：<code>rootfs/</code> 用作根目录，
-            <code>volumes/config/</code> 和 <code>volumes/data/</code>{' '}
-            用作挂载源。根目录使用专属空目录，更新镜像时保留挂载数据。
+            可放在同一父目录下：<code>nginx/rootdir/</code> 用作运行目录，
+            <code>nginx/data/config/</code>{' '}
+            用作配置挂载源。挂载源应位于运行目录之外，目录名称可自定义。
           </p>
           <small>
             可用磁盘：
@@ -466,7 +466,9 @@ export function ContainerEditor({
               key={String(picker)}
               deviceId={deviceId}
               writable={snapshot.capabilities.writes}
-              purpose={picker === 'root' ? '根目录' : `挂载源 ${picker + 1}`}
+              purpose={
+                picker === 'root' ? '容器运行目录' : `挂载源 ${picker + 1}`
+              }
               allowFiles={picker !== 'root'}
               onClose={() => setPicker(null)}
               onSelect={(path) => {

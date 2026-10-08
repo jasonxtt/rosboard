@@ -322,7 +322,7 @@ test('edit retains values and shared VETH fields are locked without hiding secti
     assert.equal(field('VETH 名称').disabled, true)
     assert.equal(field('IPv4 网关').disabled, true)
     assert.equal(field('命令 CMD').value, 'serve --exact')
-    assert.equal(field('根目录').value, '/sata1/existing')
+    assert.equal(field('容器运行目录').value, '/sata1/existing')
     assert.equal(field('变量值').value, item.config.env[0].value)
     assert.equal(field('自动重启策略').value, 'on-failure')
     assert.equal(document.querySelectorAll('.ct-section').length, 7)
@@ -529,7 +529,7 @@ test('directory picker navigates actual names, creates a child and selects it wi
         <DirectoryPicker
           deviceId="a"
           writable
-          purpose="根目录"
+          purpose="容器运行目录"
           onClose={() => {}}
           onSelect={(p) => {
             selected = p
@@ -628,7 +628,7 @@ test('readonly local upload stays disabled while directory selection updates onl
     await act(async () => button('选用此目录').click())
     assert.equal(field('主机源目录').value, '/sata1')
     assert.equal(field('容器目标目录').value, '/etc/app')
-    assert.equal(field('根目录').value, '')
+    assert.equal(field('容器运行目录').value, '')
     assert.equal(
       (document.querySelector('.ct-check input') as HTMLInputElement).checked,
       true,

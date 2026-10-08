@@ -247,7 +247,7 @@ func Resolve(d Draft, s Snapshot) Resolution {
 		targets[target] = true
 		root, _ := DirectoryPath(e.RootDir)
 		if existing == nil && sourceErr == nil && (source == root || strings.HasPrefix(source, root+"/")) {
-			r.Errors[fmt.Sprintf("mounts.%d", i)] = "持久化挂载源需放在 rootfs 目录之外"
+			r.Errors[fmt.Sprintf("mounts.%d", i)] = "持久化挂载源需放在容器运行目录之外"
 		}
 	}
 	for key, value := range map[string]string{"memoryHigh": e.MemoryHigh, "memoryMax": e.MemoryMax} {
