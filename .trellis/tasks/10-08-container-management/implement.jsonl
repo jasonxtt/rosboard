@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/containers.md", "reason": "Native Container read/default/job boundaries"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Go checks, safe errors and typed RouterOS contracts"}
+{"file": ".trellis/spec/frontend/dual-ui.md", "reason": "Separate lazy CSS graphs and shared behavior"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Runtime parsing and local drafts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "User-led manual visual acceptance"}
+{"file": ".trellis/tasks/10-08-container-management/research/parameter-mapping.md", "reason": "Verified RouterOS parameter mapping and observed capabilities"}

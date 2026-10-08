@@ -41,3 +41,21 @@ On an observed job's verified success, reload to use the new embedded frontend.
 Version metadata uses four columns on desktop and two columns at viewport widths
 up to 768px: current/latest version, then platform/last check. Preserve DOM order
 and permit long values to wrap inside their own cells.
+
+## Native container feature
+
+Both shells mount `features/containers/ContainerPage` through UI-specific lazy
+page entries. The shared feature imports no shell CSS. Each entry owns its
+container stylesheet; all selectors stay under `.ct`. The form is flat: eight
+visible sections, two columns on desktop and one on mobile, with inline defaults
+and errors. No configuration tab, wizard or disclosure hides fields.
+
+Production capabilities fail closed for writes. The development preview uses
+fake device APIs and a separate HTML entry. Check both lazy container CSS graphs
+and absence of the preview entry/fixtures in `check:ui-build`. Device remounts
+cancel reads and clear drafts, logs and job selection; subsequent reads restore
+the device's pending job to permit unknown-result recovery. Visual acceptance
+remains user-led at the documented viewport/theme combinations.
+
+Container draft/request identifiers use `crypto.getRandomValues`, which is
+available on HTTP LAN panels; do not require secure-context `randomUUID`.

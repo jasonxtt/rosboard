@@ -14,6 +14,7 @@ export type View =
   | 'policy-routing'
   | 'access-control'
   | 'recognition'
+  | 'containers'
   | 'settings'
 
 export const VIEW_TITLES: Record<View, string> = {
@@ -31,6 +32,7 @@ export const VIEW_TITLES: Record<View, string> = {
   'policy-routing': '策略路由',
   'access-control': '访问控制',
   recognition: '识别设置',
+  containers: '容器管理',
   settings: '面板设置',
 }
 
@@ -48,7 +50,7 @@ export const NAV_GROUPS: Array<{ key: NavGroup; label: string; items: View[] }> 
   {
     key: 'host',
     label: '主机设置',
-    items: ['target-library', 'policy-routing', 'access-control', 'recognition'],
+    items: ['containers', 'target-library', 'policy-routing', 'access-control', 'recognition'],
   },
 ]
 
@@ -65,6 +67,7 @@ export const NAV_ITEM_META: Partial<Record<View, { icon: string; desc: string }>
   'target-library': { icon: '◎', desc: '域名 / IP 列表，供规则引用' },
   'policy-routing': { icon: '⑂', desc: '让指定流量走指定出口线路' },
   'access-control': { icon: '⊘', desc: '断网时段与目标屏蔽' },
+  containers: { icon: '▣', desc: '容器状态、镜像与单页配置' },
   recognition: { icon: '✦', desc: '应用识别与 MosDNS 数据源' },
 }
 
@@ -89,6 +92,7 @@ export const DEVICE_SCOPED_VIEWS: ReadonlySet<View> = new Set([
   'policy-routing',
   'access-control',
   'recognition',
+  'containers',
 ])
 
 const ALL_VIEWS = Object.keys(VIEW_TITLES) as View[]

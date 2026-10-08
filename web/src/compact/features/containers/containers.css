@@ -1,0 +1,594 @@
+.ct {
+  --ct-bg: #15141e;
+  --ct-surface: #1d1b29;
+  --ct-border: #343044;
+  --ct-text: #eeedf5;
+  --ct-muted: #aba6bf;
+  --ct-accent: #a58aff;
+  --ct-accent-ink: #141020;
+  --ct-success: #77d4a9;
+  --ct-danger: #e27791;
+  color: var(--ct-text);
+  background: var(--ct-bg);
+  border: 1px solid var(--ct-border);
+  border-radius: 18px;
+  padding: 26px;
+  font: 14px/1.5 var(--font-sans, system-ui);
+  min-width: 0;
+}
+[data-theme='light'] .ct {
+  --ct-bg: #f5f4f9;
+  --ct-surface: #fff;
+  --ct-border: #dedbe8;
+  --ct-text: #282336;
+  --ct-muted: #6e657e;
+  --ct-accent: #7650d0;
+  --ct-accent-ink: #fff;
+  --ct-success: #18734d;
+  --ct-danger: #af2549;
+}
+.ct * {
+  box-sizing: border-box;
+}
+.ct h1,
+.ct h2,
+.ct h3,
+.ct p {
+  margin: 0;
+}
+.ct h1 {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.6px;
+}
+.ct h2 {
+  font-size: 22px;
+}
+.ct h3 {
+  font-size: 16px;
+  font-weight: 650;
+}
+.ct small {
+  color: var(--ct-muted);
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ct button,
+.ct input,
+.ct select,
+.ct textarea {
+  font: inherit;
+}
+.ct button {
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  color: var(--ct-text);
+  background: var(--ct-surface);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.ct button:hover:not(:disabled) {
+  border-color: var(--ct-accent);
+  color: var(--ct-accent);
+}
+.ct button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ct button:focus-visible,
+.ct input:focus-visible,
+.ct select:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+.ct .ct-primary {
+  background: var(--ct-accent);
+  border-color: var(--ct-accent);
+  color: var(--ct-accent-ink);
+  font-weight: 650;
+}
+.ct-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.ct-heading p,
+.ct-editor-heading p {
+  color: var(--ct-muted);
+  margin-top: 4px;
+}
+.ct-brand {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  color: var(--ct-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
+}
+.ct-eyebrow {
+  color: var(--ct-accent);
+  font-size: 10px;
+  letter-spacing: 1.7px;
+  font-weight: 650;
+}
+.ct-mode {
+  margin-left: auto;
+  border: 1px solid var(--ct-border);
+  border-radius: 20px;
+  color: var(--ct-muted);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.ct-notice {
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ct-accent) 7%, var(--ct-surface));
+  border: 1px solid var(--ct-border);
+  border-radius: 10px;
+  color: var(--ct-muted);
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.ct-alert,
+.ct-field strong,
+.ct-repeat > strong {
+  color: var(--ct-danger);
+}
+.ct-alert {
+  padding: 12px;
+  border: 1px solid #8c445a;
+  border-radius: 8px;
+  margin-bottom: 16px !important;
+}
+.ct-card {
+  background: var(--ct-surface);
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 0;
+}
+.ct-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.ct-stats span {
+  color: var(--ct-muted);
+  font-size: 12px;
+}
+.ct-stats strong {
+  display: block;
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: 5px;
+}
+.ct-green {
+  color: var(--ct-success);
+}
+.ct-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 0 0 18px;
+}
+.ct-toolbar > span {
+  margin-left: auto;
+  color: var(--ct-muted);
+}
+.ct input:not([type='checkbox']),
+.ct select,
+.ct textarea {
+  border: 1px solid var(--ct-border);
+  background: var(--ct-bg);
+  color: var(--ct-text);
+  border-radius: 7px;
+  padding: 9px 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ct-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ct-search input {
+  width: 300px;
+}
+.ct-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.ct table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  white-space: nowrap;
+  text-align: left;
+}
+.ct th {
+  padding: 12px 10px;
+  background: var(--ct-bg);
+  color: var(--ct-muted);
+  font-weight: 500;
+}
+.ct td {
+  padding: 16px 10px;
+  border-bottom: 1px solid var(--ct-border);
+  vertical-align: middle;
+}
+.ct td small {
+  font-size: 11px;
+  margin-top: 3px;
+}
+.ct .ct-sort,
+.ct .ct-name {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.ct .ct-name {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--ct-text);
+}
+.ct-image {
+  max-width: 260px;
+  min-width: 160px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--ct-muted);
+}
+.ct-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 15px;
+  font-size: 11px;
+  padding: 4px 8px;
+  background: var(--ct-bg);
+  color: var(--ct-muted);
+}
+.ct-state:before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+  border-radius: 50%;
+}
+.ct-state-running {
+  color: var(--ct-success);
+}
+.ct-state-error {
+  color: var(--ct-danger);
+}
+.ct-state-starting,
+.ct-state-downloading,
+.ct-state-extracting {
+  color: #e8c275;
+}
+.ct-ownership {
+  color: var(--ct-muted);
+}
+.ct-row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.ct-row-actions button {
+  padding: 4px 7px;
+  min-width: 26px;
+}
+.ct-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  color: var(--ct-muted);
+  font-size: 12px;
+}
+.ct-pagination > span {
+  margin-right: auto;
+}
+.ct-empty {
+  padding: 44px;
+  text-align: center;
+  color: var(--ct-muted);
+}
+.ct-editor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 24px 0;
+}
+.ct-form-grid {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.ct-section header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.ct-section header p {
+  font-size: 12px;
+  color: var(--ct-muted);
+  margin-top: 3px;
+}
+.ct-section-number {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--ct-bg);
+  color: var(--ct-accent);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.ct-section-body {
+  display: grid;
+  gap: 14px;
+}
+.ct-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ct-field > span {
+  font-size: 12px;
+  font-weight: 550;
+}
+.ct-field em {
+  color: var(--ct-accent);
+  font-style: normal;
+}
+.ct-field input,
+.ct-field select,
+.ct-field textarea {
+  width: 100%;
+}
+.ct-field strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.ct-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ct-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.ct-check input {
+  accent-color: var(--ct-accent);
+}
+.ct-repeat {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--ct-border);
+  padding: 14px 0 0;
+}
+.ct-repeat > button {
+  justify-self: start;
+}
+.ct .ct-add {
+  color: var(--ct-accent);
+  justify-self: start;
+  background: transparent;
+}
+.ct-empty-inline {
+  color: var(--ct-muted);
+  font-size: 12px;
+}
+.ct-resolution {
+  margin-top: 18px;
+}
+.ct-defaults {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+.ct-defaults span {
+  background: var(--ct-bg);
+  color: var(--ct-muted);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ct-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.ct-actions small {
+  margin-right: auto;
+}
+.ct-simulation {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.ct-simulation label {
+  font-size: 12px;
+  color: var(--ct-muted);
+}
+.ct-simulation select {
+  margin-left: 10px;
+}
+.ct-job {
+  margin-top: 20px;
+}
+.ct-job > div,
+.ct-logs header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ct-job progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 16px 0;
+  accent-color: var(--ct-accent);
+}
+.ct-logs {
+  margin-top: 20px;
+}
+.ct-logs p {
+  margin-top: 12px;
+  color: var(--ct-muted);
+}
+.ct-logs pre {
+  background: var(--ct-bg);
+  padding: 16px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+}
+.ct-dialog {
+  background: var(--ct-surface);
+  color: var(--ct-text);
+  border: 1px solid var(--ct-border);
+  border-radius: 14px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 26px;
+}
+.ct-dialog::backdrop {
+  background: #090712b0;
+}
+.ct-dialog p {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .ct {
+    padding: 18px;
+  }
+  .ct-heading {
+    gap: 10px;
+  }
+  .ct-mode {
+    margin-left: 0;
+  }
+  .ct-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ct-form-grid {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-inline-size: 0;
+    grid-template-columns: 1fr;
+  }
+  .ct-toolbar > span {
+    margin-left: 0;
+  }
+  .ct-search {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ct-search input {
+    width: 100%;
+  }
+  .ct-heading h1 {
+    font-size: 23px;
+  }
+  .ct-card {
+    padding: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .ct {
+    padding: 12px;
+    border-radius: 12px;
+  }
+  .ct-brand {
+    display: none;
+  }
+  .ct-heading > div:nth-child(2) {
+    width: 100%;
+  }
+  .ct-mode {
+    width: 100%;
+    border: 0;
+    padding: 0;
+  }
+  .ct-heading > button {
+    flex: 1;
+  }
+  .ct-pair {
+    grid-template-columns: 1fr;
+  }
+  .ct-editor-heading {
+    flex-direction: column;
+  }
+  .ct-actions {
+    flex-wrap: wrap;
+  }
+  .ct-actions small {
+    width: 100%;
+  }
+  .ct-job > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ct-stats {
+    gap: 8px;
+  }
+  .ct-simulation select {
+    display: block;
+    margin: 6px 0 0;
+  }
+}
+.ct {
+  border-radius: 10px;
+  padding: 20px;
+  font-size: 13px;
+}
+.ct .ct-card {
+  border-radius: 8px;
+}
+.ct .ct-heading h1 {
+  font-size: 24px;
+}
+.ct .ct-table-scroll td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+@media (max-width: 480px) {
+  .ct {
+    padding: 12px;
+  }
+}
+
+.ct textarea {
+  resize: vertical;
+}

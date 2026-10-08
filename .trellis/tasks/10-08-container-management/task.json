@@ -1,0 +1,32 @@
+{
+  "id": "container-management",
+  "name": "container-management",
+  "title": "Native container management: read-only API and simulation",
+  "description": "Phase 1: native read-only container APIs, dual-UI flat editor, isolated simulation and regression checks.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "containers",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-08",
+  "completedAt": null,
+  "branch": "codex/container-management",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/containers",
+    "internal/routeros/containers.go",
+    "internal/api/containers.go",
+    "web/src/features/containers",
+    "web/dev/README.md"
+  ],
+  "notes": "User approved implementation. Keep Draft PR and task active pending manual UI acceptance and later independent RouterOS write verification.",
+  "meta": {}
+}

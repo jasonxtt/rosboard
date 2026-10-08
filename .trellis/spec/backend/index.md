@@ -29,6 +29,7 @@ credentials, and return stable API error shapes.
 | [Logging Guidelines](./logging-guidelines.md) | Logging and secret boundaries | Active |
 | [Monitoring Contracts](./monitoring-contracts.md) | RouterOS self attribution and IP-family terminal payloads | Active |
 | [Policy Routing](./policy-routing.md) | Desired-state RouterOS policy lifecycle and ownership contracts | Active |
+| [Native Containers](./containers.md) | Read-only native Container and simulation boundaries | Active |
 | [Runtime Configuration](./runtime-configuration.md) | Secure local YAML startup and delivery contracts | Active |
 
 ---

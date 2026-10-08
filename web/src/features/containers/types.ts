@@ -1,0 +1,120 @@
+export type Network = {
+  veth: string
+  bridge: string
+  address: string
+  gateway: string
+  address6: string
+  gateway6: string
+  mac: string
+}
+export type Environment = { key: string; value: string }
+export type Mount = {
+  source: string
+  target: string
+  readOnly: boolean
+  mode?: string
+}
+export type Port = {
+  protocol: string
+  host: number
+  container: number
+  bindAddress: string
+}
+export type Health = {
+  mode: string
+  command: string
+  interval: string
+  timeout: string
+  retries: string
+  startPeriod: string
+}
+export type Draft = {
+  draftId: string
+  existingId: string
+  name: string
+  image: string
+  network: Network
+  rootDir: string
+  command: string
+  entrypoint: string
+  user: string
+  workdir: string
+  env: Environment[]
+  mounts: Mount[]
+  ports: Port[]
+  memoryHigh: string
+  memoryMax: string
+  cpuList: string
+  startAfterCreate: boolean
+  startOnBoot: boolean
+  logging: boolean
+  restartPolicy: string
+  health: Health
+}
+export type Item = {
+  id: string
+  name: string
+  status: string
+  image: string
+  network: Network
+  cpu: string
+  memory: string
+  ports: Port[]
+  startOnBoot: boolean
+  ownership: string
+  sharedVeth: string[]
+  envLists: string[]
+  mountLists: string[]
+  config: Draft
+  imageDefaults: Record<string, string>
+}
+export type Options = {
+  bridges: string[]
+  interfaces: string[]
+  usedIPs: string[]
+  disks: { name: string; freeBytes: number; writable: boolean }[]
+  memoryHigh: string
+  memoryMax: string
+}
+export type Capabilities = {
+  supported: boolean
+  writes: boolean
+  mode: string
+  version: string
+  logs: boolean
+  fields: string[]
+  warnings: string[]
+}
+export type Snapshot = {
+  activeJob: Job | null
+  items: Item[]
+  options: Options
+  capabilities: Capabilities
+}
+export type Resolution = {
+  effective: Draft
+  errors: Record<string, string>
+  defaults: string[]
+  containerFields: Record<string, string>
+}
+export type Action =
+  | 'create'
+  | 'edit'
+  | 'start'
+  | 'stop'
+  | 'restart'
+  | 'update'
+  | 'delete'
+  | 'adopt'
+export type Job = {
+  id: string
+  deviceId: string
+  action: string
+  targetId: string
+  state: string
+  phase: string
+  progress: number
+  error: string
+  retained: string[]
+}
+export type ContainerLog = { id: string; time: string; message: string }
