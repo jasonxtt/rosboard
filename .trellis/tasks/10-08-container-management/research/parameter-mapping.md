@@ -10,7 +10,7 @@ Read-only observation on RouterOS 7.23.5 confirmed native container flags (`runn
 | Name | name | stable image slug + short draft ID |
 | Network | interface; /interface/veth address,gateway,gateway6,mac-address; bridge port | new one-to-one; existing shared VETH preserved |
 | Root directory | root-dir | largest writable disk; no free disk => validation error |
-| Ports | /ip/firewall/nat dstnat protocol,dst-port,to-addresses,to-ports | explicit only; no egress changes |
+| Service access | container IP and application port; no additional RouterOS field | direct bridge/routed access; no port mappings |
 | Environment | /container/envs list,key,value + envlists | values kept verbatim; independent ownership |
 | Mounts | /container/mounts list,src,dst,mode + mountlists | rw or ro; shared mounts preserved |
 | Command/entrypoint/user/workdir | cmd,entrypoint,user,workdir | blanks inherit; editing must preserve overrides |
@@ -66,8 +66,22 @@ preview reads actual directories; simulations remain isolated from it.
 Use sibling `rootfs` and `volumes` folders under a per-container parent. Rootfs
 holds the image/runtime filesystem; mounts hold persistent config/data. Never
 place new persistent mount sources inside rootfs. Preserve existing relative
-RouterOS file paths on edit. Blank port bindings in a future write implementation
-must match router-local destinations, not all forwarded packets. Port mappings
-use IPv4 dst-nat; direct routed container access needs no such mapping. Existing
-routes/firewall permission still govern reachability; no automatic hairpin NAT,
-source NAT or accept-rule edits belong to this feature.
+RouterOS file paths on edit. Services use the container IP and application port
+directly. Existing routes/firewall permission still govern reachability. Port
+mapping and NAT reads/ownership are removed from this feature; no automatic
+hairpin NAT, source NAT or accept-rule edits belong to it.
+
+## Direct-IP networking clarification (2026-10-08)
+
+MikroTik documents VETH attachment to a bridge, including direct Layer2 LAN
+attachment and dedicated container subnets. This is not a Docker macvlan/ipvlan
+driver implementation, although independently addressed containers support the
+user's direct-IP workflow. Same-LAN bridge access needs no destination NAT;
+a separate subnet also supports direct access when routing and firewall permit.
+Destination NAT is an optional router-address forwarding pattern, not a required
+container setting. Remove it from the form, table, shared contract and simulator.
+Existing firewall/NAT rules remain untouched.
+
+Sources: https://manual.mikrotik.com/docs/containers/ ;
+https://docs.docker.com/engine/network/drivers/macvlan/ ;
+https://docs.docker.com/engine/network/drivers/ipvlan/

@@ -61,3 +61,20 @@ Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoin
 - Manual desktop/mobile/theme visual acceptance remains pending. Full task stays
   active and Draft; production deployment and complete write acceptance remain
   separate.
+
+## Direct-IP access checkpoint
+
+- Removed port-mapping form/list fields, Go/TypeScript contract members and
+  parser/default/validation logic. The flat editor now has seven visible sections.
+- Removed container NAT reads and NAT ownership creation/editing from simulation.
+  No RouterOS configuration or existing firewall/NAT rules were changed.
+- Regression checks reject NAT reads and prove stale client port fields cannot
+  produce mappings or ownership. Both UIs retain IP/VETH and Bridge columns.
+- Go build/test/vet and containers/api/routeros race checks passed. Frontend
+  73 tests, lint/build/dual-UI checks passed; four existing fasttrack key warnings
+  remain. Trellis context validation and git diff checks passed.
+- Restarted the local preview. Vite-proxy smoke checks passed for both simulated
+  device snapshots, pure direct-IP resolution, and real test-device read-only
+  snapshot/Files. Both preview URLs respond. No real mutations were performed.
+- Same branch/Draft PR; manual visual acceptance and real-write acceptance remain
+  pending. No production deployment, merge or task completion.

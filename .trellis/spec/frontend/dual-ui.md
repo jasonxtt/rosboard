@@ -46,7 +46,7 @@ and permit long values to wrap inside their own cells.
 
 Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
-container stylesheet; all selectors stay under `.ct`. The form is flat: eight
+container stylesheet; all selectors stay under `.ct`. The form is flat: seven
 visible sections, two columns on desktop and one on mobile, with inline defaults
 and errors. No configuration tab, wizard or disclosure hides fields.
 

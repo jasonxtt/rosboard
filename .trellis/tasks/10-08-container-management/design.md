@@ -1,6 +1,6 @@
 # Design
 
-`internal/containers` owns typed drafts, resolved defaults, normalized snapshots and validation. `internal/routeros` provides closed GET-only container/config/VETH/bridge/disk/env/mount/NAT/log readers; no mutation interface is added. API selects exactly one enabled non-archived device from configuration, uses bounded context, and returns safe errors. Missing optional menus yield explicit capability warnings, not fabricated supported state. Empty command overrides are omitted from projected RouterOS fields.
+`internal/containers` owns typed drafts, resolved defaults, normalized snapshots and validation. `internal/routeros` provides closed GET-only container/config/VETH/bridge/disk/env/mount/log readers; no mutation interface is added. API selects exactly one enabled non-archived device from configuration, uses bounded context, and returns safe errors. Missing optional menus yield explicit capability warnings, not fabricated supported state. Empty command overrides are omitted from projected RouterOS fields.
 
 Shared frontend feature contracts and markup are headless with respect to shell/styles. Each UI loads its own container stylesheet through its own page entry. Drafts stay local and reset with device changes. API adapters parse unknown JSON; reads cancel on unmount and jobs poll without overlapping requests. Single-page editor resolves defaults inline; incomplete fields retain data and show errors.
 
@@ -11,8 +11,8 @@ Future writes must add typed allowlisted mutations, durable object ownership, de
 ## Follow-up: local image archives and storage navigation
 
 The user requested a local image upload option, a small RouterOS Files directory
-picker with mkdir, and clearer port-mapping terminology. Continue on the same
-branch and Draft PR. New defaults use a per-container `rootfs` directory; mounted
+picker with mkdir. Services use direct container-IP access without port mappings.
+Continue on the same branch and Draft PR. New defaults use a per-container `rootfs` directory; mounted
 configuration/data directories are separate siblings. Preserve existing paths.
 
 This checkpoint retains the approved read-only production boundary. Directory
@@ -32,8 +32,9 @@ claim that bytes reached RouterOS.
 The directory picker navigates folders, shows files as read-only context, creates
 a single child folder in simulation, and selects either `root-dir` or a mount
 source. It is not a general file editor, delete tool, or shell. Existing mount
-sources may also name files. Explain router-IP:host-port to container-IP:port in
-the form; do not add egress, hairpin, or firewall-accept rules automatically.
+sources may also name files. Services use container-IP:application-port over
+VETH and bridge connectivity. Keep all seven sections visible. Do not read,
+generate, adopt or delete NAT rules; existing routes/firewall govern reachability.
 
 Verify malformed/oversized archives, incompatible architecture, archive device
 isolation, image-source projection, path traversal, mkdir collisions, directory

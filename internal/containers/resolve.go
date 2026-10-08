@@ -250,37 +250,6 @@ func Resolve(d Draft, s Snapshot) Resolution {
 			r.Errors[fmt.Sprintf("mounts.%d", i)] = "持久化挂载源需放在 rootfs 目录之外"
 		}
 	}
-	ports := map[string]bool{}
-	for i, port := range e.Ports {
-		key := fmt.Sprintf("ports.%d", i)
-		id := fmt.Sprintf("%s/%s/%d", port.Protocol, port.BindAddress, port.Host)
-		if (port.Protocol != "tcp" && port.Protocol != "udp") || port.Host < 1 || port.Host > 65535 || port.Container < 1 || port.Container > 65535 || ports[id] {
-			r.Errors[key] = "填写唯一的 TCP/UDP 端口，范围 1–65535"
-		}
-		for j := 0; j < i; j++ {
-			previous := e.Ports[j]
-			if portConflict(port, previous) {
-				r.Errors[key] = "端口与本次配置的另一条规则冲突"
-			}
-		}
-		for _, item := range s.Items {
-			if item.ID == e.ExistingID {
-				continue
-			}
-			for _, previous := range item.Ports {
-				if portConflict(port, previous) {
-					r.Errors[key] = "端口与已有容器的规则冲突"
-				}
-			}
-		}
-		ports[id] = true
-		if port.BindAddress != "" {
-			ip, err := netip.ParseAddr(port.BindAddress)
-			if err != nil || !ip.Is4() {
-				r.Errors[key] = "绑定地址需为 IPv4"
-			}
-		}
-	}
 	for key, value := range map[string]string{"memoryHigh": e.MemoryHigh, "memoryMax": e.MemoryMax} {
 		if value != "" && !memoryPattern.MatchString(value) {
 			r.Errors[key] = "内存使用字节数、M/G 单位或 unlimited"
@@ -369,8 +338,4 @@ func yesNo(v bool) string {
 		return "yes"
 	}
 	return "no"
-}
-
-func portConflict(a, b Port) bool {
-	return a.Protocol == b.Protocol && a.Host == b.Host && (a.BindAddress == b.BindAddress || a.BindAddress == "" || b.BindAddress == "")
 }

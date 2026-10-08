@@ -34,7 +34,7 @@ A future write phase requires separate RouterOS verification and acceptance.
 ## Verification
 
 Use fake typed readers and local HTTP fixtures. Include required/default fields,
-verbatim env values, TCP/UDP, read-only mounts, shared networking, account/device
+verbatim env values, direct-IP networking, read-only mounts, shared networking, account/device
 isolation, write denial, idempotency and unknown-result recovery. Normal tests
 skip the interactive preview server. Production builds must exclude its fixtures.
 
@@ -60,3 +60,11 @@ skip the interactive preview server. Production builds must exclude its fixtures
 - On RouterOS 7.23.5, `/file/remove` with exact opaque IDs works where REST DELETE
   can fail. Future cleanup must use a typed command and verify owned paths/IDs.
   Binary SFTP upload support does not prove container import/start correctness.
+
+## Direct container access
+
+Services are accessed at container-IP:application-port through the configured
+VETH/bridge. There is no port-mapping field in drafts or snapshots. The container
+reader does not allow firewall NAT menus, and simulation does not create NAT
+ownership. Existing router NAT rules remain outside this feature. Stale JSON
+port fields are ignored and never reappear in resolutions or snapshots.

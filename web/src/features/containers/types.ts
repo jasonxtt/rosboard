@@ -14,12 +14,6 @@ export type Mount = {
   readOnly: boolean
   mode?: string
 }
-export type Port = {
-  protocol: string
-  host: number
-  container: number
-  bindAddress: string
-}
 export type Health = {
   mode: string
   command: string
@@ -57,7 +51,6 @@ export type Draft = {
   workdir: string
   env: Environment[]
   mounts: Mount[]
-  ports: Port[]
   memoryHigh: string
   memoryMax: string
   cpuList: string
@@ -75,7 +68,6 @@ export type Item = {
   network: Network
   cpu: string
   memory: string
-  ports: Port[]
   startOnBoot: boolean
   ownership: string
   sharedVeth: string[]

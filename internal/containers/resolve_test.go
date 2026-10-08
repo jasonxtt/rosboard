@@ -7,7 +7,7 @@ import (
 )
 
 func draftFixture() Draft {
-	return Draft{DraftID: "abcd12", ImageSource: "registry", Image: "registry.example:5000/team/service", Network: Network{VETH: "new-veth", Bridge: "br-containers", Address: "172.20.0.8/24", Gateway: "172.20.0.1"}, Env: []Environment{}, Mounts: []Mount{}, Ports: []Port{}, StartAfterCreate: true, StartOnBoot: true, Logging: true, RestartPolicy: "no", Health: Health{Mode: "inherit"}}
+	return Draft{DraftID: "abcd12", ImageSource: "registry", Image: "registry.example:5000/team/service", Network: Network{VETH: "new-veth", Bridge: "br-containers", Address: "172.20.0.8/24", Gateway: "172.20.0.1"}, Env: []Environment{}, Mounts: []Mount{}, StartAfterCreate: true, StartOnBoot: true, Logging: true, RestartPolicy: "no", Health: Health{Mode: "inherit"}}
 }
 func optionsFixture() Snapshot {
 	return Snapshot{Items: []Item{}, Options: Options{Bridges: []string{"br-containers"}, Interfaces: []string{"ether1"}, UsedIPs: []string{"172.20.0.1/24"}, Disks: []Disk{{Name: "usb1", FreeBytes: 100, Writable: true}, {Name: "sata1", FreeBytes: 200, Writable: true}, {Name: "unmounted", FreeBytes: 1000, Writable: false}}, MemoryHigh: "256M", MemoryMax: "512M"}}
@@ -35,7 +35,6 @@ func TestResolveDefaultsAndExplicitOverrides(t *testing.T) {
 	}
 	d.Env = []Environment{{Key: "VALUE", Value: " space ' \" $() ; \\ \n 中文 "}}
 	d.Mounts = []Mount{{Source: "/sata1/config", Target: "/etc/config", ReadOnly: true}}
-	d.Ports = []Port{{Protocol: "tcp", Host: 8080, Container: 80}, {Protocol: "udp", Host: 8080, Container: 53}}
 	d.Command = "server --hello 'world'"
 	d.MemoryMax = "128M"
 	r = Resolve(d, s)
@@ -62,10 +61,6 @@ func TestResolveNetworkAndRows(t *testing.T) {
 		{"multicast mac", "network.mac", func(d *Draft, s *Snapshot) { d.Network.MAC = "01:00:00:00:00:01" }},
 		{"duplicate environment", "env.1", func(d *Draft, s *Snapshot) { d.Env = []Environment{{Key: "TZ"}, {Key: "TZ"}} }},
 		{"invalid mount", "mounts.0", func(d *Draft, s *Snapshot) { d.Mounts = []Mount{{Source: "relative", Target: "/etc"}} }},
-		{"invalid port", "ports.0", func(d *Draft, s *Snapshot) { d.Ports = []Port{{Protocol: "tcp", Host: 65536, Container: 80}} }},
-		{"duplicate port", "ports.1", func(d *Draft, s *Snapshot) {
-			d.Ports = []Port{{Protocol: "tcp", Host: 80, Container: 80}, {Protocol: "tcp", Host: 80, Container: 81}}
-		}},
 		{"bad memory", "memoryMax", func(d *Draft, s *Snapshot) { d.MemoryMax = "-20M" }},
 		{"bad CPU", "cpuList", func(d *Draft, s *Snapshot) { d.CPUList = "everything" }},
 		{"missing health command", "health.command", func(d *Draft, s *Snapshot) { d.Health.Mode = "override" }},

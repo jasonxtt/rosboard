@@ -4,9 +4,9 @@ User approved implementation on 2026-10-08. This phase delivers native Container
 
 ## Requirements
 - Arcane-inspired scoped appearance, Dockhand-style searchable/sortable container table, Portainer-inspired flat creation/edit form in both Aurora and Compact.
-- All eight configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs.
+- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs.
 - Image and manual static network required: dedicated new VETH, existing bridge, IPv4/CIDR and gateway. No bridge creation, DHCP, VLAN or outbound firewall/NAT changes.
-- Optional image-derived unique name; missing image tag uses latest. Largest suitable free disk supplies an independent root directory. Optional command, entrypoint, user, workdir, env, mounts, ports and resources preserve inheritance when blank.
+- Optional image-derived unique name; missing image tag uses latest. Largest suitable free disk supplies an independent root directory. Optional command, entrypoint, user, workdir, env, mounts and resources preserve inheritance when blank.
 - New defaults: start immediately and at boot, logging enabled, restart policy no, healthcheck inheritance. Editing preserves every existing parameter.
 - List/detail/options/log/default-resolution APIs isolated by explicit device. Formal service performs GET-only RouterOS reads and rejects all action endpoints.
 - Simulation shares contracts, covers create/edit/start/stop/restart/update/delete/adopt, tasks and progress, failure/deduplication/unknown-result recovery and shared-object retention. Fixtures excluded from production bundles.
@@ -26,8 +26,9 @@ Go build/test/vet and relevant race checks; frontend test/lint/build and dual-UI
   delete tool or shell is requested.
 - Keep new rootfs separate from persistent configuration/data under a common
   per-container parent. Preserve every existing container path on edit.
-- Rename published ports to port mappings. Explain router-IP:port to
-  container-IP:port and that direct container access permits leaving it empty.
+- Access services through container-IP:application-port. Remove the port-mapping
+  section and list column. No port mappings or NAT objects enter the container
+  contract, reads, simulation, adoption or deletion.
 - Maintain current read-only production scope. Simulate upload/mkdir clearly;
   provide optional read-only test-device browsing and independently verify file
   capabilities before a future complete write pipeline. Credentials stay private.

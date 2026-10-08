@@ -27,6 +27,6 @@
     "web/src/features/containers",
     "web/dev/README.md"
   ],
-  "notes": "Phase 1 continues in Draft PR #30. Local-image tar upload and mkdir are simulated; real directory reads and independent RouterOS read/temporary file transport checks passed. Awaiting user visual acceptance/root review; real container writes and production acceptance remain deferred.",
+  "notes": "Phase 1 continues in Draft PR #30. Direct container-IP access replaces port mappings; NAT reads and simulated ownership are removed. Local-image tar upload and mkdir are simulated; real directory reads and independent RouterOS read/temporary file transport checks passed. Awaiting user visual acceptance/root review; real container writes and production acceptance remain deferred.",
   "meta": {}
 }

@@ -94,7 +94,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 	}
 	result.Capabilities.Supported = true
 	data := map[routeros.ContainerMenu][]routeros.RouterOSObject{}
-	for _, menu := range []routeros.ContainerMenu{routeros.ContainerResource, routeros.ContainerConfig, routeros.ContainerVETH, routeros.ContainerBridge, routeros.ContainerBridgePort, routeros.ContainerInterfaces, routeros.ContainerAddresses, routeros.ContainerDisk, routeros.ContainerEnvs, routeros.ContainerMounts, routeros.ContainerNAT, routeros.ContainerLogs} {
+	for _, menu := range []routeros.ContainerMenu{routeros.ContainerResource, routeros.ContainerConfig, routeros.ContainerVETH, routeros.ContainerBridge, routeros.ContainerBridgePort, routeros.ContainerInterfaces, routeros.ContainerAddresses, routeros.ContainerDisk, routeros.ContainerEnvs, routeros.ContainerMounts, routeros.ContainerLogs} {
 		objects, err := reader.ContainerRead(ctx, menu)
 		if unsupported(err) {
 			result.Capabilities.Warnings = append(result.Capabilities.Warnings, "无法读取 "+string(menu)+"；相关信息不可用")
@@ -158,7 +158,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 				n.Bridge = port["bridge"]
 			}
 		}
-		draft := Draft{ExistingID: row[".id"], Name: row["name"], Image: row["remote-image"], Network: n, RootDir: row["root-dir"], Command: row["cmd"], Entrypoint: row["entrypoint"], User: row["user"], Workdir: row["workdir"], Env: []Environment{}, Mounts: []Mount{}, Ports: []Port{}, MemoryHigh: row["memory-high"], MemoryMax: row["memory-max"], CPUList: row["cpu-list"], StartOnBoot: isTrue(row["start-on-boot"]), Logging: isTrue(row["logging"]), RestartPolicy: row["restart-policy"], Health: Health{Mode: "inherit"}}
+		draft := Draft{ExistingID: row[".id"], Name: row["name"], Image: row["remote-image"], Network: n, RootDir: row["root-dir"], Command: row["cmd"], Entrypoint: row["entrypoint"], User: row["user"], Workdir: row["workdir"], Env: []Environment{}, Mounts: []Mount{}, MemoryHigh: row["memory-high"], MemoryMax: row["memory-max"], CPUList: row["cpu-list"], StartOnBoot: isTrue(row["start-on-boot"]), Logging: isTrue(row["logging"]), RestartPolicy: row["restart-policy"], Health: Health{Mode: "inherit"}}
 		draft.ImageSource = "registry"
 		if row["file"] != "" && row["remote-image"] == "" {
 			draft.ImageSource = "archive"
@@ -185,16 +185,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 				draft.Mounts = append(draft.Mounts, Mount{Source: mount["src"], Target: mount["dst"], ReadOnly: strings.HasPrefix(mount["mode"], "ro"), Mode: mount["mode"]})
 			}
 		}
-		for _, nat := range data[routeros.ContainerNAT] {
-			if nat["chain"] == "dstnat" && nat["action"] == "dst-nat" && !isTrue(nat["disabled"]) && nat["to-addresses"] == strings.Split(n.Address, "/")[0] {
-				host, _ := strconv.Atoi(nat["dst-port"])
-				target, _ := strconv.Atoi(nat["to-ports"])
-				if host > 0 && target > 0 {
-					draft.Ports = append(draft.Ports, Port{Protocol: nat["protocol"], Host: host, Container: target, BindAddress: nat["dst-address"]})
-				}
-			}
-		}
-		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: row["memory-usage"], Ports: draft.Ports, StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
+		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: row["memory-usage"], StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
 		for _, other := range rows {
 			if other[".id"] != item.ID && n.VETH != "" && other["interface"] == n.VETH {
 				item.SharedVETH = append(item.SharedVETH, other["name"])

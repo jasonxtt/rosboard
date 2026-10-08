@@ -33,6 +33,9 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 	if _, err := client.ContainerRead(context.Background(), ContainerMenu("system/reboot")); err == nil {
 		t.Fatal("arbitrary menu allowed")
 	}
+	if _, err := client.ContainerRead(context.Background(), ContainerMenu("ip/firewall/nat")); err == nil {
+		t.Fatal("container feature allowed firewall NAT reads")
+	}
 	if calls != 0 {
 		t.Fatal("unvalidated menu sent")
 	}
