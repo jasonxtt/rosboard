@@ -262,7 +262,6 @@ test('flat editor shows every section, keeps required errors inline and retains 
         '镜像',
         '网络',
         '存储与挂载',
-        '端口映射',
         '环境变量',
         '启动配置',
         '资源限制',
@@ -271,7 +270,8 @@ test('flat editor shows every section, keeps required errors inline and retains 
     )
     assert.equal(document.querySelector('[role="tablist"]'), null)
     assert.equal(document.querySelector('details'), null)
-    assert.doesNotMatch(document.body.textContent!, /下一步/)
+    assert.doesNotMatch(document.body.textContent!, /下一步|端口映射|dst-nat/)
+    assert.match(document.body.textContent!, /通过容器 IP:应用端口访问/)
     assert.equal(field('已有 bridge').value, '')
     assert.equal(
       document.querySelectorAll<HTMLInputElement>('.ct-check input:checked')
@@ -325,7 +325,7 @@ test('edit retains values and shared VETH fields are locked without hiding secti
     assert.equal(field('根目录').value, '/sata1/existing')
     assert.equal(field('变量值').value, item.config.env[0].value)
     assert.equal(field('自动重启策略').value, 'on-failure')
-    assert.equal(document.querySelectorAll('.ct-section').length, 8)
+    assert.equal(document.querySelectorAll('.ct-section').length, 7)
     await act(async () => button('校验配置').click())
     assert.equal(received?.logging, false)
     assert.equal(received?.startOnBoot, false)
@@ -358,8 +358,14 @@ for (const [name, Page] of [
           ?.disabled,
         false,
       )
+      assert.equal(document.querySelectorAll('thead th').length, 10)
+      assert.doesNotMatch(
+        document.querySelector('thead')!.textContent!,
+        /端口映射/,
+      )
+      assert.match(document.querySelector('thead')!.textContent!, /IP \/ VETH/)
       await act(async () => button('配置预览').click())
-      assert.equal(document.querySelectorAll('.ct-section').length, 8)
+      assert.equal(document.querySelectorAll('.ct-section').length, 7)
     } finally {
       await act(async () => root.unmount())
       env.restore()
@@ -627,7 +633,7 @@ test('readonly local upload stays disabled while directory selection updates onl
       (document.querySelector('.ct-check input') as HTMLInputElement).checked,
       true,
     )
-    assert.equal(document.querySelectorAll('.ct-section').length, 8)
+    assert.equal(document.querySelectorAll('.ct-section').length, 7)
   } finally {
     await act(async () => root.unmount())
     env.restore()

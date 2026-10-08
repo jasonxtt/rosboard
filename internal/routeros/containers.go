@@ -20,7 +20,6 @@ const (
 	ContainerDisk       ContainerMenu = "disk"
 	ContainerEnvs       ContainerMenu = "container/envs"
 	ContainerMounts     ContainerMenu = "container/mounts"
-	ContainerNAT        ContainerMenu = "ip/firewall/nat"
 	ContainerResource   ContainerMenu = "system/resource"
 	ContainerLogs       ContainerMenu = "container/log"
 	ContainerFiles      ContainerMenu = "file"
@@ -51,8 +50,6 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 		props = "list,key,value"
 	case ContainerMounts:
 		props = "list,name,src,dst,mode"
-	case ContainerNAT:
-		props = ".id,chain,action,protocol,dst-address,dst-port,to-addresses,to-ports,disabled"
 	case ContainerResource:
 		props = "version,architecture-name"
 	case ContainerFiles:

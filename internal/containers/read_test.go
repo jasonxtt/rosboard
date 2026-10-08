@@ -18,12 +18,25 @@ type fakeReader struct {
 func (f fakeReader) ContainerRead(_ context.Context, m routeros.ContainerMenu) ([]routeros.RouterOSObject, error) {
 	return f.data[m], f.err[m]
 }
+
+type noNATReader struct {
+	fakeReader
+	t *testing.T
+}
+
+func (f noNATReader) ContainerRead(ctx context.Context, menu routeros.ContainerMenu) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.ContainerMenu("ip/firewall/nat") {
+		f.t.Fatal("container snapshot requested firewall NAT")
+	}
+	return f.fakeReader.ContainerRead(ctx, menu)
+}
+
 func TestReadFlagsTopologyAndSensitiveBoundary(t *testing.T) {
 	f := fakeReader{data: map[routeros.ContainerMenu][]routeros.RouterOSObject{
 		routeros.ContainerList: {{".id": "*7", "name": "dns", "interface": "container-dns", "stopped": "true", "logging": "false", "start-on-boot": "false", "envlists": "shared", "mountlists": "shared-mount", "default-cmd": "serve", "cmd": "exact", "remote-image": "dns:1"}, {".id": "*8", "name": "other", "interface": "container-dns", "running": "true"}},
 		routeros.ContainerVETH: {{"name": "container-dns", "address": "172.20.0.2/24", "gateway": "172.20.0.1"}}, routeros.ContainerBridgePort: {{"interface": "container-dns", "bridge": "br-existing"}}, routeros.ContainerBridge: {{"name": "br-existing"}}, routeros.ContainerEnvs: {{"list": "shared", "key": "SPECIAL", "value": " \"$;中文 "}}, routeros.ContainerMounts: {{"list": "shared-mount", "src": "/sata1/config", "dst": "/etc/config", "mode": "ro,noexec"}}, routeros.ContainerConfig: {{"memory-high": "unlimited", "memory-max": "unlimited"}}, routeros.ContainerDisk: {{"slot": "sata1", "fs": "ext4", "free": "4 GiB"}}, routeros.ContainerLogs: {{".id": "*1", "container": "*7", "message": "safe"}, {"container": "*8", "message": "other device row"}},
 	}}
-	svc := &Service{ReaderFor: func(config.DeviceConfig) Reader { return f }}
+	svc := &Service{ReaderFor: func(config.DeviceConfig) Reader { return noNATReader{fakeReader: f, t: t} }}
 	s, err := svc.Snapshot(context.Background(), config.DeviceConfig{})
 	if err != nil {
 		t.Fatal(err)

@@ -69,12 +69,12 @@ func simulationFixture(device string) containers.Snapshot {
 			n.Address = "172.20.0.2/24"
 			shared = []string{names[1-i]}
 		}
-		d := containers.Draft{ExistingID: fmt.Sprintf("*%d", i+1), Name: name, Image: "ghcr.io/example/" + name + ":stable", Network: n, RootDir: "/sata1/existing/" + name, Command: "", Env: []containers.Environment{{Key: "TZ", Value: "Asia/Taipei"}}, Mounts: []containers.Mount{{Source: "/sata1/shared-config", Target: "/etc/config", ReadOnly: true}}, Ports: []containers.Port{}, StartOnBoot: i%2 == 0, Logging: i != 0, RestartPolicy: "no", Health: containers.Health{Mode: "inherit"}}
+		d := containers.Draft{ExistingID: fmt.Sprintf("*%d", i+1), Name: name, Image: "ghcr.io/example/" + name + ":stable", Network: n, RootDir: "/sata1/existing/" + name, Command: "", Env: []containers.Environment{{Key: "TZ", Value: "Asia/Taipei"}}, Mounts: []containers.Mount{{Source: "/sata1/shared-config", Target: "/etc/config", ReadOnly: true}}, StartOnBoot: i%2 == 0, Logging: i != 0, RestartPolicy: "no", Health: containers.Health{Mode: "inherit"}}
 		state := "running"
 		if i == 0 {
 			state = "stopped"
 		}
-		s.Items = append(s.Items, containers.Item{ID: d.ExistingID, Name: name, Status: state, Image: d.Image, Network: n, CPU: fmt.Sprint(i * 3), Memory: fmt.Sprintf("%d MiB", 24+i*16), Ports: d.Ports, StartOnBoot: d.StartOnBoot, Ownership: "unmanaged", SharedVETH: shared, EnvLists: []string{"shared-env"}, MountLists: []string{"shared-config"}, Config: d, ImageDefaults: map[string]string{"cmd": "server --config /etc/config", "entrypoint": "/entrypoint.sh", "user": "1000", "workdir": "/app", "healthcheck-cmd": "CMD-SHELL curl -f localhost/health"}})
+		s.Items = append(s.Items, containers.Item{ID: d.ExistingID, Name: name, Status: state, Image: d.Image, Network: n, CPU: fmt.Sprint(i * 3), Memory: fmt.Sprintf("%d MiB", 24+i*16), StartOnBoot: d.StartOnBoot, Ownership: "unmanaged", SharedVETH: shared, EnvLists: []string{"shared-env"}, MountLists: []string{"shared-config"}, Config: d, ImageDefaults: map[string]string{"cmd": "server --config /etc/config", "entrypoint": "/entrypoint.sh", "user": "1000", "workdir": "/app", "healthcheck-cmd": "CMD-SHELL curl -f localhost/health"}})
 		if n.VETH != "veth-shared" {
 			s.Options.Interfaces = append(s.Options.Interfaces, n.VETH)
 			s.Options.UsedIPs = append(s.Options.UsedIPs, n.Address)
@@ -372,7 +372,7 @@ func (m *simulation) apply(job *simulatedJob) {
 		if d.StartAfterCreate {
 			status = "running"
 		}
-		item := containers.Item{ID: id, Name: d.Name, Image: d.Image, Status: status, Network: d.Network, CPU: "0", Memory: "16 MiB", Ports: d.Ports, StartOnBoot: d.StartOnBoot, Ownership: "managed", Config: d, SharedVETH: []string{}, EnvLists: []string{}, MountLists: []string{}, ImageDefaults: map[string]string{}}
+		item := containers.Item{ID: id, Name: d.Name, Image: d.Image, Status: status, Network: d.Network, CPU: "0", Memory: "16 MiB", StartOnBoot: d.StartOnBoot, Ownership: "managed", Config: d, SharedVETH: []string{}, EnvLists: []string{}, MountLists: []string{}, ImageDefaults: map[string]string{}}
 		owned := []string{"veth:" + d.Network.VETH, "bridge-port:" + d.Network.VETH}
 		if len(d.Env) > 0 {
 			item.EnvLists = []string{"rosboard-env-" + job.ID}
@@ -381,9 +381,6 @@ func (m *simulation) apply(job *simulatedJob) {
 		if len(d.Mounts) > 0 {
 			item.MountLists = []string{"rosboard-mount-" + job.ID}
 			owned = append(owned, "mount:"+item.MountLists[0])
-		}
-		for i := range d.Ports {
-			owned = append(owned, fmt.Sprintf("nat:%s-%d", job.ID, i))
 		}
 		m.resources[job.DeviceID][id] = owned
 		s.Items = append(s.Items, item)
@@ -431,7 +428,6 @@ func (m *simulation) apply(job *simulatedJob) {
 				item.Name = job.draft.Name
 				item.Image = job.draft.Image
 				item.Network = job.draft.Network
-				item.Ports = job.draft.Ports
 				item.StartOnBoot = job.draft.StartOnBoot
 				if !reflect.DeepEqual(old.Env, job.draft.Env) {
 					for _, list := range item.EnvLists {
@@ -459,18 +455,6 @@ func (m *simulation) apply(job *simulatedJob) {
 					if len(job.draft.Mounts) > 0 {
 						item.MountLists = []string{"rosboard-mount-" + job.ID}
 						owned = append(owned, "mount:"+item.MountLists[0])
-					}
-				}
-				if !reflect.DeepEqual(old.Ports, job.draft.Ports) {
-					remaining := []string{}
-					for _, resource := range owned {
-						if !strings.HasPrefix(resource, "nat:") {
-							remaining = append(remaining, resource)
-						}
-					}
-					owned = remaining
-					for i := range job.draft.Ports {
-						owned = append(owned, fmt.Sprintf("nat:%s-%d", job.ID, i))
 					}
 				}
 				m.resources[job.DeviceID][item.ID] = owned

@@ -30,7 +30,6 @@ export function newDraft(): Draft {
     workdir: '',
     env: [],
     mounts: [],
-    ports: [],
     memoryHigh: '',
     memoryMax: '',
     cpuList: '',

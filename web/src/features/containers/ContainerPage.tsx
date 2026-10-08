@@ -429,7 +429,6 @@ export function ContainerPage({
                     <th>Bridge</th>
                     <th>{heading('cpu', 'CPU')}</th>
                     <th>{heading('memory', '内存')}</th>
-                    <th>端口映射</th>
                     <th>开机启动</th>
                     <th>归属</th>
                     <th>操作</th>
@@ -469,14 +468,6 @@ export function ContainerPage({
                         {item.cpu ? `${item.cpu.replace('%', '')}%` : '—'}
                       </td>
                       <td>{item.memory || '—'}</td>
-                      <td>
-                        {item.ports.map((p, i) => (
-                          <small key={i}>
-                            {p.host} → {p.container}/{p.protocol.toUpperCase()}
-                          </small>
-                        ))}
-                        {item.ports.length === 0 && '—'}
-                      </td>
                       <td>{item.startOnBoot ? '开启' : '关闭'}</td>
                       <td>
                         <span className="ct-ownership">

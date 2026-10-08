@@ -15,8 +15,8 @@ in a Go `_test.go` file; the preview HTML is outside Vite's production entry.
 
 Manual acceptance: review desktop 1440px and mobile 390px, both themes and UIs.
 Create with blank optional values and explicitly filled image/VETH/bridge/IPv4/
-gateway. Check all eight sections remain visible. Add TCP/UDP, special-character
-env values and read-only mounts. Exercise stop/start/restart, adoption and shared
+gateway. Check all seven sections remain visible. Verify direct container-IP
+access guidance and add special-character env values and read-only mounts. Exercise stop/start/restart, adoption and shared
 VETH locking, logs, update and delete. Select failure and unknown-result scenarios;
 recover the latter by read-back without repeating creation. Switch devices with
 an open form/job; no data or pending job should carry into the other device.
@@ -56,6 +56,12 @@ Additional manual acceptance: in both UIs/themes at 1440px and 390px, choose
 local upload; reject a wrong extension and incompatible architecture; upload a
 matching Docker-save archive and observe its reference, size and destination.
 Browse/create/select a rootfs folder and independently select a mount source;
-verify the container target/read-only flag and all eight sections stay intact.
+verify the container target/read-only flag and all seven sections stay intact.
 Switch to the real read-only test device and browse actual Files. Switching
 devices during an upload/directory read must cancel outgoing work.
+
+The table has IP/VETH and Bridge columns with no port-mapping column. The flat
+editor has seven sections and describes container-IP:application-port access.
+No router-IP forwarding or NAT rules are generated or claimed by the simulator.
+For manual review, check this on both UIs at desktop/mobile widths and in light
+and dark themes. Network reachability still uses existing routes/firewall.

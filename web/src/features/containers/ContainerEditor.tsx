@@ -268,7 +268,7 @@ export function ContainerEditor({
         <Section
           title="网络"
           number="02"
-          description="专属 VETH 接入已有 bridge。出站沿用设备现有配置。"
+          description="专属 VETH 接入已有 bridge。通过容器 IP:应用端口访问，沿用现有路由与防火墙。"
         >
           {locked && (
             <p className="ct-notice">
@@ -484,111 +484,8 @@ export function ContainerEditor({
           )}
         </Section>
         <Section
-          title="端口映射"
-          number="04"
-          description="路由器 IP:端口 → 容器 IP:端口。直接访问容器 IP 时可留空。"
-        >
-          <small>
-            RouterOS 使用 dst-nat
-            实现这里的端口映射；访问能否通过，还取决于设备现有路由与防火墙。
-          </small>
-          {draft.ports.length === 0 && (
-            <p className="ct-empty-inline">
-              未配置端口映射 · 不自动映射镜像声明的端口
-            </p>
-          )}
-          {draft.ports.map((p, i) => (
-            <div className="ct-repeat" key={i}>
-              <label className="ct-field">
-                <span>协议</span>
-                <select
-                  value={p.protocol}
-                  onChange={(e) =>
-                    patch(
-                      'ports',
-                      draft.ports.map((x, j) =>
-                        j === i ? { ...x, protocol: e.target.value } : x,
-                      ),
-                    )
-                  }
-                >
-                  <option value="tcp">TCP</option>
-                  <option value="udp">UDP</option>
-                </select>
-              </label>
-              <div className="ct-pair">
-                <Field
-                  label="路由器端口"
-                  value={p.host ? String(p.host) : ''}
-                  type="number"
-                  onChange={(v) =>
-                    patch(
-                      'ports',
-                      draft.ports.map((x, j) =>
-                        j === i ? { ...x, host: Number(v) } : x,
-                      ),
-                    )
-                  }
-                />
-                <Field
-                  label="容器端口"
-                  value={p.container ? String(p.container) : ''}
-                  type="number"
-                  onChange={(v) =>
-                    patch(
-                      'ports',
-                      draft.ports.map((x, j) =>
-                        j === i ? { ...x, container: Number(v) } : x,
-                      ),
-                    )
-                  }
-                />
-              </div>
-              <Field
-                label="路由器 IPv4"
-                value={p.bindAddress}
-                onChange={(v) =>
-                  patch(
-                    'ports',
-                    draft.ports.map((x, j) =>
-                      j === i ? { ...x, bindAddress: v } : x,
-                    ),
-                  )
-                }
-                hint="留空匹配所有设备地址，请结合现有防火墙使用"
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  patch(
-                    'ports',
-                    draft.ports.filter((_, j) => i !== j),
-                  )
-                }
-              >
-                移除端口 {i + 1}
-              </button>
-              {issue(`ports.${i}`) && (
-                <strong role="alert">{issue(`ports.${i}`)}</strong>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="ct-add"
-            onClick={() =>
-              patch('ports', [
-                ...draft.ports,
-                { protocol: 'tcp', host: 0, container: 0, bindAddress: '' },
-              ])
-            }
-          >
-            ＋ 添加端口
-          </button>
-        </Section>
-        <Section
           title="环境变量"
-          number="05"
+          number="04"
           description="只添加显式覆盖，值中的空格、引号和特殊字符原样保留。"
         >
           {draft.env.length === 0 && (
@@ -647,7 +544,7 @@ export function ContainerEditor({
         </Section>
         <Section
           title="启动配置"
-          number="06"
+          number="05"
           description="空值不覆盖镜像。创建后的启动行为与开机启动分别设置。"
         >
           <Field
@@ -716,7 +613,7 @@ export function ContainerEditor({
         </Section>
         <Section
           title="资源限制"
-          number="07"
+          number="06"
           description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
         >
           <div className="ct-pair">
@@ -745,7 +642,7 @@ export function ContainerEditor({
         </Section>
         <Section
           title="健康检查"
-          number="08"
+          number="07"
           description="默认继承镜像已有的健康检查，可在这里显式覆盖。"
         >
           <label className="ct-field">

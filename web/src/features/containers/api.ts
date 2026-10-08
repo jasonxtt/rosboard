@@ -16,7 +16,6 @@ import type {
   Network,
   Draft,
   Item,
-  Port,
   Snapshot,
   Options,
   Capabilities,
@@ -43,15 +42,6 @@ export function parseNetwork(v: unknown): Network {
     address6: safeString(o.address6),
     gateway6: safeString(o.gateway6),
     mac: safeString(o.mac),
-  }
-}
-function parsePort(v: unknown): Port {
-  const o = safeObject(v)
-  return {
-    protocol: safeString(o.protocol),
-    host: safeNumber(o.host),
-    container: safeNumber(o.container),
-    bindAddress: safeString(o.bindAddress),
   }
 }
 export function parseDraft(v: unknown): Draft {
@@ -91,7 +81,6 @@ export function parseDraft(v: unknown): Draft {
         mode: safeString(m.mode),
       }
     }),
-    ports: safeArray<unknown>(o.ports).map(parsePort),
     health: {
       mode: safeString(h.mode),
       command: safeString(h.command),
@@ -112,7 +101,6 @@ export function parseItem(v: unknown): Item {
     network: parseNetwork(o.network),
     cpu: safeString(o.cpu),
     memory: safeString(o.memory),
-    ports: safeArray<unknown>(o.ports).map(parsePort),
     startOnBoot: safeBoolean(o.startOnBoot),
     ownership: safeString(o.ownership) || 'unmanaged',
     sharedVeth: strings(o.sharedVeth),

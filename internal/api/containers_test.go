@@ -96,6 +96,40 @@ func simulateFinished(t *testing.T, m *simulation, req simulatedRequest) contain
 var testRequestCounter int
 
 func uuidForTest() string { testRequestCounter++; return strings.Repeat("id", testRequestCounter) }
+
+func TestSimulationDirectIPIgnoresLegacyPortMappings(t *testing.T) {
+	m := newSimulation()
+	draft := map[string]any{
+		"draftId": "direct12", "image": "nginx",
+		"network": map[string]string{"veth": "direct-veth", "bridge": "br-containers", "address": "172.20.0.8/24", "gateway": "172.20.0.1"},
+		// Stale clients cannot introduce mappings into the current contract.
+		"ports": []map[string]any{{"protocol": "tcp", "host": 8080, "container": 80}},
+	}
+	raw := simulationCall(t, m, "POST", "/api/containers/resolve?device=demo-router", draft, 200)
+	var resolution containers.Resolution
+	if err := json.Unmarshal(raw, &resolution); err != nil || len(resolution.Errors) != 0 {
+		t.Fatalf("direct IP resolution failed: %s (%v)", raw, err)
+	}
+	if bytes.Contains(raw, []byte(`"ports"`)) || resolution.Effective.Network.Address != "172.20.0.8/24" {
+		t.Fatalf("resolution retained port mappings or changed the IP: %s", raw)
+	}
+	request := map[string]any{"action": "create", "requestId": "legacy-direct", "draft": draft, "scenario": "success"}
+	job := decodeSimulationJob(t, simulationCall(t, m, "POST", "/api/containers/actions?device=demo-router", request, 202))
+	m.jobs[job.ID].started = m.now().Add(-10 * time.Second)
+	job = decodeSimulationJob(t, simulationCall(t, m, "GET", "/api/containers/jobs/"+job.ID+"?device=demo-router", nil, 200))
+	if job.State != "succeeded" {
+		t.Fatal(job)
+	}
+	owned := m.resources["demo-router"][job.TargetID]
+	if len(owned) != 2 || !simulationOwns(owned, "veth:direct-veth") || !simulationOwns(owned, "bridge-port:direct-veth") {
+		t.Fatal("direct IP creation claimed unexpected resources", owned)
+	}
+	raw = simulationCall(t, m, "GET", "/api/containers?device=demo-router", nil, 200)
+	if bytes.Contains(raw, []byte(`"ports"`)) {
+		t.Fatal("snapshot still exposes port mappings")
+	}
+}
+
 func TestSimulationIdempotencyFailureAndUnknownRecovery(t *testing.T) {
 	m := newSimulation()
 	now := time.Unix(100, 0)

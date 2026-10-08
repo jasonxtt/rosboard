@@ -21,12 +21,6 @@ type Mount struct {
 	ReadOnly bool   `json:"readOnly"`
 	Mode     string `json:"mode"`
 }
-type Port struct {
-	Protocol    string `json:"protocol"`
-	Host        int    `json:"host"`
-	Container   int    `json:"container"`
-	BindAddress string `json:"bindAddress"`
-}
 type Health struct {
 	Mode        string `json:"mode"`
 	Command     string `json:"command"`
@@ -70,7 +64,6 @@ type Draft struct {
 	Workdir          string        `json:"workdir"`
 	Env              []Environment `json:"env"`
 	Mounts           []Mount       `json:"mounts"`
-	Ports            []Port        `json:"ports"`
 	MemoryHigh       string        `json:"memoryHigh"`
 	MemoryMax        string        `json:"memoryMax"`
 	CPUList          string        `json:"cpuList"`
@@ -112,7 +105,6 @@ type Item struct {
 	Network       Network           `json:"network"`
 	CPU           string            `json:"cpu"`
 	Memory        string            `json:"memory"`
-	Ports         []Port            `json:"ports"`
 	StartOnBoot   bool              `json:"startOnBoot"`
 	Ownership     string            `json:"ownership"`
 	SharedVETH    []string          `json:"sharedVeth"`
