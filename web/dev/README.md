@@ -9,7 +9,7 @@ ROSBOARD_DEV_PROXY=http://127.0.0.1:8099 npm --prefix web run dev -- --host 127.
 
 Open http://127.0.0.1:5173/container-preview.html?ui=aurora or `?ui=compact`.
 By default the server binds localhost and loads fake devices only, without
-configuration, SQLite or RouterOS credentials. Optional real read-only preview
+configuration, SQLite or RouterOS credentials. Optional real container-read preview
 credentials are described below. Restarting resets all data. All mock writes live
 in a Go `_test.go` file; the preview HTML is outside Vite's production entry.
 
@@ -51,9 +51,10 @@ Existing container paths are preserved. New folders/storage remain on deletion.
 An optional real test device can be added with process-only environment values:
 `ROSBOARD_CONTAINER_TEST_URL`, `ROSBOARD_CONTAINER_TEST_USER`, and
 `ROSBOARD_CONTAINER_TEST_PASSWORD`. Set these privately, then start the same
-preview command. **测试 RouterOS（只读）** appears in the device selector; its
-snapshot, resolution and directory browsing use the real read-only API. Real
-uploads, mkdir, actions and fixture resets are forbidden. No credentials reach
+preview command. **测试 RouterOS（容器只读）** appears in the device selector; its
+snapshot and resolution use the real Container read API. Directory browsing and
+folder CRUD use the production Files handlers and modify the independent test
+RouterOS. Real image uploads, container actions and fixture resets are forbidden. No credentials reach
 the browser. Never use production credentials or commit a credential file.
 An opt-in read contract can be run with these values and
 `go test ./internal/containers -run '^TestContainerIndependentRouterOSRead$' -v`.
@@ -87,3 +88,30 @@ to image inheritance; custom mode enables command/timing fields, missing command
 keeps the draft with an inline error, and switching back retains entered values
 without projecting overrides. Read the service-response example and timing hints
 in both themes; the probe runs inside the container and requires the named tool.
+
+
+Bound Files acceptance: the input/right arrow opens a compact picker at the current
+existing path. An invalid/missing path falls back to `/` without changing the input.
+Breadcrumb ancestors remain clickable and scroll horizontally at narrow widths.
+Folders appear first; files retain names/sizes with muted styling. Files cannot
+be runtime roots; existing file mount sources remain selectable.
+
+Click **＋ 新建文件夹**: only a local row appears, with its default name selected.
+Type the final name and press Enter or blur to save; Escape cancels without a
+RouterOS write. Creation stays in the parent. Folder **⋯** offers inline rename
+and delete; failed rename restores the original row and leaves a readable error.
+Delete requires a confirmation showing the exact name/path and stating that all
+files/subdirectories will be removed. Root, disks and container-used root/mount
+paths cannot be renamed/deleted. Rename updates matching draft paths; successful
+delete clears matching selected paths without changing mount destinations.
+Use only disposable test folders for these **real** operations. Loading stays
+inside the picker; repeated commits cannot repeat a write. Unknown results block
+further writes and offer **刷新确认结果**, which only reads back the prior request.
+Unresolved operation records survive picker remounts, but are currently in memory
+and do not survive application restarts.
+
+Health inheritance hides all custom command/timing fields; switching to custom
+shows them and switching back preserves entered values. Resource limits default
+off and hide details; enabled shows memory/CPU fields. Turning off uses inherited
+values; reopening retains input. Existing explicit limits initialize enabled.
+Verify both behaviors at desktop 1440px/mobile 390px and both UI/themes.

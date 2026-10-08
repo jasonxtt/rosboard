@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEventHandler,
@@ -10,6 +11,8 @@ import { errorMessage } from '../../lib/api'
 import { resolveDraft } from './api'
 import { normalizedImage } from './drafts'
 import { DirectoryPicker } from './DirectoryPicker'
+import { RootDirectoryField } from './RootDirectoryField'
+import { replaceDirectory } from './directoryPaths'
 import { ImageUpload } from './ImageUpload'
 import type { Draft, Item, Resolution, Snapshot } from './types'
 
@@ -120,7 +123,10 @@ export function ContainerEditor({
     [uploading, setUploading] = useState(false),
     [picker, setPicker] = useState<'root' | number | null>(null),
     [advancedNetwork, setAdvancedNetwork] = useState(false),
-    [advancedStartup, setAdvancedStartup] = useState(false)
+    [advancedStartup, setAdvancedStartup] = useState(false),
+    [resourcesEnabled, setResourcesEnabled] = useState(
+      () => !!(initial.memoryHigh || initial.memoryMax || initial.cpuList),
+    )
   const advancedNetworkID = useId(),
     advancedStartupID = useId(),
     directoryID = useId()
@@ -145,12 +151,24 @@ export function ContainerEditor({
     patch('health', { ...draft.health, [key]: value })
   const issue = (key: string) =>
     submitted ? resolution?.errors[key] : undefined
+  const effectiveDraft = useMemo(
+    () =>
+      resourcesEnabled
+        ? draft
+        : {
+            ...draft,
+            memoryHigh: '',
+            memoryMax: '',
+            cpuList: '',
+          },
+    [draft, resourcesEnabled],
+  )
   useEffect(() => {
     const current = ++sequence.current
     const controller = new AbortController()
     let cancelled = false
     const timer = setTimeout(() => {
-      void resolveDraft(deviceId, draft, controller.signal)
+      void resolveDraft(deviceId, effectiveDraft, controller.signal)
         .then((r) => {
           if (!cancelled && sequence.current === current) {
             setResolution(r)
@@ -167,7 +185,7 @@ export function ContainerEditor({
       cancelled = true
       controller.abort()
     }
-  }, [deviceId, draft])
+  }, [deviceId, effectiveDraft])
   const submit = async () => {
     const current = sequence.current
     const controller = new AbortController()
@@ -176,7 +194,7 @@ export function ContainerEditor({
     setSubmitted(true)
     setError('')
     try {
-      const r = await resolveDraft(deviceId, draft, controller.signal)
+      const r = await resolveDraft(deviceId, effectiveDraft, controller.signal)
       if (!lifetime.current.active || sequence.current !== current) return
       setResolution(r)
       if (
@@ -204,9 +222,25 @@ export function ContainerEditor({
         key={String(picker)}
         id={directoryID}
         deviceId={deviceId}
-        writable={snapshot.capabilities.writes}
+        writable={snapshot.capabilities.directoryWrites}
+        initialPath={
+          picker === 'root' ? draft.rootDir : draft.mounts[picker]?.source || ''
+        }
         purpose={picker === 'root' ? '容器运行目录' : `挂载源 ${picker + 1}`}
         allowFiles={picker !== 'root'}
+        onMutation={(result) => {
+          if (result.action !== 'rename' && result.action !== 'delete') return
+          const oldPath = result.previousPath || result.path,
+            newPath = result.action === 'delete' ? '' : result.path
+          setDraft((d) => ({
+            ...d,
+            rootDir: replaceDirectory(d.rootDir, oldPath, newPath),
+            mounts: d.mounts.map((m) => ({
+              ...m,
+              source: replaceDirectory(m.source, oldPath, newPath),
+            })),
+          }))
+        }}
         onClose={() => setPicker(null)}
         onSelect={(path) => {
           if (picker === 'root') patch('rootDir', path)
@@ -429,21 +463,13 @@ export function ContainerEditor({
           number="03"
           description="容器运行目录与配置、数据挂载可共用父目录，分别使用子目录。"
         >
-          <Field
-            label="容器运行目录（root-dir）"
+          <RootDirectoryField
             value={draft.rootDir}
             onChange={(v) => patch('rootDir', v)}
-            onClick={() => setPicker('root')}
-            controls={picker === 'root' ? directoryID : undefined}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
-                event.preventDefault()
-                setPicker('root')
-              } else if (event.key === 'Escape' && picker === 'root') {
-                event.preventDefault()
-                setPicker(null)
-              }
-            }}
+            onOpen={() => setPicker('root')}
+            onClose={() => setPicker(null)}
+            open={picker === 'root'}
+            pickerID={directoryID}
             error={issue('rootDir')}
             hint={
               resolution?.effective.rootDir
@@ -451,7 +477,6 @@ export function ContainerEditor({
                 : '自动选择空闲空间最大的可用磁盘'
             }
           />
-          <small>点击输入框或按 ↓ 浏览 Files，也可直接输入路径。</small>
           {picker === 'root' && directoryPicker}
           <p className="ct-storage-hint">
             可放在同一父目录下：<code>nginx/rootdir/</code> 用作运行目录，
@@ -712,29 +737,51 @@ export function ContainerEditor({
           number="06"
           description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
         >
-          <div className="ct-pair">
-            <Field
-              label="内存 high"
-              value={draft.memoryHigh}
-              onChange={(v) => patch('memoryHigh', v)}
-              error={issue('memoryHigh')}
-              hint={`全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+          <label className="ct-check ct-resource-toggle">
+            <input
+              type="checkbox"
+              checked={resourcesEnabled}
+              aria-controls={
+                resourcesEnabled ? `${directoryID}-resources` : undefined
+              }
+              onChange={(e) => setResourcesEnabled(e.target.checked)}
             />
-            <Field
-              label="内存 max"
-              value={draft.memoryMax}
-              onChange={(v) => patch('memoryMax', v)}
-              error={issue('memoryMax')}
-              hint={`全局：${snapshot.options.memoryMax || 'unlimited'}`}
-            />
-          </div>
-          <Field
-            label="CPU 编号列表"
-            value={draft.cpuList}
-            onChange={(v) => patch('cpuList', v)}
-            error={issue('cpuList')}
-            hint="留空使用默认；例如 0,1"
-          />
+            启用资源限制
+          </label>
+          {!resourcesEnabled && (
+            <small>
+              使用 RouterOS 全局内存设置（high：
+              {snapshot.options.memoryHigh || 'unlimited'}，max：
+              {snapshot.options.memoryMax || 'unlimited'}）与 CPU 默认值。
+            </small>
+          )}
+          {resourcesEnabled && (
+            <div className="ct-advanced-fields" id={`${directoryID}-resources`}>
+              <div className="ct-pair">
+                <Field
+                  label="内存 high"
+                  value={draft.memoryHigh}
+                  onChange={(v) => patch('memoryHigh', v)}
+                  error={issue('memoryHigh')}
+                  hint={`全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+                />
+                <Field
+                  label="内存 max"
+                  value={draft.memoryMax}
+                  onChange={(v) => patch('memoryMax', v)}
+                  error={issue('memoryMax')}
+                  hint={`全局：${snapshot.options.memoryMax || 'unlimited'}`}
+                />
+              </div>
+              <Field
+                label="CPU 编号列表"
+                value={draft.cpuList}
+                onChange={(v) => patch('cpuList', v)}
+                error={issue('cpuList')}
+                hint="留空使用默认；例如 0,1"
+              />
+            </div>
+          )}
         </Section>
         <Section
           title="健康检查"
@@ -759,57 +806,61 @@ export function ContainerEditor({
             的网页，确认服务有响应。镜像未提供检查时，默认不会检查，也不影响容器启动。
             检查异常后的停机、重启或通知需要另行配置。
           </p>
-          <small>
-            自定义检查需填写命令；其余设置留空沿用镜像或 RouterOS 默认值。
-          </small>
-          <Field
-            label="检查命令"
-            required={draft.health.mode === 'override'}
-            value={draft.health.command}
-            onChange={(v) => health('command', v)}
-            disabled={draft.health.mode !== 'override'}
-            error={issue('health.command')}
-            hint={
-              item?.imageDefaults['healthcheck-cmd'] ||
-              '例如 curl -f http://127.0.0.1:80/；127.0.0.1 指容器自身，端口按应用修改，镜像内需有 curl。'
-            }
-          />
-          <div className="ct-pair">
-            <Field
-              label="检查间隔"
-              error={issue('health.interval')}
-              value={draft.health.interval}
-              onChange={(v) => health('interval', v)}
-              disabled={draft.health.mode !== 'override'}
-              hint="每隔多久检查一次，例如 30s（30 秒）"
-            />
-            <Field
-              label="单次检查超时"
-              error={issue('health.timeout')}
-              value={draft.health.timeout}
-              onChange={(v) => health('timeout', v)}
-              disabled={draft.health.mode !== 'override'}
-              hint="一次检查最多等待多久，例如 5s（5 秒）"
-            />
-          </div>
-          <div className="ct-pair">
-            <Field
-              label="连续失败次数"
-              value={draft.health.retries}
-              onChange={(v) => health('retries', v)}
-              disabled={draft.health.mode !== 'override'}
-              error={issue('health.retries')}
-              hint="连续失败多少次才标记异常，例如 3"
-            />
-            <Field
-              label="启动准备时间"
-              error={issue('health.startPeriod')}
-              value={draft.health.startPeriod}
-              onChange={(v) => health('startPeriod', v)}
-              disabled={draft.health.mode !== 'override'}
-              hint="给服务启动留出时间，例如 20s（20 秒）；期间的失败不计入连续失败次数"
-            />
-          </div>
+          {draft.health.mode === 'override' && (
+            <div className="ct-advanced-fields">
+              <small>
+                自定义检查需填写命令；其余设置留空沿用镜像或 RouterOS 默认值。
+              </small>
+              <Field
+                label="检查命令"
+                required={draft.health.mode === 'override'}
+                value={draft.health.command}
+                onChange={(v) => health('command', v)}
+                disabled={draft.health.mode !== 'override'}
+                error={issue('health.command')}
+                hint={
+                  item?.imageDefaults['healthcheck-cmd'] ||
+                  '例如 curl -f http://127.0.0.1:80/；127.0.0.1 指容器自身，端口按应用修改，镜像内需有 curl。'
+                }
+              />
+              <div className="ct-pair">
+                <Field
+                  label="检查间隔"
+                  error={issue('health.interval')}
+                  value={draft.health.interval}
+                  onChange={(v) => health('interval', v)}
+                  disabled={draft.health.mode !== 'override'}
+                  hint="每隔多久检查一次，例如 30s（30 秒）"
+                />
+                <Field
+                  label="单次检查超时"
+                  error={issue('health.timeout')}
+                  value={draft.health.timeout}
+                  onChange={(v) => health('timeout', v)}
+                  disabled={draft.health.mode !== 'override'}
+                  hint="一次检查最多等待多久，例如 5s（5 秒）"
+                />
+              </div>
+              <div className="ct-pair">
+                <Field
+                  label="连续失败次数"
+                  value={draft.health.retries}
+                  onChange={(v) => health('retries', v)}
+                  disabled={draft.health.mode !== 'override'}
+                  error={issue('health.retries')}
+                  hint="连续失败多少次才标记异常，例如 3"
+                />
+                <Field
+                  label="启动准备时间"
+                  error={issue('health.startPeriod')}
+                  value={draft.health.startPeriod}
+                  onChange={(v) => health('startPeriod', v)}
+                  disabled={draft.health.mode !== 'override'}
+                  hint="给服务启动留出时间，例如 20s（20 秒）；期间的失败不计入连续失败次数"
+                />
+              </div>
+            </div>
+          )}
         </Section>
       </fieldset>
       <footer className="ct-card ct-resolution">
@@ -829,7 +880,9 @@ export function ContainerEditor({
           <small>
             {snapshot.capabilities.writes
               ? '模拟服务 · 所有操作只影响模拟数据'
-              : '只读模式 · 可校验配置，真实写入尚未启用'}
+              : snapshot.capabilities.directoryWrites
+                ? '容器配置仅校验 · 目录操作直接写入 RouterOS'
+                : '只读模式 · 可校验配置，真实写入尚未启用'}
           </small>
           <button
             className="ct-primary"

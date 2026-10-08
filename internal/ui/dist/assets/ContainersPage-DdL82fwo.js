@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-BReyZkXX.js";import{t}from"./useShell-DbfVfKFJ.js";import{t as n}from"./ContainerPage-CWo5q7Ra.js";var r=e();function i(){let{selectedDeviceId:e,reloadNonce:i,refreshMs:a}=t();return(0,r.jsx)(n,{deviceId:e,refreshNonce:i,refreshMs:a})}export{i as default};

@@ -31,9 +31,36 @@ export type ImageArchive = {
   sha256: string
   remotePath: string
 }
-export type DirectoryListing = {
+export type DirectoryEntry = {
+  id: string
+  protected: string
+  name: string
   path: string
-  entries: { name: string; path: string; directory: boolean; bytes: number }[]
+  directory: boolean
+  bytes: number
+}
+export type DirectoryRequest = {
+  action: 'mkdir' | 'rename' | 'delete' | 'recover'
+  requestId: string
+  parent?: string
+  path?: string
+  name?: string
+  expectedId?: string
+  confirmPath?: string
+}
+export type DirectoryMutation = {
+  action: DirectoryRequest['action']
+  requestId: string
+  path: string
+  previousPath: string
+  state: 'pending' | 'succeeded' | 'unknown'
+}
+export type DirectoryListing = {
+  id: string
+  canCreate: boolean
+  pending: DirectoryMutation | null
+  path: string
+  entries: DirectoryEntry[]
 }
 export type Draft = {
   draftId: string
@@ -87,6 +114,7 @@ export type Options = {
   memoryMax: string
 }
 export type Capabilities = {
+  directoryWrites: boolean
   supported: boolean
   writes: boolean
   mode: string

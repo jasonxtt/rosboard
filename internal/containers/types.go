@@ -1,5 +1,5 @@
 // Package containers owns native Container read models and configuration resolution.
-// It intentionally has no RouterOS mutation interface in this delivery phase.
+// Container lifecycle writes remain disabled; directory operations are separate.
 package containers
 
 type Network struct {
@@ -39,14 +39,19 @@ type ImageArchive struct {
 	RemotePath   string `json:"remotePath"`
 }
 type DirectoryEntry struct {
+	ID        string `json:"id"`
+	Protected string `json:"protected"`
 	Name      string `json:"name"`
 	Path      string `json:"path"`
 	Directory bool   `json:"directory"`
 	Bytes     int64  `json:"bytes"`
 }
 type DirectoryListing struct {
-	Path    string           `json:"path"`
-	Entries []DirectoryEntry `json:"entries"`
+	ID        string             `json:"id"`
+	CanCreate bool               `json:"canCreate"`
+	Pending   *DirectoryMutation `json:"pending,omitempty"`
+	Path      string             `json:"path"`
+	Entries   []DirectoryEntry   `json:"entries"`
 }
 type Draft struct {
 	DraftID          string        `json:"draftId"`
@@ -89,13 +94,14 @@ type Options struct {
 	MemoryMax    string         `json:"memoryMax"`
 }
 type Capabilities struct {
-	Supported bool     `json:"supported"`
-	Writes    bool     `json:"writes"`
-	Mode      string   `json:"mode"`
-	Version   string   `json:"version"`
-	Logs      bool     `json:"logs"`
-	Fields    []string `json:"fields"`
-	Warnings  []string `json:"warnings"`
+	DirectoryWrites bool     `json:"directoryWrites"`
+	Supported       bool     `json:"supported"`
+	Writes          bool     `json:"writes"`
+	Mode            string   `json:"mode"`
+	Version         string   `json:"version"`
+	Logs            bool     `json:"logs"`
+	Fields          []string `json:"fields"`
+	Warnings        []string `json:"warnings"`
 }
 type Item struct {
 	ID            string            `json:"id"`

@@ -2,11 +2,8 @@ package containers
 
 import (
 	"context"
-	"errors"
 	"path"
 	"sort"
-	"strings"
-	"unicode"
 
 	"rosboard/internal/config"
 	"rosboard/internal/routeros"
@@ -15,18 +12,7 @@ import (
 // DirectoryPath normalizes RouterOS relative file names to UI absolute paths.
 // Reject traversal rather than silently cleaning it into a different location.
 func DirectoryPath(value string) (string, error) {
-	if value == "" {
-		return "/", nil
-	}
-	if strings.Contains(value, "\\") || strings.ContainsFunc(value, unicode.IsControl) {
-		return "", errors.New("invalid directory path")
-	}
-	for _, part := range strings.Split(value, "/") {
-		if part == ".." || part == "." {
-			return "", errors.New("invalid directory path")
-		}
-	}
-	return path.Clean("/" + strings.Trim(value, "/")), nil
+	return routeros.FilePath(value)
 }
 
 func DirectoryView(rows []routeros.RouterOSObject, disks []Disk, parent string) (DirectoryListing, error) {
@@ -49,19 +35,31 @@ func DirectoryView(rows []routeros.RouterOSObject, disks []Disk, parent string) 
 	}
 	for _, row := range rows {
 		add(row["name"], row["type"] == "directory" || row["type"] == "disk", byteCount(row["size"]))
+		p, err := DirectoryPath(row["name"])
+		if err != nil || p == "/" {
+			continue
+		}
+		entry := entries[p]
+		entry.ID = row[".id"]
+		entries[p] = entry
 	}
 	for _, disk := range disks {
 		if disk.Writable {
-			add(disk.Name, true, 0)
+			p, _ := DirectoryPath(disk.Name)
+			if _, exists := entries[p]; !exists {
+				add(disk.Name, true, 0)
+			}
 		}
 	}
 	if parent != "/" {
 		entry, ok := entries[parent]
 		if !ok || !entry.Directory {
-			return DirectoryListing{}, errors.New("directory not found")
+			return DirectoryListing{}, directoryError(404, "directory_not_found", "目录已不存在，请返回上级目录")
 		}
 	}
 	result := DirectoryListing{Path: parent, Entries: []DirectoryEntry{}}
+	result.ID = entries[parent].ID
+	result.CanCreate = writableDirectory(parent, disks)
 	for _, entry := range entries {
 		if path.Dir(entry.Path) == parent {
 			result.Entries = append(result.Entries, entry)
@@ -84,5 +82,29 @@ func (s *Service) Directories(ctx context.Context, d config.DeviceConfig, disks 
 	if err != nil {
 		return DirectoryListing{}, err
 	}
-	return DirectoryView(rows, disks, parent)
+	listing, err := DirectoryView(rows, disks, parent)
+	if err != nil {
+		return listing, err
+	}
+	refs, err := s.directoryReferences(ctx, d)
+	if err != nil {
+		return listing, err
+	}
+	for i := range listing.Entries {
+		entry := &listing.Entries[i]
+		entry.Protected = protectedDirectory(entry.Path, rows, disks, refs)
+		if entry.ID == "" && entry.Protected == "" {
+			entry.Protected = "目录没有可操作的 RouterOS ID"
+		}
+	}
+	s.directoryMu.Lock()
+	for _, record := range s.directoryRecords {
+		if record.deviceKey == directoryDeviceKey(d) && (record.result.State == "unknown" || record.processing) && record.result.Path != "" {
+			pending := record.result
+			listing.Pending = &pending
+			break
+		}
+	}
+	s.directoryMu.Unlock()
+	return listing, nil
 }

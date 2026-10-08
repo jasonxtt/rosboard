@@ -1,86 +1,75 @@
-import { useEffect, useRef, useState } from 'react'
-import { errorMessage } from '../../lib/api'
-import { createDirectory, fetchDirectories } from './api'
-import type { DirectoryListing } from './types'
+import { useState } from 'react'
+import { newRequestId } from './drafts'
+import { InlineDirectoryName } from './InlineDirectoryName'
+import { useDirectoryPicker } from './useDirectoryPicker'
+import type { DirectoryEntry, DirectoryMutation } from './types'
 
 export function DirectoryPicker({
   deviceId,
   id,
   writable,
   purpose,
+  initialPath = '',
   allowFiles = false,
   onSelect,
   onClose,
+  onMutation,
 }: {
   deviceId: string
   id?: string
   writable: boolean
   purpose: string
+  initialPath?: string
   allowFiles?: boolean
   onSelect: (path: string) => void
   onClose: () => void
+  onMutation?: (result: DirectoryMutation) => void
 }) {
-  const [path, setPath] = useState('/'),
-    [listing, setListing] = useState<DirectoryListing | null>(null),
-    [error, setError] = useState(''),
-    [name, setName] = useState(''),
-    [busy, setBusy] = useState(false),
-    [loading, setLoading] = useState(true)
-  const lifetime = useRef<{ active: boolean; mutation?: AbortController }>({
-    active: true,
-  })
-  useEffect(() => {
-    const current = lifetime.current
-    current.active = true
-    return () => {
-      current.active = false
-      current.mutation?.abort()
-    }
-  }, [])
-  useEffect(() => {
-    const controller = new AbortController()
-    let active = true
-    setLoading(true)
-    setError('')
-    setListing(null)
-    void fetchDirectories(deviceId, path, controller.signal)
-      .then((value) => {
-        if (active) setListing(value)
-      })
-      .catch((e) => {
-        if (active) setError(errorMessage(e))
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [deviceId, path])
-  const mkdir = async () => {
-    const controller = new AbortController()
-    lifetime.current.mutation = controller
-    setBusy(true)
-    setError('')
-    try {
-      const created = await createDirectory(
-        deviceId,
-        path,
-        name,
-        controller.signal,
-      )
-      if (lifetime.current.active) {
-        setName('')
-        setPath(created)
-      }
-    } catch (e) {
-      if (lifetime.current.active) setError(errorMessage(e))
-    } finally {
-      if (lifetime.current.active) setBusy(false)
-    }
-  }
+  const state = useDirectoryPicker(deviceId, initialPath, onMutation)
+  const [editing, setEditing] = useState<'new' | DirectoryEntry | null>(null),
+    [menu, setMenu] = useState<string | null>(null),
+    [deleting, setDeleting] = useState<DirectoryEntry | null>(null)
+  const { path, listing, busy, loading, pending } = state
+  const blocked = busy || loading || !!pending
   const parts = path.split('/').filter(Boolean)
+  const names = new Set(listing?.entries.map((e) => e.name))
+  let defaultName = '新建文件夹'
+  for (let i = 2; names.has(defaultName); i++) defaultName = `新建文件夹 ${i}`
+  const save = async (name: string) => {
+    if (!editing || !listing) return false
+    if (editing !== 'new' && name === editing.name) {
+      setEditing(null)
+      return true
+    }
+    const success = await state.mutate(
+      editing === 'new'
+        ? {
+            action: 'mkdir',
+            requestId: newRequestId(),
+            parent: path,
+            expectedId: listing.id,
+            name,
+          }
+        : {
+            action: 'rename',
+            requestId: newRequestId(),
+            path: editing.path,
+            expectedId: editing.id,
+            name,
+          },
+    )
+    if (success || editing !== 'new') setEditing(null)
+    return success
+  }
+  const nameEditor = (initial: string, label: string) => (
+    <InlineDirectoryName
+      initial={initial}
+      label={label}
+      busy={busy || !!pending}
+      onSave={save}
+      onCancel={() => setEditing(null)}
+    />
+  )
   return (
     <div
       id={id}
@@ -89,104 +78,240 @@ export function DirectoryPicker({
       aria-label={`选择${purpose}`}
     >
       <header>
-        <strong>选择{purpose}</strong>
-        <button type="button" onClick={onClose}>
-          关闭目录浏览
+        <nav aria-label="目录路径">
+          <button
+            type="button"
+            disabled={blocked}
+            onClick={() => {
+              setEditing(null)
+              setMenu(null)
+              state.navigate('/')
+            }}
+            aria-current={path === '/' ? 'location' : undefined}
+          >
+            /
+          </button>
+          {parts.map((part, i) => (
+            <button
+              type="button"
+              key={i}
+              disabled={blocked}
+              aria-current={i === parts.length - 1 ? 'location' : undefined}
+              onClick={() => {
+                setEditing(null)
+                setMenu(null)
+                state.navigate('/' + parts.slice(0, i + 1).join('/'))
+              }}
+            >
+              {part}
+              <span aria-hidden="true"> /</span>
+            </button>
+          ))}
+        </nav>
+        <button
+          type="button"
+          className="ct-directory-close"
+          aria-label="关闭目录浏览"
+          disabled={busy}
+          onClick={onClose}
+        >
+          ×
         </button>
       </header>
-      <nav aria-label="目录路径">
-        <button type="button" disabled={busy} onClick={() => setPath('/')}>
-          Files
-        </button>
-        {parts.map((part, i) => (
-          <button
-            type="button"
-            key={i}
-            disabled={busy}
-            onClick={() => setPath('/' + parts.slice(0, i + 1).join('/'))}
-          >
-            {' '}
-            / {part}
-          </button>
-        ))}
-      </nav>
-      <p className="ct-muted">
-        {writable
-          ? '模拟 Files · 新建目录后可直接选用'
-          : 'RouterOS Files · 当前只读，可浏览并选择现有目录'}
-      </p>
-      {error && (
+      {state.error && (
         <p role="alert" className="ct-error">
-          {error}
+          {state.error}
         </p>
       )}
-      {loading && <p role="status">正在读取目录…</p>}
-      {listing && (
-        <ul aria-label="目录内容">
-          {listing.entries.map((entry) => (
-            <li key={entry.path}>
-              {entry.directory ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setPath(entry.path)}
-                >
-                  <span aria-hidden="true">▰</span> {entry.name}
-                  <span aria-hidden="true"> ›</span>
-                </button>
-              ) : (
-                <>
-                  <span className="ct-file-name">
-                    {entry.name}
-                    <small>{(entry.bytes / 1024).toFixed(1)} KiB</small>
-                  </span>
-                  {allowFiles && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onSelect(entry.path)}
-                    >
-                      选用文件
-                    </button>
-                  )}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+      {state.notice && (
+        <p role="status" className="ct-directory-notice">
+          {state.notice}
+        </p>
       )}
-      {listing && listing.entries.length === 0 && (
-        <p className="ct-empty-inline">空文件夹</p>
-      )}
-      {writable && (
-        <div className="ct-directory-create">
-          <label className="ct-field">
-            <span>新文件夹名称</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={busy}
-              placeholder="例如 rootfs 或 config"
-            />
-          </label>
+      <div className="ct-directory-toolbar">
+        {writable && (
           <button
             type="button"
-            disabled={busy || loading || path === '/' || !name.trim()}
-            onClick={() => void mkdir()}
+            disabled={blocked || !listing?.canCreate || !!editing || !!deleting}
+            onClick={() => {
+              state.setError('')
+              setMenu(null)
+              setEditing('new')
+            }}
           >
-            {busy ? '正在创建…' : '新建文件夹'}
+            ＋ 新建文件夹
           </button>
+        )}
+        <button
+          type="button"
+          disabled={busy || (!!editing && !pending)}
+          onClick={() => {
+            setMenu(null)
+            if (pending) {
+              setEditing(null)
+              void state.mutate(pending)
+            } else state.refresh()
+          }}
+        >
+          {pending ? '刷新确认结果' : '刷新'}
+        </button>
+        {loading && <small role="status">正在读取目录…</small>}
+        {busy && <small role="status">正在保存…</small>}
+      </div>
+      <ul aria-label="目录内容" aria-busy={loading || busy}>
+        {editing === 'new' && (
+          <li className="ct-directory-row">
+            {nameEditor(defaultName, '新文件夹名称')}
+          </li>
+        )}
+        {listing?.entries.map((entry) => (
+          <li
+            key={entry.path}
+            className={`ct-directory-row${entry.directory ? '' : ' ct-directory-file'}`}
+          >
+            {editing !== 'new' && editing?.path === entry.path ? (
+              nameEditor(entry.name, '重命名文件夹')
+            ) : (
+              <>
+                {entry.directory ? (
+                  <button
+                    type="button"
+                    className="ct-directory-folder"
+                    disabled={blocked || !!editing || !!deleting}
+                    onClick={() => {
+                      setMenu(null)
+                      state.navigate(entry.path)
+                    }}
+                  >
+                    <span aria-hidden="true">📁</span>
+                    <span>{entry.name}</span>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                ) : (
+                  <span className="ct-file-name">
+                    <span aria-hidden="true">▤</span>
+                    <span>{entry.name}</span>
+                    <small>{(entry.bytes / 1024).toFixed(1)} KiB</small>
+                  </span>
+                )}
+                {entry.directory && writable && (
+                  <div className="ct-directory-actions">
+                    <button
+                      type="button"
+                      aria-label={`文件夹 ${entry.name} 操作`}
+                      aria-expanded={menu === entry.path}
+                      disabled={
+                        blocked ||
+                        !!editing ||
+                        !!deleting ||
+                        !!entry.protected ||
+                        !entry.id
+                      }
+                      title={entry.protected || '重命名或删除'}
+                      onClick={() =>
+                        setMenu((p) => (p === entry.path ? null : entry.path))
+                      }
+                    >
+                      ⋯
+                    </button>
+                    {menu === entry.path && (
+                      <div
+                        className="ct-directory-menu"
+                        role="group"
+                        aria-label={`${entry.name} 操作`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenu(null)
+                            setEditing(entry)
+                          }}
+                        >
+                          重命名
+                        </button>
+                        <button
+                          type="button"
+                          className="ct-danger"
+                          onClick={() => {
+                            setMenu(null)
+                            setDeleting(entry)
+                          }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!entry.directory && allowFiles && (
+                  <button
+                    type="button"
+                    disabled={blocked || !!editing || !!deleting}
+                    onClick={() => onSelect(entry.path)}
+                  >
+                    选用文件
+                  </button>
+                )}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      {listing?.entries.length === 0 && !editing && (
+        <p className="ct-empty-inline">空文件夹</p>
+      )}
+      {deleting && (
+        <div
+          className="ct-directory-confirm"
+          role="alertdialog"
+          aria-label="删除文件夹确认"
+        >
+          <strong>删除文件夹“{deleting.name}”？</strong>
+          <code>{deleting.path}</code>
+          <p>将删除此文件夹及其中全部文件和子目录，此操作无法撤销。</p>
+          <div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="ct-danger"
+              disabled={blocked}
+              onClick={() => {
+                void state
+                  .mutate({
+                    action: 'delete',
+                    requestId: newRequestId(),
+                    path: deleting.path,
+                    expectedId: deleting.id,
+                    confirmPath: deleting.path,
+                  })
+                  .then(() => setDeleting(null))
+              }}
+            >
+              删除全部内容
+            </button>
+          </div>
         </div>
       )}
       <footer>
-        <code>{path}</code>
+        <div>
+          <small>当前目录</small>
+          <code>{path}</code>
+        </div>
         <button
           type="button"
           className="ct-primary"
-          disabled={busy || loading || !listing || path === '/'}
+          disabled={
+            blocked || !listing || path === '/' || !!editing || !!deleting
+          }
           onClick={() => onSelect(path)}
         >
-          选用此目录
+          选择此目录
         </button>
       </footer>
     </div>
