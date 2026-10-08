@@ -27,6 +27,6 @@
     "web/src/features/containers",
     "web/dev/README.md"
   ],
-  "notes": "Phase 1 continues in Draft PR #30. Direct container-IP access replaces port mappings; NAT reads and simulated ownership are removed. Local-image tar upload and mkdir are simulated; real directory reads and independent RouterOS read/temporary file transport checks passed. Awaiting user visual acceptance/root review; real container writes and production acceptance remain deferred.",
+  "notes": "Phase 1 continues in Draft PR #30. Direct container-IP access replaces port mappings. Optional IPv6/MAC collapse, inline runtime Files browsing and row trash icons are implemented. The full dual-UI program is deployed as an isolated rosboard-container-test service on test port 8080; authentication, real snapshot/Files, validation, write denial and embedded assets passed runtime checks. Upload/mkdir and container mutations remain simulation-only. Awaiting full-panel visual acceptance/root review; real writes and production acceptance remain deferred.",
   "meta": {}
 }

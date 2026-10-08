@@ -4,7 +4,7 @@ User approved implementation on 2026-10-08. This phase delivers native Container
 
 ## Requirements
 - Arcane-inspired scoped appearance, Dockhand-style searchable/sortable container table, Portainer-inspired flat creation/edit form in both Aurora and Compact.
-- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs.
+- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs. Optional IPv6/MAC fields start collapsed under a network advanced toggle, retaining values and expanding validation errors.
 - Image and manual static network required: dedicated new VETH, existing bridge, IPv4/CIDR and gateway. No bridge creation, DHCP, VLAN or outbound firewall/NAT changes.
 - Optional image-derived unique name; missing image tag uses latest. Largest suitable free disk supplies an independent root directory. Optional command, entrypoint, user, workdir, env, mounts and resources preserve inheritance when blank.
 - New defaults: start immediately and at boot, logging enabled, restart policy no, healthcheck inheritance. Editing preserves every existing parameter.
@@ -39,3 +39,16 @@ Go build/test/vet and relevant race checks; frontend test/lint/build and dual-UI
 Acceptance includes malformed/oversized/incompatible archives, device isolation,
 source selection, navigation/create/select, collisions/traversal rejection, both
 UI variants and cancelled work on device switch. Keep the same Draft PR and task.
+
+## Full-panel test deployment follow-up
+
+- Runtime-directory input opens inline Files on click or ArrowDown and remains
+  directly editable. Remove the separate runtime browse button.
+- Environment delete is an accessible trash icon in the row right column.
+- Keep native second-level menu entries in both full UI shells.
+- Deploy the complete program on the disposable rosboard-test machine with an
+  isolated config/data directory and the independent test RouterOS. Preserve the
+  current real read-only container capability; simulations stay out of this build.
+- Verify service/health, authentication, device scope, real snapshot/Files, draft
+  resolution, write denial and the actual embedded UI assets. Production remains
+  separate; no production backup/deployment, merge or complete task acceptance.

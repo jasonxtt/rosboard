@@ -5,6 +5,7 @@ import type { DirectoryListing } from './types'
 
 export function DirectoryPicker({
   deviceId,
+  id,
   writable,
   purpose,
   allowFiles = false,
@@ -12,6 +13,7 @@ export function DirectoryPicker({
   onClose,
 }: {
   deviceId: string
+  id?: string
   writable: boolean
   purpose: string
   allowFiles?: boolean
@@ -81,6 +83,7 @@ export function DirectoryPicker({
   const parts = path.split('/').filter(Boolean)
   return (
     <div
+      id={id}
       className="ct-directory-picker"
       role="group"
       aria-label={`选择${purpose}`}

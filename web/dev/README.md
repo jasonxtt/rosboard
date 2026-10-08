@@ -34,7 +34,9 @@ RouterOS archive destination is simulated. An accepted archive is projected to
 OCI-only, compressed archives, docker-export and multi-image archives are not yet
 supported. Select rootfs separately from persistent mount sources.
 
-Directory browsing: **浏览运行目录** or **浏览挂载源** opens the Files picker.
+Directory browsing: click **容器运行目录（root-dir）** or press ArrowDown in
+that input to open Files immediately below it; the path remains directly editable.
+**浏览挂载源** opens the mount picker.
 Click folders/breadcrumbs, optionally create a child folder, then choose it.
 Files are read-only context; a mount source may also select an existing file.
 The virtual Files root and whole disk cannot be used as container rootfs.
@@ -69,3 +71,11 @@ editor has seven sections and describes container-IP:application-port access.
 No router-IP forwarding or NAT rules are generated or claimed by the simulator.
 For manual review, check this on both UIs at desktop/mobile widths and in light
 and dark themes. Network reachability still uses existing routes/firewall.
+
+Interaction acceptance: advanced network starts collapsed; expand with the arrow
+to edit IPv6/MAC, collapse and reopen without losing values. Invalid advanced
+fields expand on submission. Click or keyboard-open the runtime path picker,
+type a path while it is open, close it and confirm the value remains; selecting
+a folder updates only root-dir. Delete an env row with its right-hand trash icon
+and confirm other names and multiline values remain. Check both UIs/themes at
+1440px and 390px. Full-panel entry is **主机设置 → 容器管理** in each UI.

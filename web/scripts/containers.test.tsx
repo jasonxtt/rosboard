@@ -639,3 +639,206 @@ test('readonly local upload stays disabled while directory selection updates onl
     env.restore()
   }
 })
+
+test('advanced network starts collapsed, preserves values and reveals invalid hidden fields on submit', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  draft.network.address6 = 'fd00::2/64'
+  draft.network.gateway6 = 'fd00::1'
+  draft.network.mac = 'invalid'
+  let submitted: Draft | undefined
+  globalThis.fetch = async (_url, init) => {
+    const d = JSON.parse(String(init?.body)) as Draft
+    return response({
+      effective: d,
+      errors:
+        d.network.mac === 'invalid' ? { 'network.mac': 'MAC 格式无效' } : {},
+      defaults: [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async (d) => {
+            submitted = d
+          }}
+        />,
+      ),
+    )
+    const toggle = button('高级设置')
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(document.querySelector('.ct-network-advanced'), null)
+    await act(async () => toggle.click())
+    assert.equal(field('IPv6 / 掩码').value, draft.network.address6)
+    assert.equal(field('自定义 MAC').value, draft.network.mac)
+    await act(async () => toggle.click())
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted, undefined)
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+    assert.match(document.body.textContent!, /MAC 格式无效/)
+    await act(async () => {
+      const input = field('自定义 MAC') as HTMLInputElement
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, '02:00:00:00:00:02')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => toggle.click())
+    await act(async () => button('校验配置').click())
+    assert.equal(submitted?.network.address6, draft.network.address6)
+    assert.equal(submitted?.network.gateway6, draft.network.gateway6)
+    assert.equal(submitted?.network.mac, '02:00:00:00:00:02')
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('runtime input supports typing and inline Files browsing without changing mounts', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  draft.mounts = [
+    { source: '/sata1/data/config', target: '/etc/app', readOnly: true },
+  ]
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/directories')) {
+      const path = new URL(String(url), 'http://localhost').searchParams.get(
+        'path',
+      )!
+      return response({
+        path,
+        entries:
+          path === '/'
+            ? [{ name: 'sata1', path: '/sata1', directory: true }]
+            : path === '/sata1'
+              ? [{ name: 'nginx', path: '/sata1/nginx', directory: true }]
+              : [],
+      })
+    }
+    return response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    )
+    const input = field('容器运行目录') as HTMLInputElement
+    assert.equal(
+      [...document.querySelectorAll('button')].some((b) =>
+        b.textContent?.includes('浏览运行目录'),
+      ),
+      false,
+    )
+    await act(async () => input.click())
+    await settle()
+    const picker = document.getElementById(
+      input.getAttribute('aria-controls')!,
+    )!
+    assert.ok(picker?.classList.contains('ct-directory-picker'))
+    assert.equal(
+      input.closest('label')!.nextElementSibling!.nextElementSibling,
+      picker,
+    )
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, '/sata1/manual')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => button('关闭目录浏览').click())
+    assert.equal(input.value, '/sata1/manual')
+    await act(async () =>
+      input.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+        }),
+      ),
+    )
+    await settle()
+    await act(async () => button('sata1').click())
+    await settle()
+    await act(async () => button('nginx').click())
+    await settle()
+    await act(async () => button('选用此目录').click())
+    assert.equal(input.value, '/sata1/nginx')
+    assert.equal(document.querySelector('.ct-directory-picker'), null)
+    assert.equal(field('主机源目录').value, draft.mounts[0].source)
+    assert.equal(field('容器目标目录').value, draft.mounts[0].target)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('inline environment delete removes only its own row and retains verbatim values', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  draft.env = [
+    { key: 'FIRST', value: 'remove' },
+    { key: 'SECOND', value: ' spaces "$;\n中文 ' },
+  ]
+  let submitted: Draft | undefined
+  globalThis.fetch = async (_url, init) =>
+    response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async (d) => {
+            submitted = d
+          }}
+        />,
+      ),
+    )
+    const remove = document.querySelector<HTMLButtonElement>(
+      '[aria-label="删除变量 1"]',
+    )!
+    assert.ok(remove.closest('.ct-env-row'))
+    assert.match(remove.textContent!, /🗑/)
+    await act(async () => remove.click())
+    assert.equal(field('变量名').value, 'SECOND')
+    assert.equal(field('变量值').value, draft.env[1].value)
+    assert.equal(document.querySelectorAll('.ct-env-row').length, 1)
+    await act(async () => button('校验配置').click())
+    assert.deepEqual(submitted?.env, [draft.env[1]])
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})

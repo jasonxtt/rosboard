@@ -93,3 +93,31 @@ Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoin
   updated message. Vite serves the new label/guidance. Preview restarted.
 - Same task branch and Draft PR; production deployment and real-write acceptance
   remain pending.
+
+## Form interactions and full-panel test deployment checkpoint
+
+- Optional IPv6/MAC fields start collapsed under the network advanced arrow.
+  Values survive collapse; validation errors expand their fields. The other
+  configuration sections remain visible on one page.
+- Runtime-directory input opens Files directly below it on click or ArrowDown,
+  supports direct typing, and retains typed paths when the picker closes.
+  Environment rows use a right-hand accessible trash icon; other row values
+  remain intact after deletion. Both UI styles contain the same scoped layout.
+- Frontend 76 tests, lint/build/dual-UI checks, Go build/test/vet, Trellis context
+  validation and diff checks passed. The four existing fasttrack key warnings
+  remain. Previous scoped race checks cover unchanged backend concurrency.
+- The complete embedded program runs in a separate `rosboard-container-test`
+  service on the disposable test machine, port 8080. Its private config and
+  fresh SQLite data are under `/opt/rosboard-container-test`; the existing test
+  service on port 80 is preserved. Only the independent test RouterOS is used.
+- Runtime checks passed for administrator setup/login, supervised setup restart,
+  device isolation, actual read-only container snapshot and Files directory
+  listings, effective defaults and validation. Container actions, upload and
+  mkdir requests return `container_read_only` without enabling real writes.
+- Both full UI entries respond; nine embedded HTML/JS/CSS assets match the local
+  build byte-for-byte. Existing second-level entries are under
+  **Host settings → Container management** in both shells. Simulation fixtures
+  remain excluded from the deployed program.
+- User desktop/mobile and light/dark review of the full-panel deployment is
+  pending. The task and PR stay active/Draft; no production deployment, merge or
+  complete container-write acceptance occurs at this checkpoint.
