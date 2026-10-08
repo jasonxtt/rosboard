@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEventHandler,
+  type ReactNode,
+} from 'react'
 import { errorMessage } from '../../lib/api'
 import { resolveDraft } from './api'
 import { normalizedImage } from './drafts'
@@ -16,6 +23,9 @@ function Field({
   disabled = false,
   type = 'text',
   multiline = false,
+  onClick,
+  onKeyDown,
+  controls,
 }: {
   label: string
   value: string
@@ -26,6 +36,9 @@ function Field({
   disabled?: boolean
   type?: string
   multiline?: boolean
+  onClick?: () => void
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>
+  controls?: string
 }) {
   return (
     <label className="ct-field">
@@ -44,6 +57,9 @@ function Field({
       ) : (
         <input
           type={type}
+          onClick={onClick}
+          onKeyDown={onKeyDown}
+          aria-controls={controls}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
@@ -102,7 +118,10 @@ export function ContainerEditor({
     [validating, setValidating] = useState(false),
     [submitted, setSubmitted] = useState(false),
     [uploading, setUploading] = useState(false),
-    [picker, setPicker] = useState<'root' | number | null>(null)
+    [picker, setPicker] = useState<'root' | number | null>(null),
+    [advancedNetwork, setAdvancedNetwork] = useState(false)
+  const advancedNetworkID = useId(),
+    directoryID = useId()
   const lifetime = useRef<{ active: boolean; submit?: AbortController }>({
     active: true,
   })
@@ -158,6 +177,12 @@ export function ContainerEditor({
       const r = await resolveDraft(deviceId, draft, controller.signal)
       if (!lifetime.current.active || sequence.current !== current) return
       setResolution(r)
+      if (
+        ['network.address6', 'network.gateway6', 'network.mac'].some(
+          (key) => r.errors[key],
+        )
+      )
+        setAdvancedNetwork(true)
       if (Object.keys(r.errors).length === 0) await onSubmit(r.effective)
     } catch (e) {
       if (lifetime.current.active) setError(errorMessage(e))
@@ -165,6 +190,30 @@ export function ContainerEditor({
       if (lifetime.current.active) setValidating(false)
     }
   }
+  const directoryPicker =
+    picker !== null ? (
+      <DirectoryPicker
+        key={String(picker)}
+        id={directoryID}
+        deviceId={deviceId}
+        writable={snapshot.capabilities.writes}
+        purpose={picker === 'root' ? '容器运行目录' : `挂载源 ${picker + 1}`}
+        allowFiles={picker !== 'root'}
+        onClose={() => setPicker(null)}
+        onSelect={(path) => {
+          if (picker === 'root') patch('rootDir', path)
+          else
+            patch(
+              'mounts',
+              draft.mounts.map((m, i) =>
+                i === picker ? { ...m, source: path } : m,
+              ),
+            )
+          setPicker(null)
+        }}
+      />
+    ) : null
+
   return (
     <form
       className="ct-editor"
@@ -321,30 +370,47 @@ export function ContainerEditor({
               error={issue('network.gateway')}
             />
           </div>
-          <div className="ct-pair">
-            <Field
-              label="IPv6 / 掩码"
-              value={draft.network.address6}
-              onChange={(v) => net('address6', v)}
-              disabled={locked}
-              error={issue('network.address6')}
-            />
-            <Field
-              label="IPv6 网关"
-              value={draft.network.gateway6}
-              onChange={(v) => net('gateway6', v)}
-              disabled={locked}
-              error={issue('network.gateway6')}
-            />
-          </div>
-          <Field
-            label="自定义 MAC"
-            value={draft.network.mac}
-            onChange={(v) => net('mac', v)}
-            disabled={locked}
-            error={issue('network.mac')}
-            hint="留空由 RouterOS 生成"
-          />
+          <button
+            type="button"
+            className="ct-network-toggle"
+            aria-expanded={advancedNetwork}
+            aria-controls={advancedNetworkID}
+            onClick={() => setAdvancedNetwork((open) => !open)}
+          >
+            <span aria-hidden="true">{advancedNetwork ? '▴' : '▾'}</span>
+            高级设置
+            {(draft.network.address6 ||
+              draft.network.gateway6 ||
+              draft.network.mac) && <small>已配置</small>}
+          </button>
+          {advancedNetwork && (
+            <div className="ct-network-advanced" id={advancedNetworkID}>
+              <div className="ct-pair">
+                <Field
+                  label="IPv6 / 掩码"
+                  value={draft.network.address6}
+                  onChange={(v) => net('address6', v)}
+                  disabled={locked}
+                  error={issue('network.address6')}
+                />
+                <Field
+                  label="IPv6 网关"
+                  value={draft.network.gateway6}
+                  onChange={(v) => net('gateway6', v)}
+                  disabled={locked}
+                  error={issue('network.gateway6')}
+                />
+              </div>
+              <Field
+                label="自定义 MAC"
+                value={draft.network.mac}
+                onChange={(v) => net('mac', v)}
+                disabled={locked}
+                error={issue('network.mac')}
+                hint="留空由 RouterOS 生成"
+              />
+            </div>
+          )}
         </Section>
         <Section
           title="存储与挂载"
@@ -355,6 +421,17 @@ export function ContainerEditor({
             label="容器运行目录（root-dir）"
             value={draft.rootDir}
             onChange={(v) => patch('rootDir', v)}
+            onClick={() => setPicker('root')}
+            controls={picker === 'root' ? directoryID : undefined}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setPicker('root')
+              } else if (event.key === 'Escape' && picker === 'root') {
+                event.preventDefault()
+                setPicker(null)
+              }
+            }}
             error={issue('rootDir')}
             hint={
               resolution?.effective.rootDir
@@ -362,13 +439,8 @@ export function ContainerEditor({
                 : '自动选择空闲空间最大的可用磁盘'
             }
           />
-          <button
-            type="button"
-            className="ct-add"
-            onClick={() => setPicker('root')}
-          >
-            浏览运行目录
-          </button>
+          <small>点击输入框或按 ↓ 浏览 Files，也可直接输入路径。</small>
+          {picker === 'root' && directoryPicker}
           <p className="ct-storage-hint">
             可放在同一父目录下：<code>nginx/rootdir/</code> 用作运行目录，
             <code>nginx/data/config/</code>{' '}
@@ -461,29 +533,7 @@ export function ContainerEditor({
           >
             ＋ 添加挂载
           </button>
-          {picker !== null && (
-            <DirectoryPicker
-              key={String(picker)}
-              deviceId={deviceId}
-              writable={snapshot.capabilities.writes}
-              purpose={
-                picker === 'root' ? '容器运行目录' : `挂载源 ${picker + 1}`
-              }
-              allowFiles={picker !== 'root'}
-              onClose={() => setPicker(null)}
-              onSelect={(path) => {
-                if (picker === 'root') patch('rootDir', path)
-                else
-                  patch(
-                    'mounts',
-                    draft.mounts.map((m, i) =>
-                      i === picker ? { ...m, source: path } : m,
-                    ),
-                  )
-                setPicker(null)
-              }}
-            />
-          )}
+          {typeof picker === 'number' && directoryPicker}
         </Section>
         <Section
           title="环境变量"
@@ -495,7 +545,7 @@ export function ContainerEditor({
           )}
           {draft.env.map((v, i) => (
             <div className="ct-repeat" key={i}>
-              <div className="ct-pair">
+              <div className="ct-env-row">
                 <Field
                   label="变量名"
                   value={v.key}
@@ -519,18 +569,21 @@ export function ContainerEditor({
                     )
                   }
                 />
+                <button
+                  type="button"
+                  className="ct-icon-delete"
+                  aria-label={`删除变量 ${i + 1}`}
+                  title={`删除变量 ${i + 1}`}
+                  onClick={() =>
+                    patch(
+                      'env',
+                      draft.env.filter((_, j) => i !== j),
+                    )
+                  }
+                >
+                  <span aria-hidden="true">🗑️</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  patch(
-                    'env',
-                    draft.env.filter((_, j) => i !== j),
-                  )
-                }
-              >
-                移除变量 {i + 1}
-              </button>
               {issue(`env.${i}`) && (
                 <strong role="alert">{issue(`env.${i}`)}</strong>
               )}
