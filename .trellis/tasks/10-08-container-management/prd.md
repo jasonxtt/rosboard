@@ -4,7 +4,7 @@ User approved implementation on 2026-10-08. This phase delivers native Container
 
 ## Requirements
 - Arcane-inspired scoped appearance, Dockhand-style searchable/sortable container table, Portainer-inspired flat creation/edit form in both Aurora and Compact.
-- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs. Optional IPv6/MAC fields start collapsed under a network advanced toggle, retaining values and expanding validation errors.
+- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs. Optional IPv6/MAC and startup command/entrypoint/user/workdir start collapsed under separate advanced toggles, retaining values and expanding validation errors. Startup/log/restart controls appear before advanced overrides.
 - Image and manual static network required: dedicated new VETH, existing bridge, IPv4/CIDR and gateway. No bridge creation, DHCP, VLAN or outbound firewall/NAT changes.
 - Optional image-derived unique name; missing image tag uses latest. Largest suitable free disk supplies an independent root directory. Optional command, entrypoint, user, workdir, env, mounts and resources preserve inheritance when blank.
 - New defaults: start immediately and at boot, logging enabled, restart policy no, healthcheck inheritance. Editing preserves every existing parameter.
@@ -52,3 +52,16 @@ UI variants and cancelled work on device switch. Keep the same Draft PR and task
 - Verify service/health, authentication, device scope, real snapshot/Files, draft
   resolution, write denial and the actual embedded UI assets. Production remains
   separate; no production backup/deployment, merge or complete task acceptance.
+
+## Startup and health-check clarity follow-up
+
+- Put create/start-on-boot, logging and restart policy before the startup advanced
+  arrow. Default-collapse CMD, ENTRYPOINT, user and workdir, retaining existing
+  and edited values across toggles and submission.
+- Explain health checks as periodic commands inside the container that test
+  whether its application responds. Make image/default inheritance, missing
+  image checks, custom command dependencies, interval/timeout/failure count and
+  startup preparation understandable without Docker terminology.
+- Preserve health contracts and default inheritance. Do not enable real writes
+  or add implicit stop/restart/notification actions.
+- Update the same isolated full-panel test deployment and Draft PR.

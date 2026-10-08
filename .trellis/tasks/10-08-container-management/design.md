@@ -8,6 +8,13 @@ Simulation is a Go test-only HTTP server enabled by `ROSBOARD_CONTAINER_PREVIEW=
 
 Future writes must add typed allowlisted mutations, durable object ownership, device write gate and read-back reconciliation. Real image update/delete data retention is outside phase 1. Production gate remains unchanged.
 
+Startup behavior/logging/restart remain visible before an independent, collapsed
+advanced group for CMD/ENTRYPOINT/user/workdir. Hidden overrides stay in the
+parent draft and are submitted unchanged; field errors expand the group. Health
+controls retain the existing inheritance/override contract and visible section,
+with plain-language explanations of commands inside the container and timing.
+Custom examples use actual RouterOS command syntax, without Dockerfile markers.
+
 ## Follow-up: local image archives and storage navigation
 
 The user requested a local image upload option, a small RouterOS Files directory

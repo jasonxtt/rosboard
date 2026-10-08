@@ -121,3 +121,24 @@ Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoin
 - User desktop/mobile and light/dark review of the full-panel deployment is
   pending. The task and PR stay active/Draft; no production deployment, merge or
   complete container-write acceptance occurs at this checkpoint.
+
+## Startup advanced settings and health-check clarity checkpoint
+
+- Start-after-create, start-on-boot, logging and restart policy now precede a
+  default-collapsed startup advanced toggle. CMD/ENTRYPOINT/user/workdir values
+  survive collapse/reopen and submit, including existing overrides.
+- Health-check labels and hints explain application response probing, image
+  inheritance and images without a check, custom commands inside the container,
+  interval/timeout, consecutive failures and startup preparation. The command
+  example uses RouterOS syntax without Dockerfile's `CMD-SHELL` marker.
+- Go changes are messages only: validation and default-resolution wording now
+  match the UI. The health inheritance/override projection contract is unchanged.
+  Stop/restart/notification settings are not implicitly enabled.
+- Frontend 78 tests, lint/build/dual-UI checks, Go build/test/vet, Trellis context
+  and diff checks passed; four existing fasttrack key warnings remain.
+- Updated the isolated full-panel test service and verified login, actual
+  snapshot/Files, default/inherited/custom health projection, all four startup
+  overrides, write denial, and both UI entries/embedded assets. No real container
+  operations or production delivery were performed.
+- Same task branch and Draft PR. User desktop/mobile/theme visual review and
+  future real-write acceptance remain pending.

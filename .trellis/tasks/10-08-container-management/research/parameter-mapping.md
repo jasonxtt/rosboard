@@ -17,7 +17,7 @@ Read-only observation on RouterOS 7.23.5 confirmed native container flags (`runn
 | Resources | memory-high,max,cpu-list | blank global memory/default CPU; unsupported fields flagged |
 | Startup | start-on-boot; start command | new true; edit preserve |
 | Restart/logs | restart-policy; logging | no/always/on-failure; default no/true |
-| Health | healthcheck-*; stop-on-unhealthy | inherit unless explicit override |
+| Health | healthcheck-* | inherit unless explicit override; stop-on-unhealthy is separate and not projected |
 
 RouterOS allows shared VETH; user deliberately requires dedicated VETH for new containers. Reading topology must join exact interface names rather than assume a veth naming convention. BSL Dockhand is visual inspiration only; implementation is original.
 
@@ -85,3 +85,19 @@ Existing firewall/NAT rules remain untouched.
 Sources: https://manual.mikrotik.com/docs/containers/ ;
 https://docs.docker.com/engine/network/drivers/macvlan/ ;
 https://docs.docker.com/engine/network/drivers/ipvlan/
+
+## Health-check explanation review (2026-10-08)
+
+The official Container Healthcheck section documents support from 7.23, probing
+inside the container via an application command, exit code zero as healthy and
+nonzero as failure. Interval, timeout, retries and startup preparation control
+when failures count. The official command example passes `curl -f ...` directly;
+Dockerfile's `CMD-SHELL` marker is not a RouterOS command example. The executable
+must exist in the image and the local port must match the application.
+
+The current editor retains image inheritance by default; an image without a
+check does not acquire an automatically invented probe. Custom mode projects
+only the entered healthcheck fields. `stop-on-unhealthy` and notifications are
+separate options, not implied by this form or its restart policy.
+
+Reference: https://manual.mikrotik.com/docs/containers/#healthcheck

@@ -48,10 +48,12 @@ Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
 container stylesheet; all selectors stay under `.ct`. The form is flat: seven
 visible sections, two columns on desktop and one on mobile, with inline defaults
-and errors. No configuration tab or wizard hides sections. Only optional IPv6
-and custom MAC fields collapse under the network advanced toggle; validation
-errors expand those fields without clearing their values. Runtime-directory
-input supports direct typing and inline Files browsing.
+and errors. No configuration tab or wizard hides sections. Optional IPv6/MAC
+and startup command/entrypoint/user/workdir collapse under separate advanced
+toggles; validation errors expand those fields without clearing their values.
+Startup behavior, logging and restart policy precede startup advanced settings.
+Health-check labels explain service response checks and unchanged image defaults.
+Runtime-directory input supports direct typing and inline Files browsing.
 
 Production capabilities fail closed for writes. The development preview uses
 fake device APIs and a separate HTML entry. Check both lazy container CSS graphs

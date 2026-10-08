@@ -22,6 +22,11 @@ A future write phase requires separate RouterOS verification and acceptance.
 - Resolve endpoints perform no RouterOS writes. Required image/network values
   never acquire network defaults. Blank image command/user/workdir overrides are
   omitted; existing values remain intact. Env values are not shell-parsed.
+- Health-check commands are executed inside the container and require tools
+  present in its image. User-facing examples use a RouterOS command such as
+  `curl -f http://127.0.0.1:80/`, without Dockerfile's `CMD-SHELL` marker.
+  Image inheritance adds no custom probe when the image has none. A probe reports
+  service health; stop/restart/notification behavior needs separate configuration.
 - VETH sharing is supported by RouterOS. New containers use dedicated VETH;
   existing shared VETH changes must be rejected. Existing/shared resource lists
   never become owned merely because their container is adopted.
