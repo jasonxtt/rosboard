@@ -760,10 +760,11 @@ export function ContainerEditor({
             检查异常后的停机、重启或通知需要另行配置。
           </p>
           <small>
-            下列设置仅在“自定义检查”时生效；留空沿用镜像或 RouterOS 默认值。
+            自定义检查需填写命令；其余设置留空沿用镜像或 RouterOS 默认值。
           </small>
           <Field
             label="检查命令"
+            required={draft.health.mode === 'override'}
             value={draft.health.command}
             onChange={(v) => health('command', v)}
             disabled={draft.health.mode !== 'override'}

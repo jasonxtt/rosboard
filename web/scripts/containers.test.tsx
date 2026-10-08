@@ -961,6 +961,7 @@ test('health check choices gate custom settings and retain the command when swit
     const mode = field('检查方式') as HTMLSelectElement
     assert.equal(mode.value, 'inherit')
     assert.equal(field('检查命令').disabled, true)
+    assert.equal(field('检查命令').closest('label')!.querySelector('em'), null)
     assert.match(document.body.textContent!, /镜像未提供检查时，默认不会检查/)
     assert.doesNotMatch(
       document.body.textContent!,
@@ -970,6 +971,7 @@ test('health check choices gate custom settings and retain the command when swit
       mode.value = 'override'
       mode.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
     })
+    assert.ok(field('检查命令').closest('label')!.querySelector('[aria-label="必填"]'))
     for (const label of [
       '检查命令',
       '检查间隔',
