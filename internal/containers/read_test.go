@@ -145,3 +145,30 @@ func TestContainerIndependentRouterOSRead(t *testing.T) {
 	}
 	t.Logf("version=%s architecture=%s containers=%d root entries=%d", snapshot.Capabilities.Version, snapshot.Options.Architecture, len(snapshot.Items), len(listing.Entries))
 }
+
+func TestRouterOS723CombinedDownloadFlagsAndMemoryCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		row  routeros.RouterOSObject
+		want string
+	}{
+		{routeros.RouterOSObject{"downloading/extracting": "true"}, "downloading"},
+		{routeros.RouterOSObject{"download/extract failed": "true", "stopped": "true"}, "error"},
+		{routeros.RouterOSObject{"running": "true"}, "running"},
+		{routeros.RouterOSObject{"healthy": "true"}, "running"},
+		{routeros.RouterOSObject{"starting-with-healthcheck": "true"}, "starting"},
+		{routeros.RouterOSObject{"unhealthy": "true"}, "running"},
+		{routeros.RouterOSObject{"unhealthy": "true", "stopped": "true"}, "stopped"},
+		{routeros.RouterOSObject{"healthy": "true", "status": "stopped"}, "stopped"},
+	} {
+		if got := containerStatus(tc.row); got != tc.want {
+			t.Fatalf("status %q want %q", got, tc.want)
+		}
+	}
+	service := &Service{ReaderFor: func(config.DeviceConfig) Reader {
+		return fakeReader{data: map[routeros.ContainerMenu][]routeros.RouterOSObject{routeros.ContainerList: {{".id": "*1", "name": "web", "running": "true", "memory-current": "123456", "memory-usage": "999"}}}}
+	}}
+	snapshot, err := service.Snapshot(context.Background(), config.DeviceConfig{})
+	if err != nil || len(snapshot.Items) != 1 || snapshot.Items[0].Memory != "123456" {
+		t.Fatal("current memory projection", snapshot, err)
+	}
+}

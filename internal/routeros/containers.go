@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 )
 
 type ContainerMenu string
@@ -31,7 +32,7 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 	props := ""
 	switch menu {
 	case ContainerList:
-		props = ".id,name,remote-image,file,tag,interface,root-dir,cmd,entrypoint,user,workdir,start-on-boot,logging,restart-policy,cpu-list,cpu-usage,memory-usage,memory-high,memory-max,running,stopped,starting,stopping,extracting,downloading,error,status,envlists,envlist,mountlists,mounts,healthcheck-cmd,healthcheck-interval,healthcheck-timeout,healthcheck-retries,healthcheck-start-period,default-cmd,default-entrypoint,default-user,default-workdir,default-healthcheck-cmd"
+		props = ".id,name,remote-image,file,tag,interface,root-dir,cmd,entrypoint,user,workdir,start-on-boot,logging,restart-policy,cpu-list,cpu-usage,memory-usage,memory-current,memory-high,memory-max,running,healthy,unhealthy,stopped,starting,starting-with-healthcheck,stopping,extracting,downloading,downloading/extracting,download/extract failed,error,status,envlists,envlist,mountlists,mounts,healthcheck-cmd,healthcheck-interval,healthcheck-timeout,healthcheck-retries,healthcheck-start-period,default-cmd,default-entrypoint,default-user,default-workdir,default-healthcheck-cmd"
 	case ContainerConfig:
 		props = "memory-high,memory-max"
 	case ContainerVETH:
@@ -60,7 +61,7 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 		return nil, errors.New("unsupported container read menu")
 	}
 	var raw json.RawMessage
-	if err := c.getJSON(ctx, "/rest/"+string(menu)+"?.proplist="+props, &raw); err != nil {
+	if err := c.getJSON(ctx, "/rest/"+string(menu)+"?.proplist="+url.QueryEscape(props), &raw); err != nil {
 		return nil, err
 	}
 	rows := []RouterOSObject{}

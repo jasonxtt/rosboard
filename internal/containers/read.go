@@ -192,7 +192,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 				draft.Mounts = append(draft.Mounts, Mount{Source: mount["src"], Target: mount["dst"], ReadOnly: strings.HasPrefix(mount["mode"], "ro"), Mode: mount["mode"]})
 			}
 		}
-		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: row["memory-usage"], StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
+		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: first(row["memory-current"], row["memory-usage"]), StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
 		for _, other := range rows {
 			if other[".id"] != item.ID && n.VETH != "" && other["interface"] == n.VETH {
 				item.SharedVETH = append(item.SharedVETH, other["name"])
@@ -258,12 +258,27 @@ func splitLists(value string) []string {
 	return list
 }
 func containerStatus(row routeros.RouterOSObject) string {
+	if isTrue(row["download/extract failed"]) {
+		return "error"
+	}
+	if isTrue(row["downloading/extracting"]) {
+		return "downloading"
+	}
+	if isTrue(row["starting-with-healthcheck"]) {
+		return "starting"
+	}
 	for _, status := range []string{"error", "downloading", "extracting", "starting", "stopping", "running", "stopped"} {
 		if isTrue(row[status]) {
 			return status
 		}
 	}
-	return first(row["status"], "unknown")
+	if row["status"] != "" {
+		return row["status"]
+	}
+	if isTrue(row["healthy"]) || isTrue(row["unhealthy"]) {
+		return "running"
+	}
+	return "unknown"
 }
 func byteCount(value string) int64 {
 	value = strings.TrimSpace(value)

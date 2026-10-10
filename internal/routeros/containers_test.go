@@ -22,6 +22,9 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 				t.Errorf("secret property requested: %s", props)
 			}
 		}
+		if r.URL.Path == "/rest/container" && (!strings.Contains(props, "download/extract failed") || !strings.Contains(props, "memory-current")) {
+			t.Error("missing real runtime properties")
+		}
 		if r.URL.Path == "/rest/container/config" {
 			fmt.Fprint(w, `{"memory-high":"256M"}`)
 		} else {
