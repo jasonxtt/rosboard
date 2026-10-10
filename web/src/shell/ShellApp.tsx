@@ -27,6 +27,7 @@ const pageComponents: Record<View, LazyExoticComponent<ComponentType>> = {
   'policy-routing': lazy(() => import('../pages/PolicyRoutingPage')),
   'access-control': lazy(() => import('../pages/AccessControlPage')),
   recognition: lazy(() => import('../pages/RecognitionPage')),
+  containers: lazy(() => import('../pages/ContainersPage')),
   settings: lazy(() => import('../pages/SettingsPage')),
 }
 

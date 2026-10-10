@@ -41,3 +41,38 @@ On an observed job's verified success, reload to use the new embedded frontend.
 Version metadata uses four columns on desktop and two columns at viewport widths
 up to 768px: current/latest version, then platform/last check. Preserve DOM order
 and permit long values to wrap inside their own cells.
+
+## Native container feature
+
+Both shells mount `features/containers/ContainerPage` through UI-specific lazy
+page entries. The shared feature imports no shell CSS. Each entry owns its
+container stylesheet; all selectors stay under `.ct`. The form is flat: seven
+visible sections, two columns on desktop and one on mobile, with inline defaults
+and errors. No configuration tab or wizard hides sections. Optional IPv6/MAC
+and startup command/entrypoint/user/workdir collapse under separate advanced
+toggles; validation errors expand those fields without clearing their values.
+Startup behavior, logging and restart policy precede startup advanced settings.
+Health-check labels explain service response checks; custom fields appear only
+in override mode. Resource limits default off for new drafts; edits with explicit
+limits start on. Turning off submits inheritance without discarding hidden input.
+Runtime-directory input supports direct typing and a bound Files picker. Its
+compact breadcrumb scrolls horizontally; pending creation and renaming use
+focused inline rows. Enter/valid blur saves once and Escape cancels locally.
+Folders sort first; files are muted and cannot become a runtime root. Recursive
+folder deletion displays its exact name/path and all-content warning.
+
+Container lifecycle capabilities fail closed for writes; directory CRUD uses
+the independent `directoryWrites` capability and device-scoped API. The development preview uses
+fake device APIs and a separate HTML entry. Check both lazy container CSS graphs
+and absence of the preview entry/fixtures in `check:ui-build`. Device remounts
+cancel reads and clear drafts, logs and job selection; subsequent reads restore
+the device's pending job to permit unknown-result recovery. Visual acceptance
+remains user-led at the documented viewport/theme combinations.
+
+Container draft/request identifiers use `crypto.getRandomValues`, which is
+available on HTTP LAN panels; do not require secure-context `randomUUID`.
+
+Container surface, input, border, ink, accent and semantic colours must alias
+the active shell tokens in each UI-specific stylesheet. Do not maintain a
+separate hard-coded container palette. Floating menus/dialogs use opaque shell
+surfaces; development previews load only the selected shell token stylesheet.

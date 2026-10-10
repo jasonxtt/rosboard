@@ -1,0 +1,32 @@
+{
+  "id": "container-management",
+  "name": "container-management",
+  "title": "Native container management with real Files picker and simulation",
+  "description": "Native Container reads, dual-UI single-page configuration, real RouterOS directory CRUD and isolated lifecycle simulation.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "containers",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-08",
+  "completedAt": null,
+  "branch": "codex/container-management",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "8624091a008a29495aa2870c6e3e831068102bba",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/30",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/containers",
+    "internal/routeros/containers.go",
+    "internal/api/containers.go",
+    "web/src/features/containers",
+    "web/dev/README.md"
+  ],
+  "notes": "Continues on the same branch and Draft PR #30. The attached storage follow-up authorizes real directory mkdir/rename/recursive removal independently; Container lifecycle and image uploads remain simulation-only. Bound Files picker, inline edits, exact-path all-content deletion confirmation, fresh ID/type/reference guards, shared device locking and read-back recovery are implemented. Files use long **opaque IDs that may change on rename. The complete isolated test service passed real CRUD, request replay, cleanup, auth, defaults and exact embedded asset checks. Health inheritance hides custom details; resource limits default off and preserve edit values. 88 frontend tests and Go/race/build/vet/UI-isolation checks passed. Replay records are in memory; user visual/root review and future complete Container write/production acceptance remain pending.",
+  "meta": {}
+}

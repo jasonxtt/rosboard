@@ -226,7 +226,9 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'target-library', 'policy-routing', 'access-control']
+const ContainersPage = lazy(() => import('./features/containers/ContainersPage'))
+
+const landingViews: ActiveView[] = ['containers', 'fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'target-library', 'policy-routing', 'access-control']
 
 function loadPanelPreferences(): PanelPreferences {
   const parsed = readPanelRecord()
@@ -796,7 +798,7 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 function PanelApp(props: { username: string; onAuthenticationChanged: () => void }) {
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() || window.location.hash.startsWith('#/settings') ? 'settings' : panelPreferences.landingView)
+  const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() || window.location.hash.startsWith('#/settings') ? 'settings' : window.location.hash === '#/containers' ? 'containers' : panelPreferences.landingView)
   const [query, setQuery] = useState('')
   const [fleetQuery, setFleetQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -1002,7 +1004,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
+    if (activeView === 'containers' || activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
     let cancelled = false
     let refreshing = false
 
@@ -1239,7 +1241,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
   }
 
-  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'target-library' && activeView !== 'policy-routing' && activeView !== 'access-control') {
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'containers' && activeView !== 'target-library' && activeView !== 'policy-routing' && activeView !== 'access-control') {
 	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
@@ -1299,7 +1301,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
+        : activeView === 'containers' || activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1313,7 +1315,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     { key: 'diagnostics', label: '系统诊断', icon: 'alert' },
   ]
   const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
-  const hostActive = ['target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
+  const hostActive = ['containers', 'target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
   const hasSecondary = statusActive || hostActive || activeView === 'settings'
 
   return (
@@ -1389,7 +1391,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <div className="menu-group">
             <button
               type="button"
-              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
+              className={activeView === 'containers' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostActive}
               aria-controls="host-settings-menu"
               onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null) }}
@@ -1441,6 +1443,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
             </div>) : hostActive ? (<div className="submenu" id="host-settings-menu">
+              <button type="button" className={activeView === 'containers' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('containers'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="容器管理" /></button>
               <button
                 type="button"
                 className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
@@ -1570,7 +1573,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                {activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                {activeView === 'containers' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
                   <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
                   <ChoiceMenu
                     value={dashboardRefreshMs}
@@ -1639,6 +1642,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
         {activeView === 'protocols' && protocolAnalysisEnabled && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'containers' ? (
+          <Suspense fallback={<p>正在加载容器管理…</p>}>
+            <ContainersPage key={selectedDeviceID} deviceId={selectedDeviceID} refreshNonce={refreshNonce} refreshMs={dashboardRefreshMs} />
+          </Suspense>
+        ) : null}
         {activeView === 'target-library' ? (
           <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载目标库…</p></div></main>}>
             <TargetLibraryPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} />

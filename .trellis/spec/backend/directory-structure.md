@@ -15,6 +15,7 @@ to the package they test.
 cmd/rosboard/       process entrypoint and runtime wiring
 internal/api/       HTTP routing, authentication gates, request/response shapes
 internal/auth/      administrator and session behavior
+internal/containers/ native Container snapshots and pure configuration resolution
 internal/config/    YAML configuration and normalization
 internal/model/     shared monitoring data models
 internal/mosdns/    MosDNS client integration
