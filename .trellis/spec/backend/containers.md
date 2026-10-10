@@ -103,3 +103,14 @@ VETH/bridge. There is no port-mapping field in drafts or snapshots. The containe
 reader does not allow firewall NAT menus, and simulation does not create NAT
 ownership. Existing router NAT rules remain outside this feature. Stale JSON
 port fields are ignored and never reappear in resolutions or snapshots.
+
+## Observed RouterOS 7.23 runtime flags
+
+Request `downloading/extracting`, `download/extract failed`,
+`starting-with-healthcheck`, `healthy`, `unhealthy`, and `memory-current` through
+closed read properties. URL-encode `.proplist`, including space-bearing names.
+Combined download failure wins over stopped; healthy/unhealthy implies running
+only in the absence of an explicit lifecycle state. Use memory-current before
+legacy memory-usage. Do not infer lifecycle state from stale healthcheck-status.
+An explicitly authorized operator smoke test does not enable product lifecycle
+writes or approve production delivery.
