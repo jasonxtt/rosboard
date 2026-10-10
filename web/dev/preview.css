@@ -1,10 +1,7 @@
 body {
   margin: 0;
-  background: #0e0d15;
+  background: var(--bg-base, var(--canvas));
   font-family: system-ui;
-}
-[data-theme="light"] body {
-  background: #eeedf3;
 }
 .container-preview {
   max-width: 1800px;
@@ -17,23 +14,23 @@ body {
   gap: 14px;
   flex-wrap: wrap;
   margin-bottom: 20px;
-  color: #c3bdd5;
+  color: var(--ink-2, var(--steel));
   font-size: 13px;
 }
 .container-preview > nav a {
-  color: #a58aff;
+  color: var(--accent, var(--primary));
 }
 .container-preview > nav button,
 .container-preview > nav select {
   font: inherit;
   padding: 8px 10px;
   border-radius: 7px;
-  border: 1px solid #4b435e;
-  background: #211d30;
-  color: #ded9ed;
+  border: 1px solid var(--stroke, var(--hairline));
+  background: var(--glass-2, var(--surface));
+  color: var(--ink, var(--slate));
 }
 .container-preview > p {
-  color: #e27791;
+  color: var(--err, var(--status-error));
 }
 @media (max-width: 600px) {
   .container-preview {
