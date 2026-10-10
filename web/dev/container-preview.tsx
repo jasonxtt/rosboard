@@ -15,8 +15,10 @@ const ui =
     : 'aurora'
 async function start() {
   if (ui === 'compact') {
+    await import('../src/compact/index.css')
     await import('../src/compact/features/containers/containers.css')
   } else {
+    await import('../src/styles/tokens.css')
     await import('../src/pages/ContainersPage.css')
   }
   createRoot(document.getElementById('root')!).render(<Preview />)

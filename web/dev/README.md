@@ -115,3 +115,10 @@ shows them and switching back preserves entered values. Resource limits default
 off and hide details; enabled shows memory/CPU fields. Turning off uses inherited
 values; reopening retains input. Existing explicit limits initialize enabled.
 Verify both behaviors at desktop 1440px/mobile 390px and both UI/themes.
+
+Theme alignment acceptance: open the full Aurora and Compact container routes,
+compare statistics/list/editor cards with adjacent native pages, then switch
+light/dark at desktop 1440px and mobile 390px. Inputs, directory picker, status
+badges and confirmation dialogs should follow the selected shell palette;
+Aurora cards retain translucent surfaces and Compact cards retain solid surfaces.
+The standalone preview loads only the chosen shell stylesheet for the same colours.

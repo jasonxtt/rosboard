@@ -95,3 +95,10 @@ UI variants and cancelled work on device switch. Keep the same Draft PR and task
 - Do not add file deletion, general file editing or a new UI framework. Keep
   container/image writes disabled and use the same task branch/Draft PR/test
   deployment. Verify actual RouterOS CRUD with isolated temporary directories.
+
+### Theme alignment follow-up
+
+- Bind container cards, controls, status colours and floating surfaces to the
+  selected Aurora/Compact shell tokens, including light/dark switching. Preserve
+  the existing layout and operations. Load the same selected UI tokens in the
+  standalone development preview; keep preview assets outside production builds.

@@ -71,3 +71,8 @@ remains user-led at the documented viewport/theme combinations.
 
 Container draft/request identifiers use `crypto.getRandomValues`, which is
 available on HTTP LAN panels; do not require secure-context `randomUUID`.
+
+Container surface, input, border, ink, accent and semantic colours must alias
+the active shell tokens in each UI-specific stylesheet. Do not maintain a
+separate hard-coded container palette. Floating menus/dialogs use opaque shell
+surfaces; development previews load only the selected shell token stylesheet.
