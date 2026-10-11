@@ -140,7 +140,7 @@ function parseCapabilities(v: unknown): Capabilities {
     writes:
       safeBoolean(o.writes) &&
       safeBoolean(o.supported) &&
-      o.mode === 'simulation',
+      (o.mode === 'simulation' || o.mode === 'native'),
     mode: safeString(o.mode) || 'read-only',
     version: safeString(o.version),
     logs: safeBoolean(o.logs),

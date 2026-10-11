@@ -114,8 +114,9 @@ export function ContainerPage({
         setJob(next)
         if (next.state === 'succeeded') {
           setNonce((n) => n + 1)
-          setMessage('模拟操作完成')
+          setMessage(snapshot?.capabilities.mode === 'simulation' ? '模拟操作完成' : '操作完成，已回读确认')
           setEditor(null)
+          if(next.action==='update'||next.action==='delete') setLogItem(null)
         } else if (next.state === 'failed') setError(next.error || '操作失败')
         else if (next.state !== 'unknown')
           timer = setTimeout(() => void poll(), 650)
@@ -132,7 +133,7 @@ export function ContainerPage({
       controller.abort()
       clearTimeout(timer)
     }
-  }, [deviceId, job?.id, job?.state])
+  }, [deviceId, job?.id, job?.state, snapshot?.capabilities.mode])
   useEffect(() => {
     if (!logItem) return
     let cancelled = false
@@ -294,7 +295,7 @@ export function ContainerPage({
           <p>镜像、网络与运行状态，集中管理。</p>
         </div>
         <span className="ct-mode">
-          {c.mode === 'simulation' ? '模拟预览' : '容器只读'}
+          {c.mode === 'simulation' ? '模拟预览' : c.writes ? '容器管理' : '容器只读'}
           {c.version && ` · ROS ${c.version}`}
         </span>
         <button onClick={() => setNonce((n) => n + 1)} disabled={loading}>
@@ -314,7 +315,9 @@ export function ContainerPage({
       <div className="ct-notice">
         {c.mode === 'simulation'
           ? '这里的数据与所有操作均为模拟，可测试创建、失败和恢复。'
-          : c.directoryWrites
+          : c.writes
+            ? '操作将直接写入所选 RouterOS。服务通过容器 IP 访问；删除前将运行目录改名保留，挂载数据保留。'
+            : c.directoryWrites
             ? '容器读取与配置校验已接入。目录新建、重命名和删除直接写入所选 RouterOS；容器启停等写入尚未启用。'
             : '当前提供真实只读数据及配置校验，容器写入尚未启用。'}
       </div>
@@ -596,13 +599,13 @@ export function ContainerPage({
           </div>
           <progress value={job.progress} max="100" />
           {job.error && <p>{job.error}</p>}
-          {job.state === 'unknown' && (
+          {(job.state === 'unknown' || (job.state === 'failed' && c.mode === 'native')) && (
             <button
               className="ct-primary"
               disabled={sending}
               onClick={() => void recover()}
             >
-              回读确认结果
+              {job.state === 'failed' ? '继续未完成步骤' : '回读确认结果'}
             </button>
           )}
           {job.retained.length > 0 && (
@@ -661,9 +664,9 @@ export function ContainerPage({
             {confirm.action === 'adopt'
               ? '明确将此容器纳入 rosboard 管理。现有 VETH、环境变量列表和挂载保持原归属，共享对象不自动接管。'
               : confirm.action === 'delete'
-                ? '只删除容器及 rosboard 独立创建并记录归属的对象。已有和共享对象、存储数据保持保留。'
+                ? '只删除容器及 rosboard 独立创建并记录归属的对象。运行目录会改名为带 retained 标识的同级目录并保留。已有和共享对象、挂载数据保持保留。'
                 : confirm.action === 'update'
-                  ? '模拟重新下载镜像并替换容器，保留配置和存储数据。真实更新的数据保留行为需在独立 RouterOS 上验收。'
+                  ? c.mode === 'simulation' ? '模拟重新下载镜像并替换容器，保留配置和存储数据。' : '在新的运行目录重新导入镜像，完成后切换容器。将原运行目录改名保留，挂载数据保留；切换会暂时中断服务。'
                   : '容器运行会暂时中断。'}
             {confirm.item.sharedVeth.length > 0 &&
               ` VETH 共享关系：${confirm.item.sharedVeth.join(', ')}。`}
@@ -677,7 +680,7 @@ export function ContainerPage({
               disabled={sending}
               onClick={() => void run(confirm.action, confirm.item.id)}
             >
-              {sending ? '正在提交…' : '确认模拟操作'}
+              {sending ? '正在提交…' : c.mode === 'simulation' ? '确认模拟操作' : '确认操作'}
             </button>
           </div>
         </dialog>

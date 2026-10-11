@@ -6,12 +6,16 @@ import type { ImageArchive } from './types'
 export function ImageUpload({
   deviceId,
   enabled,
+  archives = [],
+  simulated = false,
   archiveFile,
   onUploaded,
   onBusy,
 }: {
   deviceId: string
   enabled: boolean
+  archives?: ImageArchive[]
+  simulated?: boolean
   archiveFile: string
   onUploaded: (archive: ImageArchive) => void
   onBusy: (busy: boolean) => void
@@ -60,6 +64,31 @@ export function ImageUpload({
   }
   return (
     <div className="ct-image-upload">
+      {archives.length > 0 && (
+        <label className="ct-field">
+          <span>选择已上传镜像</span>
+          <select
+            aria-label="选择已上传镜像"
+            disabled={!enabled || busy}
+            value={archive?.id || ''}
+            onChange={(event) => {
+              const selected = archives.find((item) => item.id === event.target.value)
+              if (selected) {
+                setArchive(selected)
+                setError('')
+                onUploaded(selected)
+              }
+            }}
+          >
+            <option value="">选择设备上已校验的镜像归档</option>
+            {archives.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.reference} · {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="ct-field">
         <span>本地镜像归档 *</span>
         <input
@@ -82,7 +111,7 @@ export function ImageUpload({
           真实镜像上传尚未启用。可在模拟预览中验证上传、校验及创建流程。
         </p>
       )}
-      {busy && <p role="status">正在上传到模拟服务并校验归档…</p>}
+      {busy && <p role="status">正在上传并校验镜像归档…</p>}
       {error && (
         <p role="alert" className="ct-error">
           {error}
@@ -95,7 +124,7 @@ export function ImageUpload({
             {archive.architecture} · {(archive.bytes / 2 ** 20).toFixed(1)} MiB
             · {archive.name}
           </p>
-          <small>校验完成 · 仅模拟传输至 RouterOS，归档内容不保留</small>
+          <small>{simulated ? '校验完成 · 仅模拟传输至 RouterOS，归档内容不保留' : '上传完成 · RouterOS 文件大小和 SHA-256 校验一致'}</small>
         </div>
       )}
       {archiveFile && (

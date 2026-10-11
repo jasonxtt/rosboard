@@ -312,6 +312,8 @@ export function ContainerEditor({
             <>
               <ImageUpload
                 deviceId={deviceId}
+                archives={snapshot.options.archives}
+                simulated={snapshot.capabilities.mode === 'simulation'}
                 enabled={snapshot.capabilities.writes}
                 archiveFile={draft.archiveFile}
                 onBusy={setUploading}
@@ -879,7 +881,7 @@ export function ContainerEditor({
         <div className="ct-actions">
           <small>
             {snapshot.capabilities.writes
-              ? '模拟服务 · 所有操作只影响模拟数据'
+              ? snapshot.capabilities.mode === 'simulation' ? '模拟服务 · 所有操作只影响模拟数据' : '真实写入 · 仅操作当前所选 RouterOS'
               : snapshot.capabilities.directoryWrites
                 ? '容器配置仅校验 · 目录操作直接写入 RouterOS'
                 : '只读模式 · 可校验配置，真实写入尚未启用'}

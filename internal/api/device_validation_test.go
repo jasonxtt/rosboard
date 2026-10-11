@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -363,4 +364,29 @@ func serveJSON(server http.Handler, method, path, body string) *httptest.Respons
 	request.Header.Set("Content-Type", "application/json")
 	server.ServeHTTP(response, request)
 	return response
+}
+
+func TestDeviceConnectionChangeClearsNativeWriteOptIn(t *testing.T) {
+	router := newDeviceTestRouter(t)
+	defer router.Close()
+	scheme, host, port := testConnectionParts(t, router.URL)
+	baseURL, _ := normalizedRouterOSURL(scheme, host, port)
+	old := config.DeviceConfig{ID: "lab", Name: "Lab", Enabled: true, ContainerWrites: true, ContainerSSHHostKey: "SHA256:fake-test-only", RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret"}}
+	server := NewServer(config.Config{Devices: []config.DeviceConfig{old}}, nil, nil)
+	payload := deviceSettingsRequest{Name: "Renamed", Enabled: true, Scheme: scheme, Host: host, Port: port, Username: "admin"}
+	saved, _, err := server.prepareDevice(context.Background(), "lab", payload, &old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.ContainerWrites || saved.ContainerSSHHostKey != old.ContainerSSHHostKey {
+		t.Fatal("unchanged connection lost private opt-in")
+	}
+	payload.Password = "changed-test-secret"
+	saved, _, err = server.prepareDevice(context.Background(), "lab", payload, &old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ContainerWrites || saved.ContainerSSHHostKey != "" {
+		t.Fatal("new credentials inherited old native authority")
+	}
 }

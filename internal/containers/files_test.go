@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"io"
 	"reflect"
 	"testing"
 
@@ -153,5 +154,39 @@ func TestStorageDirectoryBoundariesAndExistingRelativePaths(t *testing.T) {
 	r := Resolve(d, s)
 	if len(r.Errors) > 0 || r.Effective.RootDir != d.RootDir || r.Effective.Mounts[0].Source != d.Mounts[0].Source {
 		t.Fatal("existing relative paths changed", r)
+	}
+}
+
+func TestArchiveAcceptsInternalCompatibilityLinksOnly(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		valid  bool
+	}{{"../layer.tar", true}, {"../../escape", false}, {"/etc/passwd", false}, {"missing.tar", false}} {
+		raw := archiveFixture(t, "amd64")
+		var out bytes.Buffer
+		w := tar.NewWriter(&out)
+		r := tar.NewReader(bytes.NewReader(raw))
+		for {
+			header, err := r.Next()
+			if err != nil {
+				break
+			}
+			if err = w.WriteHeader(header); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = io.Copy(w, r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := w.WriteHeader(&tar.Header{Name: "legacy/layer.tar", Typeflag: tar.TypeSymlink, Linkname: tc.target}); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, err := InspectArchive(bytes.NewReader(out.Bytes()), "image.tar", int64(out.Len()))
+		if (err == nil) != tc.valid {
+			t.Fatalf("target %s: %v", tc.target, err)
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,11 @@ type cachedSnapshot struct {
 }
 type pendingSnapshot struct{ done chan struct{} }
 type Service struct {
+	ArchiveTransfer    func(context.Context, config.DeviceConfig, ImageArchive, io.Reader) error
+	NativeGate         *routeros.DeviceWriteGate
+	NativeWriterFor    func(config.DeviceConfig) NativeWriter
+	NativeStateDir     string
+	native             nativeRuntime
 	ReaderFor          func(config.DeviceConfig) Reader
 	DirectoryWriterFor func(config.DeviceConfig) DirectoryWriter
 	directoryMu        sync.Mutex
@@ -42,7 +48,11 @@ func (s *Service) Snapshot(ctx context.Context, d config.DeviceConfig) (Snapshot
 		s.mu.Lock()
 		if entry, ok := s.cache[key]; ok && time.Now().Before(entry.expires) {
 			s.mu.Unlock()
-			return entry.snapshot, nil
+			result := entry.snapshot
+			if err := s.decorateNative(d, &result); err != nil {
+				return Snapshot{}, err
+			}
+			return result, nil
 		}
 		if pending, ok := s.pending[key]; ok {
 			s.mu.Unlock()
@@ -75,12 +85,17 @@ func (s *Service) Snapshot(ctx context.Context, d config.DeviceConfig) (Snapshot
 		delete(s.pending, key)
 		close(pending.done)
 		s.mu.Unlock()
+		if err == nil {
+			err = s.decorateNative(d, &result)
+		}
 		return result, err
 	}
 }
 
 func NewService() *Service {
-	return &Service{ReaderFor: func(d config.DeviceConfig) Reader {
+	return &Service{NativeGate: routeros.NewDeviceWriteGate(), ArchiveTransfer: transferArchive, NativeWriterFor: func(d config.DeviceConfig) NativeWriter {
+		return routeros.NewMutationClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
+	}, ReaderFor: func(d config.DeviceConfig) Reader {
 		return routeros.NewClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
 	}, DirectoryWriterFor: func(d config.DeviceConfig) DirectoryWriter {
 		return routeros.NewMutationClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
@@ -142,6 +157,11 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 		name = strings.Trim(name, "/")
 		result.Options.Disks = append(result.Options.Disks, Disk{Name: name, FreeBytes: byteCount(row["free"]), Writable: name != "" && !isTrue(row["disabled"]) && !isTrue(row["formatting"]) && !isTrue(row["empty"]) && (row["mounted"] == "" || isTrue(row["mounted"])) && (row["fs"] != "" || row["type"] == "ext4")})
 	}
+	for _, veth := range data[routeros.ContainerVETH] {
+		for _, address := range strings.Split(veth["address"], ",") {
+			result.Options.UsedIPs = append(result.Options.UsedIPs, address)
+		}
+	}
 	for _, row := range rows {
 		n := Network{VETH: row["interface"]}
 		for _, veth := range data[routeros.ContainerVETH] {
@@ -165,7 +185,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 				n.Bridge = port["bridge"]
 			}
 		}
-		draft := Draft{ExistingID: row[".id"], Name: row["name"], Image: row["remote-image"], Network: n, RootDir: row["root-dir"], Command: row["cmd"], Entrypoint: row["entrypoint"], User: row["user"], Workdir: row["workdir"], Env: []Environment{}, Mounts: []Mount{}, MemoryHigh: row["memory-high"], MemoryMax: row["memory-max"], CPUList: row["cpu-list"], StartOnBoot: isTrue(row["start-on-boot"]), Logging: isTrue(row["logging"]), RestartPolicy: row["restart-policy"], Health: Health{Mode: "inherit"}}
+		draft := Draft{ExistingID: row[".id"], Name: row["name"], Image: row["remote-image"], Network: n, RootDir: row["root-dir"], Command: row["cmd"], Entrypoint: row["entrypoint"], User: row["user"], Workdir: row["workdir"], Env: []Environment{}, Mounts: []Mount{}, MemoryHigh: row["memory-high"], MemoryMax: row["memory-max"], CPUList: strings.ReplaceAll(row["cpu-list"], "cpu", ""), StartOnBoot: isTrue(row["start-on-boot"]), Logging: isTrue(row["logging"]), RestartPolicy: row["restart-policy"], Health: Health{Mode: "inherit"}}
 		draft.ImageSource = "registry"
 		if row["file"] != "" && row["remote-image"] == "" {
 			draft.ImageSource = "archive"
@@ -193,6 +213,9 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 			}
 		}
 		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: first(row["memory-current"], row["memory-usage"]), StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
+		if ownedComment(d, row["comment"]) {
+			item.Ownership = "managed"
+		}
 		for _, other := range rows {
 			if other[".id"] != item.ID && n.VETH != "" && other["interface"] == n.VETH {
 				item.SharedVETH = append(item.SharedVETH, other["name"])
@@ -293,4 +316,10 @@ func byteCount(value string) int64 {
 	}
 	n, _ := strconv.ParseInt(value, 10, 64)
 	return n
+}
+
+func NewServiceWithState(dir string) *Service {
+	s := NewService()
+	s.NativeStateDir = dir
+	return s
 }

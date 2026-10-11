@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -75,7 +76,7 @@ func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Serve
 func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
-		containers:        containers.NewService(),
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -92,7 +93,7 @@ func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, asse
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
-		containers:        containers.NewService(),
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -113,7 +114,7 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 	}
 	return &Server{
 		cfg:               cfg,
-		containers:        containers.NewService(),
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		manager:           manager,
 		store:             storage,
 		assets:            assets,
@@ -132,6 +133,16 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 func NewServerWithPolicyManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), policyManager *policyv2.Manager) *Server {
 	server := NewServerWithManager(cfg, manager, storage, assets, restart)
 	server.policy = policyManager
+	if policyManager != nil {
+		server.containers.NativeGate = policyManager.WriteGate()
+	}
+	for _, device := range cfg.Devices {
+		if device.Enabled && !device.Archived && device.ContainerWrites {
+			if err := server.containers.RestoreNative(device); err != nil {
+				log.Print("container journal restoration failed; device writes are blocked")
+			}
+		}
+	}
 	return server
 }
 
