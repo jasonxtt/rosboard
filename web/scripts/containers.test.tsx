@@ -1580,3 +1580,84 @@ test('mount source picker retains file selection while runtime picker excludes f
     await env.cleanup()
   }
 })
+
+for (const [name, Page] of [
+  ['Aurora contract', ContainerPage],
+  ['Compact', CompactContainers],
+] as const)
+  test(`${name}: large list composes pagination, numeric sorting, search and status filters`, async () => {
+    const env = installDOM(),
+      root = createRoot(document.getElementById('root')!),
+      s = snapshot()
+    s.items = Array.from({ length: 80 }, (_, index) => ({
+      ...existing(),
+      id: `row-${index}`,
+      name: `container-${String(index).padStart(3, '0')}`,
+      status: index % 2 === 0 ? ('running' as const) : ('stopped' as const),
+      cpu: String(index),
+      memory: String(index * 1024),
+      image: `registry.example/${'long-path/'.repeat(24)}image-${index}:latest`,
+      network: {
+        ...existing().network,
+        veth: `veth-${index}`,
+        address: `172.20.0.${index + 2}/24`,
+      },
+    })).reverse()
+    globalThis.fetch = async (_url, init) => {
+      assert.ok(!init?.method || init.method === 'GET')
+      return response(s)
+    }
+    const names = () =>
+      [...document.querySelectorAll('.ct-name')].map((e) => e.textContent)
+    const search = async (value: string) => {
+      const input = document.querySelector<HTMLInputElement>('.ct-search input')!
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          env.dom.window.HTMLInputElement.prototype,
+          'value',
+        )!.set!.call(input, value)
+        input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+      })
+    }
+    try {
+      await act(async () => root.render(<Page deviceId="large" />))
+      await settle()
+      assert.equal(names().length, 25)
+      assert.equal(names()[0], 'container-000')
+      for (let page = 0; page < 3; page++)
+        await act(async () => button('下一页').click())
+      assert.equal(names().length, 5)
+      assert.equal(names()[0], 'container-075')
+      assert.equal(button('下一页').disabled, true)
+      for (const column of ['CPU', '内存']) {
+        await act(async () => button(column).click())
+        assert.equal(names()[0], 'container-000')
+        await act(async () => button(column).click())
+        assert.equal(names()[0], 'container-079')
+      }
+      assert.equal(
+        document.querySelector('.ct-image')?.getAttribute('title'),
+        s.items[0].image,
+      )
+      await search('172.20.0.62/24')
+      assert.deepEqual(names(), ['container-060'])
+      assert.equal(button('上一页').disabled, true)
+      await search('no-matching-container')
+      assert.equal(names().length, 0)
+      assert.match(document.querySelector('.ct-empty')!.textContent!, /没有匹配/)
+      await search('')
+      const status = document.querySelector<HTMLSelectElement>('.ct-toolbar select')!
+      await act(async () => {
+        status.value = 'running'
+        status.dispatchEvent(new env.dom.window.Event('change', { bubbles: true }))
+      })
+      assert.equal(names().length, 25)
+      assert.ok(names().every((value) => Number(value!.slice(-3)) % 2 === 0))
+      await act(async () => button('下一页').click())
+      assert.equal(names().length, 15)
+      assert.equal(button('下一页').disabled, true)
+    } finally {
+      await act(async () => root.unmount())
+      env.restore()
+    }
+  })
