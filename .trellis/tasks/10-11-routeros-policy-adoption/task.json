@@ -1,0 +1,36 @@
+{
+  "id": "routeros-policy-adoption",
+  "name": "routeros-policy-adoption",
+  "title": "Adopt existing rosboard RouterOS policies",
+  "description": "Plan whole-scope adoption of existing rosboard routing and access policies from RouterOS alone; stop before implementation.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "policy-adoption",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-11",
+  "completedAt": null,
+  "branch": "feat/routeros-policy-adoption",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/10-11-routeros-policy-adoption/prd.md",
+    ".trellis/tasks/10-11-routeros-policy-adoption/design.md",
+    ".trellis/tasks/10-11-routeros-policy-adoption/implement.md",
+    ".trellis/tasks/10-11-routeros-policy-adoption/research/current-behavior.md"
+  ],
+  "notes": "Plan approved. Preparation only: create artifacts, work branch and Draft PR, then STOP before coding, deployment or RouterOS writes. Await explicit user instruction to resume implementation.",
+  "meta": {
+    "execution_hold": true,
+    "hold_reason": "User explicitly requested stopping before concrete implementation on 2026-10-11.",
+    "implementation_started": false,
+    "planning_approved": true
+  }
+}

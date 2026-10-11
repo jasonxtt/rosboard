@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend package boundaries"}
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Ownership, plan/apply and routing/access domain contracts"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Device-local persistence and migrations"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend validation and public repository constraints"}
+{"file": ".trellis/spec/backend/authentication-onboarding.md", "reason": "Authenticated device-scoped access"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend implementation boundaries"}
+{"file": ".trellis/spec/frontend/dual-ui.md", "reason": "Both complete UIs must support adoption"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI tests and acceptance"}
+{"file": ".trellis/tasks/10-11-routeros-policy-adoption/research/current-behavior.md", "reason": "Grounded feasibility and existing limitations"}
+{"file": ".trellis/tasks/10-11-routeros-policy-adoption/implement.md", "reason": "Mandatory user stop boundary and ordered checklist"}
