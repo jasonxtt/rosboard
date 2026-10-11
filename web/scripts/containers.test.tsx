@@ -189,6 +189,8 @@ test('API parsing fails closed and new defaults never preselect a network', () =
     }).capabilities.writes,
     false,
   )
+  assert.equal(parseSnapshot({capabilities:{writes:true,supported:true,mode:'native'}}).capabilities.writes,true)
+  assert.equal(parseSnapshot({capabilities:{writes:true,supported:true,mode:'unexpected'}}).capabilities.writes,false)
   const item = existing(),
     draft = editDraft(item)
   assert.equal(draft.logging, false)

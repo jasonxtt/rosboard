@@ -34,7 +34,7 @@ func DirectoryView(rows []routeros.RouterOSObject, disks []Disk, parent string) 
 		}
 	}
 	for _, row := range rows {
-		add(row["name"], row["type"] == "directory" || row["type"] == "disk", byteCount(row["size"]))
+		add(row["name"], row["type"] == "directory" || row["type"] == "disk" || row["type"] == "container store", byteCount(row["size"]))
 		p, err := DirectoryPath(row["name"])
 		if err != nil || p == "/" {
 			continue

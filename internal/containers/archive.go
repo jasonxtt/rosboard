@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"unicode"
 )
 
 const MaxArchiveBytes int64 = 1 << 30
@@ -35,6 +36,7 @@ func InspectArchive(file io.ReadSeeker, name string, bytes int64) (ImageArchive,
 		return ImageArchive{}, invalid
 	}
 	entries := map[string]int64{}
+	links := map[string]string{}
 	var manifest []struct {
 		Config   string
 		RepoTags []string
@@ -50,13 +52,33 @@ func InspectArchive(file io.ReadSeeker, name string, bytes int64) (ImageArchive,
 			return ImageArchive{}, invalid
 		}
 		p := strings.TrimPrefix(header.Name, "./")
-		if strings.HasPrefix(p, "/") || strings.Contains(p, "\\") || path.Clean(p) != strings.TrimSuffix(p, "/") || p == ".." || strings.HasPrefix(p, "../") {
+		if strings.ContainsFunc(p, unicode.IsControl) || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") || path.Clean(p) != strings.TrimSuffix(p, "/") || p == ".." || strings.HasPrefix(p, "../") {
 			return ImageArchive{}, invalid
 		}
 		if header.Typeflag == tar.TypeDir {
 			continue
 		}
+		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
+			target := header.Linkname
+			if header.Typeflag == tar.TypeSymlink {
+				target = path.Join(path.Dir(p), target)
+			}
+			if strings.ContainsFunc(header.Linkname, unicode.IsControl) || strings.HasPrefix(header.Linkname, "/") || strings.Contains(header.Linkname, "\\") || target == ".." || strings.HasPrefix(target, "../") || header.Size != 0 {
+				return ImageArchive{}, invalid
+			}
+			if _, exists := entries[p]; exists {
+				return ImageArchive{}, invalid
+			}
+			if _, exists := links[p]; exists {
+				return ImageArchive{}, invalid
+			}
+			links[p] = target
+			continue
+		}
 		if header.Typeflag != tar.TypeReg || header.Size < 0 {
+			return ImageArchive{}, invalid
+		}
+		if _, exists := links[p]; exists {
 			return ImageArchive{}, invalid
 		}
 		if _, exists := entries[p]; exists {
@@ -71,6 +93,11 @@ func InspectArchive(file io.ReadSeeker, name string, bytes int64) (ImageArchive,
 			if err != nil || json.Unmarshal(data, &manifest) != nil {
 				return ImageArchive{}, invalid
 			}
+		}
+	}
+	for _, target := range links {
+		if _, exists := entries[target]; !exists {
+			return ImageArchive{}, invalid
 		}
 	}
 	if len(manifest) != 1 || manifest[0].Config == "" {

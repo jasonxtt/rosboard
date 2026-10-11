@@ -13,6 +13,9 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 	calls := 0
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		if strings.Contains(r.URL.RawQuery, "+") {
+			t.Error("RouterOS treats plus literally in proplist; spaces must use %20")
+		}
 		if r.Method != "GET" {
 			t.Errorf("mutation: %s", r.Method)
 		}

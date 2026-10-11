@@ -2,12 +2,12 @@
 
 ## Scope
 
-Container lifecycle and image writes remain disabled on RouterOS. The user's
-directory-picker follow-up authorizes real Files mkdir, rename and recursive
-directory removal independently. Simulated container lifecycle mutations are
-Go test-only handlers; they are absent from `cmd/rosboard`.
-Development preview HTML/fixtures must stay outside the embedded UI build.
-A future write phase requires separate RouterOS verification and acceptance.
+Container lifecycle/image writes default to read-only. Explicit private
+per-device `container_writes` opt-in enables the native writer for an authorized
+independent lab. Public device APIs cannot enable it; connection changes clear
+write authority and the pinned SSH key. Production verification/acceptance
+remains separate. Simulations and development fixtures remain outside the
+embedded production build.
 
 ## Boundaries
 
@@ -114,3 +114,30 @@ only in the absence of an explicit lifecycle state. Use memory-current before
 legacy memory-usage. Do not infer lifecycle state from stale healthcheck-status.
 An explicitly authorized operator smoke test does not enable product lifecycle
 writes or approve production delivery.
+
+
+## Native write invariants
+
+- Use `MutationClient.ContainerCommand` closed menus/fields only. No general
+  REST executor, bridge/VLAN edits, interface IP, routes or firewall/NAT commands.
+- Lifecycle, upload, policy and directory mutations share a device lock. Durable
+  native journals load before serving requests; unknown writes hold that lock.
+  Persist pending state before commands. Recover by read-back, never blind retry.
+- Ownership uses exact generated device/operation markers. Adoption marks only
+  its container. Deletion rechecks live references before auxiliary removals;
+  old env/mount cleanup requires recorded container/update lineage.
+- Upload only validated single Linux Docker-save archives, with pinned SSH,
+  exclusive generated remote paths and read-back SHA-256/size verification.
+- ROS 7.23.7 requires new root-dir paths. Remove an explicitly selected existing
+  empty folder only after rechecking exact ID/type, children and references.
+- Container removal implicitly erases root-dir. Rename the stopped unshared
+  filesystem to a unique sibling before remove. Verify the new name and absence
+  of the old name; Files opaque IDs can change on rename. Shared/overlapping
+  root/mount references block renaming/removal. Never promise the original
+  runtime path survives unchanged. Do not automatically purge retained backups.
+- Project CPU indices/ranges to cpu0/cpu1 names; clearing explicit memory limits
+  uses `unlimited`, not an empty integer. Read-back compares normalized units,
+  booleans, CPU names and paths. Existing config values survive editor defaults.
+- RouterOS `.proplist` treats plus literally; encode property spaces with `%20`
+  so `download/extract failed` remains visible. Public errors never include raw
+  connection credentials or request payloads.

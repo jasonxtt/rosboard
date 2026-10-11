@@ -197,7 +197,10 @@ func (s *Service) MutateDirectory(ctx context.Context, d config.DeviceConfig, di
 	}
 	if gate == nil {
 		if s.directoryGate == nil {
-			s.directoryGate = routeros.NewDeviceWriteGate()
+			s.directoryGate = s.NativeGate
+			if s.directoryGate == nil {
+				s.directoryGate = routeros.NewDeviceWriteGate()
+			}
 		}
 		gate = s.directoryGate
 	}

@@ -108,16 +108,20 @@ type FeatureLibraryConfig struct {
 const DefaultDeviceID = "default"
 
 type DeviceConfig struct {
-	ID               string                  `yaml:"id"`
-	Name             string                  `yaml:"name"`
-	Enabled          bool                    `yaml:"enabled"`
-	Archived         bool                    `yaml:"archived,omitempty"`
-	SortOrder        int                     `yaml:"sort_order,omitempty"`
-	ManagedAccount   *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
-	RouterOS         RouterOSConfig          `yaml:"routeros"`
-	ProtocolAnalysis bool                    `yaml:"protocol_analysis"`
-	FeatureLibrary   FeatureLibraryConfig    `yaml:"feature_library,omitempty"`
-	MosDNS           MosDNSConfig            `yaml:"mosdns,omitempty"`
+	// Container writes require a server-side, per-device opt-in. Device editors
+	// cannot enable this flag. Image uploads additionally pin the SSH host key.
+	ContainerWrites     bool                    `yaml:"container_writes,omitempty"`
+	ContainerSSHHostKey string                  `yaml:"container_ssh_host_key,omitempty"`
+	ID                  string                  `yaml:"id"`
+	Name                string                  `yaml:"name"`
+	Enabled             bool                    `yaml:"enabled"`
+	Archived            bool                    `yaml:"archived,omitempty"`
+	SortOrder           int                     `yaml:"sort_order,omitempty"`
+	ManagedAccount      *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
+	RouterOS            RouterOSConfig          `yaml:"routeros"`
+	ProtocolAnalysis    bool                    `yaml:"protocol_analysis"`
+	FeatureLibrary      FeatureLibraryConfig    `yaml:"feature_library,omitempty"`
+	MosDNS              MosDNSConfig            `yaml:"mosdns,omitempty"`
 }
 
 type ManagedRouterOSAccount struct {

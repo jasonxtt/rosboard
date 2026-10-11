@@ -66,3 +66,44 @@ generate, adopt or delete NAT rules; existing routes/firewall govern reachabilit
 Verify malformed/oversized archives, incompatible architecture, archive device
 isolation, image-source projection, path traversal, mkdir collisions, directory
 navigation and selected paths, abort on device switch, and both UI builds.
+
+
+## Authorized native lab write phase — 2026-10-11
+
+The user authorized complete Container write testing through the deployed lab
+panel against its preconfigured independent RouterOS only. Production RouterOS
+access, production deployment and final acceptance remain excluded. This phase
+supersedes the earlier lifecycle read-only implementation boundary for devices
+explicitly enabled through private server configuration.
+
+- Closed typed native writes cover create/edit/start/stop/restart/update/delete
+  and explicit adoption. Default devices remain read-only; public device edits
+  cannot enable native writes and connection changes clear the opt-in/pinned key.
+- A private durable per-device journal records exact ownership, request replay,
+  pending writes and progress. Mutations are never blindly retried; unknown
+  results retain the shared device lock and recover by reading first. Startup
+  restores unresolved locks before serving policy/Files writes.
+- Docker-save uploads use pinned SSH/SFTP, exclusive generated paths and remote
+  size/SHA-256 verification. Valid legacy archive internal links are accepted
+  without extracting; unsafe/missing links remain rejected. Already verified
+  uploads can be selected again without transferring the archive again.
+- New containers have dedicated VETH plus bridge port. No bridge settings,
+  addresses on existing interfaces, routes, NAT or firewall rules are changed.
+  Edits preserve the container root/image. Existing/shared network changes are
+  refused; adoption marks only the container, preserving auxiliary ownership.
+- Updates import into a new rootfs, stop the old container, start the replacement,
+  preserve the old rootfs and remove the old container. Mount sources remain
+  unchanged. Removal cleans only journal-linked owned objects after rechecking
+  shared references. Failed imports leave their created objects visible for
+  explicit cleanup; they are not silently rolled back.
+- RouterOS implicitly deletes root-dir on container removal. Preserve a stopped
+  rootfs by renaming its `container store` to a unique sibling with `-retained-`
+  before removal. Guard exact container identity, ownership, stopped status,
+  source metadata and all overlapping root/mount references. Shared/overlapping
+  roots block removal. Show the actual retained path; backups accumulate until
+  explicitly cleaned by the operator. This behavior was verified on the lab
+  version only and must be verified separately for another version.
+
+See `research/native-write-validation-2026-10-11.md` for actual results and
+remaining limits. Keep the task active and the same PR Draft; no APPROVED,
+production delivery, merge or archival is implied.
