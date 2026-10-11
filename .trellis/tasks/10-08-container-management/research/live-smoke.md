@@ -47,10 +47,34 @@ writer acceptance. The panel Container lifecycle endpoints still fail closed;
 real Files directory operations remain separate. The running smoke container
 and its owned artifacts remain in the lab for user inspection.
 
-The selected existing bridge originally had no LAN member. Internal HTTP health
-is proven, while direct LAN access requires a network preparation decision.
-Existing LAN membership/address migration was requested from the user and has
-not been applied without an answer. No bridge VLAN, NAT, or production device
-changes are part of this test.
+The selected existing bridge originally had no LAN member. The user explicitly
+authorized lab bridge preparation and console recovery. Adding the lab LAN
+interface exposed a virtual-switch dependency: the bridge retained its VETH
+MAC, whereas the ESXi port group rejected MAC changes and forged transmits.
+The lab management connection dropped before address migration could execute.
+
+Recovery through the named lab VM console fixed the bridge administrative MAC
+to the original LAN NIC MAC and moved the existing management address to the
+bridge. REST access and the deployed rosboard read model recovered. The lab
+router fetched the container IP directly and received HTTP 200 with the Nginx
+welcome page. External clients still could not reach it.
+
+Read-only ESXi and upstream RouterOS inspection confirmed that the lab shares
+an untagged standard-switch network with existing VMs. Its port group rejects
+promiscuous mode and forged transmits, preventing a bridged container from
+using an additional MAC through the VM NIC. Do not relax the shared production
+port group as a silent container-creation side effect. A proposed separate lab
+port group on the same switch would scope the two required exceptions to the
+lab NIC; this still permits the lab to receive more traffic on that shared
+broadcast domain and requires explicit authorization.
+
+Inspection also found a pre-existing duplicate lab WAN address on another VM.
+Alternate management destinations must be identified before authenticating;
+an open SSH port does not establish that the endpoint is the intended router.
+Private topology and recovery receipts remain outside the public repository.
+No bridge VLAN, NAT, upstream RouterOS, or shared ESXi policy changes were
+applied in this checkpoint.
 
 Reference: https://manual.mikrotik.com/docs/containers/
+
+Virtual-switch reference: https://knowledge.broadcom.com/external/article/440372/virtual-switch-portgroup-configuration-f.html
