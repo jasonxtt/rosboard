@@ -78,3 +78,29 @@ applied in this checkpoint.
 Reference: https://manual.mikrotik.com/docs/containers/
 
 Virtual-switch reference: https://knowledge.broadcom.com/external/article/440372/virtual-switch-portgroup-configuration-f.html
+
+## Authorized network follow-up
+
+The user approved a new dedicated lab port group on the existing standard
+switch, accepting promiscuous mode and forged transmits while explicitly
+rejecting MAC address changes. Only the lab LAN NIC moved to that port group;
+the original shared port groups and production VM settings were preserved.
+ESXi rejected hot reconfiguration for this VM. A normal guest shutdown,
+offline NIC change, and power-on succeeded without a forced power-off.
+
+The user also selected a replacement address for the lab WAN to remove the
+confirmed duplicate. The exact address object was updated and read back;
+the original gateway and management address were retained. REST identity
+was verified through the new WAN address.
+
+After boot, the existing smoke container started automatically and returned
+to healthy. Both the Mac and independent rosboard test host fetched its IP
+directly and received HTTP 200; the welcome body was checked. No published
+port or destination-NAT rule was needed. The deployed rosboard verification
+passed for the real running container, archive source, custom health,
+positive memory telemetry, logs, Files reads, device isolation, default
+resolution, write denial, and both embedded UI entries.
+
+This verifies the authorized lab network repair and first simple live smoke
+container. It does not enable the panel's lifecycle writer or replace the
+remaining independent acceptance of create/edit/update/delete semantics.
