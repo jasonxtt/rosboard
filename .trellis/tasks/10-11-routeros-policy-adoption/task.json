@@ -15,8 +15,8 @@
   "branch": "feat/routeros-policy-adoption",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "443a027",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/31",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -31,6 +31,7 @@
     "execution_hold": true,
     "hold_reason": "User explicitly requested stopping before concrete implementation on 2026-10-11.",
     "implementation_started": false,
-    "planning_approved": true
+    "planning_approved": true,
+    "preparation_complete": true
   }
 }

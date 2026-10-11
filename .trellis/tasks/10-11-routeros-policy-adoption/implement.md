@@ -9,9 +9,11 @@
 - [x] Record confirmed product choices in PRD and the agreed design.
 - [x] Persist research and curate implementation/review context.
 - [x] Validate documents and task metadata; activate implementation readiness (execution hold remains in force).
-- [ ] Inspect and commit only this task's planning artifacts.
-- [ ] Push feat/routeros-policy-adoption and create a Draft PR targeting main.
-- [ ] Attach the PR to this conversation and stop before feature coding.
+- [x] Inspect and commit only this task's planning artifacts.
+- [x] Push feat/routeros-policy-adoption and create a Draft PR targeting main.
+- [x] Attach the PR to this conversation and stop before feature coding.
+
+Preparation artifacts: Draft PR https://github.com/jasonxtt/rosboard/pull/31; initial planning commit `443a027`. All feature checkpoints below remain unstarted.
 
 ## Checkpoint 1: discovery, parsing, and read-only preview (not started)
 
