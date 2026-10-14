@@ -136,7 +136,7 @@ func TestContainerIndependentRouterOSRead(t *testing.T) {
 	if err != nil {
 		t.Fatal("RouterOS snapshot read failed")
 	}
-	if !snapshot.Capabilities.Supported || snapshot.Capabilities.Writes || snapshot.Options.Architecture == "" {
+	if !snapshot.Capabilities.Supported || snapshot.Capabilities.Writes || snapshot.Capabilities.DirectoryWrites || snapshot.Options.Architecture == "" {
 		t.Fatal("invalid read-only capabilities")
 	}
 	listing, err := service.Directories(ctx, device, snapshot.Options.Disks, "/")
@@ -170,5 +170,19 @@ func TestRouterOS723CombinedDownloadFlagsAndMemoryCurrent(t *testing.T) {
 	snapshot, err := service.Snapshot(context.Background(), config.DeviceConfig{})
 	if err != nil || len(snapshot.Items) != 1 || snapshot.Items[0].Memory != "123456" {
 		t.Fatal("current memory projection", snapshot, err)
+	}
+}
+
+func TestDirectoryCapabilityFollowsOptInEvenForCachedSnapshot(t *testing.T) {
+	service := &Service{ReaderFor: func(config.DeviceConfig) Reader {
+		return fakeReader{data: map[routeros.ContainerMenu][]routeros.RouterOSObject{}}
+	}, DirectoryWriterFor: func(config.DeviceConfig) DirectoryWriter { return &directoryFixture{} }, NativeStateDir: t.TempDir()}
+	device := config.DeviceConfig{ID: "capability-test"}
+	for _, enabled := range []bool{false, true, false} {
+		device.ContainerWrites = enabled
+		snapshot, err := service.Snapshot(context.Background(), device)
+		if err != nil || snapshot.Capabilities.DirectoryWrites != enabled {
+			t.Fatalf("enabled=%v: capability=%v error=%v", enabled, snapshot.Capabilities.DirectoryWrites, err)
+		}
 	}
 }

@@ -245,3 +245,14 @@ Checkpoint diff review, commits and pushes remain on the same Draft PR; see its
 Git history for the exact checkpoint HEAD.
 
 Production acceptance, root APPROVED, merge and task archival remain pending.
+
+## Production pilot preparation — 2026-10-14
+
+- [x] Gate Files writes and advertised capability with private device opt-in;
+  include cached snapshot, API denial and service bypass regression coverage.
+- [x] Run automated checks and production read-only RouterOS integration.
+- [x] Verify the fix on the isolated test-machine deployment.
+- [x] Verify production access and a mounted writable NAS backup destination.
+- [x] Back up production binary/config/all SQLite data/service, retain max ten.
+- [x] Replace production rosboard; verify service/health/API/assets.
+- [ ] User manually tests and accepts; keep task/PR unfinished until approval.

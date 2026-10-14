@@ -2,9 +2,9 @@
 
 ## Scope
 
-Container lifecycle/image writes default to read-only. Explicit private
+Container lifecycle/image and Files directory writes default to read-only. Explicit private
 per-device `container_writes` opt-in enables the native writer for an authorized
-independent lab. Public device APIs cannot enable it; connection changes clear
+independent lab or an explicitly authorized production pilot. Public device APIs cannot enable it; connection changes clear
 write authority and the pinned SSH key. Production verification/acceptance
 remains separate. Simulations and development fixtures remain outside the
 embedded production build.
@@ -62,9 +62,12 @@ skip the interactive preview server. Production builds must exclude its fixtures
   executing. Temporary staging is private and removed on success/failure. This
   phase accepts single-image Linux Docker-save tar only. Simulation stores only
   metadata and labels binary RouterOS transfer as simulated.
-- Files directory CRUD is real and separately advertised as `directoryWrites`.
-  Container `writes` remains false. Archive uploads remain test-only. Optional
-  real preview credentials are process-only and use the production handlers.
+- Files directory CRUD is real and separately advertised as `directoryWrites`,
+  but requires the same private per-device `container_writes` opt-in as native
+  writes. Enforce denial at both API admission and service entry before any
+  RouterOS I/O, including recovery. Recompute the directory capability when
+  decorating cached snapshots so a changed opt-in cannot leave stale controls.
+  Optional real preview credentials are process-only and use the production handlers.
 - On RouterOS 7.23.5, `/file/remove` with exact opaque IDs works where REST DELETE
   can fail. Future cleanup must use a typed command and verify owned paths/IDs.
   Binary SFTP upload support does not prove container import/start correctness.

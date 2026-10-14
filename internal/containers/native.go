@@ -167,6 +167,7 @@ func activeRecord(n *nativeDevice) *nativeRecord {
 	return nil
 }
 func (s *Service) decorateNative(d config.DeviceConfig, snapshot *Snapshot) error {
+	snapshot.Capabilities.DirectoryWrites = snapshot.Capabilities.Supported && d.ContainerWrites && s.DirectoryWriterFor != nil
 	if !d.ContainerWrites {
 		return nil
 	}

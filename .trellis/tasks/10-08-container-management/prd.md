@@ -143,3 +143,12 @@ explicitly enabled through private server configuration.
 See `research/native-write-validation-2026-10-11.md` for actual results and
 remaining limits. Keep the task active and the same PR Draft; no APPROVED,
 production delivery, merge or archival is implied.
+
+## Authorized production pilot preparation — 2026-10-14
+
+The user requested a directory-write gate fix, read-only production RouterOS
+verification, and replacement of the production rosboard instance after checks
+and the AGENTS.md backup gate. The user will manually test container creation.
+All Files writes must require the same private device opt-in as native writes.
+Keep credentials private; preserve existing production configuration/data.
+Production manual acceptance, root APPROVED, merge and archival remain pending.
