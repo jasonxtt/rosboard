@@ -2,8 +2,40 @@ package routeros
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestContainerUnsetUsesClosedNativeCommand(t *testing.T) {
+	fields := make(chan string, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/rest/container/unset" {
+			t.Errorf("unexpected command: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body) != 2 || body["numbers"] != "*1" {
+			t.Errorf("unexpected unset body: %v, %v", body, err)
+		}
+		fields <- body["value-name"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[{}]"))
+	}))
+	defer server.Close()
+	c := NewMutationClient(server.URL, "test", "test")
+	for _, field := range []string{"cmd", "entrypoint", "user", "workdir"} {
+		if err := c.ContainerCommand(context.Background(), ContainerList, "unset", RouterOSFields{"numbers": "*1", "value-name": field}); err != nil {
+			t.Fatal(err)
+		}
+		if got := <-fields; got != field {
+			t.Fatalf("wrong unset property: %s", got)
+		}
+	}
+	if len(fields) != 0 {
+		t.Fatalf("unset was retried: %d extra requests", len(fields))
+	}
+}
 
 func TestContainerMutationsFailClosed(t *testing.T) {
 	c := NewMutationClient("http://127.0.0.1:1", "test", "test")
@@ -18,6 +50,10 @@ func TestContainerMutationsFailClosed(t *testing.T) {
 		{ContainerList, "remove", RouterOSFields{"numbers": "*1", "name": "test"}},
 		{ContainerList, "start", RouterOSFields{"numbers": "all"}},
 		{ContainerVETH, "start", RouterOSFields{"numbers": "*1"}},
+		{ContainerVETH, "unset", RouterOSFields{"numbers": "*1", "value-name": "cmd"}},
+		{ContainerList, "unset", RouterOSFields{"numbers": "*1", "value-name": "remote-image"}},
+		{ContainerList, "unset", RouterOSFields{"numbers": "*1", "value-name": true}},
+		{ContainerList, "unset", RouterOSFields{"numbers": "*1", "value-name": "cmd", "cmd": ""}},
 	} {
 		if err := c.ContainerCommand(context.Background(), tc.m, tc.c, tc.f); err == nil {
 			t.Fatal("unsafe mutation allowed", tc)

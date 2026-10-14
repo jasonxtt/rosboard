@@ -69,6 +69,8 @@ func (f *nativeFake) ContainerCommand(ctx context.Context, m routeros.ContainerM
 				continue
 			}
 			switch c {
+			case "unset":
+				delete(row, fields["value-name"].(string))
 			case "remove":
 				if m == routeros.ContainerList {
 					root := strings.TrimPrefix(row["root-dir"], "/")
@@ -379,5 +381,86 @@ func TestNativeExistingEmptyRootAndNonemptyProtection(t *testing.T) {
 				t.Fatal("empty directory was not replaced by imported rootfs")
 			}
 		})
+	}
+}
+
+func TestNativeEditInheritsCurrentGlobalMemoryDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name, globalHigh, globalMax, explicitHigh, explicitMax, wantHigh, wantMax string
+	}{
+		{"finite defaults", "134217728", "268435456", "", "", "134217728", "268435456"},
+		{"unlimited defaults", "unlimited", "unlimited", "", "", "unlimited", "unlimited"},
+		{"missing defaults", "", "", "", "", "unlimited", "unlimited"},
+		{"mixed override", "134217728", "268435456", "64M", "", "64M", "268435456"},
+		{"explicit overrides", "134217728", "268435456", "unlimited", "128M", "unlimited", "128M"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, d, f := nativeFixture(t)
+			draft := draftFixture()
+			draft.MemoryHigh, draft.MemoryMax = "32M", "64M"
+			created := nativeSubmit(t, s, d, ActionRequest{Action: "create", RequestID: "create-memory", Draft: draft})
+			// Global creation defaults can change after the container was created.
+			// Editing with blank overrides must use these current values.
+			f.mu.Lock()
+			f.rows[routeros.ContainerConfig] = []routeros.RouterOSObject{{"memory-high": tc.globalHigh, "memory-max": tc.globalMax}}
+			f.mu.Unlock()
+			snap, err := s.fresh(context.Background(), d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			draft = snap.Items[0].Config
+			draft.MemoryHigh, draft.MemoryMax = tc.explicitHigh, tc.explicitMax
+			nativeSubmit(t, s, d, ActionRequest{Action: "edit", TargetID: created.TargetID, RequestID: "inherit-memory", Draft: draft})
+			after, err := s.fresh(context.Background(), d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := after.Items[0]
+			if got.Config.MemoryHigh != tc.wantHigh || got.Config.MemoryMax != tc.wantMax || got.Status != "running" {
+				t.Fatalf("memory inheritance or restart mismatch: high=%q max=%q status=%q", got.Config.MemoryHigh, got.Config.MemoryMax, got.Status)
+			}
+		})
+	}
+}
+
+func TestNativeEditRestoresImageDefaultsWithoutBlankOverrides(t *testing.T) {
+	s, d, f := nativeFixture(t)
+	draft := draftFixture()
+	draft.Command, draft.Entrypoint, draft.User, draft.Workdir = "serve --exact", "/entrypoint", "101", "/app"
+	created := nativeSubmit(t, s, d, ActionRequest{Action: "create", RequestID: "startup-create", Draft: draft})
+	snap, err := s.fresh(context.Background(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft = snap.Items[0].Config
+	draft.Command, draft.Entrypoint, draft.User, draft.Workdir = "", "", "", ""
+	f.unknown = true
+	req := ActionRequest{Action: "edit", TargetID: created.TargetID, RequestID: "startup-defaults", Draft: draft}
+	edited := nativeSubmit(t, s, d, req)
+	f.mu.Lock()
+	writes := f.writes
+	var remaining []string
+	for _, key := range []string{"cmd", "entrypoint", "user", "workdir"} {
+		if _, exists := f.rows[routeros.ContainerList][0][key]; exists {
+			remaining = append(remaining, key)
+		}
+	}
+	f.mu.Unlock()
+	if len(remaining) != 0 {
+		t.Fatalf("blank overrides remained: %v", remaining)
+	}
+	// Four default-restoring unsets, stop/set/start; uncertain acknowledgements
+	// must be resolved by field absence instead of retransmitting the commands.
+	if writes != 11 {
+		t.Fatalf("unexpected writes or retries: %d", writes)
+	}
+	replay, err := s.Submit(context.Background(), d, nil, req)
+	if err != nil || replay.ID != edited.ID {
+		t.Fatal("edit replay failed", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.writes != writes {
+		t.Fatal("replay issued another write")
 	}
 }

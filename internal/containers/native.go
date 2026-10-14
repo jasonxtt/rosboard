@@ -445,6 +445,9 @@ func desired(step nativeStep, rows []routeros.RouterOSObject) (bool, string) {
 	}
 	row := matches[0]
 	switch step.Command {
+	case "unset":
+		_, overridden := row[step.Fields["value-name"]]
+		return !overridden, row[".id"]
 	case "start":
 		return containerStatus(row) == "running", row[".id"]
 	case "stop":
@@ -958,6 +961,21 @@ func (s *Service) plan(ctx context.Context, d config.DeviceConfig, req ActionReq
 			delete(fields, "interface")
 			for k, v := range map[string]string{"cmd": e.Command, "entrypoint": e.Entrypoint, "user": e.User, "workdir": e.Workdir, "cpu-list": e.CPUList, "memory-high": e.MemoryHigh, "memory-max": e.MemoryMax} {
 				fields[k] = v
+			}
+			// RouterOS cannot unset these integer fields: an empty set becomes
+			// unlimited, not the current creation defaults. Resolve inheritance
+			// explicitly when replacing existing per-container limits.
+			fields["memory-high"] = first(e.MemoryHigh, first(snap.Options.MemoryHigh, "unlimited"))
+			fields["memory-max"] = first(e.MemoryMax, first(snap.Options.MemoryMax, "unlimited"))
+			// Empty strings override image defaults on RouterOS. Remove the
+			// override with unset, whose outcome is observable as field absence.
+			for _, key := range []string{"cmd", "entrypoint", "user", "workdir"} {
+				if fields[key] == "" {
+					delete(fields, key)
+					if _, overridden := original[key]; overridden {
+						steps = append(steps, nativeStep{Menu: routeros.ContainerList, Command: "unset", Match: match, Fields: map[string]string{"value-name": key}})
+					}
+				}
 			}
 			if e.Health.Mode == "inherit" {
 				fields["healthcheck-cmd"] = ""

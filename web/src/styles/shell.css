@@ -329,6 +329,7 @@
   .topnav {
     top: 8px;
     margin-bottom: var(--space-4);
+    flex-wrap: wrap;
   }
 
   .brand {
