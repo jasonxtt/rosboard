@@ -26,7 +26,7 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	// Only a private server configuration can opt a device into native writes.
-	mutation := request.Method != http.MethodGet && !((resolving || directories) && request.Method == http.MethodPost)
+	mutation := request.Method != http.MethodGet && !(resolving && request.Method == http.MethodPost)
 	if mutation && !device.ContainerWrites {
 		writeAPIError(writer, 403, "container_read_only", "此设备未启用容器写入")
 		return
@@ -95,7 +95,7 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		writeJSON(writer, 201, archive)
 		return
 	}
-	if mutation {
+	if mutation && !(directories && request.Method == http.MethodPost) {
 		writeAPIError(writer, 403, "container_read_only", "不支持此写入接口")
 		return
 	}

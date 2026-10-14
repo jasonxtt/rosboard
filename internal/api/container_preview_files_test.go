@@ -38,7 +38,7 @@ func (m *simulation) mkdir(w http.ResponseWriter, r *http.Request, device string
 	if decodeJSONBody(w, r, &req) != nil {
 		return
 	}
-	result, err := m.directories.MutateDirectory(r.Context(), config.DeviceConfig{ID: device}, s.Options.Disks, nil, req)
+	result, err := m.directories.MutateDirectory(r.Context(), config.DeviceConfig{ID: device, ContainerWrites: true}, s.Options.Disks, nil, req)
 	if err != nil {
 		writeDirectoryError(w, err)
 		return

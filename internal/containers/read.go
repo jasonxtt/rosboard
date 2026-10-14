@@ -114,7 +114,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 		return result, fmt.Errorf("read containers: %w", err)
 	}
 	result.Capabilities.Supported = true
-	result.Capabilities.DirectoryWrites = s.DirectoryWriterFor != nil
+	result.Capabilities.DirectoryWrites = d.ContainerWrites && s.DirectoryWriterFor != nil
 	data := map[routeros.ContainerMenu][]routeros.RouterOSObject{}
 	for _, menu := range []routeros.ContainerMenu{routeros.ContainerResource, routeros.ContainerConfig, routeros.ContainerVETH, routeros.ContainerBridge, routeros.ContainerBridgePort, routeros.ContainerInterfaces, routeros.ContainerAddresses, routeros.ContainerDisk, routeros.ContainerEnvs, routeros.ContainerMounts, routeros.ContainerLogs} {
 		objects, err := reader.ContainerRead(ctx, menu)

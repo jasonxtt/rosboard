@@ -41,14 +41,14 @@ func TestContainerAPIDeviceScopeAndWriteDenial(t *testing.T) {
 		method, path string
 		status       int
 		want         string
-	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"GET", "/api/containers/directories?device=a", 200, "sata1"}, {"POST", "/api/containers/directories?device=a", 400, "invalid_json"}, {"POST", "/api/containers/images/upload?device=a", 403, "container_read_only"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
+	}{{"GET", "/api/containers", 400, "device_required"}, {"GET", "/api/containers?device=missing", 404, "device_not_found"}, {"GET", "/api/containers?device=archived", 404, "device_not_found"}, {"GET", "/api/containers?device=a", 200, "only-a"}, {"GET", "/api/containers?device=b", 200, "only-b"}, {"GET", "/api/containers/directories?device=a", 200, "sata1"}, {"POST", "/api/containers/directories?device=a", 403, "container_read_only"}, {"POST", "/api/containers/images/upload?device=a", 403, "container_read_only"}, {"POST", "/api/containers/actions?device=a", 403, "container_read_only"}, {"DELETE", "/api/containers/*7?device=a", 403, "container_read_only"}, {"POST", "/api/containers/jobs/x/recover?device=a", 403, "container_read_only"}, {"GET", "/api/containers/not-here?device=a", 404, "container_not_found"}} {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
 		if w.Code != tc.status || !strings.Contains(w.Body.String(), tc.want) {
 			t.Fatalf("%s => %d %s", tc.path, w.Code, w.Body.String())
 		}
 		if tc.method == "GET" && tc.status == 200 {
-			if strings.Contains(w.Body.String(), `"writes":true`) {
+			if strings.Contains(w.Body.String(), `"writes":true`) || strings.Contains(w.Body.String(), `"directoryWrites":true`) {
 				t.Fatal("production writes enabled")
 			}
 		}
@@ -281,12 +281,14 @@ func (c directoryAPIReader) ContainerRead(ctx context.Context, menu routeros.Con
 }
 func TestRealDirectoryAPIContractScopeCRUDAndContainerWriteIsolation(t *testing.T) {
 	m := newSimulation()
-	cfg := config.Config{Devices: []config.DeviceConfig{{ID: "demo-router", Enabled: true}, {ID: "demo-edge", Enabled: true}}}
+	cfg := config.Config{Devices: []config.DeviceConfig{{ID: "demo-router", Enabled: true, ContainerWrites: true}, {ID: "demo-edge", Enabled: true}}}
 	s := NewServer(cfg, nil, fstest.MapFS{})
 	s.containers.ReaderFor = func(d config.DeviceConfig) containers.Reader {
 		return directoryAPIReader{simulationDirectoryClient{m, d.ID}}
 	}
 	s.containers.DirectoryWriterFor = func(d config.DeviceConfig) containers.DirectoryWriter { return simulationDirectoryClient{m, d.ID} }
+	s.containers.NativeWriterFor = nil
+	s.containers.NativeStateDir = t.TempDir()
 	call := func(method, url string, body any, status int) []byte {
 		t.Helper()
 		raw, _ := json.Marshal(body)
@@ -320,5 +322,5 @@ func TestRealDirectoryAPIContractScopeCRUDAndContainerWriteIsolation(t *testing.
 	call("GET", endpoint+"&path="+entry.Path, nil, 404)
 	call("POST", endpoint, containers.DirectoryRequest{Action: "delete", RequestID: "api-delete-disk", Path: "/sata1", ExpectedID: "*1", ConfirmPath: "/sata1"}, 403)
 	call("POST", endpoint, containers.DirectoryRequest{Action: "upload", RequestID: "api-invalid-action"}, 400)
-	call("POST", "/api/containers/actions?device=demo-router", map[string]string{"action": "start"}, 403)
+	call("POST", "/api/containers/actions?device=demo-edge", map[string]string{"action": "start"}, 403)
 }
