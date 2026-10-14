@@ -145,3 +145,13 @@ must preserve per-device write authority, the shared mutation gate, durable
 pending intent/read-back, original entry identity, and bounded crash recovery.
 Do not use blind native import retries or claim polling removes the first-seen-IP
 race. Keep failed proofs out of the runnable build and production delivery.
+
+## Host-side registry import proposal
+
+The user selected application-host download/archive import and requested a full
+proposal before implementation. See
+`research/host-registry-import-proposal-2026-10-14.md` for download/proxy settings,
+binary and Docker staging, target platform/archive compatibility, separate
+per-device SFTP authority, durable native-job integration, origin metadata,
+quota/cleanup, and the actual-test/deployment gates. This is a proposal for review;
+no runnable changes or production replacement follow from writing this document.
