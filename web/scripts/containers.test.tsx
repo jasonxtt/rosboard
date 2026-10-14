@@ -11,6 +11,7 @@ import {
   normalizedImage,
 } from '../src/features/containers/drafts.ts'
 import {
+  parseJob,
   parseItem,
   parseSnapshot,
   parseResolution,
@@ -1668,3 +1669,12 @@ for (const [name, Page] of [
       env.restore()
     }
   })
+
+
+test('container job accepts optional safe DNS warnings without changing error state', () => {
+  const legacy = parseJob({ state: 'succeeded', retained: [] })
+  assert.deepEqual(legacy.warnings, [])
+  const current = parseJob({ state: 'running', warnings: ['部分镜像域名 DNS 查询未完成'], error: '' })
+  assert.equal(current.error, '')
+  assert.deepEqual(current.warnings, ['部分镜像域名 DNS 查询未完成'])
+})

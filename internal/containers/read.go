@@ -24,6 +24,8 @@ type cachedSnapshot struct {
 }
 type pendingSnapshot struct{ done chan struct{} }
 type Service struct {
+	RegistryDNSLookup  DNSLookup
+	registryDNS        registryDNSRuntime
 	ArchiveTransfer    func(context.Context, config.DeviceConfig, ImageArchive, io.Reader) error
 	NativeGate         *routeros.DeviceWriteGate
 	NativeWriterFor    func(config.DeviceConfig) NativeWriter
@@ -93,7 +95,7 @@ func (s *Service) Snapshot(ctx context.Context, d config.DeviceConfig) (Snapshot
 }
 
 func NewService() *Service {
-	return &Service{NativeGate: routeros.NewDeviceWriteGate(), ArchiveTransfer: transferArchive, NativeWriterFor: func(d config.DeviceConfig) NativeWriter {
+	return &Service{RegistryDNSLookup: queryRouterDNS, NativeGate: routeros.NewDeviceWriteGate(), ArchiveTransfer: transferArchive, NativeWriterFor: func(d config.DeviceConfig) NativeWriter {
 		return routeros.NewMutationClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
 	}, ReaderFor: func(d config.DeviceConfig) Reader {
 		return routeros.NewClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)

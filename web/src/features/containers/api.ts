@@ -186,6 +186,7 @@ export function parseJob(v: unknown): Job {
     progress: Math.max(0, Math.min(100, safeNumber(o.progress))),
     error: safeString(o.error),
     retained: strings(o.retained),
+    warnings: strings(o.warnings),
   }
 }
 const endpoint = (device: string, path = '') =>
