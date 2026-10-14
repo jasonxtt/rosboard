@@ -152,3 +152,15 @@ and the AGENTS.md backup gate. The user will manually test container creation.
 All Files writes must require the same private device opt-in as native writes.
 Keep credentials private; preserve existing production configuration/data.
 Production manual acceptance, root APPROVED, merge and archival remain pending.
+
+## Registry DNS warming — authorized 2026-10-14
+
+After confirmed registry create/update, query registry/authentication/layer
+domains A and AAAA from rosboard to the selected RouterOS DNS service before
+submitting the image add. Refresh during downloads by DNS TTL; stop on download
+completion/failure. Recover refresh for journaled pending downloads after service
+restart without repeating native writes. Detect explicit registry or effective
+RouterOS registry configuration; skip local archives. Keep routing policy, DNS
+configuration and connectivity validation unchanged. Show preparation in the
+existing progress area. Validate on the disposable test environment before the
+authorized production replacement with NAS backup/manual-acceptance gates.

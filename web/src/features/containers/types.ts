@@ -145,6 +145,7 @@ export type Action =
   | 'delete'
   | 'adopt'
 export type Job = {
+  warnings?: string[]
   id: string
   deviceId: string
   action: string

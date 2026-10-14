@@ -155,3 +155,23 @@ writes or approve production delivery.
 - RouterOS `.proplist` treats plus literally; encode property spaces with `%20`
   so `download/extract failed` remains visible. Public errors never include raw
   connection credentials or request payloads.
+
+## Container-only registry DNS warming
+
+- External DNS queries before registry imports can populate RouterOS FWD address
+  lists where internal resolver requests do not. Query only the selected router,
+  A and AAAA, with bounded timeouts and validated replies/TCP fallback.
+- Explicit image registry hosts take precedence over private configured/detected
+  registry URL. Keep registry URLs in a separate closed internal config read;
+  never expose registry credentials/URLs through snapshots or public errors.
+- Skip archives and non-download operations. Reuse existing journaled add steps
+  for update/recovery; restore pending-download refresh after restart without
+  repeating native writes. DNS refresh does not release unknown-operation locks.
+- Refresh original known names using minimum address/CNAME TTL; arbitrary CNAME
+  queries may select a different DNS policy. Stop workers when import ends.
+- Preparation is best effort with safe optional warnings. It adds no DNS, route
+  or firewall mutations and no connectivity-validation gate.
+- Lab evidence shows a remaining race: a subsequent internal lookup can return a
+  previously unseen address and connect before external refresh populates the
+  list. Do not claim pure warming guarantees rotating registry/CDN routing or
+  accept production delivery on unit tests or one successful request alone.

@@ -107,3 +107,25 @@ explicitly enabled through private server configuration.
 See `research/native-write-validation-2026-10-11.md` for actual results and
 remaining limits. Keep the task active and the same PR Draft; no APPROVED,
 production delivery, merge or archival is implied.
+
+## Registry DNS warming
+
+Use a container-scoped DNS wire client (UDP with truncated-response TCP fallback)
+addressed only to the selected RouterOS host, port 53. Closed ContainerConfig
+reads add registry-url and assumed-registry-url, never credentials. Explicit
+registry hosts override config; unqualified references follow effective config
+with Docker Hub fallback only when no configured/detected registry exists.
+Known Docker Hub and GHCR sets include authentication/layer hosts; custom
+registries query their host. Validate and bound host names and DNS responses; derive refresh from
+A/AAAA/CNAME TTLs without separately querying arbitrary canonical names, which
+could select a different DNS policy; do not fetch registry HTTP endpoints or change firewall/DNS rules.
+
+Start a device/job-scoped refresh worker before the existing native container
+add step, before its pending-write journal transition. Queries are best effort:
+a bounded failure produces a safe job warning and existing import continues.
+Use bounded concurrent queries with per-query deadlines and TTL refresh. Worker read-back stops on terminal container import state,
+job completion/failure or cancellation. Unknown native results retain DNS refresh
+while import remains active; journal restoration restarts warming for pending
+registry add steps independently of explicit write recovery. Deduplicate workers.
+No DNS answer or credential is persisted; existing durable steps are the restore
+source. Test queries/lifecycle using injectable exchanges and DNS wire fixtures.

@@ -157,7 +157,11 @@ func (n *nativeDevice) save() error {
 	defer dir.Close()
 	return dir.Sync()
 }
-func cloneJob(j Job) Job { j.Retained = append([]string{}, j.Retained...); return j }
+func cloneJob(j Job) Job {
+	j.Retained = append([]string{}, j.Retained...)
+	j.Warnings = append([]string{}, j.Warnings...)
+	return j
+}
 func activeRecord(n *nativeDevice) *nativeRecord {
 	for _, r := range n.state.Jobs {
 		if r.Job.State == "queued" || r.Job.State == "running" || r.Job.State == "unknown" {
@@ -464,6 +468,9 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 	failure := false
 	unknown := false
 	defer func() {
+		if !unknown {
+			s.stopRegistryDNS(d, r.Job.ID)
+		}
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		n.running = false
@@ -504,6 +511,12 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 		n.mu.Unlock()
 		if done {
 			continue
+		}
+		if step.Menu == routeros.ContainerList && step.Command == "add" && step.Fields["remote-image"] != "" && step.Fields["file"] == "" {
+			n.mu.Lock()
+			r.Job.Phase = "准备镜像域名解析"
+			n.mu.Unlock()
+			s.beginRegistryDNS(d, n, r, step)
 		}
 		rows, err := reader.ContainerRead(ctx, step.Menu)
 		if err != nil {
@@ -1161,7 +1174,24 @@ func (s *Service) containerLineage(d config.DeviceConfig, id, owner string) map[
 // Files writes. A corrupt journal blocks that device until an administrator
 // repairs its private state; it must never silently discard an unknown write.
 func (s *Service) RestoreNative(d config.DeviceConfig) error {
-	_, err := s.nativeDevice(d)
+	n, err := s.nativeDevice(d)
+	if err == nil {
+		n.mu.Lock()
+		for _, r := range n.state.Jobs {
+			if r.Pending && (r.Job.State == "unknown" || r.Job.State == "running") {
+				for _, step := range r.Steps {
+					if step.Done {
+						continue
+					}
+					if step.Menu == routeros.ContainerList && step.Command == "add" && step.Fields["remote-image"] != "" {
+						go s.beginRegistryDNS(d, n, r, step)
+					}
+					break
+				}
+			}
+		}
+		n.mu.Unlock()
+	}
 	if err != nil && s.NativeGate != nil {
 		s.NativeGate.TryAcquire(d.ID)
 	}

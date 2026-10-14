@@ -111,6 +111,7 @@ func nativeFixture(t *testing.T) (*Service, config.DeviceConfig, *nativeFake) {
 		routeros.ContainerBridge: {{"name": "br-containers"}}, routeros.ContainerDisk: {{"name": "sata1", "fs": "ext4", "free": "1073741824"}}, routeros.ContainerResource: {{"architecture-name": "x86_64", "version": "7.23.7"}},
 	}}
 	s := NewServiceWithState(t.TempDir())
+	s.RegistryDNSLookup = nil
 	s.ReaderFor = func(config.DeviceConfig) Reader { return f }
 	s.NativeWriterFor = func(config.DeviceConfig) NativeWriter { return f }
 	return s, d, f

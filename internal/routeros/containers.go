@@ -12,30 +12,35 @@ import (
 type ContainerMenu string
 
 const (
-	ContainerList       ContainerMenu = "container"
-	ContainerConfig     ContainerMenu = "container/config"
-	ContainerVETH       ContainerMenu = "interface/veth"
-	ContainerBridge     ContainerMenu = "interface/bridge"
-	ContainerBridgePort ContainerMenu = "interface/bridge/port"
-	ContainerInterfaces ContainerMenu = "interface"
-	ContainerAddresses  ContainerMenu = "ip/address"
-	ContainerDisk       ContainerMenu = "disk"
-	ContainerEnvs       ContainerMenu = "container/envs"
-	ContainerMounts     ContainerMenu = "container/mounts"
-	ContainerResource   ContainerMenu = "system/resource"
-	ContainerLogs       ContainerMenu = "container/log"
-	ContainerFiles      ContainerMenu = "file"
+	ContainerList           ContainerMenu = "container"
+	ContainerConfig         ContainerMenu = "container/config"
+	ContainerRegistryConfig ContainerMenu = "container/registry-config"
+	ContainerVETH           ContainerMenu = "interface/veth"
+	ContainerBridge         ContainerMenu = "interface/bridge"
+	ContainerBridgePort     ContainerMenu = "interface/bridge/port"
+	ContainerInterfaces     ContainerMenu = "interface"
+	ContainerAddresses      ContainerMenu = "ip/address"
+	ContainerDisk           ContainerMenu = "disk"
+	ContainerEnvs           ContainerMenu = "container/envs"
+	ContainerMounts         ContainerMenu = "container/mounts"
+	ContainerResource       ContainerMenu = "system/resource"
+	ContainerLogs           ContainerMenu = "container/log"
+	ContainerFiles          ContainerMenu = "file"
 )
 
 // ContainerRead is a closed GET-only reader. Credentials and config-json are
 // excluded even when RouterOS would otherwise include them in /container.
 func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]RouterOSObject, error) {
 	props := ""
+	menuPath := string(menu)
 	switch menu {
 	case ContainerList:
 		props = ".id,comment,name,remote-image,file,tag,interface,root-dir,cmd,entrypoint,user,workdir,start-on-boot,logging,restart-policy,cpu-list,cpu-usage,memory-usage,memory-current,memory-high,memory-max,running,healthy,unhealthy,stopped,starting,starting-with-healthcheck,stopping,extracting,downloading,downloading/extracting,download/extract failed,error,status,envlists,envlist,mountlists,mounts,healthcheck-cmd,healthcheck-interval,healthcheck-timeout,healthcheck-retries,healthcheck-start-period,default-cmd,default-entrypoint,default-user,default-workdir,default-healthcheck-cmd"
 	case ContainerConfig:
 		props = "memory-high,memory-max"
+	case ContainerRegistryConfig:
+		props = "registry-url,assumed-registry-url"
+		menuPath = "container/config"
 	case ContainerVETH:
 		props = ".id,comment,name,address,gateway,gateway6,mac-address,dhcp"
 	case ContainerBridge:
@@ -62,7 +67,7 @@ func (c *Client) ContainerRead(ctx context.Context, menu ContainerMenu) ([]Route
 		return nil, errors.New("unsupported container read menu")
 	}
 	var raw json.RawMessage
-	if err := c.getJSON(ctx, "/rest/"+string(menu)+"?.proplist="+strings.ReplaceAll(url.QueryEscape(props), "+", "%20"), &raw); err != nil {
+	if err := c.getJSON(ctx, "/rest/"+menuPath+"?.proplist="+strings.ReplaceAll(url.QueryEscape(props), "+", "%20"), &raw); err != nil {
 		return nil, err
 	}
 	rows := []RouterOSObject{}

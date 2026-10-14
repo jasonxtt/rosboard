@@ -139,6 +139,7 @@ type Log struct {
 
 // Job is shared with the test-only simulator and reserved for future real writes.
 type Job struct {
+	Warnings []string `json:"warnings,omitempty"`
 	ID       string   `json:"id"`
 	DeviceID string   `json:"deviceId"`
 	Action   string   `json:"action"`

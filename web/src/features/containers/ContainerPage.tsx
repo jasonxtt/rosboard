@@ -618,6 +618,7 @@ export function ContainerPage({
           </div>
           <progress value={job.progress} max="100" />
           {job.error && <p>{job.error}</p>}
+          {job.warnings?.map((warning) => <p key={warning}>{warning}</p>)}
           {(job.state === 'unknown' || (job.state === 'failed' && c.mode === 'native')) && (
             <button
               className="ct-primary"

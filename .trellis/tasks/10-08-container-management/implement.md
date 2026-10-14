@@ -256,3 +256,20 @@ Production acceptance, root APPROVED, merge and task archival remain pending.
 - [x] Back up production binary/config/all SQLite data/service, retain max ten.
 - [x] Replace production rosboard; verify service/health/API/assets.
 - [ ] User manually tests and accepts; keep task/PR unfinished until approval.
+
+## Registry DNS warming execution
+
+- [x] Implement bounded DNS wire client, registry selection and known hosts.
+- [x] Integrate preparation, TTL refresh, stop and journal restoration; skip
+  archive/edit/lifecycle operations and preserve write replay semantics.
+- [x] Show safe optional warnings in shared progress, no extra confirmation.
+- [x] Verify DNS wire/TCP/TTL/registry/device/recovery/no-duplicate contracts.
+- [ ] Run Go/frontend checks and isolated real test-machine create/update.
+- [ ] Review staged public diff, checkpoint and push existing Draft PR.
+- [ ] Verify writable NAS, consistent production backup, replacement and
+  service/health/API/assets. User manual acceptance remains pending.
+
+Registry DNS checkpoint: automated checks and GHCR actual create/update/restart
+recovery passed; Docker Hub download failed due to rotating-answer/list timing.
+Production replacement is withheld pending scope revision and real acceptance.
+See research/registry-dns-warming-2026-10-14.md.

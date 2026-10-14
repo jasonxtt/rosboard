@@ -57,3 +57,17 @@ func TestContainerReadsAreClosedGETOnlyAndExcludeCredentials(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 }
+
+func TestRegistryConfigReadIsInternalClosedAndExcludesCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/rest/container/config" || r.URL.Query().Get(".proplist") != "registry-url,assumed-registry-url" {
+			t.Fatal("unexpected registry read", r.URL)
+		}
+		fmt.Fprint(w, `{"registry-url":"https://registry.example","assumed-registry-url":"https://registry-1.docker.io"}`)
+	}))
+	defer server.Close()
+	rows, err := NewClient(server.URL, "fixture", "fake-only").ContainerRead(context.Background(), ContainerRegistryConfig)
+	if err != nil || rows[0]["registry-url"] != "https://registry.example" {
+		t.Fatal(rows, err)
+	}
+}

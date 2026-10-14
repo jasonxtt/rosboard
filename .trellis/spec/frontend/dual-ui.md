@@ -84,3 +84,8 @@ operation names while retaining the API action identifiers.
 
 Aurora's mobile top navigation wraps when the device name and action controls
 cannot fit. Keep theme/settings controls reachable without widening the document.
+
+Registry DNS preparation uses the existing container job progress area, without
+an extra confirmation or connectivity gate. Parse optional safe `warnings` as
+strings, accepting older jobs without them; render warnings as text separately
+from native operation errors in both shared UI variants.
