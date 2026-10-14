@@ -66,3 +66,42 @@ these failed checks. The previous production build remains in service. Await
 user direction on expanding only the container download address-synchronization
 scope; policy functionality/settings remain outside the current change. Keep
 the same Draft PR active, with no APPROVED, merge, release or task completion.
+
+## Expanded container-only address synchronization research
+
+The user approved continuing address synchronization for container downloads,
+including temporary data maintenance in existing policy address lists. Policy
+settings, DNS configuration, routing rules, and broad provider prefixes remain
+outside scope. Production replacement still requires successful actual downloads.
+
+An independent lab proof attempted exact-IP timed additions after external A/AAAA
+queries. RouterOS rejects duplicate address/list pairs, including /32 and singleton
+range spellings. Timed additions cannot independently pin an existing DNS-owned
+entry. A second proof extended only matching DNS-created dynamic entries to a
+bounded ten-minute timeout without changing comments or rules. It accumulated 31
+IPv4 addresses before import, then 38 during import, but Docker Hub import still
+failed. Test-only modifications were reset to short expiry, newly owned fixtures
+were removed, and the original container remained untouched. A packet capture
+follow-up is required to distinguish another unseen-address race from an
+independent downloader/transport failure; this proof is not production code.
+
+A targeted capture with only router-address DNS/HTTPS traffic confirmed the
+remaining failure: a fresh internal registry response was followed immediately
+by a connection through the ordinary gateway, before the external synchronization
+round. Repeated timeout extension, including refresh of re-created DNS rows,
+still failed. Exact short-lived FQDN parents for all four Docker Hub download
+hosts also failed; the capture showed the same fresh-answer/immediate-connect
+ordering. These approaches cannot guarantee enrollment before a previously
+unseen address's first connection. Cleanup removed only exact proof markers,
+reset the proof's timeout extensions, stopped capture, and preserved the existing
+runtime. No failed approach was added to the program.
+
+An alternative read-only proof on the independent application host successfully
+completed Docker Hub authentication, multi-platform manifest selection for
+linux/amd64, config and all Alpine image layer downloads. Descriptor sizes and
+SHA-256 digests matched. Host-side download followed by the existing validated
+Docker-save archive transfer/import could avoid RouterOS native registry DNS
+routing entirely. This changes the download architecture and requires separate
+user agreement before implementation; it is not included in the address-list
+synchronization authorization. Keep the existing Draft PR active, with production
+replacement and final acceptance pending.

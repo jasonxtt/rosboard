@@ -164,3 +164,12 @@ RouterOS registry configuration; skip local archives. Keep routing policy, DNS
 configuration and connectivity validation unchanged. Show preparation in the
 existing progress area. Validate on the disposable test environment before the
 authorized production replacement with NAS backup/manual-acceptance gates.
+
+## Expanded container-only address synchronization — user approved
+
+Improve registry downloads by synchronizing exact repository/authentication/layer
+addresses into the existing applicable policy address-list data during the task.
+No policy settings, DNS configuration, or route/firewall rules may change. The
+implementation must preserve unrelated entries, bound temporary state after
+crash/restart, and pass repeated actual downloads on the independent lab before
+production replacement. Failed proofs do not authorize deployment or acceptance.

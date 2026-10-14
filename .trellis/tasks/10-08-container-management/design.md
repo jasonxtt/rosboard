@@ -129,3 +129,19 @@ while import remains active; journal restoration restarts warming for pending
 registry add steps independently of explicit write recovery. Deduplicate workers.
 No DNS answer or credential is persisted; existing durable steps are the restore
 source. Test queries/lifecycle using injectable exchanges and DNS wire fixtures.
+
+## Authorized container download address synchronization research
+
+Actual warming tests exposed an internal-DNS/immediate-connect race. The user
+approved temporary maintenance of existing policy address-list data only for
+container imports. This supersedes the warming design's no-address-data-write
+boundary, but not its prohibition on modifying DNS configuration, policy settings,
+route/firewall rules, arbitrary networks, or unrelated static entries.
+
+Before selecting a program implementation, verify actual Docker Hub downloads.
+Exact-IP additions collide with DNS-owned dynamic entries; bounded timeout
+extension is a lab hypothesis, not an accepted design. Any viable implementation
+must preserve per-device write authority, the shared mutation gate, durable
+pending intent/read-back, original entry identity, and bounded crash recovery.
+Do not use blind native import retries or claim polling removes the first-seen-IP
+race. Keep failed proofs out of the runnable build and production delivery.

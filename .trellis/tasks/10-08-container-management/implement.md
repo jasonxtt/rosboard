@@ -273,3 +273,13 @@ Registry DNS checkpoint: automated checks and GHCR actual create/update/restart
 recovery passed; Docker Hub download failed due to rotating-answer/list timing.
 Production replacement is withheld pending scope revision and real acceptance.
 See research/registry-dns-warming-2026-10-14.md.
+
+## Expanded address synchronization (user authorized)
+
+- [ ] Prove a container-only existing-list data approach on independent lab.
+- [ ] Identify exact DNS/policy/IPv4/IPv6 list boundaries without changing rules.
+- [ ] Implement only a successful approach with durable identity/recovery and
+      bounded cleanup, preserving foreign/static entries and no blind retries.
+- [ ] Verify actual repeated Docker Hub/GHCR import and restart recovery, then
+      complete automated checks and the same Draft PR checkpoint.
+- [ ] Perform NAS-backed production replacement only after successful validation.
