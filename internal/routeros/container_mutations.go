@@ -25,6 +25,15 @@ func (c *MutationClient) ContainerCommand(ctx context.Context, menu ContainerMen
 	}
 	switch command {
 	case "add", "set", "remove":
+	case "unset":
+		if menu != ContainerList {
+			return errors.New("unsupported container unset menu")
+		}
+		field, ok := fields["value-name"].(string)
+		if !ok || (field != "cmd" && field != "entrypoint" && field != "user" && field != "workdir") {
+			return errors.New("unsupported container unset property")
+		}
+		properties = "value-name"
 	case "start", "stop":
 		if menu != ContainerList {
 			return errors.New("unsupported lifecycle menu")

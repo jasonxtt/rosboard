@@ -222,3 +222,26 @@ explicitly enabled through private server configuration.
 See `research/native-write-validation-2026-10-11.md` for actual results and
 remaining limits. Keep the task active and the same PR Draft; no APPROVED,
 production delivery, merge or archival is implied.
+
+## Resume validation — 2026-10-14
+
+Continue the existing workstream and Draft PR #30. The user requested remaining
+verification and fixes, and logged into the existing test panel for browser QA.
+
+- [x] Fetch origin, verify PR HEAD, restore the work branch and active task.
+- [x] Re-run Go test/build/vet and containers/routeros/api race checks.
+- [x] Re-run all 90 frontend tests, lint, production build and dual-UI checks.
+- [x] Correct raw-byte memory display and localize operation-progress labels.
+- [x] Fix edit-time global memory inheritance and safe startup-default unsets;
+      verify kernel limits, four cleared overrides and HTTP 200 on real RouterOS.
+- [x] Fix Aurora mobile topnav overflow and verify both mobile theme palettes.
+- [x] Correct outdated task metadata describing native writes as simulation-only.
+- [x] Deploy only the existing isolated test service; verify version and asset hashes.
+- [x] Restart during real GHCR import, restore the pending job/device lock, and
+      resume by read-back without creating a duplicate container.
+- [x] Complete GHCR registry create/update and disposable fixture cleanup.
+- [x] Record final runtime results and remaining device/version/storage limits.
+Checkpoint diff review, commits and pushes remain on the same Draft PR; see its
+Git history for the exact checkpoint HEAD.
+
+Production acceptance, root APPROVED, merge and task archival remain pending.

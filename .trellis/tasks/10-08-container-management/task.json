@@ -1,8 +1,8 @@
 {
   "id": "container-management",
   "name": "container-management",
-  "title": "Native container management with real Files picker and simulation",
-  "description": "Native Container reads, dual-UI single-page configuration, real RouterOS directory CRUD and isolated lifecycle simulation.",
+  "title": "Native container management with controlled writes and real Files picker",
+  "description": "Native Container reads and opt-in lifecycle writes, verified SFTP image uploads, dual-UI configuration, real Files directory CRUD and isolated simulation.",
   "status": "in_progress",
   "dev_type": "fullstack",
   "scope": "containers",
@@ -27,6 +27,6 @@
     "web/src/features/containers",
     "web/dev/README.md"
   ],
-  "notes": "Continues on the same branch and Draft PR #30. The attached storage follow-up authorizes real directory mkdir/rename/recursive removal independently; Container lifecycle and image uploads remain simulation-only. Bound Files picker, inline edits, exact-path all-content deletion confirmation, fresh ID/type/reference guards, shared device locking and read-back recovery are implemented. Files use long **opaque IDs that may change on rename. The complete isolated test service passed real CRUD, request replay, cleanup, auth, defaults and exact embedded asset checks. Health inheritance hides custom details; resource limits default off and preserve edit values. 88 frontend tests and Go/race/build/vet/UI-isolation checks passed. Replay records are in memory; user visual/root review and future complete Container write/production acceptance remain pending.",
+  "notes": "Continues on codex/container-management and Draft PR #30. Native lifecycle writes and verified image uploads remain private per-device opt-in. Resumed 2026-10-14: Go tests/build/vet/race and 90 frontend tests/lint/build/dual-UI checks passed. Fixed global memory inheritance on edit, safe image startup-default restoration with typed unset/read-back, raw byte display, localized actions and Aurora mobile overflow. Real RouterOS 7.23.7 validation passed for GHCR create/update, restart and slow-import read-back without duplication, finite global memory kernel values, clearing four startup overrides, runtime marker retention and disposable fixture/network cleanup. Existing containers and original global settings are preserved; two retained test runtimes remain for inspection. See research/resume-validation-2026-10-14.md. Files replay records remain in memory; other device/version/storage recovery cases and user visual/root acceptance remain pending. No production deployment, APPROVED, merge or task completion.",
   "meta": {}
 }

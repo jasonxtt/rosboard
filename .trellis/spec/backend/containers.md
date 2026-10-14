@@ -135,9 +135,20 @@ writes or approve production delivery.
   of the old name; Files opaque IDs can change on rename. Shared/overlapping
   root/mount references block renaming/removal. Never promise the original
   runtime path survives unchanged. Do not automatically purge retained backups.
-- Project CPU indices/ranges to cpu0/cpu1 names; clearing explicit memory limits
-  uses `unlimited`, not an empty integer. Read-back compares normalized units,
-  booleans, CPU names and paths. Existing config values survive editor defaults.
+- Project CPU indices/ranges to cpu0/cpu1 names. RouterOS cannot unset memory
+  integer fields: an empty set becomes `unlimited`. When editing with blank
+  memory overrides, project the freshly read global creation defaults instead;
+  use `unlimited` only when that global field is absent/empty. Preserve explicit
+  overrides independently for high/max. These defaults apply at save time;
+  changing global defaults does not dynamically change an existing container's
+  kernel limits. Read-back compares normalized units, booleans, CPU names and
+  paths. Existing config values survive editor defaults.
+- A blank startup override must not be sent as `set cmd=""` or
+  `set entrypoint=""`: this removes the image's usable startup command.
+  Omit unchanged inherited fields. Clear existing cmd/entrypoint/user/workdir
+  overrides through the closed `container/unset` command with an allowlisted
+  `value-name`; confirm absence of that property in fresh read-back. Native
+  journals record these steps before writing, with no blind retries.
 - RouterOS `.proplist` treats plus literally; encode property spaces with `%20`
   so `download/extract failed` remains visible. Public errors never include raw
   connection credentials or request payloads.

@@ -461,6 +461,7 @@ test('pending unknown task is restored and recovered without another mutation', 
     await settle()
     assert.equal(button('创建容器').disabled, true)
     assert.match(document.body.textContent!, /等待回读/)
+    assert.match(document.body.textContent!, /操作进度 · 创建容器/)
     await act(async () => button('回读确认结果').click())
     await settle()
     assert.ok(calls.some((c) => c.includes('/jobs/old/recover?device=a')))
@@ -1636,6 +1637,10 @@ for (const [name, Page] of [
         assert.equal(names()[0], 'container-000')
         await act(async () => button(column).click())
         assert.equal(names()[0], 'container-079')
+        assert.equal(
+          document.querySelector('.ct-table-scroll tbody tr')?.children[6].textContent,
+          '79.0 KB',
+        )
       }
       assert.equal(
         document.querySelector('.ct-image')?.getAttribute('title'),

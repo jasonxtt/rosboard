@@ -76,3 +76,11 @@ Container surface, input, border, ink, accent and semantic colours must alias
 the active shell tokens in each UI-specific stylesheet. Do not maintain a
 separate hard-coded container palette. Floating menus/dialogs use opaque shell
 surfaces; development previews load only the selected shell token stylesheet.
+
+Container memory telemetry may be a raw byte count. Format numeric values with
+the shared byte formatter in both the table and log details; preserve readable
+unit strings and distinguish unavailable values from zero. Show localized
+operation names while retaining the API action identifiers.
+
+Aurora's mobile top navigation wraps when the device name and action controls
+cannot fit. Keep theme/settings controls reachable without widening the document.

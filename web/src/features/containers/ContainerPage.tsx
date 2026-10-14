@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorMessage } from '../../lib/api'
+import { formatBytes } from '../../lib/format'
 import {
   fetchContainers,
   fetchJob,
@@ -16,6 +17,24 @@ import {
 } from './drafts'
 import { ContainerEditor } from './ContainerEditor'
 import type { Action, ContainerLog, Draft, Item, Job, Snapshot } from './types'
+
+const actionLabels: Record<Action, string> = {
+  create: '创建容器',
+  edit: '编辑配置',
+  start: '启动容器',
+  stop: '停止容器',
+  restart: '重启容器',
+  update: '更新镜像',
+  delete: '删除容器',
+  adopt: '接管容器',
+}
+
+function memoryLabel(value: string, unavailable = '—'): string {
+  if (!value.trim()) return unavailable
+  return /^\d+(?:\.\d+)?$/.test(value.trim())
+    ? formatBytes(Number(value))
+    : value
+}
 
 export function ContainerPage({
   deviceId,
@@ -472,7 +491,7 @@ export function ContainerPage({
                       <td>
                         {item.cpu ? `${item.cpu.replace('%', '')}%` : '—'}
                       </td>
-                      <td>{item.memory || '—'}</td>
+                      <td>{memoryLabel(item.memory)}</td>
                       <td>{item.startOnBoot ? '开启' : '关闭'}</td>
                       <td>
                         <span className="ct-ownership">
@@ -592,7 +611,7 @@ export function ContainerPage({
       {job && (
         <section className="ct-card ct-job" role="status">
           <div>
-            <h3>操作进度 · {job.action}</h3>
+            <h3>操作进度 · {actionLabels[job.action as Action] || '容器操作'}</h3>
             <span>
               {job.phase} · {job.progress}%
             </span>
@@ -620,7 +639,7 @@ export function ContainerPage({
             <button onClick={() => setLogItem(null)}>关闭日志</button>
           </header>
           <p>
-            CPU {logItem.cpu || '不可用'} · 内存 {logItem.memory || '不可用'} ·{' '}
+            CPU {logItem.cpu || '不可用'} · 内存 {memoryLabel(logItem.memory, '不可用')} ·{' '}
             {logItem.network.veth} / {logItem.network.bridge}
           </p>
           {logError ? (
