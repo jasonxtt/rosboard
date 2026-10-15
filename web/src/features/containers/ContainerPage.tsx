@@ -48,6 +48,7 @@ export function ContainerPage({
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [error, setError] = useState(''),
+    [loadError, setLoadError] = useState(''),
     [loading, setLoading] = useState(true),
     [nonce, setNonce] = useState(0)
   const [query, setQuery] = useState(''),
@@ -91,10 +92,10 @@ export function ContainerPage({
         if (!cancelled) {
           setSnapshot(s)
           if (s.activeJob?.deviceId === deviceId) setJob(s.activeJob)
-          setError('')
+          setLoadError('')
         }
       } catch (e) {
-        if (!cancelled) setError(errorMessage(e))
+        if (!cancelled) setLoadError(errorMessage(e))
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -299,9 +300,9 @@ export function ContainerPage({
   if (!snapshot)
     return (
       <section className="ct">
-        <div className="ct-card" role={error ? 'alert' : 'status'}>
-          {loading ? '正在读取容器、网络和存储…' : error || '没有容器数据'}
-          {error && (
+        <div className="ct-card" role={error || loadError ? 'alert' : 'status'}>
+          {loading ? '正在读取容器、网络和存储…' : error || loadError || '没有容器数据'}
+          {(error || loadError) && (
             <button onClick={() => setNonce((n) => n + 1)}>重新读取</button>
           )}
         </div>
@@ -349,9 +350,9 @@ export function ContainerPage({
           {w}
         </p>
       ))}
-      {error && (
+      {(loadError || (error && !editor)) && (
         <p className="ct-alert" role="alert">
-          {error}
+          {loadError || error}
         </p>
       )}
       {message && (
@@ -383,6 +384,7 @@ export function ContainerPage({
           deviceId={deviceId}
           snapshot={snapshot}
           initial={editor.draft}
+          submissionError={error}
           item={editor.item}
           busy={busy}
           onClose={() => setEditor(null)}

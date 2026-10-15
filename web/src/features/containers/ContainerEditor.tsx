@@ -106,12 +106,14 @@ export function ContainerEditor({
   busy,
   onSubmit,
   onClose,
+  submissionError,
 }: {
   deviceId: string
   snapshot: Snapshot
   initial: Draft
   item: Item | null
   busy: boolean
+  submissionError?: string
   onSubmit: (draft: Draft) => Promise<void>
   onClose: () => void
 }) {
@@ -872,7 +874,7 @@ export function ContainerEditor({
             <span>正在解析默认值…</span>
           )}
         </div>
-        {error && <p role="alert">{error}</p>}
+        {(submissionError || error) && <p className="ct-alert" role="alert">{submissionError || error}</p>}
         {submitted &&
           resolution &&
           Object.keys(resolution.errors).length > 0 && (
