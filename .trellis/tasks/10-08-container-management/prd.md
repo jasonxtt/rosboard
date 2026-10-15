@@ -194,3 +194,14 @@ production replacement. Failed proofs do not authorize deployment or acceptance.
 - Transfer requires a verified per-device SSH account/key and working SFTP file
   permissions. The lab verified ssh/read/write/ftp with only SSH service enabled;
   production services/accounts remain unchanged during planning.
+
+## Generated connection-account completeness — user required 2026-10-15
+
+Include onboarding account changes in this same host-import deliverable. New
+rosboard-generated connection accounts must support existing REST functions plus
+SFTP image upload/read-back/cleanup without requiring a second mandatory account.
+Keep explicit optional dedicated transfer credentials, private container-write
+opt-in and verified host keys. Existing generated accounts need a guarded
+administrator-applied permission upgrade that preserves credentials and device
+configuration. Do not silently upgrade manual/shared/foreign groups, open services,
+change firewall rules or give the connection account user-management authority.

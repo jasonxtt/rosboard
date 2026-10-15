@@ -169,3 +169,16 @@ delete must finish associated owned-image cleanup or expose a recoverable cleanu
 pending result. Do not expire these associated images on a timer. The independent
 SFTP ssh/read/write/ftp policy matrix passed with FTP service disabled; see the
 permission research report. These amendments change planning only.
+
+### Onboarding authority audit — 2026-10-15
+
+Current provisioning intentionally grants only read/write/test/api/rest-api; both
+script branches and tests exclude SSH/FTP. This same task must update generated
+accounts to the exact combined read/write/test/api/rest-api/ssh/ftp role, adjust
+preview/help/security documentation and tests, and support server-side reuse of
+saved connection credentials with an optional dedicated transfer account. Existing
+accounts require a guarded admin-run upgrade of an exact recorded, exclusively
+used group; never self-elevate via policy or infer upgrade authority from a name
+prefix. Preserve passwords/device config and independent write/key gates. SSH
+service availability remains a separate warning/prerequisite. See the onboarding
+permission audit and revised host-import proposal for acceptance coverage.

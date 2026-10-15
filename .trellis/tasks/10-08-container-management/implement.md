@@ -300,3 +300,19 @@ See research/registry-dns-warming-2026-10-14.md.
       and container-delete cleanup recovery without duplicate native writes.
 - [ ] Complete automated, real lab, Docker-volume and dual-UI verification before
       NAS-backed production delivery and subsequent manual acceptance.
+
+## Onboarding permissions included in this delivery
+
+- [x] Audit generated-script add/set paths, explicit forbidden-rights tests,
+      account metadata, current SFTP credential reuse and access/security docs.
+- [ ] Add ssh/ftp to the generated connection role in both script paths; assert
+      the exact seven allowed rights and continued denial of policy/sensitive/etc.
+- [ ] Reuse saved generated connection credentials server-side by default for
+      transfer; retain a per-device dedicated-account override and verified key.
+- [ ] Implement identity-bound administrator-run upgrades for existing exclusive
+      managed groups, preserving credentials and rejecting foreign/shared/legacy
+      ambiguous identities; no services/firewall changes or self-elevation.
+- [ ] Update both onboarding previews/help and access/security documentation;
+      verify role read-back, missing SSH capability and ticket/key invalidation.
+- [ ] Exercise generated roles and upgrade idempotency on the independent lab,
+      with no monitoring/policy regressions and unchanged container-write gates.

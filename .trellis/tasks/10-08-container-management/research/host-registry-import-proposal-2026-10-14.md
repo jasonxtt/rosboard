@@ -126,36 +126,62 @@ Do not import host Docker credentials or RouterOS registry secrets implicitly.
 
 ## SFTP authority and target location
 
-The current upload client shares the REST account, fixes SSH port 22, and pins a
-host key. The managed onboarding account's policies omit SSH. Archive import must
-therefore gain explicit PER-DEVICE image-transfer settings: independent SSH
-username/password (optional same-account mode only when it works), port default
-22, and verified SHA256 host fingerprint. The SSH hostname stays bound to the
-selected RouterOS endpoint. Changing device identity clears its transfer authority.
+The current generated connection group is `read,write,test,api,rest-api`, and
+provisioning tests explicitly reject ssh/ftp. The user requires fixing this
+onboarding gap WITHIN this workstream. Update both add/existing-group branches of
+the generated onboarding script to the exact combined role
+`read,write,test,api,rest-api,ssh,ftp`. Preserve the original REST/monitoring/policy
+rights while adding the lab-verified SFTP authority; policy, sensitive, reboot,
+sniff and unrelated login rights remain excluded. Update the copied-script help,
+permission preview, exact-role tests and access/security documentation together.
+Do not merely weaken the existing tests by dropping forbidden-value checks.
 
-Expose these fields under Device management -> Image transfer, protected by the
-same administrator/same-origin authentication. Return passwordSet only. No account
-policy changes, provisioning or trust-on-first-use occur automatically. Verify
-the SFTP authority on each supported RouterOS version; do not claim RouterOS
-provides a per-directory SFTP jail if it does not. Software guards limit
-writes to exact generated job paths.
+New generated accounts can REUSE their saved connection credentials for SFTP by
+explicit server-side credential-source mode, avoiding another mandatory username/
+password pair or duplicate secret storage. Per-device Image transfer settings
+still allow a dedicated SSH account as an override, a configurable port defaulting
+to 22, and a verified SHA256 host fingerprint. Manual/read-only accounts must not
+be silently elevated or treated as generated accounts. The SSH hostname remains
+bound to the selected RouterOS endpoint; connection identity changes invalidate
+associated verification/host-key authority as required by device isolation.
 
-An independent RouterOS 7.23.7 proof confirmed `ssh,read,write,ftp` supports the
-whole SFTP sequence: list/mkdir/upload/read-back/rename/remove/rmdir. Without ftp,
-the subsystem could not open; without write, mkdir failed; without ssh,
-authentication failed. The FTP service remained disabled. Use this verified
-custom-group combination, not the default full group; no policy, sensitive,
-reboot, API or REST policies are needed for the separate SFTP transfer role.
-See `sftp-permission-validation-2026-10-15.md`; do not call it a proof for a
-RouterOS version not yet exercised. The control account retains its existing
-REST authorization separately.
+Existing generated accounts do not gain privileges simply because rosboard is
+upgraded. Add an authenticated capability/status check and administrator-executed
+permission-upgrade script for an EXACT recorded managed username/group pair.
+Verify the account still belongs to that group and the group has no unrelated
+members before offering an in-place group change; ambiguous/shared/unrecorded
+legacy identities require manual review or a dedicated transfer account, never
+prefix-only ownership inference. Bind script input to a freshly checked device/
+account identity; quote/validate RouterOS identifiers. The script must preserve
+username/password and the stored device, add no account-management privilege,
+and stop on missing/mismatched identities. Generated groups have no policy right,
+so the connection account cannot and must not upgrade itself through REST.
+
+Do not silently edit existing RouterOS accounts, reset credentials, enable IP
+services, or change firewall rules. The administrator runs the narrow script on
+RouterOS, then the app rechecks required permissions and actual SFTP file access.
+An incomplete SSH service/permission/key setup is an image-transfer capability
+warning, not a reason to reject a monitoring-only device or disable unrelated
+lifecycle/REST functions. No extra create-time connectivity wizard is introduced.
+Private container_writes and pinned-host-key gates remain independent: granting
+ssh/ftp does not automatically enable container writes or trust a newly seen key.
+
+An independent RouterOS 7.23.7 proof confirmed `ssh,read,write,ftp` supports
+list/mkdir/upload/read-back/rename/remove/rmdir. Without ftp the subsystem could
+not open; without write mkdir failed; without ssh authentication failed. FTP
+service remained disabled. This establishes SFTP authority on that tested version;
+verify the new combined generated role and migration path on the supported lab,
+including absence of policy/sensitive and no monitoring/policy regression. Do not
+claim a per-directory RouterOS SFTP jail: application guards constrain exact owned
+job paths, while RouterOS account authorization has its own wider scope. See
+`sftp-permission-validation-2026-10-15.md` and
+`onboarding-image-transfer-permissions-2026-10-15.md`.
 
 Required service: `/ip/service` ssh enabled on its configured port (default
-TCP/22), with the service's source restriction, user's source restriction and
-input firewall allowing the application host. SFTP has no separate service
-switch and does not require enabling FTP/TCP21. Container control keeps the
-existing www or www-ssl REST service; classic API service ports are not required.
-No production service, account or firewall changes occur while planning.
+TCP/22), with service/account source restrictions and input firewall allowing the
+application host. SFTP has no separate service switch and needs no FTP listener.
+Container control retains the existing www/www-ssl REST service; classic API
+service ports are not required. Planning changes no production account/service.
 
 Default remote staging is `<rootfs disk>/rosboard/images/jobs/<job UUID>/image.tar`.
 An optional per-device staging disk can be chosen explicitly; do not silently
@@ -290,7 +316,11 @@ successful runtime, using the durable intent and read-back.
    before first run, cleanup-failure recovery without duplicate remove, and source-tar
    deletion preserving subsequent start/restart. Test both maintenance variants,
    mobile layouts and Docker non-root persistent-volume/proxy addressing.
-4. Run Go full build/test/vet and targeted race, frontend test/lint/build and emitted
+4. Verify generated-account exact rights in both script branches, repeatable
+   administrator-run upgrades without password/device changes, rejection of foreign
+   or shared-group upgrades, verification-ticket identity binding, optional dedicated
+   SFTP accounts, closed SSH service warnings and preserved private write/key gates.
+   Run Go full build/test/vet and targeted race, frontend test/lint/build and emitted
    asset isolation checks. Inspect the public staged diff and push the same Draft PR.
 5. Production delivery requires a usable verified transfer account/fingerprint,
    no active job interruption, the prescribed mounted writable NAS backup, and
