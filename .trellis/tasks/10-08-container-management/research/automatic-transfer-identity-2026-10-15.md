@@ -39,3 +39,21 @@ explicit approval for this version. No production automatic-identity deployment
 or new backup was executed; production remains dev-container-feedback-1015.
 The earlier unicom private write opt-in remains enabled. Pending explicit user
 permission to back up and deploy this version; keep task in_progress and PR Draft.
+
+## Approved production deployment
+
+User explicitly approved this version's backup/deployment with `允许`. Completed
+consistent NAS backup before replacement:
+`/home/tom/nas/wyp/github/rosboard/backups/20261015T072556Z-automatic-transfer/`.
+Archive fully read and SHA256 verified:
+`50bac4bcf14c0d4756443a3f66cb753babc7b5b760b6bb2d0d30220e9d3aeedb`.
+Timestamped backup retention applied (max10); no production-local backup created.
+
+Production now runs `dev-auto-transfer-1015` from implementation commit925e268.
+Service/health active, all79 embedded files hash-match the final build, config,
+service unit and native journals unchanged, protected API boundaries return401.
+The user-filled form remains untouched. No create action was submitted by the
+agent: the user's next explicit create will automatically initialize missing
+SSH/SFTP identity and continue the normal durable image job, without fingerprint
+entry or prompts. Explicit deployment permission is not final runtime acceptance;
+user's real write testing/manual approval and root APPROVED remain pending.
