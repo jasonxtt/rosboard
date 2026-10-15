@@ -205,3 +205,18 @@ opt-in and verified host keys. Existing generated accounts need a guarded
 administrator-applied permission upgrade that preserves credentials and device
 configuration. Do not silently upgrade manual/shared/foreign groups, open services,
 change firewall rules or give the connection account user-management authority.
+
+## Hard acceptance constraints A/B — 2026-10-15
+
+A. Existing managed groups may transition only from the exact old effective
+policy to exact new; exact new is a write-free no-op. Reject every other policy
+unchanged, including missing/extra/partial rights or invalid/unreadable data.
+Ownership and exclusive-membership checks remain prerequisites; script execution
+must revalidate live policy rather than rely on the state when it was generated.
+
+B. Capability detection, onboarding preview and verification are read-only even
+when using SFTP. No implicit file write is permitted. Any optional write probe
+requires separate explicit write authorization, the private device write opt-in,
+shared write serialization and exclusively recorded temporary rosboard-owned
+paths, with bounded exact cleanup/recovery. Declared permissions/read connectivity
+must not be misrepresented as proven write capability.

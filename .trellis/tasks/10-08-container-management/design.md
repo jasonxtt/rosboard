@@ -182,3 +182,19 @@ used group; never self-elevate via policy or infer upgrade authority from a name
 prefix. Preserve passwords/device config and independent write/key gates. SSH
 service availability remains a separate warning/prerequisite. See the onboarding
 permission audit and revised host-import proposal for acceptance coverage.
+
+### Mandatory exact-policy and probe guards A/B
+
+The user requires exact-old (read/write/test/api/rest-api) -> exact-new (old plus
+ssh/ftp), exact-new -> write-free no-op, and all other effective policy states ->
+unchanged refusal. Apply this to every existing-group script path, normalize
+ordering/known disabled flags only, fail closed on unknown/contradictory data,
+and recheck live policy at execution plus read-back. Ownership/exclusive-group
+checks are additional prerequisites; no subset/superset repair is allowed.
+
+Capability/preview/GET checks stay read-only, including SFTP handshake/list/stat.
+Any optional write probe is an independently authorized administrator action,
+requires private device write authority/shared gate, and records exclusive exact
+temporary rosboard-owned paths before I/O. Preserve cleanup intent after uncertain
+outcomes; capability refresh never retries a mutation. Read connectivity and
+declared rights remain distinct from an actual authorized verified upload.

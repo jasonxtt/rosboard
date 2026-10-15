@@ -175,3 +175,20 @@ writes or approve production delivery.
   previously unseen address and connect before external refresh populates the
   list. Do not claim pure warming guarantees rotating registry/CDN routing or
   accept production delivery on unit tests or one successful request alone.
+
+## Read-only transfer capability and explicit probes
+
+SFTP capability checks may authenticate with a pinned key and list/stat/read
+metadata; they must not mkdir/create/upload/rename/remove, invoke a shell write,
+or call a REST mutation. A declared right or read session cannot prove upload
+success. Actual authorized image upload can supply write evidence without a
+pre-create dummy probe.
+
+An optional write probe requires its own explicit administrator authorization,
+the private device write opt-in and shared device gate. Persist intent before
+creating exclusive server-generated paths inside a validated temporary
+rosboard-owned namespace. Reject unowned/client paths and collisions, protect
+archives/rootfs/mounts, and clean only exact recorded objects. Cancellation,
+failures and unknown outcomes preserve cleanup intent; capability refresh never
+retries a write. These are implementation/review constraints, not permission to
+mutate a router during capability discovery.

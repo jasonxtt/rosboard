@@ -305,8 +305,9 @@ See research/registry-dns-warming-2026-10-14.md.
 
 - [x] Audit generated-script add/set paths, explicit forbidden-rights tests,
       account metadata, current SFTP credential reuse and access/security docs.
-- [ ] Add ssh/ftp to the generated connection role in both script paths; assert
-      the exact seven allowed rights and continued denial of policy/sensitive/etc.
+- [ ] New groups use the exact seven-right role. Existing-group paths accept
+      only exact-old -> exact-new or exact-new -> write-free no-op; reject every
+      other policy unchanged, with live execution-time and read-back guards.
 - [ ] Reuse saved generated connection credentials server-side by default for
       transfer; retain a per-device dedicated-account override and verified key.
 - [ ] Implement identity-bound administrator-run upgrades for existing exclusive
@@ -316,3 +317,16 @@ See research/registry-dns-warming-2026-10-14.md.
       verify role read-back, missing SSH capability and ticket/key invalidation.
 - [ ] Exercise generated roles and upgrade idempotency on the independent lab,
       with no monitoring/policy regressions and unchanged container-write gates.
+
+## Mandatory review gates A/B — user required
+
+- [ ] Test exact-policy equality, not subset/superset acceptance: old -> new,
+      new -> no mutation, and every other/invalid/missing role -> unchanged reject.
+      Include extra/missing/partial rights and drift after script generation.
+- [ ] Keep all capability/preview/GET/SFTP detection paths read-only; assert no
+      mkdir/upload/rename/remove, shell or REST mutation calls in success/failure.
+- [ ] Separate any optional write probe into an explicit authorized action with
+      private write opt-in, verified device/key identity and shared write gate.
+      Persist owned temporary intent; reject user/foreign paths and collisions.
+- [ ] Verify exact probe cleanup and durable ambiguity/cancellation recovery;
+      detection refresh must never retry writes or silently claim verified upload.

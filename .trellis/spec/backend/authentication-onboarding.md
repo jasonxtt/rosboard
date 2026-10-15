@@ -83,3 +83,24 @@ if !shouldDeferDeviceRestart(payload) {
     scheduleRestart()
 }
 ```
+
+## Managed-role expansion guard
+
+When expanding a recorded generated group for image transfer, compare exact
+EFFECTIVE permission sets: old `read,write,test,api,rest-api` may become new
+`read,write,test,api,rest-api,ssh,ftp`; already-new is a write-free no-op. Every
+other/missing/unreadable/invalid set is refused unchanged. Never use subset/
+superset checks or repair extra/missing/partially added rights. Normalize ordering
+and known disabled flags only; unknown or contradictory tokens fail closed.
+Recorded identity and exclusive intended membership must also match. Every
+existing-group script branch must check LIVE policy before mutation and verify
+read-back; script-generation checks alone are insufficient. Do not claim atomic
+RouterOS CAS or retry a set after divergence/unknown outcome. Preserve credentials.
+This governs the planned role extension; current provisioner changes land only
+with the coordinated code/tests/docs implementation.
+
+Capability/onboarding verification remains read-only even through SFTP. Separate
+read connectivity/declared permissions from verified write ability. Any optional
+write probe needs explicit administrator write authorization and private device
+write opt-in, plus the shared gate and recorded exclusive temporary owned paths;
+never run it implicitly from preview, GET or ordinary capability detection.

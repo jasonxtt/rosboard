@@ -128,8 +128,9 @@ Do not import host Docker credentials or RouterOS registry secrets implicitly.
 
 The current generated connection group is `read,write,test,api,rest-api`, and
 provisioning tests explicitly reject ssh/ftp. The user requires fixing this
-onboarding gap WITHIN this workstream. Update both add/existing-group branches of
-the generated onboarding script to the exact combined role
+onboarding gap WITHIN this workstream. New groups use the combined role; EVERY
+existing-group branch must obey the exact-policy transition guard below rather
+than unconditionally assigning the role. The exact combined role is
 `read,write,test,api,rest-api,ssh,ftp`. Preserve the original REST/monitoring/policy
 rights while adding the lab-verified SFTP authority; policy, sensitive, reboot,
 sniff and unrelated login rights remain excluded. Update the copied-script help,
@@ -146,25 +147,60 @@ bound to the selected RouterOS endpoint; connection identity changes invalidate
 associated verification/host-key authority as required by device isolation.
 
 Existing generated accounts do not gain privileges simply because rosboard is
-upgraded. Add an authenticated capability/status check and administrator-executed
-permission-upgrade script for an EXACT recorded managed username/group pair.
-Verify the account still belongs to that group and the group has no unrelated
-members before offering an in-place group change; ambiguous/shared/unrecorded
-legacy identities require manual review or a dedicated transfer account, never
-prefix-only ownership inference. Bind script input to a freshly checked device/
-account identity; quote/validate RouterOS identifiers. The script must preserve
-username/password and the stored device, add no account-management privilege,
-and stop on missing/mismatched identities. Generated groups have no policy right,
-so the connection account cannot and must not upgrade itself through REST.
+upgraded. Keep the fresh recorded username/group/device identity and exclusive
+membership guards; shared/foreign/unrecorded or prefix-inferred-only identities
+are ineligible. In addition, all existing-managed-group paths, including replay
+of the onboarding script, have this HARD transition contract:
+
+| Fresh effective policy | Permitted result |
+| --- | --- |
+| exact-old: read,write,test,api,rest-api | assign exact-new once after explicit administrator authorization |
+| exact-new: read,write,test,api,rest-api,ssh,ftp | no-op: no group/user/password mutation |
+| anything else, unreadable or unparseable | reject the managed upgrade; leave all policy/credentials unchanged |
+
+Compare exact effective policy SETS, not raw ordering and not subset/superset
+inclusion. Handle known explicit disabled `!` entries without granting them;
+unknown or contradictory policy data fails closed. Missing one baseline right,
+partially added ssh/ftp, any extra right (including a full/custom role), and
+unsupported tokens are not exact-old/exact-new. Never repair, trim, widen or
+silently normalize such a role into the new role. The administrator must resolve
+these cases manually outside this guarded upgrade flow.
+
+Bind the offered permission script to the fresh exact account/group identity.
+The script must recheck identity, membership AND exact policy when executed just
+before any set, then verify exact-new read-back. A previously generated script
+is not authority to overwrite a group edited afterward. Exact-new returns
+already-current without writes or resetting credentials. These are explicit
+state/read-back guards, not a claim of atomic RouterOS CAS; observed divergence
+or unknown results stop with reconciliation required, never a blind set retry.
+The generated role does not gain policy authority to upgrade itself through REST.
+
+Capability detection is STRICTLY read-only. Setup/connection verification,
+onboarding preview, capability GETs, snapshots and normal SFTP checks may inspect
+service/group metadata, verify the pinned key, authenticate, open the subsystem,
+list/stat, or read existing authorized metadata. They must not mkdir, create,
+upload, rename, remove, change services/groups, or execute a shell write. A
+working read session or a declared write right does not prove upload capability;
+report read connectivity/declared permissions separately from verified writes.
+
+Any SFTP write probe is a separate explicitly described administrator action,
+requires explicit write-probe authorization plus the private device write opt-in,
+and passes the shared device write gate. Probe intent/ownership is recorded before
+writing; use only server-generated, exclusive temporary paths under a verified
+mounted disk's rosboard-owned probe namespace. Bind to device/credential/key
+identity, reject user-supplied paths and collisions, and never touch existing
+archives, rootfs or mounts. Cleanup only the exact recorded temporary files/IDs;
+errors or ambiguous outcomes retain recoverable cleanup intent and cannot trigger
+an implicit retry from capability refresh. GET/preview/ordinary test buttons never
+invoke this probe. An authorized actual image upload can provide real write
+verification without adding an automatic pre-create write probe.
 
 Do not silently edit existing RouterOS accounts, reset credentials, enable IP
-services, or change firewall rules. The administrator runs the narrow script on
-RouterOS, then the app rechecks required permissions and actual SFTP file access.
-An incomplete SSH service/permission/key setup is an image-transfer capability
-warning, not a reason to reject a monitoring-only device or disable unrelated
-lifecycle/REST functions. No extra create-time connectivity wizard is introduced.
-Private container_writes and pinned-host-key gates remain independent: granting
-ssh/ftp does not automatically enable container writes or trust a newly seen key.
+services, change firewall rules or automatically trust a discovered SSH key.
+Unavailable image-transfer service/permissions/key remain capability warnings for
+monitoring-only onboarding. Private container_writes and pinned-key authority are
+independent of ssh/ftp membership. No extra create-time connectivity wizard is
+introduced. See the onboarding audit for required denial/no-write test cases.
 
 An independent RouterOS 7.23.7 proof confirmed `ssh,read,write,ftp` supports
 list/mkdir/upload/read-back/rename/remove/rmdir. Without ftp the subsystem could
@@ -316,10 +352,14 @@ successful runtime, using the durable intent and read-back.
    before first run, cleanup-failure recovery without duplicate remove, and source-tar
    deletion preserving subsequent start/restart. Test both maintenance variants,
    mobile layouts and Docker non-root persistent-volume/proxy addressing.
-4. Verify generated-account exact rights in both script branches, repeatable
-   administrator-run upgrades without password/device changes, rejection of foreign
-   or shared-group upgrades, verification-ticket identity binding, optional dedicated
-   SFTP accounts, closed SSH service warnings and preserved private write/key gates.
+4. Verify exact-old -> exact-new, exact-new -> write-free no-op, every other
+   policy -> unchanged rejection (including partial/extra/unknown/contradictory
+   rights), and policy drift between script issue and execution. Assert zero SFTP/
+   REST mutations in every capability/preview/GET path. Probe tests must reject
+   missing authorization, disabled write opt-in, unowned paths and collisions;
+   authorized probes require exact temporary ownership, shared-gate enforcement
+   and cleanup/recovery on cancellation or ambiguous results. Also cover foreign/
+   shared groups, credential/key identity binding and optional dedicated accounts.
    Run Go full build/test/vet and targeted race, frontend test/lint/build and emitted
    asset isolation checks. Inspect the public staged diff and push the same Draft PR.
 5. Production delivery requires a usable verified transfer account/fingerprint,
