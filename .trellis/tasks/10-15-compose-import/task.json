@@ -15,8 +15,8 @@
   "branch": "codex/compose-import",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "a1d63554c7e5f280fab6a3e2041e70332644a156",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/32",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -25,6 +25,6 @@
     "internal/api/containers.go",
     "web/src/features/containers"
   ],
-  "notes": "User approved plan and implementation. Baseline 92c35f7 depends on unmerged Draft PR #30; no merge of that PR is authorized by this task.",
+  "notes": "Implementation and automated checks passed; isolated real MSM Compose import/create/start/archive cleanup/delete passed. Test and production run dev-compose-1015 after fully verified timestamped NAS backup. Production health, all 78 embedded assets, config/unit/supervisor preservation and authenticated parse/read-back passed. Manual visual acceptance and root APPROVED remain pending; keep Draft and in_progress, no main merge/release/archive. Baseline depends on still-open PR #30. See validation.md.",
   "meta": {}
 }
