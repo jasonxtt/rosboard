@@ -839,6 +839,9 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 
 	var cleanup *routerOSCleanupResponse
 	switch {
+	case action == "account-transfer":
+		s.serveAccountTransfer(writer, request, deviceID)
+		return
 	case request.Method == http.MethodGet && action == "cleanup-script":
 		cfg := s.configSnapshot()
 		device, found := cfg.Device(deviceID)
@@ -886,6 +889,10 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 				next.Devices[index].RouterOS.Username = ""
 				next.Devices[index].RouterOS.Password = ""
 				next.Devices[index].ManagedAccount = nil
+				next.Devices[index].ContainerTransfer = nil
+				next.Devices[index].ContainerSSHPort = 0
+				next.Devices[index].ContainerSSHHostKey = ""
+				next.Devices[index].ContainerWrites = false
 				found = true
 				return
 			}
@@ -1312,6 +1319,10 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	next.RouterOS.TerminalScope = cloneTerminalScope(s.cfg.RouterOS.TerminalScope)
 	next.Devices = append([]config.DeviceConfig(nil), s.cfg.Devices...)
 	for index := range next.Devices {
+		if s.cfg.Devices[index].ContainerTransfer != nil {
+			transfer := *s.cfg.Devices[index].ContainerTransfer
+			next.Devices[index].ContainerTransfer = &transfer
+		}
 		next.Devices[index].RouterOS.TrafficInterfaces = cloneStrings(s.cfg.Devices[index].RouterOS.TrafficInterfaces)
 		next.Devices[index].RouterOS.TrafficScope = cloneTrafficScope(s.cfg.Devices[index].RouterOS.TrafficScope)
 		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)

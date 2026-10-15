@@ -235,3 +235,14 @@ if err := config.Save(next.Path, next); err == nil {
   download test via `ROSBOARD_UPDATE_TEST_BINARY`; `scripts/check-update-runtime.py`
   verifies actual child replacement, rollback, interruption, session/data retention,
   and full-reset cleanup against isolated fixture binaries.
+
+## Private container transfer credentials
+
+Devices reuse connection credentials plus `container_ssh_host_key` and optional
+`container_ssh_port` by default. Optional `container_transfer` contains a complete
+private `username`/`password`/`host_key`/`port` override. A missing override field
+must never fall back to another source's password/key. Ports default to 22;
+invalid ports or missing verified keys fail before transfer. These fields do not
+appear in public settings or device edit requests. REST connection changes clear
+transfer settings, pinned keys and write opt-in; clearing a device account also
+clears that authority. Ordinary unrelated saves preserve private values.

@@ -305,28 +305,49 @@ See research/registry-dns-warming-2026-10-14.md.
 
 - [x] Audit generated-script add/set paths, explicit forbidden-rights tests,
       account metadata, current SFTP credential reuse and access/security docs.
-- [ ] New groups use the exact seven-right role. Existing-group paths accept
+- [x] New groups use the exact seven-right role. Existing-group paths accept
       only exact-old -> exact-new or exact-new -> write-free no-op; reject every
       other policy unchanged, with live execution-time and read-back guards.
-- [ ] Reuse saved generated connection credentials server-side by default for
+- [x] Reuse saved generated connection credentials server-side by default for
       transfer; retain a per-device dedicated-account override and verified key.
-- [ ] Implement identity-bound administrator-run upgrades for existing exclusive
+- [x] Implement identity-bound administrator-run upgrades for existing exclusive
       managed groups, preserving credentials and rejecting foreign/shared/legacy
       ambiguous identities; no services/firewall changes or self-elevation.
-- [ ] Update both onboarding previews/help and access/security documentation;
+- [x] Update both onboarding previews/help and access/security documentation;
       verify role read-back, missing SSH capability and ticket/key invalidation.
-- [ ] Exercise generated roles and upgrade idempotency on the independent lab,
+- [x] Exercise generated roles and upgrade idempotency on the independent lab,
       with no monitoring/policy regressions and unchanged container-write gates.
 
 ## Mandatory review gates A/B — user required
 
-- [ ] Test exact-policy equality, not subset/superset acceptance: old -> new,
+- [x] Test exact-policy equality, not subset/superset acceptance: old -> new,
       new -> no mutation, and every other/invalid/missing role -> unchanged reject.
       Include extra/missing/partial rights and drift after script generation.
-- [ ] Keep all capability/preview/GET/SFTP detection paths read-only; assert no
+- [x] Keep all capability/preview/GET/SFTP detection paths read-only; assert no
       mkdir/upload/rename/remove, shell or REST mutation calls in success/failure.
 - [ ] Separate any optional write probe into an explicit authorized action with
       private write opt-in, verified device/key identity and shared write gate.
       Persist owned temporary intent; reject user/foreign paths and collisions.
 - [ ] Verify exact probe cleanup and durable ambiguity/cancellation recovery;
       detection refresh must never retry writes or silently claim verified upload.
+
+
+## Onboarding role implementation checkpoint — 2026-10-15
+
+- Implemented new exact-seven-right provisioning with write-free repeat checks,
+  and fresh identity/exclusive-membership-bound administrator upgrade scripts.
+- Added shared read-only transfer check/upgrade UI in both account settings views,
+  onboarding authority help, private dedicated transfer overrides/SSH ports and
+  connection-change invalidation. No optional write-probe API was added; probe
+  temporary-path/cleanup machinery is deferred until such an action is requested.
+- Exact policy matrices, metadata/credential/device isolation, SSH disabled/auth/
+  key/list denial and cancellation checks pass. SFTP test handlers count every
+  write/shell request and require zero. Frontend workflow/abort/parser regressions
+  pass in both control styles. Existing container/policy write gates are preserved.
+- The opt-in independent RouterOS suite exercises actual generated scripts and
+  both parsers: new roles, repeated provisioning with an externally changed
+  password, stale-policy/shared-membership/ownership refusal, old-to-new upgrade,
+  repeat no-op and SFTP reads using the preserved generated-account password.
+- Keep host-image downloading, shared proxy and durable generated-image cleanup
+  on the remaining task checklist. This checkpoint does not complete that scope,
+  grant production acceptance, merge the Draft PR or archive the task.

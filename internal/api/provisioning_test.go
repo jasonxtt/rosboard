@@ -250,15 +250,22 @@ func TestProvisioningScriptContent(t *testing.T) {
 
 	// Monitoring and policy routing share one account. Ordinary configuration
 	// writes are allowed, while RouterOS user management remains forbidden.
-	if !strings.Contains(script, "read,write,test,api,rest-api") {
+	if !strings.Contains(script, "policy=read,write,test,api,rest-api,ssh,ftp") {
 		t.Fatal("script does not contain read,write,test,api,rest-api")
 	}
-	// Check that disallowed permission values are not present
-	for _, forbidden := range []string{"policy", "sensitive", "sniff", "reboot", "full", "web", "winbox", "ssh", "ftp", "password", "romon", "local", "telnet"} {
-		if strings.Contains(script, "policy="+forbidden) || strings.Contains(script, ","+forbidden) {
-			t.Fatalf("script contains unexpected permission: %s", forbidden)
+	// Parser vocabulary includes disabled rights; only actual assignments grant rights.
+	for _, line := range strings.Split(script, "\n") {
+		if !strings.Contains(line, " policy=") {
+			continue
+		}
+		if !strings.HasSuffix(strings.TrimSpace(line), "policy=read,write,test,api,rest-api,ssh,ftp") {
+			t.Fatalf("unexpected role assignment: %s", line)
 		}
 	}
+	if strings.Contains(script, "/user set") || strings.Contains(script, "/user group set") {
+		t.Fatal("new provisioning may not rewrite existing accounts/groups")
+	}
+
 	if strings.Contains(script, "/ip service") {
 		t.Fatal("script modifies IP services")
 	}

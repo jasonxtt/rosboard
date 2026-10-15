@@ -1,3 +1,4 @@
+import { AccountTransferPanel, transferPermissionHelp } from '../features/settings/AccountTransferPanel'
 import { UpdatePanel } from '../features/update/UpdatePanel'
 import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel'
 import { UI_OPTIONS, isUiVariant, switchUi, readPanelRecord, savePanelRecord, readRefreshPreference, readThemePreference, readLocal, writeLocal, removeLocal, readSession, writeSession, removeSession, resetSharedPanelPreferences, THEME_KEY, REFRESH_KEY, type UiVariant } from '../uiPreference'
@@ -2611,7 +2612,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
           <div className="provisioning-step">
             <div className="provisioning-step-card">
 			  <div className="provisioning-step-head"><strong>步骤 1：复制脚本</strong></div>
-			  <p>直接复制完整脚本，无需查看内容；需要核对时可展开。</p>
+			  <p>{transferPermissionHelp}</p>
 			  <div className="provisioning-script-actions">
 				<button type="button" className="toolbar-button" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button>
 				<button type="button" className="toolbar-button" disabled={quickGenerating || quickCompleting} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>重新生成脚本</button>
@@ -2657,6 +2658,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
         {draft.id ? <div className="device-account-meta"><span>当前权限 <strong className={accountStatus?.writeAccess ? 'account-permission-ok' : 'account-permission-warn'}>{accountLoading ? '读取中…' : accountStatus?.permission === 'write' ? '可写' : accountStatus?.permission === 'read_only' ? '只读' : '未知'}</strong></span><div className="device-account-actions"><button type="button" className="toolbar-button" disabled={replacementBusy} onClick={() => void generateReplacementScript()}>{replacementBusy ? '正在生成…' : '一键更换'}</button><button type="button" className="link-button link-button--danger" onClick={() => void removeDeviceAccount()}>删除账号</button></div></div> : null}
         {draft.id && original?.passwordSet ? <small className="device-field-help">编辑设备时密码可留空，系统将保留当前凭据。</small> : null}
         {accountStatus?.error ? <small className="settings-message" role="alert">{accountStatus.error}</small> : null}
+        {draft.id ? <AccountTransferPanel key={`${draft.id}:${original?.username}`} deviceId={draft.id} buttonClass="toolbar-button" inputClass="settings-input" /> : null}
       </section>
 
 	      {draft.id ? <section className="device-form-card device-topology-card wide" aria-labelledby="device-topology-title">
@@ -2718,7 +2720,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	{replacementSession ? (
 		<div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="replace-account-title">
 			<div className="remark-modal account-replacement-modal">
-				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
+				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">{transferPermissionHelp}</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
 				<div className="remark-modal-body">
 					<div className="provisioning-step-card"><strong>步骤 1：复制并执行脚本</strong><textarea readOnly value={replacementSession.script} rows={12} spellCheck={false} /><button type="button" className="toolbar-button copy-script-button" onClick={() => void copyReplacementScript()}>{replacementCopied ? '已复制' : '复制脚本'}</button></div>
 					<div className="provisioning-step-card"><strong>步骤 2：验证并替换</strong><p>在 RouterOS Terminal 执行成功后点击下方按钮，rosboard 会验证新账号、替换保存的凭据并重启。</p></div>

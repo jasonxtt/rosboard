@@ -578,7 +578,7 @@ func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
 		Path: filepath.Join(dir, "config.yaml"), ListenAddress: ":8080", DataDir: dir,
 		PollIntervalSeconds: 10, RealtimePollIntervalSeconds: 1, TerminalPollIntervalSeconds: 3, SampleRetentionHours: 48,
 		Devices: []config.DeviceConfig{{
-			ID: "edge", Name: "Edge", Enabled: true,
+			ID: "edge", Name: "Edge", Enabled: true, ContainerWrites: true, ContainerSSHHostKey: "SHA256:test", ContainerTransfer: &config.ContainerTransferConfig{Username: "transfer", Password: "transfer-test", HostKey: "SHA256:test"},
 			RouterOS:       config.RouterOSConfig{BaseURL: "http://10.0.0.1", Username: "rosboard_old", Password: "secret"},
 			ManagedAccount: &config.ManagedRouterOSAccount{Username: "rosboard_old", GroupName: "rosboard_g_old"},
 		}},
@@ -593,7 +593,7 @@ func TestDeleteDeviceAccountClearsCredentialsAndDisablesDevice(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	device, found := server.configSnapshot().Device("edge")
-	if !found || device.Enabled || device.RouterOS.Username != "" || device.RouterOS.Password != "" || device.ManagedAccount != nil {
+	if !found || device.Enabled || device.RouterOS.Username != "" || device.RouterOS.Password != "" || device.ManagedAccount != nil || device.ContainerTransfer != nil || device.ContainerWrites || device.ContainerSSHHostKey != "" {
 		t.Fatalf("device account was not cleared safely: %#v found=%v", device, found)
 	}
 	select {

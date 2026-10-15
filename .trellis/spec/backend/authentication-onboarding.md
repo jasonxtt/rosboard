@@ -104,3 +104,28 @@ read connectivity/declared permissions from verified write ability. Any optional
 write probe needs explicit administrator write authorization and private device
 write opt-in, plus the shared gate and recorded exclusive temporary owned paths;
 never run it implicitly from preview, GET or ordinary capability detection.
+
+### Implemented transfer-role boundary
+
+- New-account scripts add the exact seven-right role; repeated matching accounts
+  are checked without any group/user/password set. Existing old-role collisions
+  in a new session cannot be upgraded without fresh recorded identity reads.
+- `GET /api/devices/{id}/account-transfer` reads recorded generated names plus
+  fresh user/group IDs, router identity, ownership comment, enabled state and
+  exclusive membership. It returns an administrator-run guarded script and
+  separate declared-role/read-connectivity results. Unknown/private credentials
+  never enter its response; use `Cache-Control: no-store`.
+- Script role reads return an array containing positive and `!disabled` flags.
+  Iterate the array directly; `:tostr` uses semicolons. Go REST parsing and script
+  parsing must both reject unknown/duplicate/contradictory tokens. Test both
+  parsers, including the actual RouterOS interpreter in the opt-in lab suite.
+- RouterOS CLI positive-only policy assignments can retain omitted flags in a
+  session. Never infer exact role from a successful assignment. Keep the exact
+  precondition/read-back guards; lab fixture resets explicitly include disabled
+  flags so transition tests actually exercise the intended effective role.
+- Multi-line scripts sent through SSH exec must be flattened to a single command
+  for lab tests (skip comment lines before joining). Terminal paste retains the
+  outer block. Tests must clean generated fixture identities even after failure.
+- No optional write-probe action exists. Its authorization/intent/recovery
+  requirements remain mandatory if one is added later; detection cannot use
+  the actual archive uploader as a probe.

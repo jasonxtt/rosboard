@@ -89,3 +89,10 @@ Registry DNS preparation uses the existing container job progress area, without
 an extra confirmation or connectivity gate. Parse optional safe `warnings` as
 strings, accepting older jobs without them; render warnings as text separately
 from native operation errors in both shared UI variants.
+
+Both connection-account settings views mount the shared `AccountTransferPanel`
+with shell-native controls. Transfer checks are explicit GET-only actions and
+abort/discard their response on device/credential remount. Render administrator
+scripts as readonly text. Keep declared role, SFTP read connectivity and actual
+write success distinct. Onboarding help explains SSH/FTP group authority without
+opening services, trusting keys or enabling private container writes.
