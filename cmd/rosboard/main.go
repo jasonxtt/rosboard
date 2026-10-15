@@ -127,6 +127,7 @@ func main() {
 	if err = update.AwaitActivation(); err != nil {
 		log.Fatalf("activation: %v", err)
 	}
+	apiServer.StartContainerWorkers(ctx, updater.WaitForCommit)
 	if manager != nil {
 		go manager.Start(ctx)
 	}

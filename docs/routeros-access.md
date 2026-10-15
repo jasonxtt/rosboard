@@ -70,8 +70,10 @@ shared write gate.
 By default the server reuses saved connection credentials with
 `container_ssh_host_key` and optional `container_ssh_port` (default 22). An optional
 private per-device `container_transfer` mapping accepts `username`, `password`,
-`host_key`, and `port` for a dedicated account. All fields are server configuration;
-no credentials are returned to the browser. An incomplete override fails rather
+`host_key`, and `port` for a dedicated account. These settings can also be saved in the per-device image-transfer panel after
+a read-only SSH/SFTP verification. Passwords are never returned to the browser;
+the panel shows only whether a password is saved. Saving transfer settings does
+not enable the independent private container-write opt-in. An incomplete override fails rather
 than borrowing the connection password or key. Removing the override restores the
 connection source. Changing the REST endpoint or credentials through the device
 editor clears transfer configuration, the pinned key and container-write opt-in.

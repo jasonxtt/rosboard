@@ -41,11 +41,14 @@ type nativeStep struct {
 	Guard   map[string]string
 }
 type nativeRecord struct {
-	Job       Job
-	Request   ActionRequest
-	Signature string
-	Steps     []nativeStep
-	Pending   bool
+	CancelRequested bool
+	Preparing       bool
+	Generated       *generatedImage
+	Job             Job
+	Request         ActionRequest
+	Signature       string
+	Steps           []nativeStep
+	Pending         bool
 }
 type nativeState struct {
 	Latest   string
@@ -53,11 +56,13 @@ type nativeState struct {
 	Archives []ImageArchive
 }
 type nativeDevice struct {
-	mu      sync.Mutex
-	state   nativeState
-	file    string
-	release func()
-	running bool
+	mu             sync.Mutex
+	state          nativeState
+	file           string
+	release        func()
+	running        bool
+	cleanupStarted bool
+	cancel         context.CancelFunc
 }
 type nativeRuntime struct {
 	mu      sync.Mutex
@@ -162,6 +167,27 @@ func cloneJob(j Job) Job {
 	j.Warnings = append([]string{}, j.Warnings...)
 	return j
 }
+func recordJob(r *nativeRecord) Job {
+	j := cloneJob(r.Job)
+	if r.Generated != nil {
+		j.CleanupPending = r.Generated.CleanupPending
+		j.CanCancel = r.Generated != nil && !r.Pending && (r.Preparing || j.State == "failed" || j.State == "unknown") && j.State != "cancelled" && j.State != "succeeded"
+		for _, step := range r.Steps {
+			if step.Done {
+				j.CanCancel = false
+			}
+		}
+	}
+	return j
+}
+func pendingImageCleanup(n *nativeDevice) *nativeRecord {
+	for _, r := range n.state.Jobs {
+		if r.Generated != nil && r.Generated.CleanupPending && !r.Generated.Cleaned {
+			return r
+		}
+	}
+	return nil
+}
 func activeRecord(n *nativeDevice) *nativeRecord {
 	for _, r := range n.state.Jobs {
 		if r.Job.State == "queued" || r.Job.State == "running" || r.Job.State == "unknown" {
@@ -182,13 +208,17 @@ func (s *Service) decorateNative(d config.DeviceConfig, snapshot *Snapshot) erro
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	snapshot.Options.Archives = append([]ImageArchive{}, n.state.Archives...)
+	decorateGenerated(n, snapshot)
 	snapshot.Capabilities.Writes = snapshot.Capabilities.Supported && s.NativeWriterFor != nil
 	snapshot.Capabilities.Mode = "native"
 	if r := activeRecord(n); r != nil {
-		j := cloneJob(r.Job)
+		j := recordJob(r)
+		snapshot.ActiveJob = &j
+	} else if r := pendingImageCleanup(n); r != nil {
+		j := recordJob(r)
 		snapshot.ActiveJob = &j
 	} else if r := n.state.Jobs[n.state.Latest]; r != nil {
-		j := cloneJob(r.Job)
+		j := recordJob(r)
 		snapshot.ActiveJob = &j
 	}
 	return nil
@@ -262,7 +292,12 @@ func (s *Service) Submit(ctx context.Context, d config.DeviceConfig, gate *route
 		release()
 		return Job{}, err
 	}
-	r := &nativeRecord{Job: Job{ID: id, DeviceID: d.ID, Action: req.Action, TargetID: req.TargetID, State: "queued", Phase: "已校验，等待写入", Retained: retained}, Request: req, Signature: sig, Steps: steps}
+	generated, err := s.hostImagePlan(ctx, d, steps, snap, id)
+	if err != nil {
+		release()
+		return Job{}, err
+	}
+	r := &nativeRecord{Job: Job{ID: id, DeviceID: d.ID, Action: req.Action, TargetID: req.TargetID, State: "queued", Phase: "已校验，等待写入", Retained: retained}, Request: req, Signature: sig, Steps: steps, Generated: generated, Preparing: generated != nil}
 	n.mu.Lock()
 	n.state.Jobs[id] = r
 	n.state.Latest = id
@@ -273,7 +308,7 @@ func (s *Service) Submit(ctx context.Context, d config.DeviceConfig, gate *route
 		return Job{}, err
 	}
 	n.running = true
-	j := cloneJob(r.Job)
+	j := recordJob(r)
 	n.mu.Unlock()
 	go s.executeNative(d, n, r)
 	return j, nil
@@ -289,7 +324,7 @@ func (s *Service) NativeJob(d config.DeviceConfig, id string) (Job, error) {
 	if r == nil {
 		return Job{}, operationError(404, "job_not_found", "任务不属于当前设备")
 	}
-	return cloneJob(r.Job), nil
+	return recordJob(r), nil
 }
 func (s *Service) RecoverNative(d config.DeviceConfig, gate *routeros.DeviceWriteGate, id string) (Job, error) {
 	n, err := s.nativeDevice(d)
@@ -302,7 +337,7 @@ func (s *Service) RecoverNative(d config.DeviceConfig, gate *routeros.DeviceWrit
 	if r == nil {
 		return Job{}, operationError(404, "job_not_found", "任务不属于当前设备")
 	}
-	if n.running || (r.Job.State != "unknown" && r.Job.State != "failed") || (activeRecord(n) != nil && activeRecord(n) != r) {
+	if n.running || (r.Job.State != "unknown" && r.Job.State != "failed" && !(r.Generated != nil && r.Generated.CleanupPending)) || (activeRecord(n) != nil && activeRecord(n) != r) {
 		return Job{}, operationError(409, "recovery_not_required", "当前任务无需恢复")
 	}
 	newlyLocked := false
@@ -354,6 +389,15 @@ func (s *Service) RecoverNative(d config.DeviceConfig, gate *routeros.DeviceWrit
 			break
 		}
 	}
+	if r.Generated != nil && s.DownloadSnapshot != nil {
+		snapshot, e := s.DownloadSnapshot()
+		if e != nil {
+			return Job{}, e
+		}
+		r.Generated.Snapshot = &snapshot
+		r.Generated.Revision = snapshot.Revision
+		r.Generated.TransferIdentity = transferIdentity(d)
+	}
 	r.Job.Error = ""
 
 	n.running = true
@@ -364,7 +408,7 @@ func (s *Service) RecoverNative(d config.DeviceConfig, gate *routeros.DeviceWrit
 		r.Job.State = "unknown"
 		return Job{}, err
 	}
-	j := cloneJob(r.Job)
+	j := recordJob(r)
 	go s.executeNative(d, n, r)
 	return j, nil
 }
@@ -463,8 +507,15 @@ func desired(step nativeStep, rows []routeros.RouterOSObject) (bool, string) {
 	return false, ""
 }
 func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativeRecord) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
+	n.mu.Lock()
+	n.cancel = cancel
+	if r.Generated != nil {
+		r.Preparing = true
+	}
+	n.mu.Unlock()
+	cancelled := false
 	failure := false
 	unknown := false
 	defer func() {
@@ -474,10 +525,18 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		n.running = false
-		if failure {
+		n.cancel = nil
+		if cancelled {
+			r.Job.State = "cancelled"
+			r.Job.Phase = "镜像准备已取消，临时镜像已清理"
+			r.Job.Error = ""
+		} else if failure {
 			if unknown {
 				r.Job.State = "unknown"
 				r.Job.Error = "写入结果尚未确认。请回读恢复，勿重复提交。"
+				if r.Request.Action == "delete" && r.Job.Phase == "容器操作已完成，镜像清理待恢复" {
+					r.Job.Error = "容器已删除；关联镜像清理待恢复"
+				}
 			} else {
 				r.Job.State = "failed"
 				r.Job.Error = "操作失败；已完成的对象和数据已保留，请查看设备日志。"
@@ -501,9 +560,46 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 		delete(s.cache, sha256.Sum256([]byte(d.ID+"\x00"+d.RouterOS.BaseURL+"\x00"+d.RouterOS.Username+"\x00"+d.RouterOS.Password)))
 		s.mu.Unlock()
 	}()
+	n.mu.Lock()
+	requested := r.CancelRequested
+	n.mu.Unlock()
+	var prepErr error
+	if !requested {
+		prepErr = s.prepareHostImage(ctx, d, n, r)
+	}
+	n.mu.Lock()
+	requested = r.CancelRequested
+	r.Preparing = false
+	n.mu.Unlock()
+	if requested {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		err := s.cancelGenerated(cleanupCtx, d, n, r)
+		cleanupCancel()
+		if err != nil {
+			failure = true
+			unknown = true
+			n.mu.Lock()
+			r.Job.Phase = "取消已记录，镜像清理待恢复"
+			n.mu.Unlock()
+		} else {
+			cancelled = true
+		}
+		return
+	}
+	if prepErr != nil {
+		n.mu.Lock()
+		r.Job.Phase = prepErr.Error()
+		n.mu.Unlock()
+		failure = true
+		unknown = r.Generated != nil && r.Generated.TransferStarted
+		return
+	}
 	reader := s.ReaderFor(d)
 	writer := s.NativeWriterFor(d)
+	jobCtx := ctx
 	for i := range r.Steps {
+		ctx, stepCancel := context.WithTimeout(jobCtx, 20*time.Minute)
+		defer stepCancel()
 		n.mu.Lock()
 		step := r.Steps[i]
 		pending := r.Pending
@@ -660,7 +756,7 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 					}
 				}
 				// Poll reads only; never retransmit commands, even after a transport failure.
-				for attempt := 0; attempt < 180; attempt++ {
+				for attempt := 0; attempt < 600; attempt++ {
 					rows, readErr := reader.ContainerRead(ctx, step.Menu)
 					if readErr == nil {
 						confirmed, target = desired(step, rows)
@@ -694,9 +790,22 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 				}
 			}
 		}
+		// Bind a confirmed created ID before extraction, including failed imports.
+		if step.Menu == routeros.ContainerList && step.Command == "add" && target != "" && r.Generated != nil {
+			n.mu.Lock()
+			r.Generated.ContainerID = target
+			r.Job.TargetID = target
+			err = n.save()
+			n.mu.Unlock()
+			if err != nil {
+				failure = true
+				unknown = true
+				return
+			}
+		}
 		// A container add is confirmed only once extraction is complete.
 		if step.Menu == routeros.ContainerList && step.Command == "add" {
-			for attempt := 0; attempt < 360; attempt++ {
+			for attempt := 0; attempt < 1200; attempt++ {
 				rows, err = reader.ContainerRead(ctx, step.Menu)
 				if err != nil {
 					failure = true
@@ -720,7 +829,7 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 				if status == "stopped" || status == "running" {
 					break
 				}
-				if attempt == 359 {
+				if attempt == 1199 {
 					failure = true
 					unknown = true
 					return
@@ -739,6 +848,9 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 		r.Pending = false
 		if step.Menu == routeros.ContainerList && step.Command == "add" {
 			r.Job.TargetID = target
+			if r.Generated != nil {
+				r.Generated.ContainerID = target
+			}
 		}
 		err = n.save()
 		n.mu.Unlock()
@@ -746,6 +858,16 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 			failure = true
 			unknown = true
 			return
+		}
+	}
+	if err := s.reconcileImages(ctx, d, n); err != nil {
+		n.mu.Lock()
+		r.Job.Phase = "容器操作已完成，镜像清理待恢复"
+		r.Job.Warnings = append(r.Job.Warnings, "生成镜像清理未完成；已保留持久清理意图")
+		n.mu.Unlock()
+		if r.Request.Action == "delete" {
+			failure = true
+			unknown = true
 		}
 	}
 }

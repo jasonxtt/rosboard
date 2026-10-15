@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"rosboard/internal/config"
+	"rosboard/internal/downloadnet"
 	"rosboard/internal/routeros"
 )
 
@@ -24,6 +25,10 @@ type cachedSnapshot struct {
 }
 type pendingSnapshot struct{ done chan struct{} }
 type Service struct {
+	PreparedUpload     func(context.Context, config.DeviceConfig, *routeros.PreparedTransfer, io.ReadSeeker, func() error, func(string)) error
+	PreparedRemove     func(context.Context, config.DeviceConfig, routeros.PreparedTransfer) error
+	DeviceFor          func(string) (config.DeviceConfig, bool)
+	DownloadSnapshot   func() (downloadnet.Snapshot, error)
 	RegistryDNSLookup  DNSLookup
 	registryDNS        registryDNSRuntime
 	ArchiveTransfer    func(context.Context, config.DeviceConfig, ImageArchive, io.Reader) error
@@ -95,7 +100,7 @@ func (s *Service) Snapshot(ctx context.Context, d config.DeviceConfig) (Snapshot
 }
 
 func NewService() *Service {
-	return &Service{RegistryDNSLookup: queryRouterDNS, NativeGate: routeros.NewDeviceWriteGate(), ArchiveTransfer: transferArchive, NativeWriterFor: func(d config.DeviceConfig) NativeWriter {
+	return &Service{PreparedUpload: transferPrepared, PreparedRemove: removePrepared, RegistryDNSLookup: queryRouterDNS, NativeGate: routeros.NewDeviceWriteGate(), ArchiveTransfer: transferArchive, NativeWriterFor: func(d config.DeviceConfig) NativeWriter {
 		return routeros.NewMutationClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
 	}, ReaderFor: func(d config.DeviceConfig) Reader {
 		return routeros.NewClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password)
@@ -214,7 +219,7 @@ func (s *Service) readSnapshot(ctx context.Context, d config.DeviceConfig) (Snap
 				draft.Mounts = append(draft.Mounts, Mount{Source: mount["src"], Target: mount["dst"], ReadOnly: strings.HasPrefix(mount["mode"], "ro"), Mode: mount["mode"]})
 			}
 		}
-		item := Item{ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: first(row["memory-current"], row["memory-usage"]), StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
+		item := Item{OwnerComment: row["comment"], ID: row[".id"], Name: row["name"], Image: draft.Image, Network: n, Status: containerStatus(row), CPU: row["cpu-usage"], Memory: first(row["memory-current"], row["memory-usage"]), StartOnBoot: draft.StartOnBoot, Ownership: "unmanaged", SharedVETH: []string{}, EnvLists: envLists, MountLists: mountLists, Config: draft, ImageDefaults: map[string]string{}}
 		if ownedComment(d, row["comment"]) {
 			item.Ownership = "managed"
 		}

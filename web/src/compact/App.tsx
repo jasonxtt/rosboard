@@ -1,3 +1,5 @@
+import { ImageTransferPanel } from '../features/settings/ImageTransferPanel'
+import { DownloadProxyPanel } from '../features/settings/DownloadProxyPanel'
 import { AccountTransferPanel, transferPermissionHelp } from '../features/settings/AccountTransferPanel'
 import { UpdatePanel } from '../features/update/UpdatePanel'
 import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel'
@@ -2658,6 +2660,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
         {draft.id ? <div className="device-account-meta"><span>当前权限 <strong className={accountStatus?.writeAccess ? 'account-permission-ok' : 'account-permission-warn'}>{accountLoading ? '读取中…' : accountStatus?.permission === 'write' ? '可写' : accountStatus?.permission === 'read_only' ? '只读' : '未知'}</strong></span><div className="device-account-actions"><button type="button" className="toolbar-button" disabled={replacementBusy} onClick={() => void generateReplacementScript()}>{replacementBusy ? '正在生成…' : '一键更换'}</button><button type="button" className="link-button link-button--danger" onClick={() => void removeDeviceAccount()}>删除账号</button></div></div> : null}
         {draft.id && original?.passwordSet ? <small className="device-field-help">编辑设备时密码可留空，系统将保留当前凭据。</small> : null}
         {accountStatus?.error ? <small className="settings-message" role="alert">{accountStatus.error}</small> : null}
+        {draft.id ? <ImageTransferPanel key={`transfer:${draft.id}:${original?.username}`} deviceId={draft.id} buttonClass="toolbar-button" inputClass="settings-input" /> : null}
         {draft.id ? <AccountTransferPanel key={`${draft.id}:${original?.username}`} deviceId={draft.id} buttonClass="toolbar-button" inputClass="settings-input" /> : null}
       </section>
 
@@ -4195,5 +4198,5 @@ function DetailSummary(props: { label: string; value: string }) {
 export default App
 
 function CompactUpdateCard({ disabled = false }: { disabled?: boolean }) {
-  return <section className="panel settings-panel"><h3>版本与更新</h3><UpdatePanel buttonClass="toolbar-button" primaryClass="primary-button" disabled={disabled} /></section>
+  return <><section className="panel settings-panel"><h3>版本与更新</h3><UpdatePanel buttonClass="toolbar-button" primaryClass="primary-button" disabled={disabled} /></section><section className="panel settings-panel"><h3>代理设置</h3><DownloadProxyPanel buttonClass="toolbar-button" inputClass="settings-input" disabled={disabled} /></section></>
 }

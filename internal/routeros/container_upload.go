@@ -90,18 +90,14 @@ func containerTransferSession(ctx context.Context, baseURL, user, password, fing
 	if err != nil || u.Hostname() == "" {
 		return nil, nil, errors.New("invalid archive device")
 	}
-	conn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), strconv.Itoa(port)))
+	rawConn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), strconv.Itoa(port)))
 	if err != nil {
 		return nil, nil, err
 	}
 
+	conn := &transferIdleConn{Conn: rawConn}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 
-	if err = conn.SetDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-		stop()
-		conn.Close()
-		return nil, nil, err
-	}
 	clientConn, chans, reqs, err := ssh.NewClientConn(conn, net.JoinHostPort(u.Hostname(), strconv.Itoa(port)), &ssh.ClientConfig{User: user, Auth: []ssh.AuthMethod{ssh.Password(password)}, HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 		if ssh.FingerprintSHA256(key) != fingerprint {
 			return errors.New("RouterOS SSH host key changed")
@@ -123,4 +119,17 @@ func containerTransferSession(ctx context.Context, baseURL, user, password, fing
 	}
 
 	return files, func() { stop(); files.Close(); client.Close(); conn.Close() }, nil
+}
+
+// Idle-progress limits apply independently to every read/write, while the
+// caller's stage context bounds total duration. Active transfers may exceed 5m.
+type transferIdleConn struct{ net.Conn }
+
+func (c *transferIdleConn) Read(p []byte) (int, error) {
+	c.SetReadDeadline(time.Now().Add(60 * time.Second))
+	return c.Conn.Read(p)
+}
+func (c *transferIdleConn) Write(p []byte) (int, error) {
+	c.SetWriteDeadline(time.Now().Add(60 * time.Second))
+	return c.Conn.Write(p)
 }

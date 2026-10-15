@@ -104,6 +104,9 @@ type Capabilities struct {
 	Warnings        []string `json:"warnings"`
 }
 type Item struct {
+	OwnerComment  string            `json:"-"`
+	ImageDigest   string            `json:"imageDigest,omitempty"`
+	ImagePlatform string            `json:"imagePlatform,omitempty"`
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	Status        string            `json:"status"`
@@ -139,14 +142,16 @@ type Log struct {
 
 // Job is shared with the test-only simulator and reserved for future real writes.
 type Job struct {
-	Warnings []string `json:"warnings,omitempty"`
-	ID       string   `json:"id"`
-	DeviceID string   `json:"deviceId"`
-	Action   string   `json:"action"`
-	TargetID string   `json:"targetId"`
-	State    string   `json:"state"`
-	Phase    string   `json:"phase"`
-	Progress int      `json:"progress"`
-	Error    string   `json:"error"`
-	Retained []string `json:"retained"`
+	CanCancel      bool     `json:"canCancel,omitempty"`
+	CleanupPending bool     `json:"cleanupPending,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
+	ID             string   `json:"id"`
+	DeviceID       string   `json:"deviceId"`
+	Action         string   `json:"action"`
+	TargetID       string   `json:"targetId"`
+	State          string   `json:"state"`
+	Phase          string   `json:"phase"`
+	Progress       int      `json:"progress"`
+	Error          string   `json:"error"`
+	Retained       []string `json:"retained"`
 }
