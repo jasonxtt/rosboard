@@ -283,3 +283,20 @@ See research/registry-dns-warming-2026-10-14.md.
 - [ ] Verify actual repeated Docker Hub/GHCR import and restart recovery, then
       complete automated checks and the same Draft PR checkpoint.
 - [ ] Perform NAS-backed production replacement only after successful validation.
+
+## Revised host-import planning — 2026-10-15
+
+- [x] Incorporate the user's exact Maintenance proxy layout, URL credentials,
+      shared updater/download transport, and runtime/deletion retention decisions.
+- [x] Verify SFTP policy matrix on the independent lab with FTP service disabled;
+      remove generated account/group/file fixtures and check the existing runtime.
+- [ ] Validate actual archive import/start and deletion of source tar after first
+      successful runtime before accepting automatic cleanup behavior.
+- [ ] Implement shared proxy configuration and both Maintenance forms; preserve
+      official updater source/checksum/rollback constraints and per-operation
+      transport snapshots, candidate tests and password-free responses.
+- [ ] Implement host image download/preparation with durable native-job integration,
+      generated-artifact provenance, first-runtime cleanup, pre-runtime retention,
+      and container-delete cleanup recovery without duplicate native writes.
+- [ ] Complete automated, real lab, Docker-volume and dual-UI verification before
+      NAS-backed production delivery and subsequent manual acceptance.

@@ -1,8 +1,11 @@
 # Host-side registry download and RouterOS archive import proposal
 
-Status: proposed design for user review; runnable implementation has not started.
-The user selected host-side download and asked for a complete proposal covering
-proxy configuration, temporary storage, and both binary/Docker deployments.
+Status: revised planning, incorporating the user's 2026-10-15 decisions; runnable
+implementation has not started. The user selected host-side download and approved
+staging under the data directory. The proxy belongs below Version and updates
+in Maintenance, shares its transport with application updates, and uses one URL
+input with an inline test icon and an external Confirm button. Generated image
+files remain until first successful container runtime or confirmed deletion.
 This continues the existing Container task, branch, and Draft PR.
 
 ## Product behavior and scope
@@ -59,43 +62,67 @@ expansion size and validate the finished tar through the existing InspectArchive
 Unsupported legacy/foreign layer formats fail explicitly rather than being omitted.
 Real RouterOS import is a prerequisite to calling this format compatible.
 
-## Settings and credentials
+## Shared proxy setting and credentials
 
-Add one global `Image download` section to BOTH settings variants, after collection
-settings. It exists even with no selected device; it configures the rosboard
-application's downloads rather than a router's policy or a browser preference.
-Use shared form/API behavior and UI-specific styling.
+Place a `Proxy settings` card directly BELOW `Version and updates` in Settings ->
+Maintenance in BOTH UI variants, including the no-device settings shell. Do not
+add an Image download tab or separate protocol/host/user/password fields. Render
+one URL input; a compact test-icon button sits inside its right edge, and a
+Confirm button sits outside the input to its right. Supply an accessible test
+name/tooltip and keyboard focus. On mobile preserve this order without overflow.
 
-Fields: direct / HTTP proxy / HTTPS proxy / SOCKS5; host, port, optional username,
-write-only password; temporary-directory location; occupied/free space and quota;
-optional bounded proxy test, and cleanup of unused rosboard-generated files.
-The proxy test uses fixed registry/auth endpoints and does not create a container.
-Advanced exact-host bypass may support a configured private registry; otherwise
-proxy failure stops the download and never silently switches to direct mode.
+Accept `http://host:port`, `https://host:port`, `socks://host:port`, `socks5://host:port`
+and `socks5h://host:port`; treat `socks://` as an explicit SOCKS5 alias and normalize
+it to the same remote-DNS SOCKS5 transport. Empty input + Confirm selects direct
+mode. Optional credentials use standard URL userinfo, for example
+`http://user:password@proxy.example:7890` or
+`socks://user:password@proxy.example:7890`. Reserved characters in username/password
+must be percent-encoded; do not guess unescaped separators. Validate scheme,
+host/IPv6 literal, port, control characters and userinfo before saving. Reject
+unsupported schemes, paths, queries and fragments with safe errors.
 
-HTTP(S) CONNECT and SOCKS5 forward destination domain names to the proxy. Proxy
-host resolution itself may still use the application's resolver. The same
-immutable per-job transport applies to registry authentication, manifests and
-redirected blob/CDN requests. Do not pre-resolve image domains through RouterOS.
-Do not inherit HTTP_PROXY/NO_PROXY in a way that overrides explicit settings.
-RouterOS REST, SFTP, monitoring and unrelated network clients remain outside this
-proxy. Normal certificate verification stays enabled.
+The test icon tests the CURRENT edited candidate without saving it; Confirm
+atomically saves the URL for future requests. When the input represents a saved,
+redacted credential-bearing URL and is unchanged, testing uses the saved server
+configuration by revision, never its mask as a password. A changed URL must be
+provided afresh; do not copy stored secrets to a newly entered endpoint or persist
+a mask. GET returns redacted display data/passwordSet only, never the full secret
+URL. No credentials are stored in browser persistence, history, logs or job payloads.
+The test uses fixed GitHub and registry/auth endpoints with bounded requests and
+reports update and image-registry results separately; Docker Hub's expected 401
+challenge is not a connection failure. Testing cannot install or create anything.
 
-Persist global settings atomically through the existing private configuration
-and cfgMu. GET returns passwordSet, never password or a credential-bearing URL;
-blank password preserves, and an explicit clear flag deletes. Saved settings take
-effect for new jobs without restarting the application. Existing jobs keep an
-immutable configuration revision; after process restart, a changed transport or
-credential revision pauses the job for recovery rather than silently changing
-its network path. Directory changes are rejected while any job still owns files
-there. Never log tokens, signed CDN query strings or proxy credentials.
+One shared, explicitly configured transport factory serves application release
+checks, checksum/release downloads, registry authentication, manifests and
+redirected blob/CDN downloads. Keep the updater's official repository/HTTPS host
+allowlist, redirect limit, checksum verification and rollback behavior unchanged.
+Proxy-Authorization is confined to the proxy; it is never forwarded to origins.
+Each update check/download or container job owns an immutable configuration
+revision/transport. A Confirm action affects new operations without restarting
+rosboard or changing a running operation mid-transfer. After process restart, a
+changed transport/credential revision pauses a retained job for explicit recovery.
 
-Private-registry credentials are distinct from proxy credentials and scoped to
-an exact registry host/port. First delivery may support public registries only,
-with explicit authentication errors for private repositories; private credential
-management must not be improvised by reading the host Docker config or RouterOS
-secrets. If included in the delivery, place write-only credentials in this same
-section and validate trusted auth-realm hosts before sending credentials.
+HTTP(S) CONNECT and SOCKS5 forward destination names to the proxy. The proxy's
+own hostname may still require application-host DNS. Do not pre-resolve image
+hosts through RouterOS or let HTTP_PROXY/NO_PROXY override the explicit setting.
+A configured proxy failure is an error, never an automatic direct fallback.
+RouterOS REST, SFTP, monitoring and unrelated network clients stay outside this
+shared DOWNLOAD transport; normal certificate verification stays enabled.
+
+Docker-packaged rosboard can use the setting for registry downloads and release
+metadata checks, but keeps its existing online-self-update-disabled behavior.
+The host Docker daemon's `docker pull` of the rosboard application image is an
+external operation and does not inherit an application's saved proxy URL.
+
+Persist the shared proxy configuration atomically through cfgMu/private config,
+with empty input explicitly clearing it. Keep temporary-directory/quota defaults
+server-side and report their effective values through existing diagnostics as
+needed; the requested proxy card remains a single-input form.
+
+Private-registry credentials remain distinct and scoped to the exact registry
+host/port. First delivery focuses on public Docker Hub/GHCR and explicit HTTPS
+public registries; private repositories receive an explicit authentication error.
+Do not import host Docker credentials or RouterOS registry secrets implicitly.
 
 ## SFTP authority and target location
 
@@ -109,9 +136,26 @@ selected RouterOS endpoint. Changing device identity clears its transfer authori
 Expose these fields under Device management -> Image transfer, protected by the
 same administrator/same-origin authentication. Return passwordSet only. No account
 policy changes, provisioning or trust-on-first-use occur automatically. Verify
-least privileges for SFTP upload/read/remove on the independent lab; do not claim
-RouterOS provides a per-directory SFTP jail if it does not. Software guards limit
+the SFTP authority on each supported RouterOS version; do not claim RouterOS
+provides a per-directory SFTP jail if it does not. Software guards limit
 writes to exact generated job paths.
+
+An independent RouterOS 7.23.7 proof confirmed `ssh,read,write,ftp` supports the
+whole SFTP sequence: list/mkdir/upload/read-back/rename/remove/rmdir. Without ftp,
+the subsystem could not open; without write, mkdir failed; without ssh,
+authentication failed. The FTP service remained disabled. Use this verified
+custom-group combination, not the default full group; no policy, sensitive,
+reboot, API or REST policies are needed for the separate SFTP transfer role.
+See `sftp-permission-validation-2026-10-15.md`; do not call it a proof for a
+RouterOS version not yet exercised. The control account retains its existing
+REST authorization separately.
+
+Required service: `/ip/service` ssh enabled on its configured port (default
+TCP/22), with the service's source restriction, user's source restriction and
+input firewall allowing the application host. SFTP has no separate service
+switch and does not require enabling FTP/TCP21. Container control keeps the
+existing www or www-ssl REST service; classic API service ports are not required.
+No production service, account or firewall changes occur while planning.
 
 Default remote staging is `<rootfs disk>/rosboard/images/jobs/<job UUID>/image.tar`.
 An optional per-device staging disk can be chosen explicitly; do not silently
@@ -143,7 +187,7 @@ Binary deployment using `/opt/rosboard/data` therefore stages under
 folder and persistent volume `/var/lib/rosboard`, default data_dir `./data`, so
 its default is `/var/lib/rosboard/data/container-staging`. The supplied compose
 bind mount `/opt/rosboard-docker:/var/lib/rosboard` makes the HOST location
-`/opt/rosboard-docker/data/container-staging`. A custom absolute directory must
+`/opt/rosboard-docker/data/container-staging`. Any future private-config custom absolute directory must
 be writable by rosboard; Docker users must bind-mount that location explicitly.
 The Docker image continues to run as UID/GID 1000. A proxy on the host cannot be
 addressed as 127.0.0.1 from a bridge-network container; document a reachable LAN
@@ -188,28 +232,63 @@ then the ordinary guarded delete action for confirmed failed created objects.
 Downloading/uploading a replacement must not stop the old running container;
 activation continues the existing guarded update/root-retention behavior.
 
-Successful jobs delete local generated blobs/archive when no stage needs them.
-Delete ROS-generated tar only after confirming import is terminal and verifying
-on the lab that start/restart and application restart do not need the source tar.
-If the router requires it, retain it explicitly and show occupancy; never conceal
-this as cleanup success. User-uploaded archives have a different origin/retention
-policy and are not automatically swept. Failed generated artifacts expire after
-24 hours only when no active/unknown/recoverable job or container requires them.
-A cleanup failure is a visible warning and does not rewrite successful import as
-failed. Startup and an explicit cleanup button sweep only recorded owned paths,
-never whole disks, arbitrary data directories, user mounts or retained runtimes.
+Generated-image retention is bound to CONTAINER runtime, not merely a successful
+import job. Retain local completed blobs/archive and the ROS archive while the
+container is stopped awaiting its first manual start, or has import/start/health
+failure awaiting a user configuration correction. There is no 24-hour expiry or
+quota eviction of these retained container-associated artifacts. Quota exhaustion
+must report the retained occupancy rather than delete this recovery material.
+
+On the first fresh, verified successful runtime, remove generated local download
+files and ROS tar/partials that are no longer being read by an import/recovery
+operation. If an explicit health check exists, require healthy; otherwise require
+running with no import/start failure. Preserve original source/digest/platform
+metadata after deleting tar so future updates still work. Verify on the lab that
+removing the source tar after runtime success preserves subsequent start/restart.
+A manual later stop must not cause another download.
+
+Successful create/update/start/recovery and a bounded background read-back worker
+can recognize first successful runtime, including an external start. Do not write
+or clean as a side effect of GET snapshots or from stale cached runtime flags.
+Remote cleanup takes the same device write gate, skips pending/unknown imports,
+and checkpoints exact owned paths/IDs before removing anything. A configured
+stopped-but-not-started container must not be mistaken for successful runtime.
+
+Confirmed container deletion MUST clean up its associated generated local and
+remote image files even if the container never started. Include cleanup in the
+durable delete operation: persist the container-remove result, then finish
+associated artifact cleanup without repeating remove on recovery. If deletion
+is confirmed but remote cleanup fails, expose `container deleted; image cleanup
+pending` and retain the cleanup intent; do not report overall deletion/cleanup
+as complete. If an archive has another live/pending consumer, unlink this
+container's association and remove the physical file only after the last consumer
+releases it. External deletion may be noticed by authoritative read-back, with
+absence distinguished from read/auth failures.
+
+This policy covers rosboard-generated download blobs/tars and related partials.
+It does not erase mounted application data or the guarded retained runtime roots.
+User-uploaded archives keep their explicit metadata and reference safeguards;
+auto-generated and user-uploaded provenance cannot be conflated. Only abandoned
+pre-container job artifacts without live/recoverable references may be swept.
+Orphan cleanup never sweeps whole disks or arbitrary data directories. Keep
+cleanup failures visible and retry/reconcile exact cleanup independently of
+successful runtime, using the durable intent and read-back.
 
 ## Acceptance sequence and open gates
 
 1. Validate registry/HTTP(S)/SOCKS5, remote DNS behavior, complete redirected
-   authentication/layer traffic, bad credentials, no direct fallback, and no secret
+   authentication/layer traffic, shared updater release/checksum traffic, URL-userinfo
+   percent encoding, candidate test vs Confirm, saved-mask handling, bad credentials,
+   no direct fallback, and no secret
    responses/logs. Test multi-platform selection, digest pinning, corruption,
    bounded expansion, no space, cancellation and configuration changes.
 2. Validate archive shape against real Docker Hub Alpine plus the user's intended
    image, GHCR, and a multilayer OCI image; include real extraction/start tests.
 3. Exercise failures/restarts at download, transfer, import and update activation;
-   prove no duplicate container/add and old runtime retention. Verify source-tar
-   cleanup does not break subsequent start/restart. Test both settings variants,
+   prove no duplicate container/add and old runtime retention. Verify first-runtime
+   cleanup, retention while stopped/failing awaiting configuration changes, deletion
+   before first run, cleanup-failure recovery without duplicate remove, and source-tar
+   deletion preserving subsequent start/restart. Test both maintenance variants,
    mobile layouts and Docker non-root persistent-volume/proxy addressing.
 4. Run Go full build/test/vet and targeted race, frontend test/lint/build and emitted
    asset isolation checks. Inspect the public staged diff and push the same Draft PR.
@@ -219,7 +298,9 @@ never whole disks, arbitrary data directories, user mounts or retained runtimes.
    separate final gate before merge/release/archive.
 
 Open before implementation: actual RouterOS archive format compatibility,
-source-tar lifetime, least SFTP authority, and ARM32 variants. Public-image
+source-tar removal after first successful runtime, SFTP authority on additional
+RouterOS versions, and ARM32 variants. The independent 7.23.7 SFTP policy matrix
+has passed and all permission-test fixtures were removed. Public-image
 host-side authentication/manifest/blob download has already passed a read-only
 independent-host proof; that proof alone does not accept RouterOS archive import.
 

@@ -173,3 +173,24 @@ No policy settings, DNS configuration, or route/firewall rules may change. The
 implementation must preserve unrelated entries, bound temporary state after
 crash/restart, and pass repeated actual downloads on the independent lab before
 production replacement. Failed proofs do not authorize deployment or acceptance.
+
+## Host-side download decisions — 2026-10-15
+
+- Put `Proxy settings` below Version and updates in Settings -> Maintenance in
+  both UIs; one URL input, small test button inside the right edge, Confirm outside
+  right. Accept HTTP and SOCKS5 (including socks:// alias) and URL credentials.
+- One saved proxy serves rosboard release checks/downloads and container image
+  downloads. It is service configuration, not a browser preference. Empty clears
+  it; candidate testing does not save; secrets must never be returned or logged.
+- Downloaded image staging follows the effective data directory in binary and
+  Docker deployments. No Docker daemon is required for the application downloader.
+- Keep downloaded images while a container has not yet run successfully, including
+  import/start/health failure or waiting for a user configuration correction.
+  First verified successful runtime triggers generated-image cleanup. No timed
+  eviction may remove this container-associated recovery material.
+- Container deletion also deletes its associated generated images; interruptions
+  must leave explicit recoverable cleanup intent rather than false completion.
+  Preserve shared references and application mount/retained-runtime data.
+- Transfer requires a verified per-device SSH account/key and working SFTP file
+  permissions. The lab verified ssh/read/write/ftp with only SSH service enabled;
+  production services/accounts remain unchanged during planning.

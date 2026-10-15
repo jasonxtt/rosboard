@@ -155,3 +155,17 @@ binary and Docker staging, target platform/archive compatibility, separate
 per-device SFTP authority, durable native-job integration, origin metadata,
 quota/cleanup, and the actual-test/deployment gates. This is a proposal for review;
 no runnable changes or production replacement follow from writing this document.
+
+### User amendments — 2026-10-15
+
+Revise the host-import proposal: one `Proxy settings` URL field under Version
+and updates in BOTH Maintenance views, inline candidate-test icon and external
+Confirm button; URL userinfo/percent encoding and explicit socks-to-SOCKS5 alias.
+The saved transport serves application update checks/downloads and registry
+image downloads, preserving updater source/digest gates. Staging follows data_dir.
+Retain generated image files until the container's first successful runtime,
+including stopped/failed containers awaiting user configuration changes; confirmed
+delete must finish associated owned-image cleanup or expose a recoverable cleanup
+pending result. Do not expire these associated images on a timer. The independent
+SFTP ssh/read/write/ftp policy matrix passed with FTP service disabled; see the
+permission research report. These amendments change planning only.
