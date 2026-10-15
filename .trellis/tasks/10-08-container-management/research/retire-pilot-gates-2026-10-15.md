@@ -29,9 +29,15 @@ uses temporary state, emits no credentials, and is removed afterward. Frontend
 assets are unchanged. Targeted race tooling cannot run locally because no C
 compiler is installed; no concurrency algorithm changed.
 
-Production deployment was rejected before execution by automatic approval review:
-removing private opt-in expands operation capabilities to every enabled device;
-review requires explicit user authorization of that scope. No new production
-backup/replacement/restart was performed. Production remains dev-memory-mb-1015;
-no native operation or task replay was performed. Code is ready for approval and
-stays on the same Draft PR with task in_progress.
+Production deployment was initially rejected by automatic approval review until
+the user explicitly approved removing pilot restrictions for all enabled current
+and future device connections. After that approval, completed a consistent NAS
+backup under 20261015T090859Z-no-pilot (archive fully read and SHA256 verified),
+then deployed dev-no-pilot-1015. Backup retention remains at most 10 timestamped
+directories. Service health and all 79 embedded asset hashes pass. Configuration
+and systemd service match the backup. A temporary read-only API harness on the
+production host confirms supported=true, writes=true, directoryWrites=true and
+mode=native for both the newly connected test RouterOS and unicom; no container
+operation or job replay was performed. The harness and temporary SSH credential
+helper were removed. User visual acceptance remains pending; the same PR stays
+Draft, the task stays in_progress and no main merge/release is authorized.
