@@ -66,6 +66,14 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		}
 		ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
 		defer cancel()
+		if s.containers.DownloadSnapshot != nil && ((operation.Action == "create" && operation.Draft.ImageSource != "archive") || operation.Action == "update") {
+			initialized, err := s.automaticTransfer(ctx, device)
+			if err != nil {
+				writeAPIError(writer, 502, "transfer_connection_failed", err.Error())
+				return
+			}
+			device = initialized
+		}
 		job, err := s.containers.Submit(ctx, device, gate, operation)
 		if err != nil {
 			writeDirectoryError(writer, err)
@@ -89,6 +97,12 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		defer part.Close()
 		ctx, cancel := context.WithTimeout(request.Context(), 5*time.Minute)
 		defer cancel()
+		initialized, err := s.automaticTransfer(ctx, device)
+		if err != nil {
+			writeAPIError(writer, 502, "transfer_connection_failed", err.Error())
+			return
+		}
+		device = initialized
 		archive, err := s.containers.UploadArchive(ctx, device, gate, part.FileName(), part)
 		if err != nil {
 			writeDirectoryError(writer, err)

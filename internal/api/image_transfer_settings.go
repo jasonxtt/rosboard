@@ -66,8 +66,8 @@ func (s *Server) serveImageTransferSettings(w http.ResponseWriter, r *http.Reque
 	} else {
 		key := strings.TrimSpace(body.HostKey)
 		decoded, e := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(key, "SHA256:"))
-		if e != nil || !strings.HasPrefix(key, "SHA256:") || len(decoded) != 32 || body.Port < 1 || body.Port > 65535 {
-			writeAPIError(w, 400, "invalid_transfer", "请填写有效 SSH 端口和已独立核验的 SHA256 主机指纹")
+		if (key != "" && (e != nil || !strings.HasPrefix(key, "SHA256:") || len(decoded) != 32)) || body.Port < 1 || body.Port > 65535 {
+			writeAPIError(w, 400, "invalid_transfer", "请填写有效的 SSH 端口")
 			return
 		}
 		switch body.Mode {
@@ -95,10 +95,14 @@ func (s *Server) serveImageTransferSettings(w http.ResponseWriter, r *http.Reque
 		}
 		c := candidate.ContainerTransferCredentials()
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-		e = routeros.CheckContainerTransfer(ctx, d.RouterOS.BaseURL, c.Username, c.Password, c.HostKey, c.Port)
+		if c.HostKey == "" {
+			candidate, e = verifyAutomaticTransfer(ctx, candidate)
+		} else {
+			e = routeros.CheckContainerTransfer(ctx, d.RouterOS.BaseURL, c.Username, c.Password, c.HostKey, c.Port)
+		}
 		cancel()
 		if e != nil {
-			writeAPIError(w, 502, "transfer_read_failed", "SFTP 只读检查失败；请检查 SSH 服务、端口、来源限制、账号权限与主机指纹。设备监控不受影响。")
+			writeAPIError(w, 502, "transfer_read_failed", "SFTP 只读检查失败；请检查 SSH 服务、端口、来源限制、账号权限；设备密钥变化时请重新配置连接。设备监控不受影响。")
 			return
 		}
 	}

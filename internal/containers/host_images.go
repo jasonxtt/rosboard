@@ -59,7 +59,7 @@ func (s *Service) hostImagePlan(ctx context.Context, d config.DeviceConfig, step
 		}
 		credentials := d.ContainerTransferCredentials()
 		if credentials.HostKey == "" {
-			return nil, operationError(409, "ssh_key_required", "请先配置并核验镜像传输账号及 SSH 指纹")
+			return nil, operationError(409, "ssh_key_required", "镜像传输连接尚未初始化，请重新提交操作")
 		}
 		arch, e := imagepull.Platform(snap.Options.Architecture)
 		if e != nil {

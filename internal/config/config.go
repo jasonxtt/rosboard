@@ -108,8 +108,8 @@ type FeatureLibraryConfig struct {
 
 const DefaultDeviceID = "default"
 
-// ContainerTransferConfig is private startup-only configuration. An override
-// never borrows a missing password or host key from the REST connection account.
+// ContainerTransferConfig is private device configuration. An override never
+// borrows a missing password; first-use SSH identity is verified automatically.
 type ContainerTransferConfig struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password" json:"-"`
