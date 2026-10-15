@@ -163,7 +163,38 @@ func TestHostImageIndependentLab(t *testing.T) {
 	if !retained {
 		t.Fatal("stopped image removed before first runtime")
 	}
+	// Keep a real sibling mount source while deleting the exclusive rootfs.
+	dataPath := "/" + parent + "/stopped/data"
+	native := routeros.NewMutationClient(cfg.BaseURL, cfg.Username, cfg.Password)
+	if e := native.CreateDirectory(ctx, dataPath); e != nil {
+		t.Fatal(e)
+	}
+	mountList := "rb-data-" + token
+	if e := native.ContainerCommand(ctx, routeros.ContainerMounts, "add", routeros.RouterOSFields{"list": mountList, "src": dataPath, "dst": "/data", "comment": g.Owner}); e != nil {
+		t.Fatal(e)
+	}
+	if e := native.ContainerCommand(ctx, routeros.ContainerList, "set", routeros.RouterOSFields{"numbers": stopped.TargetID, "mountlists": mountList}); e != nil {
+		t.Fatal(e)
+	}
 	submit(s, "delete", stopped.TargetID, Draft{})
+	fileRows, e := s.ReaderFor(d).ContainerRead(ctx, routeros.ContainerFiles)
+	if e != nil {
+		t.Fatal(e)
+	}
+	dataExists := false
+	rootPath := strings.TrimPrefix(draft.RootDir, "/")
+	for _, file := range fileRows {
+		if file["name"] == strings.TrimPrefix(dataPath, "/") {
+			dataExists = true
+		}
+		if file["name"] == rootPath || strings.HasPrefix(file["name"], rootPath+"/") || strings.HasPrefix(file["name"], rootPath+"-retained-") {
+			t.Fatal("delete retained its root filesystem")
+		}
+	}
+	if !dataExists {
+		t.Fatal("delete removed independent mount data")
+	}
+
 	n.mu.Lock()
 	cleaned := g.Cleaned
 	n.mu.Unlock()
@@ -190,5 +221,5 @@ func TestHostImageIndependentLab(t *testing.T) {
 			t.Fatal("origin not durable across restart")
 		}
 	}
-	t.Log("Docker Hub Alpine and GHCR multilayer import/start/update, tar cleanup then stop/start/restart, stopped retention, delete cleanup and durable logical origin passed")
+	t.Log("Docker Hub Alpine and GHCR multilayer import/start/update, tar cleanup then stop/start/restart, stopped retention, delete removes rootfs while preserving sibling mount data, artifact cleanup and durable logical origin passed")
 }

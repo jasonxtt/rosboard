@@ -240,7 +240,7 @@ func (f *nativeFake) RemoveDirectory(ctx context.Context, id string) error {
 func (f *nativeFake) RenameDirectory(ctx context.Context, id, name string) error {
 	return f.ContainerCommand(ctx, routeros.ContainerFiles, "set", routeros.RouterOSFields{"numbers": id, "name": name})
 }
-func TestNativeRootRetainedOnDeleteAndUpdate(t *testing.T) {
+func TestNativeRootRemovedOnDeleteAndRetainedOnUpdate(t *testing.T) {
 	s, d, f := nativeFixture(t)
 	draft := draftFixture()
 	draft.Name = "retain"
@@ -259,8 +259,8 @@ func TestNativeRootRetainedOnDeleteAndUpdate(t *testing.T) {
 			count++
 		}
 	}
-	if count != 2 || len(deleted.Retained) == 0 {
-		t.Fatalf("root filesystems lost: %+v %+v", files, deleted)
+	if count != 1 || len(deleted.Retained) != 0 {
+		t.Fatalf("delete must remove only the current root: %+v %+v", files, deleted)
 	}
 }
 
@@ -303,6 +303,18 @@ func TestNativePendingRootRenameSurvivesRestartWithoutReplay(t *testing.T) {
 	steps, retained, err := s.plan(context.Background(), d, ActionRequest{Action: "delete", TargetID: created.TargetID}, snap, "12345678-test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Preserve compatibility with journals admitted before delete stopped retaining roots.
+	for i, step := range steps {
+		if step.Menu == routeros.ContainerList && step.Command == "remove" {
+			legacy, path, e := s.planRootRetention(context.Background(), d, step.Match, "12345678-test")
+			if e != nil || legacy == nil {
+				t.Fatal("legacy retention plan unavailable")
+			}
+			steps = append(steps[:i], append([]nativeStep{*legacy}, steps[i:]...)...)
+			retained = append(retained, path)
+			break
+		}
 	}
 	// Simulate a crash after rename was applied, before its journal confirmation.
 	for i := range steps {

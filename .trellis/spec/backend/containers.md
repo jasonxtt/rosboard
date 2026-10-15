@@ -228,3 +228,18 @@ remain unchanged. This is trust on first use. Never replace an existing pin on a
 network failure or key mismatch. GET/preview/capability checks never enroll keys.
 Settings saves with a missing key use the same automatic read-only verification;
 TestOnly must not persist it. Keep private container-write opt-in independent.
+
+## Delete root filesystem and memory limits (2026-10-15 amendment)
+
+User-authorized container deletion removes its exclusively bound root filesystem
+instead of retaining/renaming it. Immediately before native remove, recheck exact
+owned stopped identity, root safety, other container roots and all mount sources.
+After native removal, confirm root absence; remove a leftover root only through
+its exact recorded opaque ID/path/type and fresh no-reference checks. A same-path
+replacement must fail closed. Independent mount data stays. Updates and legacy
+retention journals retain their prior behavior.
+
+Bare numeric memory values remain bytes for compatibility. Reject explicit values
+below1MiB and overflow before admission, and explain units beside both inputs.
+Capture bounded, credential/env-redacted RouterOS HTTP rejection details in the
+durable job so deterministic add failures do not collapse into a generic message.

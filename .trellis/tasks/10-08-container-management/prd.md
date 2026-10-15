@@ -132,13 +132,14 @@ explicitly enabled through private server configuration.
   unchanged. Removal cleans only journal-linked owned objects after rechecking
   shared references. Failed imports leave their created objects visible for
   explicit cleanup; they are not silently rolled back.
-- RouterOS implicitly deletes root-dir on container removal. Preserve a stopped
-  rootfs by renaming its `container store` to a unique sibling with `-retained-`
-  before removal. Guard exact container identity, ownership, stopped status,
-  source metadata and all overlapping root/mount references. Shared/overlapping
-  roots block removal. Show the actual retained path; backups accumulate until
-  explicitly cleaned by the operator. This behavior was verified on the lab
-  version only and must be verified separately for another version.
+- Deletion removes the exclusively owned rootfs together with the container; it
+  no longer renames that rootfs to a retained sibling. Guard exact stopped
+  identity/ownership, other roots and mount sources immediately before removal.
+  Confirm root disappearance and guard any leftover cleanup by exact ID/path/type.
+  Independent mounted data remains. Updates retain their old rootfs for rollback;
+  historical retention journals remain recoverable. This deletion amendment is
+  explicitly requested and lab-verified on2026-10-15.
+
 
 See `research/native-write-validation-2026-10-11.md` for actual results and
 remaining limits. Keep the task active and the same PR Draft; no APPROVED,

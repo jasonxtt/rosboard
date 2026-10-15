@@ -767,14 +767,14 @@ export function ContainerEditor({
                   value={draft.memoryHigh}
                   onChange={(v) => patch('memoryHigh', v)}
                   error={issue('memoryHigh')}
-                  hint={`全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+                  hint={`例如 128M（128MiB），纯数字为字节；全局：${snapshot.options.memoryHigh || 'unlimited'}`}
                 />
                 <Field
                   label="内存 max"
                   value={draft.memoryMax}
                   onChange={(v) => patch('memoryMax', v)}
                   error={issue('memoryMax')}
-                  hint={`全局：${snapshot.options.memoryMax || 'unlimited'}`}
+                  hint={`至少 1MiB，例如 128M；纯数字为字节；全局：${snapshot.options.memoryMax || 'unlimited'}`}
                 />
               </div>
               <Field
