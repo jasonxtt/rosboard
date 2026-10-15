@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { errorMessage } from '../../lib/api'
 import { resolveDraft } from './api'
-import { normalizedImage } from './drafts'
+import { memoryLimitMB, normalizedImage } from './drafts'
 import { DirectoryPicker } from './DirectoryPicker'
 import { RootDirectoryField } from './RootDirectoryField'
 import { replaceDirectory } from './directoryPaths'
@@ -763,18 +763,20 @@ export function ContainerEditor({
             <div className="ct-advanced-fields" id={`${directoryID}-resources`}>
               <div className="ct-pair">
                 <Field
-                  label="内存 high"
-                  value={draft.memoryHigh}
-                  onChange={(v) => patch('memoryHigh', v)}
+                  label="内存 high(MB)"
+                  value={memoryLimitMB(draft.memoryHigh)}
+                  onChange={(v) => patch('memoryHigh', v ? `${v}M` : '')}
+                  type="number"
                   error={issue('memoryHigh')}
-                  hint={`例如 128M（128MiB），纯数字为字节；全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+                  hint={`填写整数，例如 128；1MB = 1024² 字节；留空继承；全局：${snapshot.options.memoryHigh || 'unlimited'}`}
                 />
                 <Field
-                  label="内存 max"
-                  value={draft.memoryMax}
-                  onChange={(v) => patch('memoryMax', v)}
+                  label="内存 max(MB)"
+                  value={memoryLimitMB(draft.memoryMax)}
+                  onChange={(v) => patch('memoryMax', v ? `${v}M` : '')}
+                  type="number"
                   error={issue('memoryMax')}
-                  hint={`至少 1MiB，例如 128M；纯数字为字节；全局：${snapshot.options.memoryMax || 'unlimited'}`}
+                  hint={`填写整数，至少 1MB；留空继承；全局：${snapshot.options.memoryMax || 'unlimited'}`}
                 />
               </div>
               <Field
