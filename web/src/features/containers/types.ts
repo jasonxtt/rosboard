@@ -88,6 +88,8 @@ export type Draft = {
   health: Health
 }
 export type Item = {
+ imageDigest?: string
+ imagePlatform?: string
   id: string
   name: string
   status: string
@@ -145,6 +147,8 @@ export type Action =
   | 'delete'
   | 'adopt'
 export type Job = {
+ canCancel?: boolean
+ cleanupPending?: boolean
   warnings?: string[]
   id: string
   deviceId: string

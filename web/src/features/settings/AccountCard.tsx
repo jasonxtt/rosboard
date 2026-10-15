@@ -1,3 +1,4 @@
+import { ImageTransferPanel } from './ImageTransferPanel'
 import { AccountTransferPanel, transferPermissionHelp } from './AccountTransferPanel'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, CopyButton, Field, Input, Modal, Skeleton } from '../../ui'
@@ -200,6 +201,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
           ) : null}
         </>
       )}
+      <ImageTransferPanel key={`transfer:${device.id}:${device.username}`} deviceId={device.id} buttonClass="btn btn-ghost btn-sm" inputClass="input" />
       <AccountTransferPanel key={`${device.id}:${device.username}`} deviceId={device.id} disabled={disabled} buttonClass="btn btn-ghost btn-sm" inputClass="textarea script-area" />
       <div className="account-card-actions">
         <Button size="sm" disabled={disabled || manualBusy} onClick={openManual}>

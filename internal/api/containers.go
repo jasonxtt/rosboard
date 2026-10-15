@@ -42,7 +42,9 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		}
 		var job containers.Job
 		var err error
-		if len(parts) == 3 && parts[2] == "recover" && request.Method == http.MethodPost {
+		if len(parts) == 3 && parts[2] == "cancel" && request.Method == http.MethodPost {
+			job, err = s.containers.CancelNative(device, parts[1])
+		} else if len(parts) == 3 && parts[2] == "recover" && request.Method == http.MethodPost {
 			job, err = s.containers.RecoverNative(device, gate, parts[1])
 		} else if len(parts) == 2 && request.Method == http.MethodGet {
 			job, err = s.containers.NativeJob(device, parts[1])
@@ -144,7 +146,7 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		}
 		writeJSON(writer, 200, listing)
 	case resolving:
-		writeJSON(writer, 200, containers.Resolve(draft, snapshot))
+		writeJSON(writer, 200, s.containers.ResolveForDevice(ctx, device, draft, snapshot))
 	case len(parts) == 1 && parts[0] == "options":
 		writeJSON(writer, 200, map[string]any{"options": snapshot.Options, "capabilities": snapshot.Capabilities})
 	case request.URL.Path == "/api/containers" || (len(parts) == 1 && parts[0] == ""):

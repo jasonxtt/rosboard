@@ -133,6 +133,8 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 func NewServerWithPolicyManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), policyManager *policyv2.Manager) *Server {
 	server := NewServerWithManager(cfg, manager, storage, assets, restart)
 	server.policy = policyManager
+	server.containers.DownloadSnapshot = server.downloadSnapshot
+	server.containers.DeviceFor = func(id string) (config.DeviceConfig, bool) { return server.configSnapshot().Device(id) }
 	if policyManager != nil {
 		server.containers.NativeGate = policyManager.WriteGate()
 	}
@@ -218,6 +220,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
 	if request.URL.Path == "/api/containers" || strings.HasPrefix(request.URL.Path, "/api/containers/") {
 		s.serveContainers(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/settings/download-proxy" || request.URL.Path == "/api/settings/download-proxy/test" {
+		s.serveDownloadProxy(writer, request)
 		return
 	}
 	if updatePath(request.URL.Path) {
@@ -839,6 +845,9 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 
 	var cleanup *routerOSCleanupResponse
 	switch {
+	case action == "image-transfer":
+		s.serveImageTransferSettings(writer, request, deviceID)
+		return
 	case action == "account-transfer":
 		s.serveAccountTransfer(writer, request, deviceID)
 		return

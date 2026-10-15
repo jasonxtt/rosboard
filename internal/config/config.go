@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	DownloadProxyURL            string             `yaml:"download_proxy_url,omitempty" json:"-"`
 	Path                        string             `yaml:"-"`
 	ListenAddress               string             `yaml:"listen_address"`
 	DataDir                     string             `yaml:"data_dir"`

@@ -192,3 +192,27 @@ archives/rootfs/mounts, and clean only exact recorded objects. Cancellation,
 failures and unknown outcomes preserve cleanup intent; capability refresh never
 retries a write. These are implementation/review constraints, not permission to
 mutate a router during capability discovery.
+
+## Host registry jobs and generated artifact ownership
+
+- New registry create/update jobs capture an explicit immutable download transport
+  at admission. Persist only its revision, never proxy credentials; after restart
+  changed authority requires explicit recovery. Do not use environment proxies,
+  implicit Docker keychains, Docker daemons or credential helper executables.
+- Persist the selected manifest digest before local blob writes. Verify compressed
+  sizes/hashes and expanded DiffIDs; emit single-image Docker-save archives with
+  uncompressed layer members without extracting or executing them.
+- Generated artifacts live under effective data_dir/container-staging/device/job.
+  Record exact owned filenames before writes; reject foreign files and symlink
+  ancestors during cleanup. Use exclusive SFTP job namespaces, bounded idle I/O,
+  hash read-back and final rename. RouterOS SFTP missing-path status may be generic:
+  prove absence via successful parent listings, never by treating errors as missing.
+- Persist physical import file separately from logical registry source/digest and
+  target platform. Keep old native journals recoverable without replaying an
+  ambiguous add. GET endpoints never perform cleanup or transfer probes.
+- Keep artifacts before first successful running state (healthy when configured),
+  including stopped imports. Persist cleanup intent before exact hash-bound removal
+  after successful runtime or confirmed deletion; protect runtime roots, mounts and
+  other source references. Unknown cleanup holds the device gate for explicit recovery.
+- Image transfer settings may save an explicitly verified connection/dedicated SSH
+  identity through a read-only check. They cannot enable private container writes.

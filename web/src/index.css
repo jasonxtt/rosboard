@@ -2,3 +2,15 @@
 @import './styles/tokens.css';
 @import './styles/base.css';
 @import './styles/shell.css';
+
+.download-proxy { min-width: 0; }
+.download-proxy p, .download-proxy small { overflow-wrap: anywhere; }
+.download-proxy-row { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.download-proxy-input { position: relative; flex: 1; min-width: 0; }
+.download-proxy-input input { width: 100%; min-width: 0; box-sizing: border-box; padding-right: 48px; }
+.download-proxy-input > button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-width: 32px; padding: 5px 8px; }
+.download-proxy small { display: block; margin-top: 10px; }
+
+.image-transfer-settings { display: grid; gap: 12px; min-width: 0; margin: 12px 0; }
+.image-transfer-settings label { display: grid; gap: 6px; min-width: 0; }
+.image-transfer-settings input, .image-transfer-settings select { width: 100%; min-width: 0; box-sizing: border-box; }

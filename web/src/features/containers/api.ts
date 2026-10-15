@@ -100,6 +100,7 @@ export function parseItem(v: unknown): Item {
     name: safeString(o.name),
     status: safeString(o.status),
     image: safeString(o.image),
+    imageDigest: safeString(o.imageDigest), imagePlatform: safeString(o.imagePlatform),
     network: parseNetwork(o.network),
     cpu: safeString(o.cpu),
     memory: safeString(o.memory),
@@ -177,6 +178,7 @@ export function parseResolution(v: unknown): Resolution {
 export function parseJob(v: unknown): Job {
   const o = safeObject(v)
   return {
+ canCancel: safeBoolean(o.canCancel), cleanupPending: safeBoolean(o.cleanupPending),
     id: safeString(o.id),
     deviceId: safeString(o.deviceId),
     action: safeString(o.action),
@@ -343,3 +345,7 @@ export const mutateDirectory = (
     parseDirectoryMutation,
     signal,
   )
+
+export function cancelJob(deviceId: string, id: string): Promise<Job> {
+ return apiPost(`/api/containers/jobs/${encodeURIComponent(id)}/cancel?device=${encodeURIComponent(deviceId)}`, {}, parseJob)
+}

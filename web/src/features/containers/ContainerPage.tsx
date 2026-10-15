@@ -7,6 +7,7 @@ import {
   fetchLogs,
   performAction,
   recoverJob,
+  cancelJob,
 } from './api'
 import {
   editDraft,
@@ -249,7 +250,10 @@ export function ContainerPage({
       if (active.current) setSending(false)
     }
   }
-  const recover = async () => {
+  const cancelPreparation = async () => {
+ if (!job) return;setSending(true);try {const j=await cancelJob(deviceId,job.id);if(active.current)setJob(j)}catch(e){if(active.current)setError(errorMessage(e))}finally{if(active.current)setSending(false)}
+ }
+ const recover = async () => {
     if (!job) return
     setSending(true)
     try {
@@ -477,7 +481,7 @@ export function ContainerPage({
                         </span>
                       </td>
                       <td className="ct-image" title={item.image}>
-                        {item.image || '本地导入镜像'}
+                        {item.image || '本地导入镜像'}{item.imageDigest ? <small title={item.imageDigest}>{item.imagePlatform} · {item.imageDigest.slice(0, 19)}…</small> : null}
                       </td>
                       <td>
                         <span>{item.network.address || '—'}</span>
@@ -619,7 +623,8 @@ export function ContainerPage({
           <progress value={job.progress} max="100" />
           {job.error && <p>{job.error}</p>}
           {job.warnings?.map((warning) => <p key={warning}>{warning}</p>)}
-          {(job.state === 'unknown' || (job.state === 'failed' && c.mode === 'native')) && (
+          {job.canCancel ? <button type="button" className="ct-button" disabled={sending} onClick={() => void cancelPreparation()}>取消镜像准备</button> : null}
+          {(job.cleanupPending || job.state === 'unknown' || (job.state === 'failed' && c.mode === 'native')) && (
             <button
               className="ct-primary"
               disabled={sending}
