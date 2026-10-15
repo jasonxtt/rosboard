@@ -96,3 +96,8 @@ abort/discard their response on device/credential remount. Render administrator
 scripts as readonly text. Keep declared role, SFTP read connectivity and actual
 write success distinct. Onboarding help explains SSH/FTP group authority without
 opening services, trusting keys or enabling private container writes.
+
+Container resource memory inputs are labeled high(MB)/max(MB) and accept numeric
+MB values (RouterOS M, 1024² bytes). Convert existing byte/unit quantities for
+display and send explicit M suffixes on edits. Blank still inherits defaults;
+never reinterpret bare API quantities as MB or change untouched saved limits.

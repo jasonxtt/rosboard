@@ -6,6 +6,7 @@ import { ContainerEditor } from '../src/features/containers/ContainerEditor.tsx'
 import { ContainerPage } from '../src/features/containers/ContainerPage.tsx'
 import CompactContainers from '../src/compact/features/containers/ContainersPage.tsx'
 import {
+  memoryLimitMB,
   editDraft,
   newDraft,
   normalizedImage,
@@ -1453,19 +1454,23 @@ test('resource switch starts off, preserves hidden values, submits inheritance o
         )
         await act(async () => toggle.click())
         await act(async () =>
-          typeInput(field('内存 max') as HTMLInputElement, '256M', env.dom),
+          typeInput(field('内存 high(MB)') as HTMLInputElement, '128', env.dom),
+        )
+        await act(async () =>
+          typeInput(field('内存 max(MB)') as HTMLInputElement, '256', env.dom),
         )
       }
-      assert.equal(field('内存 max').value, '256M')
+      assert.equal(field('内存 max(MB)').value, '256')
       await act(async () => toggle.click())
       await act(async () => button('校验配置').click())
       assert.equal(submitted?.memoryHigh, '')
       assert.equal(submitted?.memoryMax, '')
       assert.equal(submitted?.cpuList, '')
       await act(async () => toggle.click())
-      assert.equal(field('内存 max').value, '256M')
+      assert.equal(field('内存 max(MB)').value, '256')
       await act(async () => button('校验配置').click())
       assert.equal(submitted?.memoryMax, '256M')
+      assert.equal(submitted?.memoryHigh, '128M')
       if (editing) assert.equal(submitted?.cpuList, '0,1')
     } finally {
       await act(async () => root.unmount())
@@ -1701,4 +1706,12 @@ test('create rejection remains beside submit after a successful snapshot refresh
   await act(async()=>root.render(<ContainerPage deviceId="a" refreshNonce={1}/>))
   assert.equal(notice(),message)
  } finally {await act(async()=>root.unmount());env.restore()}
+})
+
+test('memory editor displays existing RouterOS units and byte limits in MB', () => {
+  assert.equal(memoryLimitMB('128M'), '128')
+  assert.equal(memoryLimitMB('134217728'), '128')
+  assert.equal(memoryLimitMB('1G'), '1024')
+  assert.equal(memoryLimitMB('131072KiB'), '128')
+  assert.equal(memoryLimitMB(''), '')
 })

@@ -88,3 +88,11 @@ export function memoryBytes(value: string): number {
   }
   return n * (scale[unit] ?? 1)
 }
+
+/** Display RouterOS memory quantities in the editor's MB (1024² bytes) unit. */
+export function memoryLimitMB(value: string): string {
+  const match = /^(\d+)([KMGTP])?(?:i?B)?$/i.exec(value.trim())
+  if (!match) return value
+  const power = match[2] ? 'KMGTP'.indexOf(match[2].toUpperCase()) + 1 : 0
+  return String(Number(match[1]) * 1024 ** (power - 2))
+}
