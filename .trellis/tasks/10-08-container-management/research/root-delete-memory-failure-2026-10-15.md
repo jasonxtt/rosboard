@@ -37,3 +37,19 @@ pending. Correction must be backed up, limited to the exact failed non-pending a
 and confirmed128M values, preserving all completed steps/artifacts. Leave execution
 to the user's Continue action; do not create a duplicate task/container.
 Task and PR remain in_progress / Draft, pending manual/root acceptance.
+
+Checkpoint implementation published as cd280c59b007ed6473530208ae515c03e62c4f14
+(local2d29748, identical tree). Final test service runs dev-root-cleanup-1015;
+health and all79 embedded file hashes pass. A read-only dry run confirms the
+original failed record still has exactly one unfinished, non-pending container/add,
+with both limits128, all completed objects/artifacts preserved and no target ID.
+Prepared an atomic, identity/state-bound repair of only those two remaining step
+fields to128M plus explanatory task status; preserve original request/signature.
+No retry or native create/delete is part of that maintenance repair.
+
+Automatic approval review rejected the combined production replacement/restart
+and persisted-task repair before execution, requiring explicit user approval for
+this new version and journal adjustment. A concrete approval request lists backup,
+short restart, deletion behavior and exact memory correction. No new production
+backup, binary change or journal edit was performed; production remains
+ dev-auto-transfer-1015 and the original failed task remains unchanged for now.
