@@ -147,7 +147,7 @@ func directoryRow(rows []routeros.RouterOSObject, p string) routeros.RouterOSObj
 // MutateDirectory never retries a write. A request ID replays a confirmed result
 // or re-reads an ambiguous result while retaining the shared device write gate.
 func (s *Service) MutateDirectory(ctx context.Context, d config.DeviceConfig, disks []Disk, gate *routeros.DeviceWriteGate, req DirectoryRequest) (DirectoryMutation, error) {
-	if !d.ContainerWrites || s.DirectoryWriterFor == nil {
+	if !d.Enabled || d.Archived || s.DirectoryWriterFor == nil {
 		return DirectoryMutation{}, directoryError(403, "directory_read_only", "目录写入不可用")
 	}
 	if len(req.RequestID) < 8 || len(req.RequestID) > 128 || strings.ContainsAny(req.RequestID, "/\\\x00\r\n") {

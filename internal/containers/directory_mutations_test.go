@@ -94,7 +94,7 @@ func (f *directoryFixture) RemoveDirectory(_ context.Context, id string) error {
 func directoryTestService() (*Service, *directoryFixture, config.DeviceConfig, []Disk) {
 	f := &directoryFixture{rows: []routeros.RouterOSObject{{".id": "*1", "name": "sata1", "type": "disk"}, {".id": "*2", "name": "sata1/docker", "type": "directory"}}}
 	s := &Service{ReaderFor: func(config.DeviceConfig) Reader { return f }, DirectoryWriterFor: func(config.DeviceConfig) DirectoryWriter { return f }}
-	return s, f, config.DeviceConfig{ID: "test-device", ContainerWrites: true}, []Disk{{Name: "sata1", Writable: true}}
+	return s, f, config.DeviceConfig{ID: "test-device", Enabled: true}, []Disk{{Name: "sata1", Writable: true}}
 }
 func requireDirectoryCode(t *testing.T, err error, code string) {
 	t.Helper()
@@ -260,9 +260,9 @@ func TestDirectoryInFlightRequestBlocksDuplicateAndExposesRecoveryAfterPickerClo
 	}
 }
 
-func TestDirectoryWritesRequirePrivateOptInBeforeAnyIO(t *testing.T) {
+func TestDirectoryWritesRequireEnabledDeviceBeforeAnyIO(t *testing.T) {
 	s, f, d, disks := directoryTestService()
-	d.ContainerWrites = false
+	d.Enabled = false
 	s.ReaderFor = func(config.DeviceConfig) Reader { t.Fatal("denied mutation read RouterOS"); return f }
 	s.DirectoryWriterFor = func(config.DeviceConfig) DirectoryWriter { t.Fatal("denied mutation constructed writer"); return f }
 	for _, action := range []string{"mkdir", "rename", "delete", "recover"} {

@@ -75,8 +75,8 @@ func nativeKey(d config.DeviceConfig) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Service) nativeDevice(d config.DeviceConfig) (*nativeDevice, error) {
-	if !d.ContainerWrites || s.NativeStateDir == "" {
-		return nil, errors.New("container writes are disabled")
+	if !d.Enabled || d.Archived || s.NativeStateDir == "" {
+		return nil, errors.New("container runtime unavailable for this device")
 	}
 	s.native.mu.Lock()
 	defer s.native.mu.Unlock()
@@ -197,8 +197,8 @@ func activeRecord(n *nativeDevice) *nativeRecord {
 	return nil
 }
 func (s *Service) decorateNative(d config.DeviceConfig, snapshot *Snapshot) error {
-	snapshot.Capabilities.DirectoryWrites = snapshot.Capabilities.Supported && d.ContainerWrites && s.DirectoryWriterFor != nil
-	if !d.ContainerWrites {
+	snapshot.Capabilities.DirectoryWrites = snapshot.Capabilities.Supported && d.Enabled && !d.Archived && s.DirectoryWriterFor != nil
+	if !d.Enabled || d.Archived || s.NativeStateDir == "" {
 		return nil
 	}
 	n, err := s.nativeDevice(d)

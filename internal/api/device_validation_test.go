@@ -366,12 +366,12 @@ func serveJSON(server http.Handler, method, path, body string) *httptest.Respons
 	return response
 }
 
-func TestDeviceConnectionChangeClearsNativeWriteOptIn(t *testing.T) {
+func TestDeviceConnectionChangeClearsOnlyTransferIdentity(t *testing.T) {
 	router := newDeviceTestRouter(t)
 	defer router.Close()
 	scheme, host, port := testConnectionParts(t, router.URL)
 	baseURL, _ := normalizedRouterOSURL(scheme, host, port)
-	old := config.DeviceConfig{ID: "lab", Name: "Lab", Enabled: true, ContainerWrites: true, ContainerSSHHostKey: "SHA256:fake-test-only", RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret"}}
+	old := config.DeviceConfig{ID: "lab", Name: "Lab", Enabled: true, ContainerSSHHostKey: "SHA256:fake-test-only", RouterOS: config.RouterOSConfig{BaseURL: baseURL, Username: "admin", Password: "secret"}}
 	old.ContainerTransfer = &config.ContainerTransferConfig{Username: "dedicated", Password: "test-only", HostKey: "SHA256:dedicated"}
 	old.ContainerSSHPort = 2222
 	server := NewServer(config.Config{Devices: []config.DeviceConfig{old}}, nil, nil)
@@ -380,15 +380,15 @@ func TestDeviceConnectionChangeClearsNativeWriteOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !saved.ContainerWrites || saved.ContainerSSHHostKey != old.ContainerSSHHostKey || saved.ContainerTransfer == nil || saved.ContainerSSHPort != 2222 {
-		t.Fatal("unchanged connection lost private opt-in")
+	if saved.ContainerSSHHostKey != old.ContainerSSHHostKey || saved.ContainerTransfer == nil || saved.ContainerSSHPort != 2222 {
+		t.Fatal("unchanged connection lost transfer identity")
 	}
 	payload.Password = "changed-test-secret"
 	saved, _, err = server.prepareDevice(context.Background(), "lab", payload, &old)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.ContainerWrites || saved.ContainerSSHHostKey != "" || saved.ContainerTransfer != nil || saved.ContainerSSHPort != 0 {
+	if !saved.Enabled || saved.ContainerSSHHostKey != "" || saved.ContainerTransfer != nil || saved.ContainerSSHPort != 0 {
 		t.Fatal("new credentials inherited old native authority")
 	}
 }

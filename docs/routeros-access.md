@@ -64,8 +64,8 @@ a collision with an old role requires a fresh identity-bound upgrade instead.
 Ordinary checks authenticate and list metadata over pinned SFTP only. They never
 create a test file or claim verified upload success. Missing SSH does not block
 monitoring-only onboarding. There is no optional write-probe endpoint. Actual
-image uploads still require private per-device `container_writes: true` and the
-shared write gate.
+image uploads use the normal enabled-device capability, RouterOS account rights
+and shared write gate; there is no private rollout opt-in.
 
 By default the server reuses saved connection credentials and the REST endpoint's
 host with optional `container_ssh_port` (default 22). On the first explicit image
@@ -79,11 +79,10 @@ save trust. Connection changes during enrollment reject the stale result. An opt
 private per-device `container_transfer` mapping accepts `username`, `password`,
 `host_key`, and `port` for a dedicated account. These settings can also be saved in the per-device image-transfer panel after
 a read-only SSH/SFTP verification. Passwords are never returned to the browser;
-the panel shows only whether a password is saved. Saving transfer settings does
-not enable the independent private container-write opt-in. An incomplete override fails rather
+the panel shows only whether a password is saved. Saving transfer settings verifies only transfer connectivity. An incomplete override fails rather
 than borrowing the connection password; its initial SSH key is verified automatically. Removing the override restores the
 connection source. Changing the REST endpoint or credentials through the device
-editor clears transfer configuration, the pinned key and container-write opt-in.
+editor clears transfer configuration, the pinned key. Container capabilities remain available for the new connection.
 
 Container deletion removes its exclusive root filesystem together with the native
 container. It no longer renames that directory to a retained backup. Fresh checks

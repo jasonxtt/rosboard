@@ -395,7 +395,7 @@ func (s *Service) imageCleanupLoop(ctx context.Context, d config.DeviceConfig, n
 		}
 		if s.DeviceFor != nil {
 			current, ok := s.DeviceFor(d.ID)
-			if !ok || !current.Enabled || current.Archived || !current.ContainerWrites || nativeKey(current) != nativeKey(d) {
+			if !ok || !current.Enabled || current.Archived || nativeKey(current) != nativeKey(d) {
 				return
 			}
 			d = current
@@ -428,7 +428,7 @@ func (s *Service) imageCleanupLoop(ctx context.Context, d config.DeviceConfig, n
 
 func (s *Service) StartImageWorkers(ctx context.Context, devices []config.DeviceConfig) {
 	for _, d := range devices {
-		if !d.Enabled || d.Archived || !d.ContainerWrites {
+		if !d.Enabled || d.Archived {
 			continue
 		}
 		n, e := s.nativeDevice(d)

@@ -2,12 +2,14 @@
 
 ## Scope
 
-Container lifecycle/image and Files directory writes default to read-only. Explicit private
-per-device `container_writes` opt-in enables the native writer for an authorized
-independent lab or an explicitly authorized production pilot. Public device APIs cannot enable it; connection changes clear
-write authority and the pinned SSH key. Production verification/acceptance
-remains separate. Simulations and development fixtures remain outside the
-embedded production build.
+Container lifecycle/image and Files directory writes are normal capabilities of
+an enabled, non-archived connected device. There is no private per-device rollout
+flag. Legacy `container_writes` YAML keys are ignored and disappear on the next
+configuration save. Connection changes clear transfer credentials/pinned identity,
+not lifecycle capability. RouterOS permissions, supported APIs, durable state,
+ownership, shared mutation gates and unknown-outcome reconciliation still apply.
+Production delivery/acceptance remains separate. Simulations and development
+fixtures stay outside the embedded production build.
 
 ## Boundaries
 
@@ -62,11 +64,10 @@ skip the interactive preview server. Production builds must exclude its fixtures
   executing. Temporary staging is private and removed on success/failure. This
   phase accepts single-image Linux Docker-save tar only. Simulation stores only
   metadata and labels binary RouterOS transfer as simulated.
-- Files directory CRUD is real and separately advertised as `directoryWrites`,
-  but requires the same private per-device `container_writes` opt-in as native
-  writes. Enforce denial at both API admission and service entry before any
-  RouterOS I/O, including recovery. Recompute the directory capability when
-  decorating cached snapshots so a changed opt-in cannot leave stale controls.
+- Files directory CRUD is real and separately advertised as `directoryWrites`.
+  Require an enabled, non-archived device and an available typed writer before
+  RouterOS I/O, including recovery. Recompute directory capabilities when
+  decorating cached snapshots so disabled devices cannot retain stale controls.
   Optional real preview credentials are process-only and use the production handlers.
 - On RouterOS 7.23.5, `/file/remove` with exact opaque IDs works where REST DELETE
   can fail. Future cleanup must use a typed command and verify owned paths/IDs.
@@ -185,7 +186,7 @@ success. Actual authorized image upload can supply write evidence without a
 pre-create dummy probe.
 
 An optional write probe requires its own explicit administrator authorization,
-the private device write opt-in and shared device gate. Persist intent before
+an enabled device and shared device gate. Persist intent before
 creating exclusive server-generated paths inside a validated temporary
 rosboard-owned namespace. Reject unowned/client paths and collisions, protect
 archives/rootfs/mounts, and clean only exact recorded objects. Cancellation,
@@ -215,7 +216,7 @@ mutate a router during capability discovery.
   after successful runtime or confirmed deletion; protect runtime roots, mounts and
   other source references. Unknown cleanup holds the device gate for explicit recovery.
 - Image transfer settings may save an explicitly verified connection/dedicated SSH
-  identity through a read-only check. They cannot enable private container writes.
+  identity through a read-only check. They do not perform container operations.
 
 ## Automatic first-use transfer identity
 
@@ -227,7 +228,7 @@ exact observed key, then persist it only if endpoint/credentials/device authorit
 remain unchanged. This is trust on first use. Never replace an existing pin on a
 network failure or key mismatch. GET/preview/capability checks never enroll keys.
 Settings saves with a missing key use the same automatic read-only verification;
-TestOnly must not persist it. Keep private container-write opt-in independent.
+TestOnly must not persist it. No private rollout flag is required.
 
 ## Delete root filesystem and memory limits (2026-10-15 amendment)
 

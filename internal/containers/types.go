@@ -1,5 +1,5 @@
 // Package containers owns native Container read models and configuration resolution.
-// Container lifecycle writes require explicit private per-device server opt-in.
+// Container lifecycle writes use device-scoped ownership and durable recovery.
 package containers
 
 type Network struct {

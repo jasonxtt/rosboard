@@ -221,3 +221,15 @@ requires separate explicit write authorization, the private device write opt-in,
 shared write serialization and exclusively recorded temporary rosboard-owned
 paths, with bounded exact cleanup/recovery. Declared permissions/read connectivity
 must not be misrepresented as proven write capability.
+
+## Retire pilot restrictions — user required 2026-10-15
+
+Supersedes all earlier per-device private write opt-in requirements above. The
+user completed functional testing and requests normal container availability for
+new and existing devices. Remove container_writes from config, API admission,
+native/Files services, automatic transfer initialization, startup restoration and
+artifact workers. Legacy YAML true/false is ignored. Retain disabled/archived
+checks, real account/API/storage capabilities, SSH pin-change detection, ownership,
+shared write locks, journal reconciliation and normal deployment acceptance.
+No container operations run automatically as part of enabling the capability.
+Continue the same Draft PR; UI optimization is next, with no merge to main.

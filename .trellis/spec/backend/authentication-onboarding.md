@@ -101,8 +101,8 @@ with the coordinated code/tests/docs implementation.
 
 Capability/onboarding verification remains read-only even through SFTP. Separate
 read connectivity/declared permissions from verified write ability. Any optional
-write probe needs explicit administrator write authorization and private device
-write opt-in, plus the shared gate and recorded exclusive temporary owned paths;
+write probe needs explicit administrator write authorization and an enabled
+device, plus the shared gate and recorded exclusive temporary owned paths;
 never run it implicitly from preview, GET or ordinary capability detection.
 
 ### Implemented transfer-role boundary

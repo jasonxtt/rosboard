@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestAutomaticTransferTrustIsBoundAndNeverGrantsWrites(t *testing.T) {
-	d := config.DeviceConfig{ID: "lab", Enabled: true, ContainerWrites: true, RouterOS: config.RouterOSConfig{BaseURL: "http://router.fixture", Username: "user", Password: "private-fixture"}}
+func TestAutomaticTransferTrustIsBoundToEnabledDevice(t *testing.T) {
+	d := config.DeviceConfig{ID: "lab", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://router.fixture", Username: "user", Password: "private-fixture"}}
 	s := NewServer(config.Config{Path: filepath.Join(t.TempDir(), "config.yaml"), Devices: []config.DeviceConfig{d}}, nil, nil)
 	verified := d
 	verified.ContainerSSHHostKey = "SHA256:fixture"
@@ -18,7 +18,7 @@ func TestAutomaticTransferTrustIsBoundAndNeverGrantsWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, _ := s.configSnapshot().Device(d.ID)
-	if saved.ContainerSSHHostKey != "SHA256:fixture" || (saved.RouterOS.BaseURL != d.RouterOS.BaseURL || saved.RouterOS.Username != d.RouterOS.Username || saved.RouterOS.Password != d.RouterOS.Password) || !saved.ContainerWrites {
+	if saved.ContainerSSHHostKey != "SHA256:fixture" || (saved.RouterOS.BaseURL != d.RouterOS.BaseURL || saved.RouterOS.Username != d.RouterOS.Username || saved.RouterOS.Password != d.RouterOS.Password) {
 		t.Fatal("unexpected connection changes")
 	}
 	verified.ContainerSSHHostKey = "SHA256:changed"
@@ -29,13 +29,13 @@ func TestAutomaticTransferTrustIsBoundAndNeverGrantsWrites(t *testing.T) {
 		t.Fatal("existing trust was rediscovered")
 	}
 	readonly := d
-	readonly.ContainerWrites = false
+	readonly.Enabled = false
 	if _, err := s.automaticTransfer(context.Background(), readonly); err == nil {
-		t.Fatal("read-only device enrolled")
+		t.Fatal("disabled device enrolled")
 	}
 }
 func TestAutomaticTransferRejectsChangedConnection(t *testing.T) {
-	d := config.DeviceConfig{ID: "lab", Enabled: true, ContainerWrites: true, RouterOS: config.RouterOSConfig{BaseURL: "http://router.fixture", Username: "user", Password: "private-fixture"}}
+	d := config.DeviceConfig{ID: "lab", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: "http://router.fixture", Username: "user", Password: "private-fixture"}}
 	changed := d
 	changed.RouterOS.Password = "changed-fixture"
 	s := NewServer(config.Config{Path: filepath.Join(t.TempDir(), "config.yaml"), Devices: []config.DeviceConfig{changed}}, nil, nil)
@@ -60,7 +60,7 @@ func TestAutomaticTransferIndependentLab(t *testing.T) {
 	if err != nil || json.Unmarshal(raw, &c) != nil || c.BaseURL != "http://10.0.2.5" {
 		t.Fatal("independent lab configuration required")
 	}
-	d := config.DeviceConfig{ID: "lab", Enabled: true, ContainerWrites: true, RouterOS: config.RouterOSConfig{BaseURL: c.BaseURL, Username: c.Username, Password: c.Password}}
+	d := config.DeviceConfig{ID: "lab", Enabled: true, RouterOS: config.RouterOSConfig{BaseURL: c.BaseURL, Username: c.Username, Password: c.Password}}
 	s := NewServer(config.Config{Path: filepath.Join(t.TempDir(), "config.yaml"), Devices: []config.DeviceConfig{d}}, nil, nil)
 	got, err := s.automaticTransfer(context.Background(), d)
 	if err != nil {
