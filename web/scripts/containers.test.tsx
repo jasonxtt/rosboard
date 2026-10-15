@@ -1678,3 +1678,27 @@ test('container job accepts optional safe DNS warnings without changing error st
   assert.equal(current.error, '')
   assert.deepEqual(current.warnings, ['部分镜像域名 DNS 查询未完成'])
 })
+
+test('create rejection remains beside submit after a successful snapshot refresh', async () => {
+ const env=installDOM(),root=createRoot(document.getElementById('root')!),s=snapshot()
+ s.capabilities.writes=true
+ s.capabilities.mode='native'
+ const message='请先配置并核验镜像传输账号及 SSH 指纹'
+ let actions=0
+ globalThis.fetch=async(url,init)=>{
+  if(String(url).includes('/resolve')) return response({effective:JSON.parse(String(init?.body)),errors:{},defaults:[]})
+  if(String(url).includes('/actions')) { actions++; return new Response(JSON.stringify({code:'ssh_key_required',error:message}),{status:409,headers:{'Content-Type':'application/json'}}) }
+  return response(s)
+ }
+ try {
+  await act(async()=>root.render(<ContainerPage deviceId="a" refreshNonce={0}/>))
+  await act(async()=>button('创建容器').click())
+  await settle()
+  await act(async()=>document.querySelector<HTMLFormElement>('form')!.dispatchEvent(new env.dom.window.Event('submit',{bubbles:true,cancelable:true})))
+  assert.equal(actions,1)
+  const notice=()=>document.querySelector('form footer [role="alert"]')?.textContent
+  assert.equal(notice(),message)
+  await act(async()=>root.render(<ContainerPage deviceId="a" refreshNonce={1}/>))
+  assert.equal(notice(),message)
+ } finally {await act(async()=>root.unmount());env.restore()}
+})
