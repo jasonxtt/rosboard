@@ -67,13 +67,20 @@ monitoring-only onboarding. There is no optional write-probe endpoint. Actual
 image uploads still require private per-device `container_writes: true` and the
 shared write gate.
 
-By default the server reuses saved connection credentials with
-`container_ssh_host_key` and optional `container_ssh_port` (default 22). An optional
+By default the server reuses saved connection credentials and the REST endpoint's
+host with optional `container_ssh_port` (default 22). On the first explicit image
+create/update/upload, it authenticates REST, observes the SSH key without sending
+credentials, authenticates and reads SFTP with that exact key, then persists
+`container_ssh_host_key` automatically. No manual fingerprint entry or confirmation
+is required. This is trust on first use, not an independent cryptographic binding
+between REST and SSH. Subsequent connections require the saved key; a changed key
+is rejected rather than silently re-enrolled. Ordinary GET/preview checks do not
+save trust. Connection changes during enrollment reject the stale result. An optional
 private per-device `container_transfer` mapping accepts `username`, `password`,
 `host_key`, and `port` for a dedicated account. These settings can also be saved in the per-device image-transfer panel after
 a read-only SSH/SFTP verification. Passwords are never returned to the browser;
 the panel shows only whether a password is saved. Saving transfer settings does
 not enable the independent private container-write opt-in. An incomplete override fails rather
-than borrowing the connection password or key. Removing the override restores the
+than borrowing the connection password; its initial SSH key is verified automatically. Removing the override restores the
 connection source. Changing the REST endpoint or credentials through the device
 editor clears transfer configuration, the pinned key and container-write opt-in.

@@ -24,7 +24,11 @@ rosboard admin reset-password -config /opt/rosboard/config.yaml
 Generated accounts include SSH/SFTP group authority (`ssh`, `ftp`) but receive
 neither user-management authority nor automatic service/firewall/key changes.
 The FTP listener is not required for SFTP. Private container-write opt-in and
-pinned host keys remain mandatory for actual uploads.
+pinned host keys remain mandatory for actual uploads. First-use key observation,
+credential authentication and SFTP read verification are automatic during an explicit
+image operation; no fingerprint prompt is shown. The key is persisted only after
+verification and an unchanged device identity check. This uses trust on first use.
+Existing pins are never silently replaced, and GET/preview checks do not enroll keys.
 
 Existing-role upgrades are administrator-run scripts, never RouterOS mutations
 from an application GET/preview/verification call. They require recorded generated

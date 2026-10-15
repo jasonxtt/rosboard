@@ -220,3 +220,20 @@ func TestPreparedTransferRejectsForeignPathsAndCollisions(t *testing.T) {
 		t.Fatal("denied paths caused mutations")
 	}
 }
+
+func TestAutomaticTransferKeyDiscoveryAndPinnedRead(t *testing.T) {
+	_, base, port, key := transferFixture(t)
+	observed, err := DiscoverContainerTransferKey(context.Background(), base, port)
+	if err != nil || observed != key {
+		t.Fatalf("discovery failed: %v", err)
+	}
+	if err = CheckContainerTransfer(context.Background(), base, "fixture", "test-only", observed, port); err != nil {
+		t.Fatal(err)
+	}
+	if err = CheckContainerTransfer(context.Background(), base, "fixture", "wrong-password", observed, port); err == nil {
+		t.Fatal("authentication failure accepted")
+	}
+	if err = CheckContainerTransfer(context.Background(), base, "fixture", "test-only", "SHA256:changed", port); err == nil {
+		t.Fatal("changed host identity accepted")
+	}
+}

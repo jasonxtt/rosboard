@@ -89,7 +89,7 @@ func (s *Server) serveAccountTransfer(w http.ResponseWriter, r *http.Request, de
 		return
 	}
 	state := routeros.ManagedPolicyState(i.Policy)
-	warning := "需管理员执行脚本后重新检查。SSH 服务、端口、来源限制及已核验主机密钥仍须单独配置。"
+	warning := "需管理员执行脚本后重新检查。请确保 SSH 服务、端口和来源限制允许连接；首次传输会自动配置连接校验。"
 	readAccess := false
 	if state == "new" {
 		warning = "已声明传输权限；尚未验证 SFTP 读取连接。读取检查不能证明上传成功。"
@@ -99,7 +99,7 @@ func (s *Server) serveAccountTransfer(w http.ResponseWriter, r *http.Request, de
 				readAccess = true
 				warning = "SFTP 认证与目录读取通过；未执行写入，不能据此认定上传成功。"
 			} else {
-				warning = "SFTP 读取不可用；请检查 SSH 服务、端口、来源限制、凭据及主机密钥。监控仍可使用。"
+				warning = "SFTP 读取不可用；请检查 SSH 服务、端口、来源限制、凭据或设备连接变化。监控仍可使用。"
 			}
 		}
 	}

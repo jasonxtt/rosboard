@@ -216,3 +216,15 @@ mutate a router during capability discovery.
   other source references. Unknown cleanup holds the device gate for explicit recovery.
 - Image transfer settings may save an explicitly verified connection/dedicated SSH
   identity through a read-only check. They cannot enable private container writes.
+
+## Automatic first-use transfer identity
+
+The user's 2026-10-15 product amendment removes manual SSH fingerprint entry and
+trust prompts. An explicit authenticated create/update/upload may initialize a
+missing pin: verify the saved REST credentials, observe the SSH key at that REST
+host without authentication, verify credentials and SFTP metadata reads with the
+exact observed key, then persist it only if endpoint/credentials/device authority
+remain unchanged. This is trust on first use. Never replace an existing pin on a
+network failure or key mismatch. GET/preview/capability checks never enroll keys.
+Settings saves with a missing key use the same automatic read-only verification;
+TestOnly must not persist it. Keep private container-write opt-in independent.

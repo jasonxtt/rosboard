@@ -133,3 +133,32 @@ func (c *transferIdleConn) Write(p []byte) (int, error) {
 	c.SetWriteDeadline(time.Now().Add(60 * time.Second))
 	return c.Conn.Write(p)
 }
+
+// DiscoverContainerTransferKey observes the key at the REST device's SSH host.
+// It aborts before authentication; the caller must authenticate and read SFTP
+// with this exact key before persisting first-use trust. Existing pins never use it.
+func DiscoverContainerTransferKey(ctx context.Context, baseURL string, port int) (string, error) {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Hostname() == "" || port < 1 || port > 65535 {
+		return "", errors.New("invalid transfer endpoint")
+	}
+	address := net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
+	raw, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return "", err
+	}
+	defer raw.Close()
+	stop := context.AfterFunc(ctx, func() { raw.Close() })
+	defer stop()
+	raw.SetDeadline(time.Now().Add(15 * time.Second))
+	observed := ""
+	sentinel := errors.New("host key observed before authentication")
+	_, _, _, err = ssh.NewClientConn(raw, address, &ssh.ClientConfig{User: "rosboard-key-discovery", HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+		observed = ssh.FingerprintSHA256(key)
+		return sentinel
+	}})
+	if observed == "" {
+		return "", err
+	}
+	return observed, nil
+}
