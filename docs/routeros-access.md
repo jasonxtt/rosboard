@@ -84,3 +84,13 @@ not enable the independent private container-write opt-in. An incomplete overrid
 than borrowing the connection password; its initial SSH key is verified automatically. Removing the override restores the
 connection source. Changing the REST endpoint or credentials through the device
 editor clears transfer configuration, the pinned key and container-write opt-in.
+
+Container deletion removes its exclusive root filesystem together with the native
+container. It no longer renames that directory to a retained backup. Fresh checks
+block deletion when another container or any mount source overlaps that root.
+Independent mount data is preserved. Image updates still retain the old runtime
+directory for rollback; historical retention journals remain recoverable.
+
+Memory values without units are bytes. Use `128M` for128MiB; explicit limits below
+1MiB are rejected before writes. `high` applies reclaim/throttling pressure; `max`
+is the hard limit and can lead to OOM termination when reclaim cannot succeed.

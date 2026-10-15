@@ -253,6 +253,11 @@ func Resolve(d Draft, s Snapshot) Resolution {
 	for key, value := range map[string]string{"memoryHigh": e.MemoryHigh, "memoryMax": e.MemoryMax} {
 		if value != "" && !memoryPattern.MatchString(value) {
 			r.Errors[key] = "内存使用字节数、M/G 单位或 unlimited"
+		} else if value != "" && value != "unlimited" {
+			bytes, ok := memoryBytes(value)
+			if !ok || bytes < 1<<20 {
+				r.Errors[key] = "内存至少为 1MiB；例如 128M。纯数字按字节解析。"
+			}
 		}
 	}
 	if e.CPUList != "" && !cpuPattern.MatchString(e.CPUList) {
@@ -338,4 +343,28 @@ func yesNo(v bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func memoryBytes(value string) (uint64, bool) {
+	i := strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' })
+	if i < 0 {
+		i = len(value)
+	}
+	n, err := strconv.ParseUint(value[:i], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if i < len(value) {
+		power := strings.Index("KMGTP", strings.ToUpper(value[i:i+1])) + 1
+		if power == 0 {
+			return 0, false
+		}
+		for j := 0; j < power; j++ {
+			if n > ^uint64(0)/1024 {
+				return 0, false
+			}
+			n *= 1024
+		}
+	}
+	return n, true
 }

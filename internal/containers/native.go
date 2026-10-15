@@ -472,6 +472,9 @@ func findRows(rows []routeros.RouterOSObject, fields map[string]string) []router
 	return matches
 }
 func desired(step nativeStep, rows []routeros.RouterOSObject) (bool, string) {
+	if step.Command == "remove-root" {
+		return len(findRows(rows, map[string]string{"name": step.Match["name"]})) == 0, ""
+	}
 	if step.Command == "retain-root" {
 		target := findRows(rows, map[string]string{"name": step.Fields["name"]})
 		return len(target) == 1 && (target[0]["type"] == "container store" || target[0]["type"] == "directory") && len(findRows(rows, map[string]string{"name": step.Match["name"]})) == 0, ""
@@ -539,7 +542,9 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 				}
 			} else {
 				r.Job.State = "failed"
-				r.Job.Error = "操作失败；已完成的对象和数据已保留，请查看设备日志。"
+				if r.Job.Error == "" {
+					r.Job.Error = "操作失败；已完成的对象和数据已保留，请查看设备日志。"
+				}
 			}
 		} else {
 			r.Job.State = "succeeded"
@@ -670,6 +675,24 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 					failure = true
 					return
 				}
+				if step.Menu == routeros.ContainerList && step.Command == "remove" && r.Request.Action == "delete" {
+					if err := s.checkRootRemoval(ctx, d, step.Match); err != nil {
+						n.mu.Lock()
+						r.Job.Error = err.Error()
+						n.mu.Unlock()
+						failure = true
+						return
+					}
+				}
+				if step.Command == "remove-root" {
+					if err := s.checkOrphanRootRemoval(ctx, d, step); err != nil {
+						n.mu.Lock()
+						r.Job.Error = err.Error()
+						n.mu.Unlock()
+						failure = true
+						return
+					}
+				}
 				if step.Command == "retain-root" {
 					if err := s.checkRootRetention(ctx, d, step); err != nil {
 						failure = true
@@ -697,6 +720,8 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 				}
 				if step.Command == "retain-root" {
 					err = writer.RenameDirectory(ctx, targets[0][".id"], step.Fields["name"])
+				} else if step.Command == "remove-root" {
+					err = writer.RemoveDirectory(ctx, targets[0][".id"])
 				} else if step.Command == "remove-empty-root" {
 					root, _ := DirectoryPath(targets[0]["name"])
 					for _, file := range rows {
@@ -750,6 +775,7 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 					if !errors.As(err, &outcome) {
 						n.mu.Lock()
 						r.Pending = false
+						r.Job.Error = nativeFailureMessage(err, d, r)
 						n.mu.Unlock()
 						failure = true
 						return
@@ -942,15 +968,18 @@ func (s *Service) plan(ctx context.Context, d config.DeviceConfig, req ActionReq
 		if selected.Status == "running" || selected.Status == "starting" || selected.Status == "stopping" {
 			steps = append(steps, actionStep("stop", match))
 		}
-		retain, retainedPath, err := s.planRootRetention(ctx, d, match, token)
+		// RouterOS container/remove removes its root filesystem. Check exclusive
+		// ownership and mounted/shared paths immediately before that mutation.
+		removal := actionStep("remove", match)
+		removal.Guard = match
+		steps = append(steps, removal)
+		cleanup, err := s.planRootRemoval(ctx, d, match)
 		if err != nil {
 			return nil, nil, err
 		}
-		if retain != nil {
-			steps = append(steps, *retain)
-			retained = append(retained, retainedPath)
+		if cleanup != nil {
+			steps = append(steps, *cleanup)
 		}
-		steps = append(steps, actionStep("remove", match))
 		// Only dedicated objects bearing this container's exact creation marker may
 		// be removed. Adoption never marks its network, env or mounts as owned.
 		owner := strings.Fields(original["comment"])[0]
