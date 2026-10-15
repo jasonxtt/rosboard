@@ -173,13 +173,13 @@ func TestRouterOS723CombinedDownloadFlagsAndMemoryCurrent(t *testing.T) {
 	}
 }
 
-func TestDirectoryCapabilityFollowsOptInEvenForCachedSnapshot(t *testing.T) {
+func TestDirectoryCapabilityFollowsEnabledDeviceEvenForCachedSnapshot(t *testing.T) {
 	service := &Service{ReaderFor: func(config.DeviceConfig) Reader {
 		return fakeReader{data: map[routeros.ContainerMenu][]routeros.RouterOSObject{}}
 	}, DirectoryWriterFor: func(config.DeviceConfig) DirectoryWriter { return &directoryFixture{} }, NativeStateDir: t.TempDir()}
 	device := config.DeviceConfig{ID: "capability-test"}
 	for _, enabled := range []bool{false, true, false} {
-		device.ContainerWrites = enabled
+		device.Enabled = enabled
 		snapshot, err := service.Snapshot(context.Background(), device)
 		if err != nil || snapshot.Capabilities.DirectoryWrites != enabled {
 			t.Fatalf("enabled=%v: capability=%v error=%v", enabled, snapshot.Capabilities.DirectoryWrites, err)

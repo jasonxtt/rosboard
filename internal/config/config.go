@@ -133,11 +133,9 @@ func (d DeviceConfig) ContainerTransferCredentials() ContainerTransferConfig {
 }
 
 type DeviceConfig struct {
-	// Container writes require a server-side, per-device opt-in. Device editors
-	// cannot enable this flag. Image uploads additionally pin the SSH host key.
+	// Transfer identity stays private and is invalidated on connection changes.
 	ContainerTransfer   *ContainerTransferConfig `yaml:"container_transfer,omitempty" json:"-"`
 	ContainerSSHPort    int                      `yaml:"container_ssh_port,omitempty"`
-	ContainerWrites     bool                     `yaml:"container_writes,omitempty"`
 	ContainerSSHHostKey string                   `yaml:"container_ssh_host_key,omitempty"`
 	ID                  string                   `yaml:"id"`
 	Name                string                   `yaml:"name"`

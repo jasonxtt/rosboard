@@ -11,7 +11,7 @@ import (
 	"rosboard/internal/config"
 )
 
-func TestImageTransferSettingsRemainPrivateAndDoNotEnableWrites(t *testing.T) {
+func TestImageTransferSettingsRemainPrivateAndIdentityBound(t *testing.T) {
 	d := config.DeviceConfig{ID: "lab", Enabled: true, ContainerSSHHostKey: "SHA256:fixture", ContainerTransfer: &config.ContainerTransferConfig{Username: "transfer", Password: "private-transfer-fixture", HostKey: "SHA256:fixture", Port: 2222}, RouterOS: config.RouterOSConfig{BaseURL: "http://127.0.0.1", Username: "monitor", Password: "private-monitor-fixture"}}
 	s := NewServer(config.Config{Path: filepath.Join(t.TempDir(), "config.yaml"), Devices: []config.DeviceConfig{d}}, nil, nil)
 	w := httptest.NewRecorder()
@@ -36,7 +36,7 @@ func TestImageTransferSettingsRemainPrivateAndDoNotEnableWrites(t *testing.T) {
 		t.Fatal("clear failed")
 	}
 	saved, _ := s.configSnapshot().Device("lab")
-	if saved.ContainerWrites || saved.ContainerSSHHostKey != "" || saved.ContainerTransfer != nil {
+	if saved.ContainerSSHHostKey != "" || saved.ContainerTransfer != nil {
 		t.Fatal("clearing transfer retained or granted authority")
 	}
 }
@@ -66,9 +66,6 @@ func TestImageTransferIndependentLab(t *testing.T) {
 			t.Fatal("password exposed")
 		}
 		saved, _ := s.configSnapshot().Device("lab")
-		if saved.ContainerWrites {
-			t.Fatal("read verification enabled writes")
-		}
 		if (saved.ContainerTransfer != nil) != (mode == "dedicated") {
 			t.Fatal("credential source not saved")
 		}

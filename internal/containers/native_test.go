@@ -106,7 +106,7 @@ func (f *nativeFake) ContainerCommand(ctx context.Context, m routeros.ContainerM
 }
 func nativeFixture(t *testing.T) (*Service, config.DeviceConfig, *nativeFake) {
 	t.Helper()
-	d := config.DeviceConfig{ID: "lab", Enabled: true, ContainerWrites: true}
+	d := config.DeviceConfig{ID: "lab", Enabled: true}
 	f := &nativeFake{rows: map[routeros.ContainerMenu][]routeros.RouterOSObject{
 		routeros.ContainerBridge: {{"name": "br-containers"}}, routeros.ContainerDisk: {{"name": "sata1", "fs": "ext4", "free": "1073741824"}}, routeros.ContainerResource: {{"architecture-name": "x86_64", "version": "7.23.7"}},
 	}}
@@ -173,7 +173,7 @@ func TestNativeLifecycleReplayAndDurability(t *testing.T) {
 	if err != nil || replay.State != "succeeded" {
 		t.Fatal("journal did not survive restart", err)
 	}
-	if _, err = second.NativeJob(config.DeviceConfig{ID: "other", ContainerWrites: true}, j.ID); err == nil {
+	if _, err = second.NativeJob(config.DeviceConfig{ID: "other", Enabled: true}, j.ID); err == nil {
 		t.Fatal("job crossed device scope")
 	}
 	nativeSubmit(t, s, d, ActionRequest{Action: "delete", TargetID: j.TargetID, RequestID: "delete-one"})

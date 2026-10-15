@@ -57,7 +57,7 @@ func TestHostImageRestartIndependentLab(t *testing.T) {
 	if e != nil || json.Unmarshal(raw, &c) != nil || c.BaseURL != "http://10.0.2.5" {
 		t.Fatal("independent private lab config required")
 	}
-	d := config.DeviceConfig{ID: "host-restart-lab", Enabled: true, ContainerWrites: true, ContainerSSHHostKey: c.HostKey, RouterOS: config.RouterOSConfig{BaseURL: c.BaseURL, Username: c.Username, Password: c.Password}}
+	d := config.DeviceConfig{ID: "host-restart-lab", Enabled: true, ContainerSSHHostKey: c.HostKey, RouterOS: config.RouterOSConfig{BaseURL: c.BaseURL, Username: c.Username, Password: c.Password}}
 	state, _ := os.MkdirTemp("", "rosboard-image-restart-lab-")
 	t.Log("durable lab state", state)
 	s := NewServiceWithState(state)

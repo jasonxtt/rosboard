@@ -10,11 +10,11 @@ import (
 // First-use trust is scoped to an explicit authenticated transfer operation.
 // Ordinary GET/preview/capability reads never persist connection authority.
 func (s *Server) automaticTransfer(ctx context.Context, d config.DeviceConfig) (config.DeviceConfig, error) {
+	if !d.Enabled || d.Archived {
+		return d, errors.New("设备不存在或未启用")
+	}
 	if d.ContainerTransferCredentials().HostKey != "" {
 		return d, nil
-	}
-	if !d.ContainerWrites || !d.Enabled || d.Archived {
-		return d, errors.New("设备未授权容器写入")
 	}
 	if _, err := routeros.NewClient(d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password).SystemResource(ctx); err != nil {
 		return d, errors.New("设备连接校验失败，请检查连接账号")
@@ -47,7 +47,7 @@ func (s *Server) persistAutomaticTransfer(before, verified config.DeviceConfig) 
 	s.deviceSaveMu.Lock()
 	defer s.deviceSaveMu.Unlock()
 	current, ok := s.configSnapshot().Device(before.ID)
-	if !ok || !current.Enabled || current.Archived || !current.ContainerWrites || transferSettingsRevision(current) != transferSettingsRevision(before) || before.ContainerTransferCredentials().HostKey != "" {
+	if !ok || !current.Enabled || current.Archived || transferSettingsRevision(current) != transferSettingsRevision(before) || before.ContainerTransferCredentials().HostKey != "" {
 		return before, errors.New("设备连接已变化，请重试操作")
 	}
 	unpinned := verified

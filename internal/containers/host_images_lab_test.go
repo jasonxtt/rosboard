@@ -25,7 +25,7 @@ func TestHostImageIndependentLab(t *testing.T) {
 	if e != nil || json.Unmarshal(raw, &cfg) != nil || !strings.HasPrefix(cfg.BaseURL, "http://10.0.2.5") {
 		t.Fatal("independent private lab configuration required")
 	}
-	d := config.DeviceConfig{ID: "host-image-lab", Enabled: true, ContainerWrites: true, ContainerSSHHostKey: cfg.HostKey, RouterOS: config.RouterOSConfig{BaseURL: cfg.BaseURL, Username: cfg.Username, Password: cfg.Password}}
+	d := config.DeviceConfig{ID: "host-image-lab", Enabled: true, ContainerSSHHostKey: cfg.HostKey, RouterOS: config.RouterOSConfig{BaseURL: cfg.BaseURL, Username: cfg.Username, Password: cfg.Password}}
 	stateDir, _ := os.MkdirTemp("", "rosboard-host-native-lab-")
 	t.Log("lab journal directory", stateDir)
 	s := NewServiceWithState(stateDir)

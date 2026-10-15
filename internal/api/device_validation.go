@@ -164,7 +164,6 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 	}
 	if existing != nil {
 		if !connectionChanged {
-			device.ContainerWrites = existing.ContainerWrites
 			device.ContainerSSHHostKey = existing.ContainerSSHHostKey
 			device.ContainerSSHPort = existing.ContainerSSHPort
 			if existing.ContainerTransfer != nil {

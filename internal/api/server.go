@@ -139,7 +139,7 @@ func NewServerWithPolicyManager(cfg config.Config, manager *service.MonitorManag
 		server.containers.NativeGate = policyManager.WriteGate()
 	}
 	for _, device := range cfg.Devices {
-		if device.Enabled && !device.Archived && device.ContainerWrites {
+		if device.Enabled && !device.Archived {
 			if err := server.containers.RestoreNative(device); err != nil {
 				log.Print("container journal restoration failed; device writes are blocked")
 			}
@@ -901,7 +901,6 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 				next.Devices[index].ContainerTransfer = nil
 				next.Devices[index].ContainerSSHPort = 0
 				next.Devices[index].ContainerSSHHostKey = ""
-				next.Devices[index].ContainerWrites = false
 				found = true
 				return
 			}

@@ -25,12 +25,7 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		writeAPIError(writer, 404, "device_not_found", "设备不存在或未启用")
 		return
 	}
-	// Only a private server configuration can opt a device into native writes.
 	mutation := request.Method != http.MethodGet && !(resolving && request.Method == http.MethodPost)
-	if mutation && !device.ContainerWrites {
-		writeAPIError(writer, 403, "container_read_only", "此设备未启用容器写入")
-		return
-	}
 	var gate *routeros.DeviceWriteGate
 	if s.policy != nil {
 		gate = s.policy.WriteGate()
