@@ -854,3 +854,39 @@
     grid-row: 1 / span 2;
   }
 }
+
+.ct .ct-editor-actions,
+.ct .ct-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.ct .ct-compose-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.ct .ct-compose-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 180px;
+  font-family: monospace;
+}
+.ct .ct-compose-dialog .ct-field { margin-top: 16px; }
+.ct .ct-compose-report { overflow-wrap: anywhere; }
+.ct .ct-compose-report h4 { margin: 18px 0 8px; }
+.ct .ct-compose-report p { margin: 0; }
+.ct .ct-compose-report ul { margin: 0; padding-left: 22px; }
+.ct .ct-compose-report li { margin: 6px 0; }
+.ct .ct-compose-actions { justify-content: flex-end; margin-top: 22px; }
+.ct .ct-compose-summary { margin-bottom: 18px; }
+.ct .ct-compose-summary summary { cursor: pointer; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .ct .ct-compose-dialog { padding: 18px; }
+  .ct .ct-editor-actions { width: 100%; }
+  .ct .ct-editor-actions button { flex: 1; }
+}

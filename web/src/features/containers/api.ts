@@ -26,6 +26,7 @@ import type {
   Action,
   ContainerLog,
 } from './types'
+import { composeFields, type ComposeNotice, type ComposeResult } from './compose'
 const strings = (v: unknown) =>
   safeArray<unknown>(v).filter((x): x is string => typeof x === 'string')
 const record = (v: unknown) =>
@@ -205,6 +206,30 @@ export const resolveDraft = (
   draft: Draft,
   signal?: AbortSignal,
 ) => apiPost(endpoint(device, '/resolve'), draft, parseResolution, signal)
+export function parseComposeResult(value: unknown): ComposeResult {
+  const o = safeObject(value)
+  if (!Array.isArray(o.services) || o.services.length === 0)
+    throw new ApiError('Compose 解析响应无效', 200, 'invalid_response')
+  const notices = (value: unknown): ComposeNotice[] => safeArray<unknown>(value).map((v) => {
+    const n = safeObject(v)
+    return { field: safeString(n.field), message: safeString(n.message) }
+  })
+  return {
+    services: o.services.map((value: unknown) => {
+      const s = safeObject(value)
+      if (!safeString(s.name) || !s.fields || typeof s.fields !== 'object' || Array.isArray(s.fields))
+        throw new ApiError('Compose 服务响应无效', 200, 'invalid_response')
+      return {
+        name: safeString(s.name), fields: composeFields(parseDraft(s.fields)),
+        imported: strings(s.imported), skipped: notices(s.skipped),
+        needsInput: notices(s.needsInput), mountHints: strings(s.mountHints),
+      }
+    }),
+    skipped: notices(o.skipped),
+  }
+}
+export const parseCompose = (device: string, source: string, signal?: AbortSignal) =>
+  apiPost(endpoint(device, '/compose/parse'), { source }, parseComposeResult, signal)
 export const performAction = (
   device: string,
   action: Action,

@@ -14,6 +14,8 @@ import { DirectoryPicker } from './DirectoryPicker'
 import { RootDirectoryField } from './RootDirectoryField'
 import { replaceDirectory } from './directoryPaths'
 import { ImageUpload } from './ImageUpload'
+import { ComposeImport, ComposeReport } from './ComposeImport'
+import { applyCompose, type ComposeNotice, type ComposeService } from './compose'
 import type { Draft, Item, Resolution, Snapshot } from './types'
 
 function Field({
@@ -129,6 +131,10 @@ export function ContainerEditor({
     [resourcesEnabled, setResourcesEnabled] = useState(
       () => !!(initial.memoryHigh || initial.memoryMax || initial.cpuList),
     )
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [composeReport, setComposeReport] = useState<{
+    service: ComposeService; skipped: ComposeNotice[]
+  } | null>(null)
   const advancedNetworkID = useId(),
     advancedStartupID = useId(),
     directoryID = useId()
@@ -263,6 +269,7 @@ export function ContainerEditor({
       className="ct-editor"
       onSubmit={(e) => {
         e.preventDefault()
+        if (composeOpen) return
         void submit()
       }}
       noValidate
@@ -275,6 +282,9 @@ export function ContainerEditor({
           <h2>{item ? '编辑容器' : '创建容器'}</h2>
           <p>所有配置在这一页。带 * 的项目需填写，其余项目保留默认值。</p>
         </div>
+        <div className="ct-editor-actions">
+        {!item && <button type="button" disabled={busy || validating || uploading}
+          onClick={() => setComposeOpen(true)}>从 Compose 导入</button>}
         <button
           type="button"
           onClick={onClose}
@@ -282,7 +292,24 @@ export function ContainerEditor({
         >
           返回列表
         </button>
+        </div>
       </div>
+      {composeOpen && <ComposeImport key={deviceId} deviceId={deviceId}
+        onClose={() => setComposeOpen(false)}
+        onApply={(service, skipped) => {
+          setDraft((d) => applyCompose(d, service.fields))
+          setResourcesEnabled(!!(service.fields.memoryHigh || service.fields.memoryMax || service.fields.cpuList))
+          setAdvancedStartup(!!(service.fields.command || service.fields.entrypoint || service.fields.user || service.fields.workdir))
+          setSubmitted(false)
+          setResolution(null)
+          setError('')
+          setComposeReport({ service, skipped })
+          setComposeOpen(false)
+        }} />}
+      {composeReport && <details className="ct-notice ct-compose-summary">
+        <summary>已导入服务 {composeReport.service.name}；请补齐 ROS 网络及挂载来源。查看转换说明</summary>
+        <ComposeReport {...composeReport} />
+      </details>}
       {item && (
         <div className="ct-notice">
           原有值已保留。环境变量列表：{item.envLists.join(', ') || '无'}

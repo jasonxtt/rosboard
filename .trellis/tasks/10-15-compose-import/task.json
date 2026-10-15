@@ -1,0 +1,30 @@
+{
+  "id": "compose-import",
+  "name": "compose-import",
+  "title": "Compose paste import for native container forms",
+  "description": "Import one selected Compose service into the shared native container create form with safe skips and manual ROS paths.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "containers",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-15",
+  "completedAt": null,
+  "branch": "codex/compose-import",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/containers",
+    "internal/api/containers.go",
+    "web/src/features/containers"
+  ],
+  "notes": "User approved plan and implementation. Baseline 92c35f7 depends on unmerged Draft PR #30; no merge of that PR is authorized by this task.",
+  "meta": {}
+}

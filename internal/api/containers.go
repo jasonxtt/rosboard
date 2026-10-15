@@ -25,6 +25,26 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		writeAPIError(writer, 404, "device_not_found", "设备不存在或未启用")
 		return
 	}
+	// Parsing must precede snapshot reads, transfer setup and mutation admission.
+	if len(parts) == 2 && parts[0] == "compose" && parts[1] == "parse" {
+		if request.Method != http.MethodPost {
+			methodNotAllowed(writer, http.MethodPost)
+			return
+		}
+		var input struct {
+			Source string `json:"source"`
+		}
+		if decodeJSONBody(writer, request, &input) != nil {
+			return
+		}
+		result, err := containers.ParseCompose(input.Source)
+		if err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_compose", err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+		return
+	}
 	mutation := request.Method != http.MethodGet && !(resolving && request.Method == http.MethodPost)
 	var gate *routeros.DeviceWriteGate
 	if s.policy != nil {

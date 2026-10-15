@@ -1,5 +1,17 @@
 # Native Container contracts
 
+## Compose form imports
+
+Compose parsing is a bounded, pure conversion before snapshot or transfer access.
+The authenticated device-scoped parse route must never read/write RouterOS,
+external files, host environment or journals. Never expose raw YAML decoder
+diagnostics or log source/values. The closed result has no ROS IDs/network/root
+authority. Unsupported behavior is skipped with explanations, not approximated.
+Mount imports preserve targets/mode but leave sources empty for manual ROS
+selection. Importing a service does not deploy siblings, dependencies, service
+DNS, NAT, capabilities or sysctls. Existing creation validation and mutation
+gates remain authoritative after explicit form submission.
+
 ## Scope
 
 Container lifecycle/image and Files directory writes are normal capabilities of

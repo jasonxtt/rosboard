@@ -44,6 +44,15 @@ and permit long values to wrap inside their own cells.
 
 ## Native container feature
 
+The shared create editor supports a transient Compose import dialog in both
+stylesheets. Parse one full document, select exactly one service, then explicitly
+apply only the closed supported field set. Preserve draft identity, ROS network
+and root; replace old imported env/mount/startup/resource values. Mount sources
+are always blank even if a response supplies one. No source or secrets go into
+browser storage. Cancel, source edits and device remounts invalidate pending
+results; form submission is blocked while the dialog is open. Keep skipped and
+manual-input explanations accessible after applying.
+
 Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
 container stylesheet; all selectors stay under `.ct`. The form is flat: seven
