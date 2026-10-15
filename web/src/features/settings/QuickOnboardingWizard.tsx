@@ -1,3 +1,4 @@
+import { transferPermissionHelp } from './AccountTransferPanel'
 import { useEffect, useRef, useState } from 'react'
 import { Button, CopyButton, Field, Input, Select, Skeleton } from '../../ui'
 import { ApiError, errorMessage } from '../../lib/api'
@@ -215,7 +216,7 @@ export function QuickOnboardingWizard({ onSaved, busy }: QuickOnboardingWizardPr
           <span className="quick-step-index">1</span>
           <strong>复制脚本</strong>
         </div>
-        <p className="faint">直接复制完整脚本，无需查看内容；需要核对时可展开。</p>
+        <p className="faint">{transferPermissionHelp}</p>
         <div className="quick-step-actions">
           <Button size="sm" onClick={() => setScriptVisible((visible) => !visible)} title={scriptVisible ? '隐藏脚本' : '查看脚本'}>
             {scriptVisible ? '隐藏脚本' : '查看脚本'}

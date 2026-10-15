@@ -107,21 +107,47 @@ type FeatureLibraryConfig struct {
 
 const DefaultDeviceID = "default"
 
+// ContainerTransferConfig is private startup-only configuration. An override
+// never borrows a missing password or host key from the REST connection account.
+type ContainerTransferConfig struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password" json:"-"`
+	HostKey  string `yaml:"host_key"`
+	Port     int    `yaml:"port,omitempty"`
+}
+
+func (d DeviceConfig) ContainerTransferCredentials() ContainerTransferConfig {
+	if d.ContainerTransfer != nil {
+		c := *d.ContainerTransfer
+		if c.Port == 0 {
+			c.Port = 22
+		}
+		return c
+	}
+	port := d.ContainerSSHPort
+	if port == 0 {
+		port = 22
+	}
+	return ContainerTransferConfig{Username: d.RouterOS.Username, Password: d.RouterOS.Password, HostKey: d.ContainerSSHHostKey, Port: port}
+}
+
 type DeviceConfig struct {
 	// Container writes require a server-side, per-device opt-in. Device editors
 	// cannot enable this flag. Image uploads additionally pin the SSH host key.
-	ContainerWrites     bool                    `yaml:"container_writes,omitempty"`
-	ContainerSSHHostKey string                  `yaml:"container_ssh_host_key,omitempty"`
-	ID                  string                  `yaml:"id"`
-	Name                string                  `yaml:"name"`
-	Enabled             bool                    `yaml:"enabled"`
-	Archived            bool                    `yaml:"archived,omitempty"`
-	SortOrder           int                     `yaml:"sort_order,omitempty"`
-	ManagedAccount      *ManagedRouterOSAccount `yaml:"managed_account,omitempty"`
-	RouterOS            RouterOSConfig          `yaml:"routeros"`
-	ProtocolAnalysis    bool                    `yaml:"protocol_analysis"`
-	FeatureLibrary      FeatureLibraryConfig    `yaml:"feature_library,omitempty"`
-	MosDNS              MosDNSConfig            `yaml:"mosdns,omitempty"`
+	ContainerTransfer   *ContainerTransferConfig `yaml:"container_transfer,omitempty" json:"-"`
+	ContainerSSHPort    int                      `yaml:"container_ssh_port,omitempty"`
+	ContainerWrites     bool                     `yaml:"container_writes,omitempty"`
+	ContainerSSHHostKey string                   `yaml:"container_ssh_host_key,omitempty"`
+	ID                  string                   `yaml:"id"`
+	Name                string                   `yaml:"name"`
+	Enabled             bool                     `yaml:"enabled"`
+	Archived            bool                     `yaml:"archived,omitempty"`
+	SortOrder           int                      `yaml:"sort_order,omitempty"`
+	ManagedAccount      *ManagedRouterOSAccount  `yaml:"managed_account,omitempty"`
+	RouterOS            RouterOSConfig           `yaml:"routeros"`
+	ProtocolAnalysis    bool                     `yaml:"protocol_analysis"`
+	FeatureLibrary      FeatureLibraryConfig     `yaml:"feature_library,omitempty"`
+	MosDNS              MosDNSConfig             `yaml:"mosdns,omitempty"`
 }
 
 type ManagedRouterOSAccount struct {

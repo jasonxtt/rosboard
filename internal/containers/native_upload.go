@@ -20,7 +20,7 @@ func (s *Service) UploadArchive(ctx context.Context, d config.DeviceConfig, gate
 	if err != nil {
 		return ImageArchive{}, err
 	}
-	if d.ContainerSSHHostKey == "" {
+	if d.ContainerTransferCredentials().HostKey == "" {
 		return ImageArchive{}, operationError(409, "ssh_key_required", "上传需要管理员配置并核验设备 SSH 指纹")
 	}
 	n.mu.Lock()
@@ -91,5 +91,6 @@ func (s *Service) UploadArchive(ctx context.Context, d config.DeviceConfig, gate
 	return archive, nil
 }
 func transferArchive(ctx context.Context, d config.DeviceConfig, archive ImageArchive, reader io.Reader) error {
-	return routeros.UploadContainerArchive(ctx, d.RouterOS.BaseURL, d.RouterOS.Username, d.RouterOS.Password, strings.TrimSpace(d.ContainerSSHHostKey), archive.RemotePath, reader, archive.Bytes, archive.SHA256)
+	credentials := d.ContainerTransferCredentials()
+	return routeros.UploadContainerArchivePort(ctx, d.RouterOS.BaseURL, credentials.Username, credentials.Password, strings.TrimSpace(credentials.HostKey), credentials.Port, archive.RemotePath, reader, archive.Bytes, archive.SHA256)
 }

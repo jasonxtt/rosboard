@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,40 +22,19 @@ import (
 // exclusive server-generated archive under the dedicated image staging folder.
 // It never overwrites a user path. Cancellation closes the SSH connection.
 func UploadContainerArchive(ctx context.Context, baseURL, user, password, fingerprint, target string, source io.Reader, size int64, digest string) error {
+	return UploadContainerArchivePort(ctx, baseURL, user, password, fingerprint, 22, target, source, size, digest)
+}
+
+func UploadContainerArchivePort(ctx context.Context, baseURL, user, password, fingerprint string, port int, target string, source io.Reader, size int64, digest string) error {
 	p, err := FilePath(target)
 	if err != nil || !strings.Contains(p, "/rosboard/images/") || !strings.HasSuffix(p, ".tar") || size <= 0 || size > 1<<30 || !strings.HasPrefix(fingerprint, "SHA256:") {
 		return errors.New("invalid archive transfer configuration")
 	}
-	u, err := url.Parse(baseURL)
-	if err != nil || u.Hostname() == "" {
-		return errors.New("invalid archive device")
-	}
-	conn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), "22"))
+	files, closeSession, err := containerTransferSession(ctx, baseURL, user, password, fingerprint, port)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
-	if err = conn.SetDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-		return err
-	}
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, net.JoinHostPort(u.Hostname(), "22"), &ssh.ClientConfig{User: user, Auth: []ssh.AuthMethod{ssh.Password(password)}, HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
-		if ssh.FingerprintSHA256(key) != fingerprint {
-			return errors.New("RouterOS SSH host key changed")
-		}
-		return nil
-	}})
-	if err != nil {
-		return err
-	}
-	client := ssh.NewClient(clientConn, chans, reqs)
-	defer client.Close()
-	files, err := sftp.NewClient(client)
-	if err != nil {
-		return err
-	}
-	defer files.Close()
+	defer closeSession()
 	target = strings.TrimPrefix(p, "/")
 	if err = files.MkdirAll(path.Dir(target)); err != nil {
 		return err
@@ -88,4 +68,59 @@ func UploadContainerArchive(ctx context.Context, baseURL, user, password, finger
 		return errors.New("archive transfer checksum mismatch")
 	}
 	return nil
+}
+
+// CheckContainerTransfer performs authentication and metadata reads only. It
+// intentionally offers no write-probe switch or shell execution path.
+func CheckContainerTransfer(ctx context.Context, baseURL, user, password, fingerprint string, port int) error {
+	files, closeSession, err := containerTransferSession(ctx, baseURL, user, password, fingerprint, port)
+	if err != nil {
+		return err
+	}
+	defer closeSession()
+	_, err = files.ReadDir(".")
+	return err
+}
+
+func containerTransferSession(ctx context.Context, baseURL, user, password, fingerprint string, port int) (*sftp.Client, func(), error) {
+	if user == "" || password == "" || port < 1 || port > 65535 || !strings.HasPrefix(fingerprint, "SHA256:") {
+		return nil, nil, errors.New("invalid transfer credentials or key")
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Hostname() == "" {
+		return nil, nil, errors.New("invalid archive device")
+	}
+	conn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), strconv.Itoa(port)))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+
+	if err = conn.SetDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+		stop()
+		conn.Close()
+		return nil, nil, err
+	}
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, net.JoinHostPort(u.Hostname(), strconv.Itoa(port)), &ssh.ClientConfig{User: user, Auth: []ssh.AuthMethod{ssh.Password(password)}, HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+		if ssh.FingerprintSHA256(key) != fingerprint {
+			return errors.New("RouterOS SSH host key changed")
+		}
+		return nil
+	}})
+	if err != nil {
+		stop()
+		conn.Close()
+		return nil, nil, err
+	}
+	client := ssh.NewClient(clientConn, chans, reqs)
+
+	files, err := sftp.NewClient(client)
+	if err != nil {
+		stop()
+		client.Close()
+		return nil, nil, err
+	}
+
+	return files, func() { stop(); files.Close(); client.Close(); conn.Close() }, nil
 }

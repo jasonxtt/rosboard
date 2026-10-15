@@ -1,3 +1,4 @@
+import { AccountTransferPanel, transferPermissionHelp } from './AccountTransferPanel'
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, CopyButton, Field, Input, Modal, Skeleton } from '../../ui'
 import { errorMessage } from '../../lib/api'
@@ -199,6 +200,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
           ) : null}
         </>
       )}
+      <AccountTransferPanel key={`${device.id}:${device.username}`} deviceId={device.id} disabled={disabled} buttonClass="btn btn-ghost btn-sm" inputClass="textarea script-area" />
       <div className="account-card-actions">
         <Button size="sm" disabled={disabled || manualBusy} onClick={openManual}>
           手动更换账号
@@ -257,7 +259,7 @@ export function AccountCard({ device, onRestarting, disabled = false }: AccountC
 
       <Modal open={replaceOpen} persistent onClose={replaceBusy ? () => undefined : () => setReplaceOpen(false)} title="一键更换 RouterOS 接入账号">
         <div className="replace-account">
-          <p className="faint">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。验证通过后 rosboard 会替换保存的凭据并重启。</p>
+          <p className="faint">{transferPermissionHelp}验证通过后 rosboard 会替换保存的凭据并重启。</p>
           {session ? (
             <>
               <div className="script-block">
