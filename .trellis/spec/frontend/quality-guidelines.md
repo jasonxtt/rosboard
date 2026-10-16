@@ -65,3 +65,10 @@ browser evidence and the user has approved that route.
   approval mechanism?
 - If visual validation is needed, did the handoff tell the user exactly how to
   inspect it themselves?
+
+### Polling and mutation feedback
+
+Keep background read failures separate from explicit operation failures. A
+successful automatic refresh must not clear a rejected submit's error. On long
+forms, display server submission errors beside the submit controls and retain the
+draft so the user can resolve the prerequisite and retry.

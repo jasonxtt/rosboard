@@ -83,3 +83,49 @@ if !shouldDeferDeviceRestart(payload) {
     scheduleRestart()
 }
 ```
+
+## Managed-role expansion guard
+
+When expanding a recorded generated group for image transfer, compare exact
+EFFECTIVE permission sets: old `read,write,test,api,rest-api` may become new
+`read,write,test,api,rest-api,ssh,ftp`; already-new is a write-free no-op. Every
+other/missing/unreadable/invalid set is refused unchanged. Never use subset/
+superset checks or repair extra/missing/partially added rights. Normalize ordering
+and known disabled flags only; unknown or contradictory tokens fail closed.
+Recorded identity and exclusive intended membership must also match. Every
+existing-group script branch must check LIVE policy before mutation and verify
+read-back; script-generation checks alone are insufficient. Do not claim atomic
+RouterOS CAS or retry a set after divergence/unknown outcome. Preserve credentials.
+This governs the planned role extension; current provisioner changes land only
+with the coordinated code/tests/docs implementation.
+
+Capability/onboarding verification remains read-only even through SFTP. Separate
+read connectivity/declared permissions from verified write ability. Any optional
+write probe needs explicit administrator write authorization and an enabled
+device, plus the shared gate and recorded exclusive temporary owned paths;
+never run it implicitly from preview, GET or ordinary capability detection.
+
+### Implemented transfer-role boundary
+
+- New-account scripts add the exact seven-right role; repeated matching accounts
+  are checked without any group/user/password set. Existing old-role collisions
+  in a new session cannot be upgraded without fresh recorded identity reads.
+- `GET /api/devices/{id}/account-transfer` reads recorded generated names plus
+  fresh user/group IDs, router identity, ownership comment, enabled state and
+  exclusive membership. It returns an administrator-run guarded script and
+  separate declared-role/read-connectivity results. Unknown/private credentials
+  never enter its response; use `Cache-Control: no-store`.
+- Script role reads return an array containing positive and `!disabled` flags.
+  Iterate the array directly; `:tostr` uses semicolons. Go REST parsing and script
+  parsing must both reject unknown/duplicate/contradictory tokens. Test both
+  parsers, including the actual RouterOS interpreter in the opt-in lab suite.
+- RouterOS CLI positive-only policy assignments can retain omitted flags in a
+  session. Never infer exact role from a successful assignment. Keep the exact
+  precondition/read-back guards; lab fixture resets explicitly include disabled
+  flags so transition tests actually exercise the intended effective role.
+- Multi-line scripts sent through SSH exec must be flattened to a single command
+  for lab tests (skip comment lines before joining). Terminal paste retains the
+  outer block. Tests must clean generated fixture identities even after failure.
+- No optional write-probe action exists. Its authorization/intent/recovery
+  requirements remain mandatory if one is added later; detection cannot use
+  the actual archive uploader as a probe.

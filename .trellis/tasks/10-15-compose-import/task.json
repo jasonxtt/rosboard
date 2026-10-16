@@ -1,0 +1,38 @@
+{
+  "id": "compose-import",
+  "name": "compose-import",
+  "title": "Compose and Docker run imports for native container forms",
+  "description": "Import Compose services or a single Docker run command into the shared native container create form with safe skips and manual ROS paths.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "containers",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-15",
+  "completedAt": null,
+  "branch": "codex/compose-import",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "d350d76528b52b965f7f2fb03c98f913df2c7493",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/32",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/containers",
+    "internal/api/containers.go",
+    "web/src/features/containers"
+  ],
+  "notes": "2026-10-16 user explicitly accepted the recent container-management and simple UI work and requested a GitHub preservation/version audit. Acceptance recorded for Compose/Docker run imports and both native container UIs. No main merge/release/deployment was requested in this turn; remain in_progress until the separate integration/merge gates. Implementation and automated checks passed; isolated real MSM Compose import/create/start/archive cleanup/delete passed. Test and production run dev-compose-1015 after fully verified timestamped NAS backup. Production health, all 78 embedded assets, config/unit/supervisor preservation and authenticated parse/read-back passed. Manual visual acceptance and root APPROVED remain pending; keep Draft and in_progress, no main merge/release/archive. Baseline depends on still-open PR #30. See validation.md. UI follow-up on 2026-10-16: both native presentations aligned; 107 frontend tests, lint/type/build/CSS isolation and Go tests/vet/build pass. Isolated test service runs dev-container-ui-1016 with all 78 assets verified and authenticated read-back. See ui-validation-2026-10-16.md. No new production deployment; manual visual acceptance and root APPROVED remain pending. User amendment 2026-10-16: Docker run input auto-detection and static quote/flag parsing implemented on the same branch/PR. Exact ddns-go command and no-I/O API regression pass; all 108 frontend tests, Go tests/build/vet and UI lint/build/isolation pass. Real isolated exact-command parse/resolve/ddns-go download/import/start/HTTP 200/image cleanup/delete passed; original MSM unchanged. Test service runs dev-docker-run-1016 with all 78 assets and config/unit/supervisor preservation verified. Production remains dev-compose-1015; UI/manual acceptance and root APPROVED pending. See docker-run-validation-2026-10-16.md. User-authorized combined production delivery 2026-10-16 supersedes the previous test-only state: rebuilt UI and dev-containers-1016 from d350d76, including UI 3aad5fc and Docker run 624f27b plus the PR #30 baseline. Same-binary test health/parser/container reads/all 78 assets passed. Production replacement followed a fully read and hashed consistent NAS backup (20261016T073718Z-containers-ui-import, retention 10); systemd/health/all assets/authenticated parsing and container reads on both enabled devices pass, config/supervisor/unit preserved. Fresh manual visual acceptance and root APPROVED pending; keep in_progress/Draft, no merge/release/archive. See production-ui-import-delivery-2026-10-16.md.",
+  "meta": {
+    "user_acceptance": {
+      "date": "2026-10-16",
+      "status": "approved",
+      "scope": "Compose/Docker run imports and both native container UIs",
+      "production_delivery_of_5a887a4": false,
+      "audit": "PR #30 task research/user-acceptance-and-version-audit-2026-10-16.md"
+    }
+  }
+}
