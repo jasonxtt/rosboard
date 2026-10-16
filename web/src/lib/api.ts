@@ -86,8 +86,13 @@ export function apiGet<T = unknown>(path: string, parse?: (value: unknown) => T,
   return request(path, { method: 'GET', cache: 'no-store', signal }, parse)
 }
 
-export function apiPost<T = unknown>(path: string, body?: unknown, parse?: (value: unknown) => T): Promise<T> {
-  return request(path, jsonInit('POST', body), parse)
+export function apiPost<T = unknown>(path: string, body?: unknown, parse?: (value: unknown) => T, signal?: AbortSignal): Promise<T> {
+  return request(path, { ...jsonInit('POST', body), signal }, parse)
+}
+
+/** Multipart uploads share the same authentication and JSON error handling. */
+export function apiPostForm<T>(path: string, body: FormData, parse: (value: unknown) => T, signal?: AbortSignal): Promise<T> {
+  return request(path, { method: 'POST', body, signal }, parse)
 }
 
 export function apiPostBlob(path: string, body?: unknown): Promise<{ blob: Blob; filename: string | null }> {

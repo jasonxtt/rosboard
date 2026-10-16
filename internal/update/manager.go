@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"rosboard/internal/buildinfo"
+	"rosboard/internal/downloadnet"
 )
 
 type Job struct {
@@ -40,20 +41,21 @@ type Status struct {
 	Job        *Job           `json:"job"`
 }
 type Manager struct {
-	mu          sync.Mutex
-	paths       Paths
-	info        buildinfo.Info
-	client      *releaseClient
-	latest      *Release
-	checkedAt   *time.Time
-	attemptedAt time.Time
-	checkError  string
-	checking    bool
-	job         *Job
-	stop        func()
-	ctx         context.Context
-	logger      *log.Logger
-	supported   bool
+	DownloadSnapshot func() (downloadnet.Snapshot, error)
+	mu               sync.Mutex
+	paths            Paths
+	info             buildinfo.Info
+	client           *releaseClient
+	latest           *Release
+	checkedAt        *time.Time
+	attemptedAt      time.Time
+	checkError       string
+	checking         bool
+	job              *Job
+	stop             func()
+	ctx              context.Context
+	logger           *log.Logger
+	supported        bool
 }
 
 func NewManager(ctx context.Context, p Paths, info buildinfo.Info, stop func(), logger *log.Logger) *Manager {
@@ -119,7 +121,12 @@ func (m *Manager) Check(ctx context.Context) (Status, error) {
 	m.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	rel, e := m.client.discover(ctx, m.info.Arch)
+	client, e := m.operationClient()
+	var rel *Release
+	if e == nil {
+		defer client.http.CloseIdleConnections()
+		rel, e = client.discover(ctx, m.info.Arch)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.checking = false
@@ -150,13 +157,17 @@ func (m *Manager) Install(version string) (Status, error) {
 		m.logger.Printf("update preflight failed: %v", e)
 		return s, errors.New("更新预检查失败，请检查目录权限、备份目录及磁盘空间；详情见服务日志")
 	}
+	client, e := m.operationClient()
+	if e != nil {
+		return s, errors.New("下载代理配置无效")
+	}
 	j := &Job{ID: uuid.NewString(), From: m.info.Version, To: version, Stage: "downloading", StartedAt: time.Now().UTC(), Total: m.latest.Asset.Size}
 	if e := saveJob(m.paths, j); e != nil {
 		return s, errors.New("无法保存更新任务")
 	}
 	m.job = j
 	rel := *m.latest
-	go m.download(rel, j)
+	go m.downloadWithClient(rel, j, client)
 	return m.statusLocked(), nil
 }
 func finishJob(p Paths, j *Job, stage, message string) error {
@@ -166,11 +177,13 @@ func finishJob(p Paths, j *Job, stage, message string) error {
 	j.FinishedAt = &now
 	return saveJob(p, j)
 }
-func (m *Manager) download(rel Release, initial *Job) {
+func (m *Manager) download(rel Release, initial *Job) { m.downloadWithClient(rel, initial, m.client) }
+func (m *Manager) downloadWithClient(rel Release, initial *Job, client *releaseClient) {
+	defer client.http.CloseIdleConnections()
 	j := *initial
 	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Minute)
 	defer cancel()
-	e := m.client.download(ctx, m.paths, rel, &j)
+	e := client.download(ctx, m.paths, rel, &j)
 	if e != nil {
 		m.logger.Printf("update download failed: %v", e)
 		if se := finishJob(m.paths, &j, "failed", "下载或校验失败，当前版本未改变；请重试，详情见服务日志"); se != nil {
@@ -245,4 +258,17 @@ func (m *Manager) WaitForCommit(ctx context.Context) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+func (m *Manager) operationClient() (*releaseClient, error) {
+	if m.DownloadSnapshot == nil {
+		return m.client, nil
+	}
+	snapshot, e := m.DownloadSnapshot()
+	if e != nil {
+		return nil, e
+	}
+	c := newReleaseClient()
+	c.http.Transport = snapshot.Transport
+	return c, nil
 }

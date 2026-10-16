@@ -706,3 +706,21 @@ export async function waitForPanelRestart(onOffline: () => void): Promise<void> 
   }
   throw new Error('面板重启超时，请稍后手动刷新页面')
 }
+
+export type AccountTransferStatus = {
+  state: 'old' | 'new'
+  script: string
+  readAccess: boolean
+  writeVerified: false
+  warning: string
+}
+
+export function parseAccountTransfer(value: unknown): AccountTransferStatus {
+  const o = safeObject(value)
+  if ((o.state !== 'old' && o.state !== 'new') || !safeString(o.script) || o.writeVerified !== false) throw new Error('无效的传输权限检查结果')
+  return { state: o.state, script: safeString(o.script), readAccess: safeBoolean(o.readAccess), writeVerified: false, warning: safeString(o.warning) }
+}
+
+export function fetchAccountTransfer(deviceId: string, signal?: AbortSignal): Promise<AccountTransferStatus> {
+  return apiGet(`/api/devices/${encodeURIComponent(deviceId)}/account-transfer`, parseAccountTransfer, signal)
+}

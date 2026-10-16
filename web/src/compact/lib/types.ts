@@ -391,7 +391,7 @@ export type TerminalDetail = {
   familyFlows: Record<'ipv4' | 'ipv6', TerminalFlowCategory[]>
 }
 
-export type ActiveView = 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'target-library' | 'policy-routing' | 'access-control' | 'recognition'
+export type ActiveView = 'containers' | 'fleet' | 'overview' | 'interfaces' | 'terminals' | 'load' | 'resource' | 'protocols' | 'policies' | 'dhcp' | 'routes' | 'settings' | 'target-library' | 'policy-routing' | 'access-control' | 'recognition'
 export type TerminalTab = 'basic' | 'connections' | 'flows' | 'history'
 export type ConnectionFamily = 'all' | 'ipv4' | 'ipv6'
 export type TerminalFamily = 'all' | 'ipv4' | 'ipv6'

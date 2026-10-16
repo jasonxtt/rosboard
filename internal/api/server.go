@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -23,6 +24,7 @@ import (
 	"rosboard/internal/auth"
 	"rosboard/internal/buildinfo"
 	"rosboard/internal/config"
+	"rosboard/internal/containers"
 	"rosboard/internal/diagnostics"
 	"rosboard/internal/policy"
 	"rosboard/internal/policyv2"
@@ -33,6 +35,7 @@ import (
 )
 
 type Server struct {
+	containers        *containers.Service
 	restartPending    atomic.Bool
 	updater           *update.Manager
 	mutationMu        sync.RWMutex
@@ -73,6 +76,7 @@ func NewServer(cfg config.Config, monitor *service.Monitor, assets fs.FS) *Serve
 func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -89,6 +93,7 @@ func NewServerWithProvisioning(cfg config.Config, monitor *service.Monitor, asse
 func NewServerWithRestart(cfg config.Config, monitor *service.Monitor, assets fs.FS, restart func()) *Server {
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		monitor:           monitor,
 		assets:            assets,
 		allowedCIDRs:      parseCIDRs(cfg.AllowedCIDRs),
@@ -109,6 +114,7 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 	}
 	return &Server{
 		cfg:               cfg,
+		containers:        containers.NewServiceWithState(cfg.DataDir),
 		manager:           manager,
 		store:             storage,
 		assets:            assets,
@@ -127,6 +133,18 @@ func NewServerWithManager(cfg config.Config, manager *service.MonitorManager, st
 func NewServerWithPolicyManager(cfg config.Config, manager *service.MonitorManager, storage *store.Store, assets fs.FS, restart func(), policyManager *policyv2.Manager) *Server {
 	server := NewServerWithManager(cfg, manager, storage, assets, restart)
 	server.policy = policyManager
+	server.containers.DownloadSnapshot = server.downloadSnapshot
+	server.containers.DeviceFor = func(id string) (config.DeviceConfig, bool) { return server.configSnapshot().Device(id) }
+	if policyManager != nil {
+		server.containers.NativeGate = policyManager.WriteGate()
+	}
+	for _, device := range cfg.Devices {
+		if device.Enabled && !device.Archived {
+			if err := server.containers.RestoreNative(device); err != nil {
+				log.Print("container journal restoration failed; device writes are blocked")
+			}
+		}
+	}
 	return server
 }
 
@@ -200,6 +218,14 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) serveAPI(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/api/containers" || strings.HasPrefix(request.URL.Path, "/api/containers/") {
+		s.serveContainers(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/settings/download-proxy" || request.URL.Path == "/api/settings/download-proxy/test" {
+		s.serveDownloadProxy(writer, request)
+		return
+	}
 	if updatePath(request.URL.Path) {
 		s.serveUpdate(writer, request)
 		return
@@ -819,6 +845,12 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 
 	var cleanup *routerOSCleanupResponse
 	switch {
+	case action == "image-transfer":
+		s.serveImageTransferSettings(writer, request, deviceID)
+		return
+	case action == "account-transfer":
+		s.serveAccountTransfer(writer, request, deviceID)
+		return
 	case request.Method == http.MethodGet && action == "cleanup-script":
 		cfg := s.configSnapshot()
 		device, found := cfg.Device(deviceID)
@@ -866,6 +898,9 @@ func (s *Server) serveDeviceAPI(writer http.ResponseWriter, request *http.Reques
 				next.Devices[index].RouterOS.Username = ""
 				next.Devices[index].RouterOS.Password = ""
 				next.Devices[index].ManagedAccount = nil
+				next.Devices[index].ContainerTransfer = nil
+				next.Devices[index].ContainerSSHPort = 0
+				next.Devices[index].ContainerSSHHostKey = ""
 				found = true
 				return
 			}
@@ -1292,6 +1327,10 @@ func (s *Server) saveSettings(update func(*config.Config)) error {
 	next.RouterOS.TerminalScope = cloneTerminalScope(s.cfg.RouterOS.TerminalScope)
 	next.Devices = append([]config.DeviceConfig(nil), s.cfg.Devices...)
 	for index := range next.Devices {
+		if s.cfg.Devices[index].ContainerTransfer != nil {
+			transfer := *s.cfg.Devices[index].ContainerTransfer
+			next.Devices[index].ContainerTransfer = &transfer
+		}
 		next.Devices[index].RouterOS.TrafficInterfaces = cloneStrings(s.cfg.Devices[index].RouterOS.TrafficInterfaces)
 		next.Devices[index].RouterOS.TrafficScope = cloneTrafficScope(s.cfg.Devices[index].RouterOS.TrafficScope)
 		next.Devices[index].RouterOS.TerminalCIDRs = cloneStrings(s.cfg.Devices[index].RouterOS.TerminalCIDRs)
