@@ -20,11 +20,11 @@ This is an independent UI workstream based on the current production source.
 
 - [x] Inspect both supplied files against current source; record findings/fixes.
 - [x] Existing frontend tests, lint, TypeScript/build and UI graph checks pass.
-- [ ] Compile the embedded static binary; verify the same binary on the isolated
+- [x] Compile the embedded static binary; verify the same binary on the isolated
   test service before production replacement.
-- [ ] Before production replacement, create/verify a consistent timestamped NAS
+- [x] Before production replacement, create/verify a consistent timestamped NAS
   backup of binary/configuration/SQLite/service files with retention at most ten.
-- [ ] Production service, health, authenticated read APIs and embedded asset hashes
+- [x] Production service, health, authenticated read APIs and embedded asset hashes
   pass; configuration/supervisor/unit stay unchanged.
 - [ ] Provide exact Aurora URL and desktop/mobile/light/dark manual QA steps.
   Keep Draft/in_progress until fresh user acceptance and root APPROVED.

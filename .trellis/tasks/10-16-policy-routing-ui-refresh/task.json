@@ -15,8 +15,8 @@
   "branch": "codex/policy-routing-ui-refresh",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "144d2e29ddec19b1ae9faad14a5a8ac78303cd8d",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/33",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -24,6 +24,6 @@
     "web/src/pages/PolicyRoutingPage.tsx",
     "web/src/pages/PolicyRoutingPage.css"
   ],
-  "notes": "Reviewed supplied Aurora files and integrated header/count/action/table/egress display changes. Fixed undefined light-only colour fallbacks, scoped every override under pol-routing-page, retained mutation and recovery logic. All 108 frontend tests, TypeScript/Vite build and emitted dual-UI/CSS isolation pass; lint only four pre-existing FastTrack JSX-key warnings. Runtime delivery and manual acceptance pending.",
+  "notes": "Supplied Aurora policy routing layout reviewed and integrated in 144d2e2. Corrected undefined theme tokens/light-only fallbacks and cross-page CSS leakage; retained API/mutation/permission/recovery behavior. All 108 frontend tests, lint/type/build/UI isolation pass. Static binary dev-policy-ui-1016 verified on isolated test then production after a fully read/SHA256-verified consistent NAS backup (20261016T080550Z-policy-routing-ui, retention 10). Both enabled device policy context/container/import reads and all 78 assets pass; config/supervisor/unit unchanged. Fresh user visual acceptance and root APPROVED pending. Keep in_progress/Draft; no merge/release/archive. See validation.md.",
   "meta": {}
 }
