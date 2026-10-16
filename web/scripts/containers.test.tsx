@@ -4,6 +4,9 @@ import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
 import { ContainerEditor } from '../src/features/containers/ContainerEditor.tsx'
 import { ContainerPage } from '../src/features/containers/ContainerPage.tsx'
+import { auroraContainerPresentation } from '../src/pages/ContainerPresentation.tsx'
+import { compactContainerPresentation } from '../src/compact/features/containers/presentation.tsx'
+import { ContainerPresentationProvider } from '../src/features/containers/ContainerUI.tsx'
 import CompactContainers from '../src/compact/features/containers/ContainersPage.tsx'
 import {
   memoryLimitMB,
@@ -1715,3 +1718,60 @@ test('memory editor displays existing RouterOS units and byte limits in MB', () 
   assert.equal(memoryLimitMB('131072KiB'), '128')
   assert.equal(memoryLimitMB(''), '')
 })
+
+
+for (const [name, presentation, surfaceClass, tableClass] of [
+  ['Aurora', auroraContainerPresentation, 'glass', 'table'],
+  ['Compact', compactContainerPresentation, 'panel', 'data-table'],
+] as const) {
+  test(`${name}: native presentation and more actions retain confirmations, keyboard dismissal and focus`, async () => {
+    const env = installDOM()
+    const root = createRoot(document.getElementById('root')!)
+    const state = snapshot(true)
+    state.capabilities.mode = 'native'
+    state.items[0].ownership = 'managed'
+    state.items[0].status = 'running'
+    let writes = 0
+    globalThis.fetch = async (_input, init) => {
+      if (init?.method === 'POST') writes++
+      return response(state)
+    }
+    try {
+      await act(async () => root.render(<ContainerPresentationProvider value={presentation}>
+        <ContainerPage deviceId="lab" />
+      </ContainerPresentationProvider>))
+      await settle()
+      assert.ok(document.querySelector(`.ct-list.${surfaceClass}`))
+      assert.ok(document.querySelector(`table.${tableClass}`))
+      assert.equal(document.querySelector('.ct-brand'), null)
+      assert.equal(document.querySelector('.ct-stats .ct-card'), null)
+      assert.equal(document.querySelector<HTMLDetailsElement>('.ct-help')!.open, false)
+      assert.equal(document.querySelector('[aria-label="日志 dns"]')!.textContent?.trim(), '日志')
+      const menu = document.querySelector<HTMLDetailsElement>('.ct-more')!
+      const trigger = menu.querySelector('summary')!
+      await act(async () => { menu.open = true; trigger.focus() })
+      await act(async () => menu.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+      assert.equal(menu.open, false)
+      assert.equal(document.activeElement, trigger)
+      await act(async () => { menu.open = true })
+      const remove = menu.querySelector<HTMLButtonElement>('[aria-label="删除 dns"]')!
+      await act(async () => { remove.focus(); remove.click() })
+      assert.equal(menu.open, false)
+      const dialog = document.querySelector<HTMLDialogElement>('dialog')!
+      assert.ok(dialog.open)
+      assert.equal(dialog.querySelector('h2')!.textContent, '删除容器')
+      assert.match(dialog.textContent!, /独占运行目录/)
+      assert.ok(dialog.querySelector('.ct-danger'))
+      await act(async () => button('取消').click())
+      assert.equal(document.querySelector('dialog'), null)
+      assert.equal(document.activeElement, trigger)
+      assert.equal(writes, 0)
+      await act(async () => { menu.open = true })
+      await act(async () => document.body.dispatchEvent(new env.dom.window.Event('pointerdown', { bubbles: true })))
+      assert.equal(menu.open, false)
+    } finally {
+      await act(async () => root.unmount())
+      env.restore()
+    }
+  })
+}
