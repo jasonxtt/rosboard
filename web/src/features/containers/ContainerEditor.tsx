@@ -282,7 +282,7 @@ export function ContainerEditor({
         </div>
         <div className="ct-editor-actions">
         {!item && <ContainerButton type="button" disabled={busy || validating || uploading}
-          onClick={() => setComposeOpen(true)}>从 Compose 导入</ContainerButton>}
+          onClick={() => setComposeOpen(true)}>导入配置</ContainerButton>}
         <ContainerButton
           type="button"
           onClick={onClose}

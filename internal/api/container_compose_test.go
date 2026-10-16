@@ -26,6 +26,7 @@ func TestComposeParseAPIHasNoRouterOrWriterIO(t *testing.T) {
 	}{
 		{"POST", "a", "services: {app: {image: nginx}}", 200},
 		{"POST", "b", "services: {app: {image: nginx}}", 200},
+		{"POST", "a", "docker run -d --name demo --net=host -v /host:/root nginx", 200},
 		{"POST", "", "", 400}, {"POST", "missing", "", 404},
 		{"POST", "disabled", "", 404}, {"POST", "archived", "", 404},
 		{"GET", "a", "", 405}, {"PUT", "a", "", 405},

@@ -2,6 +2,13 @@
 
 ## Compose form imports
 
+The same pure import route accepts one Docker run command. Tokenization must
+never invoke Shell, Docker, files or host environment lookup. Preserve literal
+dollars and quote boundaries; reject substitutions/operators/unknown option
+arity instead of guessing the image. Known unsupported options are explained.
+Do not join post-image argument vectors into the flat CMD override. Docker host
+network/IP/port options never grant authority over ROS networking.
+
 Compose parsing is a bounded, pure conversion before snapshot or transfer access.
 The authenticated device-scoped parse route must never read/write RouterOS,
 external files, host environment or journals. Never expose raw YAML decoder

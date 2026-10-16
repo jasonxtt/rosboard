@@ -1,5 +1,18 @@
 # Compose paste import
 
+## Approved Docker run amendment — 2026-10-16
+
+Accept a single pasted docker run command through the same import entry and pure
+API. The user's ddns-go command imports image/name/restart and mount target, with
+manual ROS source/network configuration. Auto-detect syntax. Support static shell
+quoting, escaped multiline commands, common short/long options, environment,
+resources and long/short mounts. Never execute/evaluate Shell or read files/env.
+Known unsupported options are skipped with explanations. Unknown option arity,
+compound Shell syntax and command substitutions are rejected with safe errors;
+post-image argument vectors require manual CMD input, not lossy joining.
+Keep the same branch/PR. Deliver to the disposable test instance with the prior
+UI alignment; production stays on its accepted delivery pending user inspection.
+
 ## Goal
 Paste a full Compose document, choose one service, and fill the existing native
 container creation form with supported information. Unsupported fields are

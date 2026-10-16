@@ -1,5 +1,19 @@
 # Design
 
+## Docker run import amendment
+
+ParseContainerImport auto-detects Compose versus a single docker run or docker
+container run (optional sudo/prompt). Retain the existing POST path and response
+field contract; add optional format=compose|docker-run. A bounded static lexer
+preserves quotes, escaped dollars/newlines and flags, marks unresolved Shell
+expansions, and rejects operators/substitution without executing anything.
+Known option arities protect image boundaries; unknown flags fail closed rather
+than guessing. Reuse pure Compose field/env/mount conversion with literal-dollar
+escaping, manual ROS source paths and unchanged unsupported-network behavior.
+Docker repeated scalar/env flags use last-value semantics. Post-image argv stays
+manual because the current flat CMD cannot preserve arbitrary argument vectors.
+The shared entry is named Import configuration; both UI adapters remain intact.
+
 The user approved the complete Compose paste-import plan on 2026-10-15.
 This is a single-service form importer, not a Compose runtime.
 

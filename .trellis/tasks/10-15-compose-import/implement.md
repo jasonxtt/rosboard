@@ -1,5 +1,16 @@
 # Implementation and verification
 
+## Docker run follow-up
+
+- Extend pure parsing and the existing route with optional format metadata.
+- Cover the exact ddns-go command, quoting, literals/variables, repeats, option
+  arity, unsupported settings, malformed/compound input and no-I/O API behavior.
+- Update shared import copy/format detection and component tests.
+- Run required Go/frontend checks, publish the same Draft PR, deploy only the
+  disposable test instance and verify actual isolated ddns-go create/start/delete.
+- Keep production unchanged while the UI alignment and this amendment await
+  manual inspection; document exact test URLs and remaining limitations.
+
 1. Implement closed pure parser and table-driven regression tests.
 2. Add authenticated/device-scoped no-I/O parse route and API contract tests.
 3. Add shared modal, typed API adapter, safe field replacement and both CSS graphs.

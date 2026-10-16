@@ -45,6 +45,7 @@ type ComposeService struct {
 }
 
 type ComposeResult struct {
+	Format   string           `json:"format,omitempty"`
 	Services []ComposeService `json:"services"`
 	Skipped  []ComposeNotice  `json:"skipped"`
 }
@@ -52,7 +53,7 @@ type ComposeResult struct {
 // ParseCompose is pure. Source and decoder errors must never reach logs/errors:
 // YAML decoder diagnostics can contain environment values and other secrets.
 func ParseCompose(source string) (ComposeResult, error) {
-	out := ComposeResult{Services: []ComposeService{}, Skipped: []ComposeNotice{}}
+	out := ComposeResult{Format: "compose", Services: []ComposeService{}, Skipped: []ComposeNotice{}}
 	if len(source) == 0 || len(source) > MaxComposeBytes {
 		return out, errors.New("请粘贴 Compose 内容，最多支持 48 KiB")
 	}
