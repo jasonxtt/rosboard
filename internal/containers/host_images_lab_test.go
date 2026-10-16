@@ -20,7 +20,7 @@ func TestHostImageIndependentLab(t *testing.T) {
 	if cfgpath == "" {
 		t.Skip("independent lab opt-in")
 	}
-	var cfg struct{ BaseURL, Username, Password, HostKey string }
+	var cfg struct{ BaseURL, Username, Password, HostKey, Proxy string }
 	raw, e := os.ReadFile(cfgpath)
 	if e != nil || json.Unmarshal(raw, &cfg) != nil || !strings.HasPrefix(cfg.BaseURL, "http://10.0.2.5") {
 		t.Fatal("independent private lab configuration required")
@@ -29,7 +29,13 @@ func TestHostImageIndependentLab(t *testing.T) {
 	stateDir, _ := os.MkdirTemp("", "rosboard-host-native-lab-")
 	t.Log("lab journal directory", stateDir)
 	s := NewServiceWithState(stateDir)
-	s.DownloadSnapshot = func() (downloadnet.Snapshot, error) { return downloadnet.New(os.Getenv("ROSBOARD_IMAGE_PROXY")) }
+	s.DownloadSnapshot = func() (downloadnet.Snapshot, error) {
+		proxy := cfg.Proxy
+		if proxy == "" {
+			proxy = os.Getenv("ROSBOARD_IMAGE_PROXY")
+		}
+		return downloadnet.New(proxy)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
 	snap, e := s.fresh(ctx, d)
@@ -80,6 +86,8 @@ func TestHostImageIndependentLab(t *testing.T) {
 		return wait(svc, j)
 	}
 	created := []string{}
+	historicalRoots := []string{}
+	updatedRoot, persistentPath := "", ""
 	defer func() {
 		cleanup, _ := s.fresh(context.Background(), d)
 		for _, item := range cleanup.Items {
@@ -148,8 +156,36 @@ func TestHostImageIndependentLab(t *testing.T) {
 			t.Fatal("runtime/source metadata lost after tar deletion")
 		}
 		if i == 0 {
-			updated := submit(s, "update", j.TargetID, Draft{})
-			created[0] = updated.TargetID
+			persistentPath = "/" + parent + "/a/data"
+			native := routeros.NewMutationClient(cfg.BaseURL, cfg.Username, cfg.Password)
+			if err := native.CreateDirectory(ctx, persistentPath); err != nil {
+				t.Fatal(err)
+			}
+			list := "rb-history-" + token
+			if err := native.ContainerCommand(ctx, routeros.ContainerMounts, "add", routeros.RouterOSFields{"list": list, "src": persistentPath, "dst": "/data", "comment": g.Owner}); err != nil {
+				t.Fatal(err)
+			}
+			if err := native.ContainerCommand(ctx, routeros.ContainerList, "set", routeros.RouterOSFields{"numbers": j.TargetID, "mountlists": list}); err != nil {
+				t.Fatal(err)
+			}
+			for round := 0; round < 2; round++ {
+				updated := submit(s, "update", created[0], Draft{})
+				created[0] = updated.TargetID
+				for _, root := range updated.Retained {
+					if strings.Contains(root, "-retained-") {
+						historicalRoots = append(historicalRoots, strings.TrimPrefix(root, "/"))
+					}
+				}
+			}
+			current, err := s.fresh(ctx, d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range current.Items {
+				if item.ID == created[0] {
+					updatedRoot = strings.TrimPrefix(item.Config.RootDir, "/")
+				}
+			}
 		}
 	}
 	// A deliberately stopped import retains its recovery image until deletion.
@@ -206,6 +242,7 @@ func TestHostImageIndependentLab(t *testing.T) {
 	if e := restored.RestoreNative(d); e != nil {
 		t.Fatal(e)
 	}
+	s = restored // Deferred fixture cleanup must use the reconstructed journal too.
 	snap, e = restored.fresh(ctx, d)
 	if e != nil {
 		t.Fatal(e)
@@ -221,5 +258,27 @@ func TestHostImageIndependentLab(t *testing.T) {
 			t.Fatal("origin not durable across restart")
 		}
 	}
-	t.Log("Docker Hub Alpine and GHCR multilayer import/start/update, tar cleanup then stop/start/restart, stopped retention, delete removes rootfs while preserving sibling mount data, artifact cleanup and durable logical origin passed")
+	if len(historicalRoots) != 2 || updatedRoot == "" {
+		t.Fatal("two update-history roots were not recorded")
+	}
+	submit(restored, "delete", created[0], Draft{})
+	fileRows, e = restored.ReaderFor(d).ContainerRead(ctx, routeros.ContainerFiles)
+	if e != nil {
+		t.Fatal(e)
+	}
+	persistentExists := false
+	for _, file := range fileRows {
+		if file["name"] == strings.TrimPrefix(persistentPath, "/") {
+			persistentExists = true
+		}
+		for _, root := range append(historicalRoots, updatedRoot) {
+			if file["name"] == root || strings.HasPrefix(file["name"], root+"/") {
+				t.Fatal("delete after restart left a current or historical rootfs")
+			}
+		}
+	}
+	if !persistentExists {
+		t.Fatal("history cleanup removed independent persistent data")
+	}
+	t.Log("Docker Hub/GHCR import/start/restart, two updates, service reconstruction, delete of current plus both historical roots, independent mount-data preservation and artifact cleanup passed")
 }

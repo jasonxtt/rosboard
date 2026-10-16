@@ -134,11 +134,12 @@ writes or approve production delivery.
   exclusive generated remote paths and read-back SHA-256/size verification.
 - ROS 7.23.7 requires new root-dir paths. Remove an explicitly selected existing
   empty folder only after rechecking exact ID/type, children and references.
-- Container removal implicitly erases root-dir. Rename the stopped unshared
-  filesystem to a unique sibling before remove. Verify the new name and absence
-  of the old name; Files opaque IDs can change on rename. Shared/overlapping
-  root/mount references block renaming/removal. Never promise the original
-  runtime path survives unchanged. Do not automatically purge retained backups.
+- During update cutover only, rename the stopped unshared filesystem before
+  removing the old container. Verify both paths and persist the post-rename Files
+  ID, which may differ from the source ID. Keep these roots for rollback while
+  the container exists. Explicit container deletion also removes its exact
+  journal-proven update history, under the deletion rules below. Never sweep
+  retained-name patterns or purge unrelated backups.
 - Project CPU indices/ranges to cpu0/cpu1 names. RouterOS cannot unset memory
   integer fields: an empty set becomes `unlimited`. When editing with blank
   memory overrides, project the freshly read global creation defaults instead;
@@ -237,8 +238,20 @@ instead of retaining/renaming it. Immediately before native remove, recheck exac
 owned stopped identity, root safety, other container roots and all mount sources.
 After native removal, confirm root absence; remove a leftover root only through
 its exact recorded opaque ID/path/type and fresh no-reference checks. A same-path
-replacement must fail closed. Independent mount data stays. Updates and legacy
-retention journals retain their prior behavior.
+replacement must fail closed. Independent mount data stays. Updates keep their
+old runtime for rollback while the container exists; explicit deletion follows
+the completed update chain and also removes its historical runtime roots.
+
+Follow exact current ID/root/interface/owner through completed add/remove/cutover
+records, not reusable IDs or device-wide markers alone. Persist post-rename
+ResultID together with retain-root confirmation. Bind every historical cleanup
+to that Files ID/path/type and freshly reject overlapping roots and all mount
+sources both at admission and immediately before remove. A completed legacy
+rename is usable only if its original Files ID still matches; otherwise require
+manual identity confirmation and fail before deleting the container. Missing
+historical directories are already clean. Persist cleanup steps in the existing
+native journal; unknown outcomes recover through reads, never command replay.
+Legacy pending deletion journals retain their original, non-expanded intent.
 
 Bare numeric memory values remain bytes for compatibility. Reject explicit values
 below1MiB and overflow before admission, and explain units beside both inputs.

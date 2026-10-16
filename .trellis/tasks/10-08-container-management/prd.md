@@ -233,3 +233,21 @@ checks, real account/API/storage capabilities, SSH pin-change detection, ownersh
 shared write locks, journal reconciliation and normal deployment acceptance.
 No container operations run automatically as part of enabling the capability.
 Continue the same Draft PR; UI optimization is next, with no merge to main.
+
+
+## Delete update-history root filesystems — 2026-10-16 amendment
+
+The user reported a retained ddns-go rootfs after deleting its updated container
+and explicitly requests a code fix with independent testing. Delete must clean
+both the current rootfs and journal-proven historical runtime directories from
+that exact container's successful update chain. Keep old roots while the updated
+container exists for rollback; preserve independent mount sources. Never scan a
+name suffix to claim ownership. Persist the exact post-rename Files ID because
+RouterOS may change IDs during rename. Guard replacement/shared/mounted paths,
+unknown outcomes and restart recovery; do not infer identity for legacy records
+that lack a matching saved ID. Explain that case before destructive deletion.
+
+Continue on codex/container-management / Draft PR #30. Validate with unit contracts
+and independent create -> multiple updates -> restart -> delete on the test ROS,
+using only unique fixtures and retaining the user's MSM. This request authorizes
+code and test changes, not a production replacement or deletion of old user data.
