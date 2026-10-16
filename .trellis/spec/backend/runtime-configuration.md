@@ -175,6 +175,7 @@ exec "$root_dir/rosboard" -config "$root_dir/configs/config.local.yaml"
 - Frontend: production TypeScript build and oxlint pass.
 - Live: local service serves `/`, `/api/dashboard` when configured, and `/api/settings`; saving a connection restarts the process under systemd.
 - Test deployments: risky, experimental, or destructive verification runs on the disposable test machine `10.0.0.60` (`ssh rosboard-test`, LXC Debian 12, free to break) with its own config/data directory — no backup or acceptance gate. The backup + manual-acceptance gate applies only to the production instance `10.0.0.6` (see AGENTS.md).
+- NAS retention must match the timestamp prefix (`YYYYMMDDTHHMMSSZ-`) without restricting the label suffix; older labels can contain version dots. Count all such non-symlink directories before creating a backup, remove only the oldest when required, and recount afterward. Never include unrelated NAS directories in retention cleanup.
 - Restart regression: save multiple traffic interfaces, observe the waiting state through restart, and confirm the dashboard automatically returns to healthy without a blank page or a `null.filter` runtime error.
 
 ### 7. Wrong vs Correct
@@ -235,3 +236,14 @@ if err := config.Save(next.Path, next); err == nil {
   download test via `ROSBOARD_UPDATE_TEST_BINARY`; `scripts/check-update-runtime.py`
   verifies actual child replacement, rollback, interruption, session/data retention,
   and full-reset cleanup against isolated fixture binaries.
+
+## Private container transfer credentials
+
+Devices reuse connection credentials plus `container_ssh_host_key` and optional
+`container_ssh_port` by default. Optional `container_transfer` contains a complete
+private `username`/`password`/`host_key`/`port` override. A missing override field
+must never fall back to another source's password/key. Ports default to 22;
+invalid ports or missing verified keys fail before transfer. These fields do not
+appear in public settings or device edit requests. REST connection changes clear
+transfer settings, pinned keys and write opt-in; clearing a device account also
+clears that authority. Ordinary unrelated saves preserve private values.

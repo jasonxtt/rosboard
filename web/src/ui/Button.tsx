@@ -1,15 +1,12 @@
-import type { ReactNode } from 'react'
+import type { ButtonHTMLAttributes } from 'react'
 
 export type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
-type ButtonProps = {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
   size?: 'md' | 'sm'
-  type?: 'button' | 'submit'
   disabled?: boolean
   loading?: boolean
-  onClick?: () => void
-  children: ReactNode
   className?: string
   title?: string
 }
@@ -25,10 +22,11 @@ export function Button({
   children,
   className = '',
   title,
+  ...props
 }: ButtonProps) {
   const classes = ['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : '', className].filter(Boolean).join(' ')
   return (
-    <button type={type} className={classes} disabled={disabled || loading} onClick={onClick} title={title}>
+    <button {...props} type={type} className={classes} disabled={disabled || loading} onClick={onClick} title={title}>
       {loading ? '处理中…' : children}
     </button>
   )

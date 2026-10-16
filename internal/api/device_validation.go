@@ -163,6 +163,14 @@ func (s *Server) prepareDevice(ctx context.Context, id string, payload deviceSet
 		MosDNS: mosDNS,
 	}
 	if existing != nil {
+		if !connectionChanged {
+			device.ContainerSSHHostKey = existing.ContainerSSHHostKey
+			device.ContainerSSHPort = existing.ContainerSSHPort
+			if existing.ContainerTransfer != nil {
+				transfer := *existing.ContainerTransfer
+				device.ContainerTransfer = &transfer
+			}
+		}
 		device.Archived = existing.Archived
 		device.SortOrder = existing.SortOrder
 		// Device editors do not manage recognition settings; preserve them so a

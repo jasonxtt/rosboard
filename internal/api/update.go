@@ -7,7 +7,10 @@ import (
 	"rosboard/internal/update"
 )
 
-func (s *Server) SetUpdater(updater *update.Manager) { s.updater = updater }
+func (s *Server) SetUpdater(updater *update.Manager) {
+	s.updater = updater
+	updater.DownloadSnapshot = s.downloadSnapshot
+}
 func (s *Server) serveUpdate(writer http.ResponseWriter, request *http.Request) {
 	if s.updater == nil {
 		writeAPIError(writer, http.StatusServiceUnavailable, "update_unavailable", "版本更新不可用")

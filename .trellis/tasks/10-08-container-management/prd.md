@@ -1,0 +1,235 @@
+# Native container management — phase 1
+
+User approved implementation on 2026-10-08. This phase delivers native Container reads, a complete single-page editor, and a development-only interactive simulation. Container mutations remain deferred; the later directory-picker follow-up explicitly authorizes real RouterOS directory CRUD.
+
+## Requirements
+- Arcane-inspired scoped appearance, Dockhand-style searchable/sortable container table, Portainer-inspired flat creation/edit form in both Aurora and Compact.
+- All seven configuration sections visible; desktop two columns, mobile one. No wizard or configuration tabs. Optional IPv6/MAC and startup command/entrypoint/user/workdir start collapsed under separate advanced toggles, retaining values and expanding validation errors. Startup/log/restart controls appear before advanced overrides.
+- Image and manual static network required: dedicated new VETH, existing bridge, IPv4/CIDR and gateway. No bridge creation, DHCP, VLAN or outbound firewall/NAT changes.
+- Optional image-derived unique name; missing image tag uses latest. Largest suitable free disk supplies an independent root directory. Optional command, entrypoint, user, workdir, env, mounts and resources preserve inheritance when blank.
+- New defaults: start immediately and at boot, logging enabled, restart policy no, healthcheck inheritance. Editing preserves every existing parameter.
+- List/detail/options/log/default-resolution APIs isolated by explicit device. Formal service performs GET-only RouterOS reads and rejects all action endpoints.
+- Simulation shares contracts, covers create/edit/start/stop/restart/update/delete/adopt, tasks and progress, failure/deduplication/unknown-result recovery and shared-object retention. Fixtures excluded from production bundles.
+- Show capability limits, provenance, VETH sharing and effective defaults. Adopt explicitly; shared objects are never implicitly owned/deleted.
+
+## Acceptance
+Go build/test/vet and relevant race checks; frontend test/lint/build and dual-UI build isolation. Provide a local interactive simulation and desktop/mobile light/dark manual review steps. Keep branch and PR Draft; no production deployment, merge or full task archival before acceptance. Real writes require independent RouterOS validation later.
+
+
+## Follow-up requirements: local images and Files navigation
+
+- Let users choose a registry image or upload one Linux Docker-save `.tar`
+  image, with clear format/architecture/size errors and retained form values.
+- Add a small Files picker for rootfs and mount sources: navigate actual folders,
+  create a child folder in simulation, and select it immediately. Show existing
+  files as context and allow mount sources to select a file. No general editor,
+  delete tool or shell is requested.
+- Keep new rootfs separate from persistent configuration/data under a common
+  per-container parent. Preserve every existing container path on edit.
+- Label `root-dir` as the container runtime directory. Explicitly allow a shared
+  application parent, e.g. `nginx/rootdir` and `nginx/data/config`; persistent
+  mount sources remain outside the runtime directory. Folder names are not fixed.
+- Access services through container-IP:application-port. Remove the port-mapping
+  section and list column. No port mappings or NAT objects enter the container
+  contract, reads, simulation, adoption or deletion.
+- Maintain current read-only production scope. Simulate upload/mkdir clearly;
+  provide optional read-only test-device browsing and independently verify file
+  capabilities before a future complete write pipeline. Credentials stay private.
+
+Acceptance includes malformed/oversized/incompatible archives, device isolation,
+source selection, navigation/create/select, collisions/traversal rejection, both
+UI variants and cancelled work on device switch. Keep the same Draft PR and task.
+
+## Full-panel test deployment follow-up
+
+- Runtime-directory input opens inline Files on click or ArrowDown and remains
+  directly editable. Remove the separate runtime browse button.
+- Environment delete is an accessible trash icon in the row right column.
+- Keep native second-level menu entries in both full UI shells.
+- Deploy the complete program on the disposable rosboard-test machine with an
+  isolated config/data directory and the independent test RouterOS. Preserve the
+  current real read-only container capability; simulations stay out of this build.
+- Verify service/health, authentication, device scope, real snapshot/Files, draft
+  resolution, write denial and the actual embedded UI assets. Production remains
+  separate; no production backup/deployment, merge or complete task acceptance.
+
+## Startup and health-check clarity follow-up
+
+- Put create/start-on-boot, logging and restart policy before the startup advanced
+  arrow. Default-collapse CMD, ENTRYPOINT, user and workdir, retaining existing
+  and edited values across toggles and submission.
+- Explain health checks as periodic commands inside the container that test
+  whether its application responds. Make image/default inheritance, missing
+  image checks, custom command dependencies, interval/timeout/failure count and
+  startup preparation understandable without Docker terminology.
+- Preserve health contracts and default inheritance. Do not enable real writes
+  or add implicit stop/restart/notification actions.
+- Update the same isolated full-panel test deployment and Draft PR.
+
+## Bound directory picker and optional detail follow-up
+
+- Hide custom health fields in image-inheritance mode. Resource overrides start
+  off for new drafts; show details when enabled and preserve existing overrides
+  on edit. Disabling resource overrides uses inherited settings without losing
+  the values retained in the editor.
+- Bind the runtime input and dropdown to a compact RouterOS directory picker.
+  Locate its valid existing path on open; fall back to `/` for missing/invalid
+  paths while retaining the input. Folder navigation does not select; explicit
+  selection fills root-dir and closes the picker. Preserve mount behavior.
+- Clickable, scrollable breadcrumbs expose every ancestor. List folders first,
+  files afterward with muted styling/size; files cannot serve as root-dir.
+- A single create click adds an inline name input with focus/selected default
+  text. Enter saves, Esc cancels, and a valid blur saves. Rename uses the same
+  inline interaction; per-folder menus contain rename/delete. Delete requires
+  a confirmation naming the exact folder/path and stating that all files and
+  subdirectories will be removed. The user explicitly permits nonempty deletion;
+  root/disk/system roots and container-used paths are protected.
+- Extend the existing directory API with real mkdir/rename/remove through typed
+  RouterOS calls. Operations never touch the rosboard host filesystem. Validate
+  path/name, resolve exact opaque IDs, preserve Unicode/spaces, reject traversal
+  and stale targets, serialize per device, and read back mutation results.
+- Handle permissions, timeout/unknown result, missing/stale directories and
+  duplicate actions in the picker without losing the container form. Keep
+  previous listings during refresh, refresh after operations, and keep the
+  current directory after creation. Adapt draft references after renaming.
+- Do not add file deletion, general file editing or a new UI framework. Keep
+  container/image writes disabled and use the same task branch/Draft PR/test
+  deployment. Verify actual RouterOS CRUD with isolated temporary directories.
+
+### Theme alignment follow-up
+
+- Bind container cards, controls, status colours and floating surfaces to the
+  selected Aurora/Compact shell tokens, including light/dark switching. Preserve
+  the existing layout and operations. Load the same selected UI tokens in the
+  standalone development preview; keep preview assets outside production builds.
+
+
+## Authorized native lab write phase — 2026-10-11
+
+The user authorized complete Container write testing through the deployed lab
+panel against its preconfigured independent RouterOS only. Production RouterOS
+access, production deployment and final acceptance remain excluded. This phase
+supersedes the earlier lifecycle read-only implementation boundary for devices
+explicitly enabled through private server configuration.
+
+- Closed typed native writes cover create/edit/start/stop/restart/update/delete
+  and explicit adoption. Default devices remain read-only; public device edits
+  cannot enable native writes and connection changes clear the opt-in/pinned key.
+- A private durable per-device journal records exact ownership, request replay,
+  pending writes and progress. Mutations are never blindly retried; unknown
+  results retain the shared device lock and recover by reading first. Startup
+  restores unresolved locks before serving policy/Files writes.
+- Docker-save uploads use pinned SSH/SFTP, exclusive generated paths and remote
+  size/SHA-256 verification. Valid legacy archive internal links are accepted
+  without extracting; unsafe/missing links remain rejected. Already verified
+  uploads can be selected again without transferring the archive again.
+- New containers have dedicated VETH plus bridge port. No bridge settings,
+  addresses on existing interfaces, routes, NAT or firewall rules are changed.
+  Edits preserve the container root/image. Existing/shared network changes are
+  refused; adoption marks only the container, preserving auxiliary ownership.
+- Updates import into a new rootfs, stop the old container, start the replacement,
+  preserve the old rootfs and remove the old container. Mount sources remain
+  unchanged. Removal cleans only journal-linked owned objects after rechecking
+  shared references. Failed imports leave their created objects visible for
+  explicit cleanup; they are not silently rolled back.
+- Deletion removes the exclusively owned rootfs together with the container; it
+  no longer renames that rootfs to a retained sibling. Guard exact stopped
+  identity/ownership, other roots and mount sources immediately before removal.
+  Confirm root disappearance and guard any leftover cleanup by exact ID/path/type.
+  Independent mounted data remains. Updates retain their old rootfs for rollback;
+  historical retention journals remain recoverable. This deletion amendment is
+  explicitly requested and lab-verified on2026-10-15.
+
+
+See `research/native-write-validation-2026-10-11.md` for actual results and
+remaining limits. Keep the task active and the same PR Draft; no APPROVED,
+production delivery, merge or archival is implied.
+
+## Authorized production pilot preparation — 2026-10-14
+
+The user requested a directory-write gate fix, read-only production RouterOS
+verification, and replacement of the production rosboard instance after checks
+and the AGENTS.md backup gate. The user will manually test container creation.
+All Files writes must require the same private device opt-in as native writes.
+Keep credentials private; preserve existing production configuration/data.
+Production manual acceptance, root APPROVED, merge and archival remain pending.
+
+## Registry DNS warming — authorized 2026-10-14
+
+After confirmed registry create/update, query registry/authentication/layer
+domains A and AAAA from rosboard to the selected RouterOS DNS service before
+submitting the image add. Refresh during downloads by DNS TTL; stop on download
+completion/failure. Recover refresh for journaled pending downloads after service
+restart without repeating native writes. Detect explicit registry or effective
+RouterOS registry configuration; skip local archives. Keep routing policy, DNS
+configuration and connectivity validation unchanged. Show preparation in the
+existing progress area. Validate on the disposable test environment before the
+authorized production replacement with NAS backup/manual-acceptance gates.
+
+## Expanded container-only address synchronization — user approved
+
+Improve registry downloads by synchronizing exact repository/authentication/layer
+addresses into the existing applicable policy address-list data during the task.
+No policy settings, DNS configuration, or route/firewall rules may change. The
+implementation must preserve unrelated entries, bound temporary state after
+crash/restart, and pass repeated actual downloads on the independent lab before
+production replacement. Failed proofs do not authorize deployment or acceptance.
+
+## Host-side download decisions — 2026-10-15
+
+- Put `Proxy settings` below Version and updates in Settings -> Maintenance in
+  both UIs; one URL input, small test button inside the right edge, Confirm outside
+  right. Accept HTTP and SOCKS5 (including socks:// alias) and URL credentials.
+- One saved proxy serves rosboard release checks/downloads and container image
+  downloads. It is service configuration, not a browser preference. Empty clears
+  it; candidate testing does not save; secrets must never be returned or logged.
+- Downloaded image staging follows the effective data directory in binary and
+  Docker deployments. No Docker daemon is required for the application downloader.
+- Keep downloaded images while a container has not yet run successfully, including
+  import/start/health failure or waiting for a user configuration correction.
+  First verified successful runtime triggers generated-image cleanup. No timed
+  eviction may remove this container-associated recovery material.
+- Container deletion also deletes its associated generated images; interruptions
+  must leave explicit recoverable cleanup intent rather than false completion.
+  Preserve shared references and application mount/retained-runtime data.
+- Transfer requires a verified per-device SSH account/key and working SFTP file
+  permissions. The lab verified ssh/read/write/ftp with only SSH service enabled;
+  production services/accounts remain unchanged during planning.
+
+## Generated connection-account completeness — user required 2026-10-15
+
+Include onboarding account changes in this same host-import deliverable. New
+rosboard-generated connection accounts must support existing REST functions plus
+SFTP image upload/read-back/cleanup without requiring a second mandatory account.
+Keep explicit optional dedicated transfer credentials, private container-write
+opt-in and verified host keys. Existing generated accounts need a guarded
+administrator-applied permission upgrade that preserves credentials and device
+configuration. Do not silently upgrade manual/shared/foreign groups, open services,
+change firewall rules or give the connection account user-management authority.
+
+## Hard acceptance constraints A/B — 2026-10-15
+
+A. Existing managed groups may transition only from the exact old effective
+policy to exact new; exact new is a write-free no-op. Reject every other policy
+unchanged, including missing/extra/partial rights or invalid/unreadable data.
+Ownership and exclusive-membership checks remain prerequisites; script execution
+must revalidate live policy rather than rely on the state when it was generated.
+
+B. Capability detection, onboarding preview and verification are read-only even
+when using SFTP. No implicit file write is permitted. Any optional write probe
+requires separate explicit write authorization, the private device write opt-in,
+shared write serialization and exclusively recorded temporary rosboard-owned
+paths, with bounded exact cleanup/recovery. Declared permissions/read connectivity
+must not be misrepresented as proven write capability.
+
+## Retire pilot restrictions — user required 2026-10-15
+
+Supersedes all earlier per-device private write opt-in requirements above. The
+user completed functional testing and requests normal container availability for
+new and existing devices. Remove container_writes from config, API admission,
+native/Files services, automatic transfer initialization, startup restoration and
+artifact workers. Legacy YAML true/false is ignored. Retain disabled/archived
+checks, real account/API/storage capabilities, SSH pin-change detection, ownership,
+shared write locks, journal reconciliation and normal deployment acceptance.
+No container operations run automatically as part of enabling the capability.
+Continue the same Draft PR; UI optimization is next, with no merge to main.

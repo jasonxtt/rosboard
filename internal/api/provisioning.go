@@ -156,22 +156,30 @@ func provisioningSessionHash(sessionID string) ([32]byte, error) {
 }
 
 func provisioningScript(username, groupName, password string) string {
-	return fmt.Sprintf(`{
-:local rbGroupId [/user group find where name="%s"]
-:if ([:len $rbGroupId] = 0) do={
-    /user group add name="%s" policy=read,write,test,api,rest-api
-} else={
-    /user group set $rbGroupId policy=read,write,test,api,rest-api
-}
+	// Values come from the closed random alphabet, never from a client name.
+	return "{\n" + routeros.ManagedPolicyScript() + fmt.Sprintf(`:local rbGroupId [/user group find where name="%s"]
 :local rbUserId [/user find where name="%s"]
-:if ([:len $rbUserId] = 0) do={
+:if ([:len $rbGroupId] = 0) do={
+    :if ([:len $rbUserId] != 0) do={ :error "rosboard username collision" }
+    /user group add name="%s" policy=%s
+    :set rbGroupId [/user group find where name="%s"]
+    :if (([:len $rbGroupId] != 1) || ([$rbRole [/user group get $rbGroupId policy]] != "new")) do={ :error "rosboard group read-back failed; inspect manually" }
     /user add name="%s" password="%s" group="%s" comment="Managed by rosboard"
 } else={
-    /user set $rbUserId password="%s" group="%s" disabled=no comment="Managed by rosboard"
+    # No fresh recorded IDs exist in a new-account session: never adopt or upgrade collisions.
+    :if (([:len $rbGroupId] != 1) || ([:len $rbUserId] != 1)) do={ :error "rosboard identity collision" }
+    :local rbMembers [/user find where group="%s"]
+    :if (([:len $rbMembers] != 1) || ([:tostr $rbMembers] != [:tostr $rbUserId]) || ([/user get $rbUserId comment] != "Managed by rosboard") || ([/user get $rbUserId disabled] = true)) do={ :error "rosboard ownership mismatch" }
+    :if ([$rbRole [/user group get $rbGroupId policy]] != "new") do={ :error "rosboard existing group requires a fresh administrator upgrade" }
+    # Exact-new is a write-free no-op, including user and password.
 }
+:set rbUserId [/user find where name="%s"]
+:local rbFinalMembers [/user find where group=[/user group get $rbGroupId name]]
+:if (([:len $rbUserId] != 1) || ([:len $rbFinalMembers] != 1) || ([:tostr $rbFinalMembers] != [:tostr $rbUserId]) || ([/user get $rbUserId comment] != "Managed by rosboard") || ([/user get $rbUserId disabled] = true)) do={ :error "rosboard account read-back failed; stop and inspect manually" }
+:if ([$rbRole [/user group get $rbGroupId policy]] != "new") do={ :error "rosboard role diverged; stop and inspect manually" }
 :put ("rosboard account ready: " . "%s")
 }
-`, groupName, groupName, username, username, password, groupName, password, groupName, username)
+`, groupName, username, groupName, routeros.ManagedPolicyNew, groupName, username, password, groupName, groupName, username, username)
 }
 
 func provisioningCleanupScript(username, groupName string) string {
@@ -423,6 +431,7 @@ func (s *Server) serveProvisioningPreview(writer http.ResponseWriter, request *h
 		}
 		return
 	}
+	result.Warnings = append(result.Warnings, routeros.VerificationWarning{Capability: "image_transfer", Message: "SFTP 镜像传输尚未验证；需单独配置 SSH 服务、端口、来源限制和已核验主机密钥。监控接入不受影响；此检查不执行文件写入。"})
 	_, _, terminalScope, trafficScope, err := verificationScopes(result, payload.TrafficScope, payload.TerminalScope)
 	if err != nil {
 		writeAPIError(writer, http.StatusBadRequest, "invalid_device", err.Error())

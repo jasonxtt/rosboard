@@ -95,12 +95,10 @@ function ruleTargetNodes(rule: RoutingRule, targetByID: Map<string, TargetList>)
   })
 }
 
-/** 出口列主文案：每个启用的协议族一行（IPv4 在前）。
- *  下一跳模式（wanSource=next-hop）没有接口名，显示网关 IP；
- *  接口模式显示「接口·网关」，点对点无 IP 只显示接口名。 */
+/** 出口列主文案：每个启用的协议族一行（IPv4 在前），相同出口描述自动合并去重。 */
 function egressFamilyLines(egress: Egress): string[] {
   const familyOrder = (family: string) => (family === 'ipv4' ? 0 : family === 'ipv6' ? 1 : 2)
-  return [...egress.families]
+  const lines = [...egress.families]
     .filter((family) => family.enabled)
     .sort((left, right) => familyOrder(left.family) - familyOrder(right.family))
     .map((family) => {
@@ -110,6 +108,7 @@ function egressFamilyLines(egress: Egress): string[] {
       return gateway ? `${iface}·${gateway}` : iface
     })
     .filter((line) => line.length > 0)
+  return Array.from(new Set(lines))
 }
 
 export default function PolicyRoutingPage() {
@@ -234,28 +233,32 @@ export default function PolicyRoutingPage() {
 
   if (initialLoading && !context) {
     return (
-      <div className="page pol-page">
-        <header className="page-head">
-          <h1>策略路由</h1>
-          <span className="page-sub">谁 → 访问什么 → 走哪条线路</span>
+      <div className="page pol-page pol-routing-page">
+        <header className="pol-header-bar">
+          <div className="pol-header-main">
+            <div className="pol-title-row">
+              <h1>策略路由</h1>
+            </div>
+            <p className="pol-header-sub">谁 → 访问什么 → 走哪条线路</p>
+          </div>
         </header>
-        <div className="pol-egr-grid">
-          {[0, 1, 2].map((index) => (
-            <Card key={index}>
-              <Skeleton lines={5} height={13} />
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <Skeleton lines={6} height={14} />
+        </Card>
       </div>
     )
   }
 
   if (!context) {
     return (
-      <div className="page pol-page">
-        <header className="page-head">
-          <h1>策略路由</h1>
-          <span className="page-sub">谁 → 访问什么 → 走哪条线路</span>
+      <div className="page pol-page pol-routing-page">
+        <header className="pol-header-bar">
+          <div className="pol-header-main">
+            <div className="pol-title-row">
+              <h1>策略路由</h1>
+            </div>
+            <p className="pol-header-sub">谁 → 访问什么 → 走哪条线路</p>
+          </div>
         </header>
         <Card>
           <Notice tone="err" title="策略路由读取失败">
@@ -270,13 +273,13 @@ export default function PolicyRoutingPage() {
   }
 
   const overviewJobs = meta?.activeJobs ?? []
-
   const sortedRules = [...context.rules].sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'zh-Hans-CN'))
 
   const ruleColumns: Array<TableColumn<RoutingRule>> = [
     {
       key: 'name',
       title: '名称',
+      width: '120px',
       render: (rule) => (
         <div className="pol-cell-stack">
           <span className="pol-rule-name">{rule.name}</span>
@@ -290,11 +293,12 @@ export default function PolicyRoutingPage() {
       numeric: true,
       width: '72px',
       className: 'col-hide-sm',
-      render: (rule) => rule.priority,
+      render: (rule) => <span className="pol-priority-num">{rule.priority}</span>,
     },
     {
       key: 'source',
       title: '来源',
+      width: '180px',
       className: 'col-hide-sm',
       render: (rule) => <FlowPills nodes={ruleSourceNodes(rule, terminalByID)} />,
     },
@@ -306,6 +310,7 @@ export default function PolicyRoutingPage() {
     {
       key: 'egress',
       title: '出口',
+      width: '160px',
       className: 'col-hide-sm',
       render: (rule) => {
         const egress = egressByID.get(rule.egressId)
@@ -327,6 +332,7 @@ export default function PolicyRoutingPage() {
     {
       key: 'status',
       title: '状态',
+      width: '96px',
       render: (rule) => {
         const status = routingRuleStatus(rule, egressByID.get(rule.egressId), desiredMismatch)
         const pending = status.label === '待应用'
@@ -345,7 +351,7 @@ export default function PolicyRoutingPage() {
     {
       key: 'enabled',
       title: '启用',
-      width: '64px',
+      width: '68px',
       className: 'col-hide-sm',
       render: (rule) => (
         <Toggle checked={rule.enabled} disabled={busyId === rule.id} onChange={() => void toggleRule(rule)} label={rule.enabled ? '停用规则' : '启用规则'} />
@@ -385,10 +391,22 @@ export default function PolicyRoutingPage() {
   }
 
   return (
-    <div className="page pol-page">
-      <header className="page-head">
-        <h1>策略路由</h1>
-        <span className="page-sub">谁 → 访问什么 → 走哪条线路</span>
+    <div className="page pol-page pol-routing-page">
+      <header className="pol-header-bar">
+        <div className="pol-header-main">
+          <div className="pol-title-row">
+            <h1>策略路由</h1>
+            <span className="pol-rule-count-pill">
+              {context.rules.length ? `${context.rules.length} 条规则 · 按优先级排列` : '未配置分流规则'}
+            </span>
+          </div>
+          <p className="pol-header-sub">谁 → 访问什么 → 走哪条线路</p>
+        </div>
+        <div className="pol-header-actions">
+          <Button variant="primary" disabled={writeBlocked} onClick={() => setWizard(null)}>
+            ＋ 新建规则
+          </Button>
+        </div>
       </header>
 
       {meta?.setupState === 'write_access_required' ? (
@@ -461,13 +479,6 @@ export default function PolicyRoutingPage() {
         </Notice>
       ) : null}
 
-      <div className="section-head">
-        <h2>分流规则</h2>
-        <span className="section-sub">{context.rules.length ? `${context.rules.length} 条规则 · 按优先级排列` : '流量从「谁」经过「什么目标」流向「哪条线路」'}</span>
-        <button type="button" className="section-link" disabled={writeBlocked} onClick={() => setWizard(null)}>
-          ＋ 新建规则
-        </button>
-      </div>
       {context.rules.length ? (
         <Card className="pol-rule-table">
           <DataTable
