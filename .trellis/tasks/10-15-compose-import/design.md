@@ -31,3 +31,15 @@ scoped responsive styling with opaque theme surfaces.
 Branch codex/compose-import starts at accepted container baseline 92c35f7, whose
 Draft PR #30 remains unmerged. New Draft PR targets main and documents that base
 dependency; no prior PR merge is implied by this feature request.
+
+## UI presentation alignment
+
+Keep feature logic shared and introduce a small presentation context for buttons,
+surfaces, status badges and the table class. Aurora supplies existing Card,
+Button and Badge components; Compact supplies its panel and control classes.
+Shell components must stay outside the shared feature dependency graph. Native
+dialogs retain the top layer, theme scope and focus restoration, with shared
+heading/close controls. More actions expand inside the table so scrolling never
+clips a floating menu; Escape, outside pointer and action selection dismiss it.
+Keep separate CSS files/graphs, aliasing each shell's colour, radius, typography,
+padding and elevation tokens. The development preview uses the same adapters.

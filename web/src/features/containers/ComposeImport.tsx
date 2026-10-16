@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { ContainerButton, ContainerDialog } from './ContainerUI'
+import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../../lib/api'
 import { parseCompose } from './api'
 import type { ComposeNotice, ComposeResult, ComposeService } from './compose'
@@ -39,17 +40,12 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
   const [selected, setSelected] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const dialog = useRef<HTMLDialogElement>(null)
   const lifetime = useRef({ sequence: 0, pending: null as AbortController | null })
-  const headingId = useId()
   useEffect(() => {
-    const element = dialog.current
     const state = lifetime.current
-    element?.showModal()
     return () => {
       state.sequence++
       state.pending?.abort()
-      element?.close()
     }
   }, [deviceId])
   const service = result?.services.find((s) => s.name === selected)
@@ -74,9 +70,7 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
       if (current === state.sequence) setBusy(false)
     }
   }
-  return <dialog ref={dialog} className="ct-dialog ct-compose-dialog" aria-labelledby={headingId}
-    onCancel={(e) => { e.preventDefault(); onClose() }}>
-    <h3 id={headingId}>从 Compose 导入</h3>
+  return <ContainerDialog title="从 Compose 导入" className="ct-compose-dialog" onClose={onClose}>
     <p>粘贴整份 Compose，选择一个服务填入面板。解析不会创建容器。</p>
     <label className="ct-field">
       <span>Compose 内容</span>
@@ -92,7 +86,7 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
           setError('')
         }} />
     </label>
-    {error && <p className="ct-error" role="alert">{error}</p>}
+    {error && <p className="ct-alert" role="alert">{error}</p>}
     {result && <>
       <label className="ct-field">
         <span>选择服务</span>
@@ -105,12 +99,12 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
       {service && <ComposeReport service={service} skipped={result.skipped} />}
     </>}
     <div className="ct-compose-actions">
-      <button type="button" onClick={onClose}>取消</button>
-      <button type="button" disabled={busy || !source.trim()} onClick={() => void parse()}>
+      <ContainerButton type="button" onClick={onClose}>取消</ContainerButton>
+      <ContainerButton type="button" disabled={busy || !source.trim()} onClick={() => void parse()}>
         {busy ? '解析中…' : '解析'}
-      </button>
-      <button type="button" className="primary" disabled={!service || busy}
-        onClick={() => { if (service && result) onApply(service, result.skipped) }}>填入面板</button>
+      </ContainerButton>
+      <ContainerButton type="button" className="ct-primary" disabled={!service || busy}
+        onClick={() => { if (service && result) onApply(service, result.skipped) }}>填入面板</ContainerButton>
     </div>
-  </dialog>
+  </ContainerDialog>
 }

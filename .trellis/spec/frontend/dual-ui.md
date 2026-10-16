@@ -110,3 +110,20 @@ Container resource memory inputs are labeled high(MB)/max(MB) and accept numeric
 MB values (RouterOS M, 1024² bytes). Convert existing byte/unit quantities for
 display and send explicit M suffixes on edits. Blank still inherits defaults;
 never reinterpret bare API quantities as MB or change untouched saved limits.
+
+## Container presentation adapters
+
+Container behaviour stays shared through a presentation context. The Aurora entry
+provides public Card/Button/Badge components and the table class; Compact provides
+its native panel/control classes. Preserve native section/footer semantics and
+forward button accessibility, keyboard, blur and form attributes. Keep shell
+imports in the entry adapters, never in the shared container feature. Separate
+container CSS graphs alias shell typography, spacing, radii and elevation as well
+as colour. The development preview must mount the selected adapter and load that
+shell's base styles. Compact already provides the page title in its topbar.
+
+Secondary row actions expand inline within the scrolling table; do not position a
+menu where its overflow would be clipped. Escape, outside pointer and selecting
+an enabled action dismiss it; keyboard dismissal and dialog close restore focus.
+Shared native dialogs retain accessible headings, close controls and existing
+cancel/busy safeguards. Regression tests must exercise both real adapters.

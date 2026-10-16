@@ -13,3 +13,15 @@
    preserve consistent binary/config/SQLite/unit, deploy production and verify.
 8. Hand off exact UI URLs and desktop/mobile manual steps. Do not merge/release/
    archive before explicit acceptance and root APPROVED.
+
+## UI alignment follow-up — user approved 2026-10-16
+
+1. Update shared list/editor/dialog markup and add shell presentation adapters.
+2. Align both isolated stylesheets to shell geometry and palette; update preview.
+3. Test native adapters, action confirmations/dismissal/focus and existing flows.
+4. Run frontend test/lint/type/build and dual-UI checks; build/test/vet Go with
+   the embedded candidate. Inspect complete diff, commit and push this branch.
+5. Replace only the isolated rosboard-container-test binary on 10.0.0.60 after
+   automated checks; verify service, health, authenticated reads and all assets.
+6. Hand off exact URLs and theme/viewport steps; retain Draft/in_progress until
+   manual acceptance and root APPROVED. No production deployment in this step.

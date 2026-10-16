@@ -25,6 +25,6 @@
     "internal/api/containers.go",
     "web/src/features/containers"
   ],
-  "notes": "Implementation and automated checks passed; isolated real MSM Compose import/create/start/archive cleanup/delete passed. Test and production run dev-compose-1015 after fully verified timestamped NAS backup. Production health, all 78 embedded assets, config/unit/supervisor preservation and authenticated parse/read-back passed. Manual visual acceptance and root APPROVED remain pending; keep Draft and in_progress, no main merge/release/archive. Baseline depends on still-open PR #30. See validation.md.",
+  "notes": "Implementation and automated checks passed; isolated real MSM Compose import/create/start/archive cleanup/delete passed. Test and production run dev-compose-1015 after fully verified timestamped NAS backup. Production health, all 78 embedded assets, config/unit/supervisor preservation and authenticated parse/read-back passed. Manual visual acceptance and root APPROVED remain pending; keep Draft and in_progress, no main merge/release/archive. Baseline depends on still-open PR #30. See validation.md. UI follow-up on 2026-10-16: both native presentations aligned; 107 frontend tests, lint/type/build/CSS isolation and Go tests/vet/build pass. Isolated test service runs dev-container-ui-1016 with all 78 assets verified and authenticated read-back. See ui-validation-2026-10-16.md. No new production deployment; manual visual acceptance and root APPROVED remain pending.",
   "meta": {}
 }
