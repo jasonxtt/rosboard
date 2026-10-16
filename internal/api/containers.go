@@ -37,7 +37,7 @@ func (s *Server) serveContainers(writer http.ResponseWriter, request *http.Reque
 		if decodeJSONBody(writer, request, &input) != nil {
 			return
 		}
-		result, err := containers.ParseCompose(input.Source)
+		result, err := containers.ParseContainerImport(input.Source)
 		if err != nil {
 			writeAPIError(writer, http.StatusBadRequest, "invalid_compose", err.Error())
 			return

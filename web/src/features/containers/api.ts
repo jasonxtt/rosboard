@@ -215,6 +215,7 @@ export function parseComposeResult(value: unknown): ComposeResult {
     return { field: safeString(n.field), message: safeString(n.message) }
   })
   return {
+    format: o.format === 'docker-run' ? 'docker-run' : 'compose',
     services: o.services.map((value: unknown) => {
       const s = safeObject(value)
       if (!safeString(s.name) || !s.fields || typeof s.fields !== 'object' || Array.isArray(s.fields))

@@ -94,6 +94,31 @@ test('Compose dialog selects only one service and never creates a container', as
   } finally { await env.close() }
 })
 
+test('Docker run uses the same import dialog, auto-selects its container and preserves pasted source', async () => {
+  const env = installDOM()
+  const source = 'docker run -d --name ddns-go --restart=always --net=host -v /opt/ddns-go:/root jeessy/ddns-go'
+  let applied = ''
+  const calls: string[] = []
+  globalThis.fetch = async (input, init) => {
+    calls.push(String(input))
+    assert.equal(JSON.parse(String(init?.body)).source, source)
+    return response({ ...result('ddns-go'), format: 'docker-run' })
+  }
+  try {
+    await act(async () => env.root.render(<ComposeImport deviceId="lab" onApply={(s) => { applied = s.name }} onClose={() => {}} />))
+    assert.match(document.body.textContent || '', /Compose \/ Docker run/)
+    await typeSource(env.dom, source)
+    await act(async () => button('解析').click())
+    await tick()
+    assert.match(document.body.textContent || '', /已识别为 Docker run 命令/)
+    assert.equal(document.querySelector('select')?.value, 'ddns-go')
+    assert.equal(button('填入面板').disabled, false)
+    await act(async () => button('填入面板').click())
+    assert.equal(applied, 'ddns-go')
+    assert.deepEqual(calls, ['/api/containers/compose/parse?device=lab'])
+  } finally { await env.close() }
+})
+
 test('Compose source edits, cancellation and device changes discard stale responses', async () => {
   const env = installDOM()
   let finish: ((r: Response) => void) | undefined
@@ -137,7 +162,7 @@ test('Create editor applies a single service, keeps network/root and exposes res
   }
   try {
     await act(async () => env.root.render(<ContainerEditor deviceId="lab" snapshot={parseSnapshot({})} initial={initial} item={null} busy={false} onClose={() => {}} onSubmit={async () => { mutations++ }} />))
-    await act(async () => button('从 Compose 导入').click())
+    await act(async () => button('导入配置').click())
     await typeSource(env.dom, 'services: example')
     await act(async () => button('解析').click())
     await tick()

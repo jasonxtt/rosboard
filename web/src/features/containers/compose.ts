@@ -13,7 +13,7 @@ export type ComposeService = {
   needsInput: ComposeNotice[]
   mountHints: string[]
 }
-export type ComposeResult = { services: ComposeService[]; skipped: ComposeNotice[] }
+export type ComposeResult = { format?: 'compose' | 'docker-run'; services: ComposeService[]; skipped: ComposeNotice[] }
 
 export function composeFields(d: Draft): ComposeFields {
   return {

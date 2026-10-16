@@ -70,12 +70,12 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
       if (current === state.sequence) setBusy(false)
     }
   }
-  return <ContainerDialog title="从 Compose 导入" className="ct-compose-dialog" onClose={onClose}>
-    <p>粘贴整份 Compose，选择一个服务填入面板。解析不会创建容器。</p>
+  return <ContainerDialog title="导入 Compose / Docker run" className="ct-compose-dialog" onClose={onClose}>
+    <p>粘贴整份 Compose 或一条 docker run 命令，自动识别并填入面板。解析不会创建容器。</p>
     <label className="ct-field">
-      <span>Compose 内容</span>
+      <span>Compose 或 Docker run</span>
       <textarea autoFocus rows={10} value={source} spellCheck={false}
-        placeholder={'services:\n  msm:\n    image: msmbox/msm:1.3.0'}
+        placeholder={'docker run -d --name ddns-go --restart=always --net=host -v /opt/ddns-go:/root jeessy/ddns-go'}
         onChange={(e) => {
           lifetime.current.sequence++
           lifetime.current.pending?.abort()
@@ -88,8 +88,9 @@ export function ComposeImport({ deviceId, onApply, onClose }: {
     </label>
     {error && <p className="ct-alert" role="alert">{error}</p>}
     {result && <>
+      <p>已识别为 {result.format === 'docker-run' ? 'Docker run 命令' : 'Compose'}</p>
       <label className="ct-field">
-        <span>选择服务</span>
+        <span>{result.format === 'docker-run' ? '导入容器' : '选择服务'}</span>
         <select value={selected} onChange={(e) => setSelected(e.target.value)}>
           <option value="">请选择一个服务</option>
           {result.services.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
