@@ -39,6 +39,9 @@ type nativeStep struct {
 	Fields  map[string]string
 	Done    bool
 	Guard   map[string]string
+	// Files IDs may change on rename. Bind the confirmed retained directory,
+	// rather than claiming any later object at the same path during deletion.
+	ResultID string `json:",omitempty"`
 }
 type nativeRecord struct {
 	CancelRequested bool
@@ -477,7 +480,10 @@ func desired(step nativeStep, rows []routeros.RouterOSObject) (bool, string) {
 	}
 	if step.Command == "retain-root" {
 		target := findRows(rows, map[string]string{"name": step.Fields["name"]})
-		return len(target) == 1 && (target[0]["type"] == "container store" || target[0]["type"] == "directory") && len(findRows(rows, map[string]string{"name": step.Match["name"]})) == 0, ""
+		if len(target) == 1 && target[0][".id"] != "" && (target[0]["type"] == "container store" || target[0]["type"] == "directory") && len(findRows(rows, map[string]string{"name": step.Match["name"]})) == 0 {
+			return true, target[0][".id"]
+		}
+		return false, ""
 	}
 	selector := step.Match
 	if step.Command == "set" {
@@ -661,6 +667,15 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 			}
 		}
 		confirmed, target := desired(step, rows)
+		if confirmed && !pending && step.Command == "retain-root" && (step.ResultID == "" || step.ResultID != target) {
+			// An unattempted rename cannot claim a directory created independently
+			// at the desired path, even when the original path has disappeared.
+			n.mu.Lock()
+			r.Job.Error = "历史运行目录出现非预期变化，操作已阻止"
+			n.mu.Unlock()
+			failure = true
+			return
+		}
 		if pending {
 			if !confirmed {
 				failure = true
@@ -870,6 +885,9 @@ func (s *Service) executeNative(d config.DeviceConfig, n *nativeDevice, r *nativ
 			}
 		}
 		n.mu.Lock()
+		if step.Command == "retain-root" {
+			r.Steps[i].ResultID = target
+		}
 		r.Steps[i].Done = true
 		r.Pending = false
 		if step.Menu == routeros.ContainerList && step.Command == "add" {
@@ -959,6 +977,12 @@ func (s *Service) plan(ctx context.Context, d config.DeviceConfig, req ActionReq
 	case "restart":
 		steps = append(steps, actionStep("stop", match), actionStep("start", match))
 	case "delete":
+		// Discover and validate the exact historical chain before admitting any
+		// deletion. A suffix or a recycled container ID alone proves no ownership.
+		historical, err := s.planRetainedRootRemoval(ctx, d, match)
+		if err != nil {
+			return nil, nil, err
+		}
 		if selected.Config.ArchiveFile != "" {
 			retained = append(retained, selected.Config.ArchiveFile)
 		}
@@ -980,6 +1004,7 @@ func (s *Service) plan(ctx context.Context, d config.DeviceConfig, req ActionReq
 		if cleanup != nil {
 			steps = append(steps, *cleanup)
 		}
+		steps = append(steps, historical...)
 		// Only dedicated objects bearing this container's exact creation marker may
 		// be removed. Adoption never marks its network, env or mounts as owned.
 		owner := strings.Fields(original["comment"])[0]

@@ -259,8 +259,8 @@ func TestNativeRootRemovedOnDeleteAndRetainedOnUpdate(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 || len(deleted.Retained) != 0 {
-		t.Fatalf("delete must remove only the current root: %+v %+v", files, deleted)
+	if count != 0 || len(deleted.Retained) != 0 {
+		t.Fatalf("delete must remove current and journal-linked historical roots: %+v %+v", files, deleted)
 	}
 }
 
