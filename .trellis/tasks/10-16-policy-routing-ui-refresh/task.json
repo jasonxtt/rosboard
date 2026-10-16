@@ -24,6 +24,14 @@
     "web/src/pages/PolicyRoutingPage.tsx",
     "web/src/pages/PolicyRoutingPage.css"
   ],
-  "notes": "Supplied Aurora policy routing layout reviewed and integrated in 144d2e2. Corrected undefined theme tokens/light-only fallbacks and cross-page CSS leakage; retained API/mutation/permission/recovery behavior. All 108 frontend tests, lint/type/build/UI isolation pass. Static binary dev-policy-ui-1016 verified on isolated test then production after a fully read/SHA256-verified consistent NAS backup (20261016T080550Z-policy-routing-ui, retention 10). Both enabled device policy context/container/import reads and all 78 assets pass; config/supervisor/unit unchanged. Fresh user visual acceptance and root APPROVED pending. Keep in_progress/Draft; no merge/release/archive. See validation.md.",
-  "meta": {}
+  "notes": "2026-10-16 user explicitly accepted the recent container-management and simple UI work and requested a GitHub preservation/version audit. Acceptance recorded for Aurora policy-routing UI refresh. No main merge/release/deployment was requested in this turn; remain in_progress until the separate integration/merge gates. Supplied Aurora policy routing layout reviewed and integrated in 144d2e2. Corrected undefined theme tokens/light-only fallbacks and cross-page CSS leakage; retained API/mutation/permission/recovery behavior. All 108 frontend tests, lint/type/build/UI isolation pass. Static binary dev-policy-ui-1016 verified on isolated test then production after a fully read/SHA256-verified consistent NAS backup (20261016T080550Z-policy-routing-ui, retention 10). Both enabled device policy context/container/import reads and all 78 assets pass; config/supervisor/unit unchanged. Fresh user visual acceptance and root APPROVED pending. Keep in_progress/Draft; no merge/release/archive. See validation.md.",
+  "meta": {
+    "user_acceptance": {
+      "date": "2026-10-16",
+      "status": "approved",
+      "scope": "Aurora policy-routing UI refresh",
+      "production_delivery_of_5a887a4": false,
+      "audit": "PR #30 task research/user-acceptance-and-version-audit-2026-10-16.md"
+    }
+  }
 }
