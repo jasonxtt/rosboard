@@ -1,0 +1,29 @@
+{
+  "id": "policy-routing-ui-refresh",
+  "name": "policy-routing-ui-refresh",
+  "title": "Review and integrate supplied Aurora policy routing UI",
+  "description": "Review the user's supplied policy routing page and styles, preserve routing behavior, fix theme and page isolation issues, build and deliver for manual inspection.",
+  "status": "in_progress",
+  "dev_type": "frontend",
+  "scope": "policy-routing",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "codex/policy-routing-ui-refresh",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "web/src/pages/PolicyRoutingPage.tsx",
+    "web/src/pages/PolicyRoutingPage.css"
+  ],
+  "notes": "Reviewed supplied Aurora files and integrated header/count/action/table/egress display changes. Fixed undefined light-only colour fallbacks, scoped every override under pol-routing-page, retained mutation and recovery logic. All 108 frontend tests, TypeScript/Vite build and emitted dual-UI/CSS isolation pass; lint only four pre-existing FastTrack JSX-key warnings. Runtime delivery and manual acceptance pending.",
+  "meta": {}
+}
