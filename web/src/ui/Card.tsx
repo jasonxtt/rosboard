@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 
-type CardProps = {
+type CardProps = Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'onClick'> & {
+  as?: 'div' | 'section' | 'footer'
   title?: ReactNode
   sub?: ReactNode
   actions?: ReactNode
@@ -12,7 +13,7 @@ type CardProps = {
 }
 
 /** Signature glass card with an optional header row (title + actions). */
-export function Card({ title, sub, actions, children, className = '', interactive = false, onClick }: CardProps) {
+export function Card({ as: Element = 'div', title, sub, actions, children, className = '', interactive = false, onClick, ...props }: CardProps) {
   const classes = [
     'glass',
     'card',
@@ -35,15 +36,15 @@ export function Card({ title, sub, actions, children, className = '', interactiv
   )
   if (onClick) {
     return (
-      <div className={classes} role="button" tabIndex={0} onClick={onClick} onKeyDown={(event) => {
+      <Element {...props} className={classes} role="button" tabIndex={0} onClick={onClick} onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onClick()
         }
       }}>
         {body}
-      </div>
+      </Element>
     )
   }
-  return <div className={classes}>{body}</div>
+  return <Element {...props} className={classes}>{body}</Element>
 }

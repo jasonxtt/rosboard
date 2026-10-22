@@ -1,3 +1,4 @@
+import { ContainerButton } from './ContainerUI'
 import { useId } from 'react'
 
 export function RootDirectoryField({
@@ -43,7 +44,7 @@ export function RootDirectoryField({
             }
           }}
         />
-        <button
+        <ContainerButton
           type="button"
           aria-label="浏览容器运行目录"
           aria-expanded={open}
@@ -51,7 +52,7 @@ export function RootDirectoryField({
           onClick={open ? onClose : onOpen}
         >
           ▾
-        </button>
+        </ContainerButton>
       </div>
       <small>{hint}。点击输入框或右侧箭头选择，也可直接输入。</small>
       {error && <strong role="alert">{error}</strong>}

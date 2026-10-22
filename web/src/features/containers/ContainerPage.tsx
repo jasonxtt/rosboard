@@ -1,3 +1,4 @@
+import { ContainerButton, ContainerSurface, ContainerStatus, ContainerDialog, ContainerMoreActions, ContainerTable } from './ContainerUI'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorMessage } from '../../lib/api'
 import { formatBytes } from '../../lib/format'
@@ -70,8 +71,7 @@ export function ContainerPage({
     [logs, setLogs] = useState<ContainerLog[] | null>(null),
     [logError, setLogError] = useState('')
   const [scenario, setScenario] = useState('success')
-  const active = useRef(true),
-    dialog = useRef<HTMLDialogElement>(null)
+  const active = useRef(true)
   useEffect(() => {
     active.current = true
     return () => {
@@ -173,11 +173,6 @@ export function ContainerPage({
       c.abort()
     }
   }, [deviceId, logItem])
-  useEffect(() => {
-    const element = dialog.current
-    if (confirm) element?.showModal()
-    return () => element?.close()
-  }, [confirm])
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = (snapshot?.items || []).filter(
@@ -277,7 +272,7 @@ export function ContainerPage({
     else void run(action, item.id)
   }
   const heading = (key: string, label: string) => (
-    <button
+    <ContainerButton
       className="ct-sort"
       type="button"
       onClick={() => {
@@ -289,72 +284,56 @@ export function ContainerPage({
       }}
     >
       {label} {sort === key ? (descending ? '↓' : '↑') : ''}
-    </button>
+    </ContainerButton>
   )
   if (!deviceId)
     return (
       <section className="ct">
-        <div className="ct-card">请先选择 RouterOS 设备。</div>
+        <ContainerSurface>请先选择 RouterOS 设备。</ContainerSurface>
       </section>
     )
   if (!snapshot)
     return (
       <section className="ct">
-        <div className="ct-card" role={error || loadError ? 'alert' : 'status'}>
+        <ContainerSurface role={error || loadError ? 'alert' : 'status'}>
           {loading ? '正在读取容器、网络和存储…' : error || loadError || '没有容器数据'}
           {(error || loadError) && (
-            <button onClick={() => setNonce((n) => n + 1)}>重新读取</button>
+            <ContainerButton onClick={() => setNonce((n) => n + 1)}>重新读取</ContainerButton>
           )}
-        </div>
+        </ContainerSurface>
       </section>
     )
   const c = snapshot.capabilities
   return (
     <section className="ct" aria-label="容器管理">
-      <header className="ct-heading">
-        <div className="ct-brand">▣</div>
-        <div>
-          <span className="ct-eyebrow">NATIVE CONTAINERS</span>
-          <h1>容器管理</h1>
-          <p>镜像、网络与运行状态，集中管理。</p>
-        </div>
+      <div className="ct-page-heading">
+        <h1>容器管理</h1>
         <span className="ct-mode">
-          {c.mode === 'simulation' ? '模拟预览' : c.writes ? '容器管理' : '容器只读'}
+          {c.mode === 'simulation' ? '模拟预览' : c.writes ? '可管理' : '只读'}
           {c.version && ` · ROS ${c.version}`}
         </span>
-        <button onClick={() => setNonce((n) => n + 1)} disabled={loading}>
-          刷新
-        </button>
-        <button
-          className="ct-primary"
-          disabled={!c.supported || busy}
-          onClick={() => {
-            setEditor({ draft: newDraft(), item: null })
-            setMessage('')
-          }}
-        >
-          {c.writes ? '＋ 创建容器' : '＋ 配置预览'}
-        </button>
-      </header>
-      <div className="ct-notice">
-        {c.mode === 'simulation'
-          ? '这里的数据与所有操作均为模拟，可测试创建、失败和恢复。'
-          : c.writes
-            ? '操作将直接写入所选 RouterOS。服务通过容器 IP 访问；删除容器时同时删除其独占运行目录，挂载数据保留。'
-            : c.directoryWrites
-            ? '容器读取与配置校验已接入。目录新建、重命名和删除直接写入所选 RouterOS；容器启停等写入尚未启用。'
-            : '当前提供真实只读数据及配置校验，容器写入尚未启用。'}
       </div>
+      {c.mode === 'native' && c.writes ? (
+        <details className="ct-help">
+          <summary>容器管理说明</summary>
+          <p>操作将直接写入所选 RouterOS。服务通过容器 IP 访问；删除容器时同时删除其独占运行目录，挂载数据保留。</p>
+        </details>
+      ) : (
+        <div className="ct-notice">
+          {c.mode === 'simulation'
+            ? '这里的数据与所有操作均为模拟，可测试创建、失败和恢复。'
+            : c.directoryWrites
+              ? '容器读取与配置校验已接入。目录新建、重命名和删除直接写入所选 RouterOS；容器启停等写入尚未启用。'
+              : '当前提供真实只读数据及配置校验，容器写入尚未启用。'}
+        </div>
+      )}
       {c.warnings.map((w) => (
         <p className="ct-notice" key={w}>
           {w}
         </p>
       ))}
-      {(loadError || (error && !editor)) && (
-        <p className="ct-alert" role="alert">
-          {loadError || error}
-        </p>
-      )}
+      {loadError && <p className="ct-alert" role="alert">读取失败：{loadError}</p>}
+      {error && !editor && <p className="ct-alert" role="alert">{error}</p>}
       {message && (
         <p className="ct-notice" role="status">
           {message}
@@ -398,31 +377,16 @@ export function ContainerPage({
         />
       ) : (
         <>
-          <div className="ct-stats">
-            <div className="ct-card">
-              <span>全部容器</span>
-              <strong>{snapshot.items.length}</strong>
-            </div>
-            <div className="ct-card">
-              <span>运行中</span>
-              <strong className="ct-green">
-                {snapshot.items.filter((i) => i.status === 'running').length}
-              </strong>
-            </div>
-            <div className="ct-card">
-              <span>已停止</span>
-              <strong>
-                {snapshot.items.filter((i) => i.status === 'stopped').length}
-              </strong>
-            </div>
-            <div className="ct-card">
-              <span>rosboard 管理</span>
-              <strong>
-                {snapshot.items.filter((i) => i.ownership === 'managed').length}
-              </strong>
-            </div>
-          </div>
-          <div className="ct-card ct-list">
+          <ContainerSurface className="ct-list">
+            <header className="ct-list-heading">
+              <h3>容器列表</h3>
+              <div className="ct-stats" aria-label="容器统计">
+                <span>全部 <strong>{snapshot.items.length}</strong></span>
+                <span>运行中 <strong className="ct-green">{snapshot.items.filter((i) => i.status === 'running').length}</strong></span>
+                <span>已停止 <strong>{snapshot.items.filter((i) => i.status === 'stopped').length}</strong></span>
+                <span>已接管 <strong>{snapshot.items.filter((i) => i.ownership === 'managed').length}</strong></span>
+              </div>
+            </header>
             <div className="ct-toolbar">
               <label className="ct-search">
                 <span>搜索容器</span>
@@ -446,10 +410,16 @@ export function ContainerPage({
                   ))}
                 </select>
               </label>
-              <span>{rows.length} 个结果</span>
+              <div className="ct-toolbar-actions">
+                <ContainerButton onClick={() => setNonce((n) => n + 1)} disabled={loading}>刷新</ContainerButton>
+                <ContainerButton className="ct-primary" disabled={!c.supported || busy}
+                  onClick={() => { setEditor({ draft: newDraft(), item: null }); setMessage('') }}>
+                  {c.writes ? '＋ 创建容器' : '＋ 配置预览'}
+                </ContainerButton>
+              </div>
             </div>
             <div className="ct-table-scroll">
-              <table>
+              <ContainerTable>
                 <thead>
                   <tr>
                     <th>{heading('name', '名称')}</th>
@@ -468,22 +438,23 @@ export function ContainerPage({
                   {rows.slice(page * 25, (page + 1) * 25).map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <button
+                        <ContainerButton
                           className="ct-name"
+                          title={item.name || item.id}
                           onClick={() =>
                             setEditor({ draft: editDraft(item), item })
                           }
                         >
                           {item.name || item.id}
-                        </button>
+                        </ContainerButton>
                       </td>
                       <td>
-                        <span className={`ct-state ct-state-${item.status}`}>
+                        <ContainerStatus status={item.status}>
                           {statusLabels[item.status] || item.status}
-                        </span>
+                        </ContainerStatus>
                       </td>
                       <td className="ct-image" title={item.image}>
-                        {item.image || '本地导入镜像'}{item.imageDigest ? <small title={item.imageDigest}>{item.imagePlatform} · {item.imageDigest.slice(0, 19)}…</small> : null}
+                        <span className="ct-image-name">{item.image || '本地导入镜像'}</span>{item.imageDigest ? <small title={item.imageDigest}>{item.imagePlatform} · {item.imageDigest.slice(0, 19)}…</small> : null}
                       </td>
                       <td>
                         <span>{item.network.address || '—'}</span>
@@ -506,7 +477,7 @@ export function ContainerPage({
                       </td>
                       <td>
                         <div className="ct-row-actions">
-                          <button
+                          <ContainerButton
                             title={item.status === 'running' ? '停止' : '启动'}
                             aria-label={`${item.status === 'running' ? '停止' : '启动'} ${item.name}`}
                             disabled={
@@ -521,27 +492,17 @@ export function ContainerPage({
                               )
                             }
                           >
-                            {item.status === 'running' ? '■' : '▶'}
-                          </button>
-                          <button
-                            title="重启"
-                            aria-label={`重启 ${item.name}`}
-                            disabled={
-                              !c.writes || busy || item.status !== 'running'
-                            }
-                            onClick={() => requestAction('restart', item)}
-                          >
-                            ↻
-                          </button>
-                          <button
+                            {item.status === 'running' ? '停止' : '启动'}
+                          </ContainerButton>
+                          <ContainerButton
                             title="日志"
                             aria-label={`日志 ${item.name}`}
                             disabled={!c.logs}
                             onClick={() => setLogItem(item)}
                           >
-                            ≡
-                          </button>
-                          <button
+                            日志
+                          </ContainerButton>
+                          <ContainerButton
                             title="编辑配置"
                             aria-label={`编辑 ${item.name}`}
                             disabled={busy}
@@ -549,43 +510,56 @@ export function ContainerPage({
                               setEditor({ draft: editDraft(item), item })
                             }
                           >
-                            ✎
-                          </button>
+                            编辑
+                          </ContainerButton>
+                          <ContainerMoreActions name={item.name || item.id}>
+                          <ContainerButton
+                            title="重启"
+                            aria-label={`重启 ${item.name}`}
+                            disabled={
+                              !c.writes || busy || item.status !== 'running'
+                            }
+                            onClick={() => requestAction('restart', item)}
+                          >
+                            重启
+                          </ContainerButton>
                           {item.ownership === 'managed' ? (
                             <>
-                              <button
+                              <ContainerButton
                                 title="手动更新镜像"
                                 aria-label={`更新 ${item.name}`}
                                 disabled={!c.writes || busy}
                                 onClick={() => requestAction('update', item)}
                               >
-                                ↑
-                              </button>
-                              <button
+                                更新镜像
+                              </ContainerButton>
+                              <ContainerButton
+                                className="ct-danger"
                                 title="删除"
                                 aria-label={`删除 ${item.name}`}
                                 disabled={!c.writes || busy}
                                 onClick={() => requestAction('delete', item)}
                               >
-                                ×
-                              </button>
+                                删除
+                              </ContainerButton>
                             </>
                           ) : (
-                            <button
+                            <ContainerButton
                               title="接管已有容器"
                               aria-label={`接管 ${item.name}`}
                               disabled={!c.writes || busy}
                               onClick={() => requestAction('adopt', item)}
                             >
                               接管
-                            </button>
+                            </ContainerButton>
                           )}
+                          </ContainerMoreActions>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ContainerTable>
             </div>
             {rows.length === 0 && (
               <div className="ct-empty">
@@ -594,28 +568,28 @@ export function ContainerPage({
             )}
             <footer className="ct-pagination">
               <span>
-                每页 25 个 ·{' '}
+                {rows.length} 个结果 · 每页 25 个 ·{' '}
                 {Math.min(page + 1, Math.max(1, Math.ceil(rows.length / 25)))} /{' '}
                 {Math.max(1, Math.ceil(rows.length / 25))}
               </span>
-              <button
+              <ContainerButton
                 disabled={page === 0}
                 onClick={() => setPage((p) => p - 1)}
               >
                 上一页
-              </button>
-              <button
+              </ContainerButton>
+              <ContainerButton
                 disabled={(page + 1) * 25 >= rows.length}
                 onClick={() => setPage((p) => p + 1)}
               >
                 下一页
-              </button>
+              </ContainerButton>
             </footer>
-          </div>
+          </ContainerSurface>
         </>
       )}
       {job && (
-        <section className="ct-card ct-job" role="status">
+        <ContainerSurface as="section" className="ct-job" role="status">
           <div>
             <h3>操作进度 · {actionLabels[job.action as Action] || '容器操作'}</h3>
             <span>
@@ -625,26 +599,26 @@ export function ContainerPage({
           <progress value={job.progress} max="100" />
           {job.error && <p>{job.error}</p>}
           {job.warnings?.map((warning) => <p key={warning}>{warning}</p>)}
-          {job.canCancel ? <button type="button" className="ct-button" disabled={sending} onClick={() => void cancelPreparation()}>取消镜像准备</button> : null}
+          {job.canCancel ? <ContainerButton type="button" className="ct-button" disabled={sending} onClick={() => void cancelPreparation()}>取消镜像准备</ContainerButton> : null}
           {(job.cleanupPending || job.state === 'unknown' || (job.state === 'failed' && c.mode === 'native')) && (
-            <button
+            <ContainerButton
               className="ct-primary"
               disabled={sending}
               onClick={() => void recover()}
             >
               {job.state === 'failed' ? '继续未完成步骤' : '回读确认结果'}
-            </button>
+            </ContainerButton>
           )}
           {job.retained.length > 0 && (
             <p>保留对象：{job.retained.join('、')}</p>
           )}
-        </section>
+        </ContainerSurface>
       )}
       {logItem && (
-        <section className="ct-card ct-logs">
+        <ContainerSurface as="section" className="ct-logs">
           <header>
             <h3>{logItem.name} · 日志</h3>
-            <button onClick={() => setLogItem(null)}>关闭日志</button>
+            <ContainerButton onClick={() => setLogItem(null)}>关闭日志</ContainerButton>
           </header>
           <p>
             CPU {logItem.cpu || '不可用'} · 内存 {memoryLabel(logItem.memory, '不可用')} ·{' '}
@@ -663,29 +637,10 @@ export function ContainerPage({
                   : '此容器的日志记录已关闭'}
             </pre>
           )}
-        </section>
+        </ContainerSurface>
       )}
       {confirm && (
-        <dialog
-          ref={dialog}
-          className="ct-dialog"
-          onCancel={(e) => {
-            if (sending) e.preventDefault()
-            else setConfirm(null)
-          }}
-        >
-          <h2>
-            {
-              (
-                {
-                  adopt: '接管容器',
-                  delete: '删除容器',
-                  update: '手动更新镜像',
-                  restart: '重启容器',
-                } as Record<string, string>
-              )[confirm.action]
-            }
-          </h2>
+        <ContainerDialog title={actionLabels[confirm.action]} busy={sending} onClose={() => setConfirm(null)}>
           <p>{confirm.item.name}</p>
           <p>
             {confirm.action === 'adopt'
@@ -699,18 +654,18 @@ export function ContainerPage({
               ` VETH 共享关系：${confirm.item.sharedVeth.join(', ')}。`}
           </p>
           <div className="ct-actions">
-            <button disabled={sending} onClick={() => setConfirm(null)}>
+            <ContainerButton disabled={sending} onClick={() => setConfirm(null)}>
               取消
-            </button>
-            <button
-              className="ct-primary"
+            </ContainerButton>
+            <ContainerButton
+              className={confirm.action === 'delete' ? 'ct-danger' : 'ct-primary'}
               disabled={sending}
               onClick={() => void run(confirm.action, confirm.item.id)}
             >
               {sending ? '正在提交…' : c.mode === 'simulation' ? '确认模拟操作' : '确认操作'}
-            </button>
+            </ContainerButton>
           </div>
-        </dialog>
+        </ContainerDialog>
       )}
     </section>
   )
