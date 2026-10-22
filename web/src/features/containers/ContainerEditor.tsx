@@ -1,3 +1,4 @@
+import { ContainerButton, ContainerSurface } from './ContainerUI'
 import {
   useEffect,
   useId,
@@ -14,6 +15,8 @@ import { DirectoryPicker } from './DirectoryPicker'
 import { RootDirectoryField } from './RootDirectoryField'
 import { replaceDirectory } from './directoryPaths'
 import { ImageUpload } from './ImageUpload'
+import { ComposeImport, ComposeReport } from './ComposeImport'
+import { applyCompose, type ComposeNotice, type ComposeService } from './compose'
 import type { Draft, Item, Resolution, Snapshot } from './types'
 
 function Field({
@@ -86,7 +89,7 @@ function Section({
   description: string
 }) {
   return (
-    <section className="ct-card ct-section">
+    <ContainerSurface as="section" className="ct-section">
       <header>
         <span className="ct-section-number">{number}</span>
         <div>
@@ -95,7 +98,7 @@ function Section({
         </div>
       </header>
       <div className="ct-section-body">{children}</div>
-    </section>
+    </ContainerSurface>
   )
 }
 export function ContainerEditor({
@@ -129,6 +132,10 @@ export function ContainerEditor({
     [resourcesEnabled, setResourcesEnabled] = useState(
       () => !!(initial.memoryHigh || initial.memoryMax || initial.cpuList),
     )
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [composeReport, setComposeReport] = useState<{
+    service: ComposeService; skipped: ComposeNotice[]
+  } | null>(null)
   const advancedNetworkID = useId(),
     advancedStartupID = useId(),
     directoryID = useId()
@@ -263,26 +270,44 @@ export function ContainerEditor({
       className="ct-editor"
       onSubmit={(e) => {
         e.preventDefault()
+        if (composeOpen) return
         void submit()
       }}
       noValidate
     >
       <div className="ct-editor-heading">
         <div>
-          <span className="ct-eyebrow">
-            {item ? 'CONTAINER CONFIGURATION' : 'NEW CONTAINER'}
-          </span>
           <h2>{item ? '编辑容器' : '创建容器'}</h2>
           <p>所有配置在这一页。带 * 的项目需填写，其余项目保留默认值。</p>
         </div>
-        <button
+        <div className="ct-editor-actions">
+        {!item && <ContainerButton type="button" disabled={busy || validating || uploading}
+          onClick={() => setComposeOpen(true)}>导入配置</ContainerButton>}
+        <ContainerButton
           type="button"
           onClick={onClose}
           disabled={busy || validating || uploading}
         >
           返回列表
-        </button>
+        </ContainerButton>
+        </div>
       </div>
+      {composeOpen && <ComposeImport key={deviceId} deviceId={deviceId}
+        onClose={() => setComposeOpen(false)}
+        onApply={(service, skipped) => {
+          setDraft((d) => applyCompose(d, service.fields))
+          setResourcesEnabled(!!(service.fields.memoryHigh || service.fields.memoryMax || service.fields.cpuList))
+          setAdvancedStartup(!!(service.fields.command || service.fields.entrypoint || service.fields.user || service.fields.workdir))
+          setSubmitted(false)
+          setResolution(null)
+          setError('')
+          setComposeReport({ service, skipped })
+          setComposeOpen(false)
+        }} />}
+      {composeReport && <details className="ct-notice ct-compose-summary">
+        <summary>已导入服务 {composeReport.service.name}；请补齐 ROS 网络及挂载来源。查看转换说明</summary>
+        <ComposeReport {...composeReport} />
+      </details>}
       {item && (
         <div className="ct-notice">
           原有值已保留。环境变量列表：{item.envLists.join(', ') || '无'}
@@ -416,7 +441,7 @@ export function ContainerEditor({
               error={issue('network.gateway')}
             />
           </div>
-          <button
+          <ContainerButton
             type="button"
             className="ct-advanced-toggle"
             aria-label="网络高级设置"
@@ -429,7 +454,7 @@ export function ContainerEditor({
             {(draft.network.address6 ||
               draft.network.gateway6 ||
               draft.network.mac) && <small>已配置</small>}
-          </button>
+          </ContainerButton>
           {advancedNetwork && (
             <div
               className="ct-network-advanced ct-advanced-fields"
@@ -511,13 +536,13 @@ export function ContainerEditor({
                   )
                 }
               />
-              <button
+              <ContainerButton
                 type="button"
                 className="ct-add"
                 onClick={() => setPicker(i)}
               >
                 浏览挂载源 {i + 1}
-              </button>
+              </ContainerButton>
               <Field
                 label="容器目标目录"
                 value={m.target}
@@ -545,7 +570,7 @@ export function ContainerEditor({
                 />
                 只读
               </label>
-              <button
+              <ContainerButton
                 type="button"
                 onClick={() => {
                   setPicker(null)
@@ -556,13 +581,13 @@ export function ContainerEditor({
                 }}
               >
                 移除挂载 {i + 1}
-              </button>
+              </ContainerButton>
               {issue(`mounts.${i}`) && (
                 <strong role="alert">{issue(`mounts.${i}`)}</strong>
               )}
             </div>
           ))}
-          <button
+          <ContainerButton
             type="button"
             className="ct-add"
             onClick={() =>
@@ -573,7 +598,7 @@ export function ContainerEditor({
             }
           >
             ＋ 添加挂载
-          </button>
+          </ContainerButton>
           {typeof picker === 'number' && directoryPicker}
         </Section>
         <Section
@@ -610,7 +635,7 @@ export function ContainerEditor({
                     )
                   }
                 />
-                <button
+                <ContainerButton
                   type="button"
                   className="ct-icon-delete"
                   aria-label={`删除变量 ${i + 1}`}
@@ -623,20 +648,20 @@ export function ContainerEditor({
                   }
                 >
                   <span aria-hidden="true">🗑️</span>
-                </button>
+                </ContainerButton>
               </div>
               {issue(`env.${i}`) && (
                 <strong role="alert">{issue(`env.${i}`)}</strong>
               )}
             </div>
           ))}
-          <button
+          <ContainerButton
             type="button"
             className="ct-add"
             onClick={() => patch('env', [...draft.env, { key: '', value: '' }])}
           >
             ＋ 添加变量
-          </button>
+          </ContainerButton>
         </Section>
         <Section
           title="启动配置"
@@ -680,7 +705,7 @@ export function ContainerEditor({
               <option value="always">总是重启</option>
             </select>
           </label>
-          <button
+          <ContainerButton
             type="button"
             className="ct-advanced-toggle"
             aria-label="启动高级设置"
@@ -694,7 +719,7 @@ export function ContainerEditor({
               draft.entrypoint ||
               draft.user ||
               draft.workdir) && <small>已配置</small>}
-          </button>
+          </ContainerButton>
           {advancedStartup && (
             <div
               className="ct-startup-advanced ct-advanced-fields"
@@ -869,7 +894,7 @@ export function ContainerEditor({
           )}
         </Section>
       </fieldset>
-      <footer className="ct-card ct-resolution">
+      <ContainerSurface as="footer" className="ct-resolution">
         <h3>最终采用的配置</h3>
         <div className="ct-defaults">
           {resolution?.defaults.map((v) => <span key={v}>{v}</span>) || (
@@ -890,7 +915,8 @@ export function ContainerEditor({
                 ? '容器配置仅校验 · 目录操作直接写入 RouterOS'
                 : '只读模式 · 可校验配置，真实写入尚未启用'}
           </small>
-          <button
+          <ContainerButton type="button" onClick={onClose} disabled={busy || validating || uploading}>返回列表</ContainerButton>
+          <ContainerButton
             className="ct-primary"
             type="submit"
             disabled={busy || validating || uploading}
@@ -903,9 +929,9 @@ export function ContainerEditor({
                   ? '保存配置'
                   : '创建容器'
                 : '校验配置（只读）'}
-          </button>
+          </ContainerButton>
         </div>
-      </footer>
+      </ContainerSurface>
     </form>
   )
 }

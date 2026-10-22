@@ -1,0 +1,50 @@
+{
+  "id": "policy-routing-ui-refresh",
+  "name": "policy-routing-ui-refresh",
+  "title": "Review and integrate supplied Aurora policy routing UI",
+  "description": "Review the user's supplied policy routing page and styles, preserve routing behavior, fix theme and page isolation issues, build and deliver for manual inspection.",
+  "status": "in_progress",
+  "dev_type": "frontend",
+  "scope": "policy-routing",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": "codex/container-management",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "144d2e29ddec19b1ae9faad14a5a8ac78303cd8d",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/30",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "web/src/pages/PolicyRoutingPage.tsx",
+    "web/src/pages/PolicyRoutingPage.css"
+  ],
+  "notes": "2026-10-23 user authorized consolidation into container-management / Draft PR #30. Continue all container/import/UI fixes there; source PRs #32/#33 are superseded after integration verification. User explicitly considers the features unfinished: no main merge, VERSION bump, release, image publication, deployment or task completion. See PR #30 research/integration-and-release-hold-2026-10-23.md. 2026-10-16 user explicitly accepted the recent container-management and simple UI work and requested a GitHub preservation/version audit. Acceptance recorded for Aurora policy-routing UI refresh. No main merge/release/deployment was requested in this turn; remain in_progress until the separate integration/merge gates. Supplied Aurora policy routing layout reviewed and integrated in 144d2e2. Corrected undefined theme tokens/light-only fallbacks and cross-page CSS leakage; retained API/mutation/permission/recovery behavior. All 108 frontend tests, lint/type/build/UI isolation pass. Static binary dev-policy-ui-1016 verified on isolated test then production after a fully read/SHA256-verified consistent NAS backup (20261016T080550Z-policy-routing-ui, retention 10). Both enabled device policy context/container/import reads and all 78 assets pass; config/supervisor/unit unchanged. Fresh user visual acceptance and root APPROVED pending. Keep in_progress/Draft; no merge/release/archive. See validation.md.",
+  "meta": {
+    "user_acceptance": {
+      "date": "2026-10-16",
+      "status": "approved",
+      "scope": "Aurora policy-routing UI refresh",
+      "production_delivery_of_5a887a4": false,
+      "audit": "PR #30 task research/user-acceptance-and-version-audit-2026-10-16.md"
+    },
+    "integration": {
+      "date": "2026-10-23",
+      "branch": "codex/container-management",
+      "pr_url": "https://github.com/jasonxtt/rosboard/pull/30",
+      "source_prs": [
+        30,
+        32,
+        33
+      ],
+      "release_hold": true,
+      "status": "consolidated_development",
+      "original_branch": "codex/policy-routing-ui-refresh"
+    }
+  }
+}

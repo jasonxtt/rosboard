@@ -44,6 +44,15 @@ and permit long values to wrap inside their own cells.
 
 ## Native container feature
 
+The shared create editor supports a transient Compose import dialog in both
+stylesheets. Parse one full document, select exactly one service, then explicitly
+apply only the closed supported field set. Preserve draft identity, ROS network
+and root; replace old imported env/mount/startup/resource values. Mount sources
+are always blank even if a response supplies one. No source or secrets go into
+browser storage. Cancel, source edits and device remounts invalidate pending
+results; form submission is blocked while the dialog is open. Keep skipped and
+manual-input explanations accessible after applying.
+
 Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
 container stylesheet; all selectors stay under `.ct`. The form is flat: seven
@@ -101,3 +110,20 @@ Container resource memory inputs are labeled high(MB)/max(MB) and accept numeric
 MB values (RouterOS M, 1024² bytes). Convert existing byte/unit quantities for
 display and send explicit M suffixes on edits. Blank still inherits defaults;
 never reinterpret bare API quantities as MB or change untouched saved limits.
+
+## Container presentation adapters
+
+Container behaviour stays shared through a presentation context. The Aurora entry
+provides public Card/Button/Badge components and the table class; Compact provides
+its native panel/control classes. Preserve native section/footer semantics and
+forward button accessibility, keyboard, blur and form attributes. Keep shell
+imports in the entry adapters, never in the shared container feature. Separate
+container CSS graphs alias shell typography, spacing, radii and elevation as well
+as colour. The development preview must mount the selected adapter and load that
+shell's base styles. Compact already provides the page title in its topbar.
+
+Secondary row actions expand inline within the scrolling table; do not position a
+menu where its overflow would be clipped. Escape, outside pointer and selecting
+an enabled action dismiss it; keyboard dismissal and dialog close restore focus.
+Shared native dialogs retain accessible headings, close controls and existing
+cancel/busy safeguards. Regression tests must exercise both real adapters.

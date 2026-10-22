@@ -1,3 +1,4 @@
+import { ContainerButton } from './ContainerUI'
 import { useState } from 'react'
 import { newRequestId } from './drafts'
 import { InlineDirectoryName } from './InlineDirectoryName'
@@ -79,7 +80,7 @@ export function DirectoryPicker({
     >
       <header>
         <nav aria-label="目录路径">
-          <button
+          <ContainerButton
             type="button"
             disabled={blocked}
             onClick={() => {
@@ -90,9 +91,9 @@ export function DirectoryPicker({
             aria-current={path === '/' ? 'location' : undefined}
           >
             /
-          </button>
+          </ContainerButton>
           {parts.map((part, i) => (
-            <button
+            <ContainerButton
               type="button"
               key={i}
               disabled={blocked}
@@ -105,10 +106,10 @@ export function DirectoryPicker({
             >
               {part}
               <span aria-hidden="true"> /</span>
-            </button>
+            </ContainerButton>
           ))}
         </nav>
-        <button
+        <ContainerButton
           type="button"
           className="ct-directory-close"
           aria-label="关闭目录浏览"
@@ -116,7 +117,7 @@ export function DirectoryPicker({
           onClick={onClose}
         >
           ×
-        </button>
+        </ContainerButton>
       </header>
       {state.error && (
         <p role="alert" className="ct-error">
@@ -130,7 +131,7 @@ export function DirectoryPicker({
       )}
       <div className="ct-directory-toolbar">
         {writable && (
-          <button
+          <ContainerButton
             type="button"
             disabled={blocked || !listing?.canCreate || !!editing || !!deleting}
             onClick={() => {
@@ -140,9 +141,9 @@ export function DirectoryPicker({
             }}
           >
             ＋ 新建文件夹
-          </button>
+          </ContainerButton>
         )}
-        <button
+        <ContainerButton
           type="button"
           disabled={busy || (!!editing && !pending)}
           onClick={() => {
@@ -154,7 +155,7 @@ export function DirectoryPicker({
           }}
         >
           {pending ? '刷新确认结果' : '刷新'}
-        </button>
+        </ContainerButton>
         {loading && <small role="status">正在读取目录…</small>}
         {busy && <small role="status">正在保存…</small>}
       </div>
@@ -174,7 +175,7 @@ export function DirectoryPicker({
             ) : (
               <>
                 {entry.directory ? (
-                  <button
+                  <ContainerButton
                     type="button"
                     className="ct-directory-folder"
                     disabled={blocked || !!editing || !!deleting}
@@ -186,7 +187,7 @@ export function DirectoryPicker({
                     <span aria-hidden="true">📁</span>
                     <span>{entry.name}</span>
                     <span aria-hidden="true">›</span>
-                  </button>
+                  </ContainerButton>
                 ) : (
                   <span className="ct-file-name">
                     <span aria-hidden="true">▤</span>
@@ -196,7 +197,7 @@ export function DirectoryPicker({
                 )}
                 {entry.directory && writable && (
                   <div className="ct-directory-actions">
-                    <button
+                    <ContainerButton
                       type="button"
                       aria-label={`文件夹 ${entry.name} 操作`}
                       aria-expanded={menu === entry.path}
@@ -213,14 +214,14 @@ export function DirectoryPicker({
                       }
                     >
                       ⋯
-                    </button>
+                    </ContainerButton>
                     {menu === entry.path && (
                       <div
                         className="ct-directory-menu"
                         role="group"
                         aria-label={`${entry.name} 操作`}
                       >
-                        <button
+                        <ContainerButton
                           type="button"
                           onClick={() => {
                             setMenu(null)
@@ -228,8 +229,8 @@ export function DirectoryPicker({
                           }}
                         >
                           重命名
-                        </button>
-                        <button
+                        </ContainerButton>
+                        <ContainerButton
                           type="button"
                           className="ct-danger"
                           onClick={() => {
@@ -238,19 +239,19 @@ export function DirectoryPicker({
                           }}
                         >
                           删除
-                        </button>
+                        </ContainerButton>
                       </div>
                     )}
                   </div>
                 )}
                 {!entry.directory && allowFiles && (
-                  <button
+                  <ContainerButton
                     type="button"
                     disabled={blocked || !!editing || !!deleting}
                     onClick={() => onSelect(entry.path)}
                   >
                     选用文件
-                  </button>
+                  </ContainerButton>
                 )}
               </>
             )}
@@ -270,14 +271,14 @@ export function DirectoryPicker({
           <code>{deleting.path}</code>
           <p>将删除此文件夹及其中全部文件和子目录，此操作无法撤销。</p>
           <div>
-            <button
+            <ContainerButton
               type="button"
               disabled={busy}
               onClick={() => setDeleting(null)}
             >
               取消
-            </button>
-            <button
+            </ContainerButton>
+            <ContainerButton
               type="button"
               className="ct-danger"
               disabled={blocked}
@@ -294,7 +295,7 @@ export function DirectoryPicker({
               }}
             >
               删除全部内容
-            </button>
+            </ContainerButton>
           </div>
         </div>
       )}
@@ -303,7 +304,7 @@ export function DirectoryPicker({
           <small>当前目录</small>
           <code>{path}</code>
         </div>
-        <button
+        <ContainerButton
           type="button"
           className="ct-primary"
           disabled={
@@ -312,7 +313,7 @@ export function DirectoryPicker({
           onClick={() => onSelect(path)}
         >
           选择此目录
-        </button>
+        </ContainerButton>
       </footer>
     </div>
   )

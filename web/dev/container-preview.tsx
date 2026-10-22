@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ContainerPresentationProvider, type ContainerPresentation } from '../src/features/containers/ContainerUI'
 import { ContainerPage } from '../src/features/containers/ContainerPage'
 import {
   apiGet,
@@ -14,14 +15,18 @@ const ui =
     ? 'compact'
     : 'aurora'
 async function start() {
+  let presentation: ContainerPresentation
   if (ui === 'compact') {
     await import('../src/compact/index.css')
     await import('../src/compact/features/containers/containers.css')
+    presentation = (await import('../src/compact/features/containers/presentation')).compactContainerPresentation
   } else {
     await import('../src/styles/tokens.css')
+    await import('../src/styles/base.css')
     await import('../src/pages/ContainersPage.css')
+    presentation = (await import('../src/pages/ContainerPresentation')).auroraContainerPresentation
   }
-  createRoot(document.getElementById('root')!).render(<Preview />)
+  createRoot(document.getElementById('root')!).render(<ContainerPresentationProvider value={presentation}><Preview /></ContainerPresentationProvider>)
 }
 export function Preview() {
   const [device, setDevice] = useState('demo-router'),

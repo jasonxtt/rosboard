@@ -1,3 +1,4 @@
+import { ContainerButton } from './ContainerUI'
 import { useEffect, useRef, useState } from 'react'
 import { directoryNameError } from './directoryPaths'
 
@@ -63,7 +64,7 @@ export function InlineDirectoryName({
         />
         {error && <small role="alert">{error}</small>}
       </div>
-      <button
+      <ContainerButton
         type="button"
         aria-label="取消名称编辑"
         disabled={busy}
@@ -74,7 +75,7 @@ export function InlineDirectoryName({
         }}
       >
         ×
-      </button>
+      </ContainerButton>
     </div>
   )
 }
