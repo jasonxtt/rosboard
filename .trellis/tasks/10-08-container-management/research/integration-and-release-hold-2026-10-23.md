@@ -58,5 +58,11 @@ approve the newly integrated build for release.
 - The first default macOS test run rejected symlinked temporary-directory
   ancestors in image staging. Using a real `/private/tmp` TMPDIR passes without
   weakening production path validation or changing runtime source.
+- `TMPDIR=/private/tmp go test -race ./internal/containers ./internal/imagepull`: pass.
 - `git diff --check`: pass. VERSION, workflows and dependency locks unchanged.
 - The latest #30 historical deletion implementation and tests are unchanged.
+
+The secondary merge preserved PR #32's acceptance-only head and its metadata.
+Only task.json conflicted; the resolution keeps both the historical acceptance
+record and the current consolidation/release-hold record. Both source PR heads
+are ancestors of the integrated head. No runtime source conflict occurred.
