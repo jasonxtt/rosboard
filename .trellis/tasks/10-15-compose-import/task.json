@@ -39,6 +39,13 @@
       "release_hold": true,
       "status": "consolidated_development",
       "original_branch": "codex/compose-import"
+    },
+    "user_acceptance": {
+      "date": "2026-10-16",
+      "status": "approved",
+      "scope": "Compose/Docker run imports and both native container UIs",
+      "production_delivery_of_5a887a4": false,
+      "audit": "PR #30 task research/user-acceptance-and-version-audit-2026-10-16.md"
     }
   }
 }
