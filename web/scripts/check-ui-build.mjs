@@ -58,3 +58,16 @@ for (const variant of ['compact', 'aurora']) {
   assert.deepEqual(actualCSS, cssOf(key), `${variant}: emitted dispatcher preloads wrong stylesheet graph`)
 }
 console.log('Emitted bootstrap executed for both variants: correct runtime entry and exact matching CSS graph.')
+
+// Container feature styles remain separate, and development simulation data
+// must never become an embedded production asset.
+const containerAurora = cssOf('src/pages/ContainersPage.tsx')
+const containerCompact = cssOf('src/compact/features/containers/ContainersPage.tsx')
+assert.ok(containerAurora.size > 0 && containerCompact.size > 0)
+assert.equal([...containerAurora].filter(file => containerCompact.has(file)).length, 0, 'Container stylesheet graphs must be disjoint')
+for (const [key, item] of Object.entries(manifest)) {
+  assert.ok(!/container-preview|^dev\//.test(key), `Development entry leaked: ${key}`)
+  if (item.file.endsWith('.js')) assert.ok(!/demo-router|demo-edge|shared-config.*172\.20\.0/.test(readFileSync(resolve(dist,item.file),'utf8')), 'Simulation fixture leaked into production')
+}
+assert.ok(!existsSync(resolve(dist,'container-preview.html')), 'Preview HTML must not ship')
+console.log('Container CSS isolation and simulation exclusion verified.')

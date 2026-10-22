@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"rosboard/internal/downloadnet"
 	"strings"
 	"time"
 )
@@ -65,7 +66,8 @@ type githubRelease struct {
 type releaseClient struct{ http *http.Client }
 
 func newReleaseClient() *releaseClient {
-	return &releaseClient{&http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+	snapshot, _ := downloadnet.New("")
+	return &releaseClient{&http.Client{Transport: snapshot.Transport, Timeout: 10 * time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || !allowedDownloadURL(r.URL) {
 			return errors.New("untrusted release redirect")
 		}

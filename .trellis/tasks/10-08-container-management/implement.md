@@ -1,0 +1,353 @@
+# Implementation and validation
+
+- [x] Read-only RouterOS adapter, domain normalization/default resolution, device-scoped API.
+- [x] Shared contracts, flat editor/table/detail/logs and capabilities.
+- [x] Independent Aurora and Compact navigation/styles.
+- [x] Development-only mock endpoints and standalone preview with failure/recovery scenarios.
+- [x] Focused domain/API/frontend/mock regression tests.
+- [x] gofmt; go build ./...; go test ./...; go vet ./...; targeted race.
+- [x] npm --prefix web test; lint; build; check:ui-build; git diff --check.
+- [x] Document mapping and manual desktop/mobile theme/device-switch QA.
+- [x] Inspect exact staged diff, checkpoint commit/push and one Draft PR.
+
+Rollback the application by redeploying the prior test build. User-requested real directory writes are not undone by reverting the code; scoped verification folders are cleaned separately. No production replacement occurs. Keep the task active for future complete write acceptance.
+
+## Phase 1 verification checkpoint
+
+- `go build ./...`, `go test ./...`, `go vet ./...` passed.
+- Race checks passed for `internal/containers`, `internal/api`, `internal/routeros`.
+- Frontend: 70 tests passed; lint passed with four pre-existing `fasttrack.test.tsx` key warnings; build and dual-UI checks passed.
+- Standalone development preview entry passed a separate TypeScript check.
+- Production manifest/JS excludes development preview and fixture devices; lazy container stylesheet graphs are disjoint.
+- Current RouterOS 7.23.5: all 13 allowlisted GET menus succeeded. No writes were performed.
+- HTTP preview through Vite verified missing-field errors, defaults, env special characters/newlines, read-only mounts, TCP/UDP, download/create/start phases, duplicate suppression, pending-task restoration, recovery and device isolation. Fixtures were reset after verification.
+- Manual visual acceptance remains pending: desktop/mobile, both themes/UI variants, long names and large table. Instructions are in `web/dev/README.md`.
+- No production deployment, merge, release or complete task archival. Real writes and update/delete data retention still require independent RouterOS verification.
+
+Draft PR: https://github.com/jasonxtt/rosboard/pull/30 (implementation checkpoint `8624091`). Task status stays `in_progress`; manual visual acceptance and future real writes are pending.
+
+
+## Follow-up execution
+
+- [x] Record local-image and Files-picker scope; keep production reads only.
+- [x] Add Docker-save metadata validation and device-scoped archive projection.
+- [x] Add typed file metadata reads and safe directory normalization/listing.
+- [x] Add shared upload/picker components with isolated styles for both UIs.
+- [x] Add simulated upload/mkdir and optional real read-only preview routing.
+- [x] Verify format/architecture/isolation, directory paths/collisions, selected
+  fields and device-switch cancellation contracts.
+- [x] Run required Go/frontend checks; verify Vite proxy integration and scoped
+  independent test-device file capabilities; clean temporary RouterOS objects.
+- [x] Review public staged paths/diff, commit/push same branch and update Draft PR.
+- [ ] User desktop/mobile, light/dark visual review; future complete write gate.
+
+
+### Follow-up checkpoint results
+
+- Single-image Docker-save tar inspection, device-scoped archive metadata and
+  `file` projection implemented; registry and archive sources are exclusive.
+- Shared picker and image uploader implemented in both isolated UI styles.
+  Real Files directory reads use the typed client. Upload/mkdir remain simulated.
+- New rootfs defaults and separate persistent mount guidance implemented;
+  existing relative RouterOS paths remain unchanged on edit.
+- Frontend 73 tests passed; Go build/test/vet and scoped race checks passed;
+  lint/build/dual-UI checks and development preview TypeScript check passed.
+  Four existing fasttrack JSX-key lint warnings remain.
+- The opt-in independent RouterOS read test passed. REST mkdir/read-back and
+  SFTP archive round-trip/hash verification passed; temporary objects cleaned.
+  No actual container import/start/update/delete was attempted.
+- Vite-proxy runtime verification passed for real read-only snapshot/Files and
+  simulated multipart upload, mkdir, projection, archive import/start and reset.
+- Manual desktop/mobile/theme visual acceptance remains pending. Full task stays
+  active and Draft; production deployment and complete write acceptance remain
+  separate.
+
+## Direct-IP access checkpoint
+
+- Removed port-mapping form/list fields, Go/TypeScript contract members and
+  parser/default/validation logic. The flat editor now has seven visible sections.
+- Removed container NAT reads and NAT ownership creation/editing from simulation.
+  No RouterOS configuration or existing firewall/NAT rules were changed.
+- Regression checks reject NAT reads and prove stale client port fields cannot
+  produce mappings or ownership. Both UIs retain IP/VETH and Bridge columns.
+- Go build/test/vet and containers/api/routeros race checks passed. Frontend
+  73 tests, lint/build/dual-UI checks passed; four existing fasttrack key warnings
+  remain. Trellis context validation and git diff checks passed.
+- Restarted the local preview. Vite-proxy smoke checks passed for both simulated
+  device snapshots, pure direct-IP resolution, and real test-device read-only
+  snapshot/Files. Both preview URLs respond. No real mutations were performed.
+- Same branch/Draft PR; manual visual acceptance and real-write acceptance remain
+  pending. No production deployment, merge or task completion.
+
+## Runtime directory terminology checkpoint
+
+- Renamed the shared `root-dir` field and picker to container runtime directory.
+  Storage guidance explicitly allows one application parent with separate runtime
+  and persistent subdirectories, e.g. `nginx/rootdir` and `nginx/data/config`.
+- Updated the existing validation message to use the same terminology. Directory
+  validation and path preservation behavior are unchanged; no new mutations.
+- Frontend 73 tests, lint/build/dual-UI checks, Go build/test/vet and Trellis
+  context/diff checks passed. Four existing fasttrack JSX-key warnings remain.
+- Vite-proxy resolution accepted the shared-parent example and preserved both
+  paths; a mount source inside the runtime directory remained invalid with the
+  updated message. Vite serves the new label/guidance. Preview restarted.
+- Same task branch and Draft PR; production deployment and real-write acceptance
+  remain pending.
+
+## Form interactions and full-panel test deployment checkpoint
+
+- Optional IPv6/MAC fields start collapsed under the network advanced arrow.
+  Values survive collapse; validation errors expand their fields. The other
+  configuration sections remain visible on one page.
+- Runtime-directory input opens Files directly below it on click or ArrowDown,
+  supports direct typing, and retains typed paths when the picker closes.
+  Environment rows use a right-hand accessible trash icon; other row values
+  remain intact after deletion. Both UI styles contain the same scoped layout.
+- Frontend 76 tests, lint/build/dual-UI checks, Go build/test/vet, Trellis context
+  validation and diff checks passed. The four existing fasttrack key warnings
+  remain. Previous scoped race checks cover unchanged backend concurrency.
+- The complete embedded program runs in a separate `rosboard-container-test`
+  service on the disposable test machine, port 8080. Its private config and
+  fresh SQLite data are under `/opt/rosboard-container-test`; the existing test
+  service on port 80 is preserved. Only the independent test RouterOS is used.
+- Runtime checks passed for administrator setup/login, supervised setup restart,
+  device isolation, actual read-only container snapshot and Files directory
+  listings, effective defaults and validation. Container actions, upload and
+  mkdir requests return `container_read_only` without enabling real writes.
+- Both full UI entries respond; nine embedded HTML/JS/CSS assets match the local
+  build byte-for-byte. Existing second-level entries are under
+  **Host settings → Container management** in both shells. Simulation fixtures
+  remain excluded from the deployed program.
+- User desktop/mobile and light/dark review of the full-panel deployment is
+  pending. The task and PR stay active/Draft; no production deployment, merge or
+  complete container-write acceptance occurs at this checkpoint.
+
+## Startup advanced settings and health-check clarity checkpoint
+
+- Start-after-create, start-on-boot, logging and restart policy now precede a
+  default-collapsed startup advanced toggle. CMD/ENTRYPOINT/user/workdir values
+  survive collapse/reopen and submit, including existing overrides.
+- Health-check labels and hints explain application response probing, image
+  inheritance and images without a check, custom commands inside the container,
+  interval/timeout, consecutive failures and startup preparation. The command
+  example uses RouterOS syntax without Dockerfile's `CMD-SHELL` marker.
+- Go changes are messages only: validation and default-resolution wording now
+  match the UI. The health inheritance/override projection contract is unchanged.
+  Stop/restart/notification settings are not implicitly enabled.
+- Frontend 78 tests, lint/build/dual-UI checks, Go build/test/vet, Trellis context
+  and diff checks passed; four existing fasttrack key warnings remain.
+- Updated the isolated full-panel test service and verified login, actual
+  snapshot/Files, default/inherited/custom health projection, all four startup
+  overrides, write denial, and both UI entries/embedded assets. No real container
+  operations or production delivery were performed.
+- Same task branch and Draft PR. User desktop/mobile/theme visual review and
+  future real-write acceptance remain pending.
+
+
+## Bound Files picker and optional details checkpoint
+
+- Implemented the attached storage requirements on the shared editor and existing
+  directory API. Runtime input/right arrow opens at a valid existing input path;
+  unavailable/invalid input falls back to the root without replacing the value.
+  Breadcrumb ancestors are clickable and horizontally scrollable. Folders come
+  first, files are muted with sizes, and only mount sources can select files.
+- New folders use a focused/selected local row; Enter/valid blur saves the final
+  name once, Escape cancels, and creation remains in the parent. Rename uses the
+  same inline editor and restores the original row after failure. Deletion
+  explicitly confirms the full name/path and all files/subdirectories. The user
+  permits nonempty removal. Matching form paths follow successful rename and
+  clear after deletion; API failures preserve form values.
+- Added typed RouterOS Files commands and separate directory write capability.
+  Server re-reads IDs/types, disk paths and container root/mount references,
+  protects root/disk/used paths, serializes with the policy device write gate,
+  suppresses repeated writes and read-backs unknown results. Existing container
+  and image operations remain disabled on real RouterOS.
+- Real 7.23.5 Files IDs use long `**opaque` values and may change on rename;
+  separate ID validation and path/descendant confirmation were verified. The
+  in-memory replay/recovery records are not a durable production journal.
+- Image-inherited health checks hide custom fields. Resource limits default off
+  for new drafts, hide details, preserve input when toggled and submit inheritance
+  while off. Existing explicit resource settings initialize enabled.
+- Go build/test/vet and scoped race checks passed. Frontend **88 tests** passed;
+  lint passed with four pre-existing fasttrack JSX-key warnings. Build, dual-UI
+  isolation/simulation exclusion, Trellis context and diff checks passed.
+- Deployed the complete isolated test service using its existing private account,
+  config/data and test-device scope. Auth, health, actual directory CRUD, request
+  replay, Unicode descendant rename, changed IDs, confirmed recursive deletion,
+  root/disk/stale-ID/path guards, pure defaults, Container/image write denial and
+  exact hashes of nine embedded UI assets passed. All temporary verification
+  directories were removed and absence verified.
+- Local simulator uses the same Files contract and safety implementation with
+  test-only storage adapters. Manual review remains user-led at 1440px/390px,
+  both UI variants/themes. Same work branch/Draft PR; no production deployment,
+  merge, task completion or full Container write acceptance.
+
+
+## Authorized native lab write phase — 2026-10-11
+
+The user authorized complete Container write testing through the deployed lab
+panel against its preconfigured independent RouterOS only. Production RouterOS
+access, production deployment and final acceptance remain excluded. This phase
+supersedes the earlier lifecycle read-only implementation boundary for devices
+explicitly enabled through private server configuration.
+
+- Closed typed native writes cover create/edit/start/stop/restart/update/delete
+  and explicit adoption. Default devices remain read-only; public device edits
+  cannot enable native writes and connection changes clear the opt-in/pinned key.
+- A private durable per-device journal records exact ownership, request replay,
+  pending writes and progress. Mutations are never blindly retried; unknown
+  results retain the shared device lock and recover by reading first. Startup
+  restores unresolved locks before serving policy/Files writes.
+- Docker-save uploads use pinned SSH/SFTP, exclusive generated paths and remote
+  size/SHA-256 verification. Valid legacy archive internal links are accepted
+  without extracting; unsafe/missing links remain rejected. Already verified
+  uploads can be selected again without transferring the archive again.
+- New containers have dedicated VETH plus bridge port. No bridge settings,
+  addresses on existing interfaces, routes, NAT or firewall rules are changed.
+  Edits preserve the container root/image. Existing/shared network changes are
+  refused; adoption marks only the container, preserving auxiliary ownership.
+- Updates import into a new rootfs, stop the old container, start the replacement,
+  preserve the old rootfs and remove the old container. Mount sources remain
+  unchanged. Removal cleans only journal-linked owned objects after rechecking
+  shared references. Failed imports leave their created objects visible for
+  explicit cleanup; they are not silently rolled back.
+- RouterOS implicitly deletes root-dir on container removal. Preserve a stopped
+  rootfs by renaming its `container store` to a unique sibling with `-retained-`
+  before removal. Guard exact container identity, ownership, stopped status,
+  source metadata and all overlapping root/mount references. Shared/overlapping
+  roots block removal. Show the actual retained path; backups accumulate until
+  explicitly cleaned by the operator. This behavior was verified on the lab
+  version only and must be verified separately for another version.
+
+See `research/native-write-validation-2026-10-11.md` for actual results and
+remaining limits. Keep the task active and the same PR Draft; no APPROVED,
+production delivery, merge or archival is implied.
+
+## Resume validation — 2026-10-14
+
+Continue the existing workstream and Draft PR #30. The user requested remaining
+verification and fixes, and logged into the existing test panel for browser QA.
+
+- [x] Fetch origin, verify PR HEAD, restore the work branch and active task.
+- [x] Re-run Go test/build/vet and containers/routeros/api race checks.
+- [x] Re-run all 90 frontend tests, lint, production build and dual-UI checks.
+- [x] Correct raw-byte memory display and localize operation-progress labels.
+- [x] Fix edit-time global memory inheritance and safe startup-default unsets;
+      verify kernel limits, four cleared overrides and HTTP 200 on real RouterOS.
+- [x] Fix Aurora mobile topnav overflow and verify both mobile theme palettes.
+- [x] Correct outdated task metadata describing native writes as simulation-only.
+- [x] Deploy only the existing isolated test service; verify version and asset hashes.
+- [x] Restart during real GHCR import, restore the pending job/device lock, and
+      resume by read-back without creating a duplicate container.
+- [x] Complete GHCR registry create/update and disposable fixture cleanup.
+- [x] Record final runtime results and remaining device/version/storage limits.
+Checkpoint diff review, commits and pushes remain on the same Draft PR; see its
+Git history for the exact checkpoint HEAD.
+
+Production acceptance, root APPROVED, merge and task archival remain pending.
+
+## Production pilot preparation — 2026-10-14
+
+- [x] Gate Files writes and advertised capability with private device opt-in;
+  include cached snapshot, API denial and service bypass regression coverage.
+- [x] Run automated checks and production read-only RouterOS integration.
+- [x] Verify the fix on the isolated test-machine deployment.
+- [x] Verify production access and a mounted writable NAS backup destination.
+- [x] Back up production binary/config/all SQLite data/service, retain max ten.
+- [x] Replace production rosboard; verify service/health/API/assets.
+- [ ] User manually tests and accepts; keep task/PR unfinished until approval.
+
+## Registry DNS warming execution
+
+- [x] Implement bounded DNS wire client, registry selection and known hosts.
+- [x] Integrate preparation, TTL refresh, stop and journal restoration; skip
+  archive/edit/lifecycle operations and preserve write replay semantics.
+- [x] Show safe optional warnings in shared progress, no extra confirmation.
+- [x] Verify DNS wire/TCP/TTL/registry/device/recovery/no-duplicate contracts.
+- [ ] Run Go/frontend checks and isolated real test-machine create/update.
+- [ ] Review staged public diff, checkpoint and push existing Draft PR.
+- [ ] Verify writable NAS, consistent production backup, replacement and
+  service/health/API/assets. User manual acceptance remains pending.
+
+Registry DNS checkpoint: automated checks and GHCR actual create/update/restart
+recovery passed; Docker Hub download failed due to rotating-answer/list timing.
+Production replacement is withheld pending scope revision and real acceptance.
+See research/registry-dns-warming-2026-10-14.md.
+
+## Expanded address synchronization (user authorized)
+
+- [ ] Prove a container-only existing-list data approach on independent lab.
+- [ ] Identify exact DNS/policy/IPv4/IPv6 list boundaries without changing rules.
+- [ ] Implement only a successful approach with durable identity/recovery and
+      bounded cleanup, preserving foreign/static entries and no blind retries.
+- [ ] Verify actual repeated Docker Hub/GHCR import and restart recovery, then
+      complete automated checks and the same Draft PR checkpoint.
+- [ ] Perform NAS-backed production replacement only after successful validation.
+
+## Revised host-import planning — 2026-10-15
+
+- [x] Incorporate the user's exact Maintenance proxy layout, URL credentials,
+      shared updater/download transport, and runtime/deletion retention decisions.
+- [x] Verify SFTP policy matrix on the independent lab with FTP service disabled;
+      remove generated account/group/file fixtures and check the existing runtime.
+- [ ] Validate actual archive import/start and deletion of source tar after first
+      successful runtime before accepting automatic cleanup behavior.
+- [ ] Implement shared proxy configuration and both Maintenance forms; preserve
+      official updater source/checksum/rollback constraints and per-operation
+      transport snapshots, candidate tests and password-free responses.
+- [ ] Implement host image download/preparation with durable native-job integration,
+      generated-artifact provenance, first-runtime cleanup, pre-runtime retention,
+      and container-delete cleanup recovery without duplicate native writes.
+- [ ] Complete automated, real lab, Docker-volume and dual-UI verification before
+      NAS-backed production delivery and subsequent manual acceptance.
+
+## Onboarding permissions included in this delivery
+
+- [x] Audit generated-script add/set paths, explicit forbidden-rights tests,
+      account metadata, current SFTP credential reuse and access/security docs.
+- [x] New groups use the exact seven-right role. Existing-group paths accept
+      only exact-old -> exact-new or exact-new -> write-free no-op; reject every
+      other policy unchanged, with live execution-time and read-back guards.
+- [x] Reuse saved generated connection credentials server-side by default for
+      transfer; retain a per-device dedicated-account override and verified key.
+- [x] Implement identity-bound administrator-run upgrades for existing exclusive
+      managed groups, preserving credentials and rejecting foreign/shared/legacy
+      ambiguous identities; no services/firewall changes or self-elevation.
+- [x] Update both onboarding previews/help and access/security documentation;
+      verify role read-back, missing SSH capability and ticket/key invalidation.
+- [x] Exercise generated roles and upgrade idempotency on the independent lab,
+      with no monitoring/policy regressions and unchanged container-write gates.
+
+## Mandatory review gates A/B — user required
+
+- [x] Test exact-policy equality, not subset/superset acceptance: old -> new,
+      new -> no mutation, and every other/invalid/missing role -> unchanged reject.
+      Include extra/missing/partial rights and drift after script generation.
+- [x] Keep all capability/preview/GET/SFTP detection paths read-only; assert no
+      mkdir/upload/rename/remove, shell or REST mutation calls in success/failure.
+- [ ] Separate any optional write probe into an explicit authorized action with
+      private write opt-in, verified device/key identity and shared write gate.
+      Persist owned temporary intent; reject user/foreign paths and collisions.
+- [ ] Verify exact probe cleanup and durable ambiguity/cancellation recovery;
+      detection refresh must never retry writes or silently claim verified upload.
+
+
+## Onboarding role implementation checkpoint — 2026-10-15
+
+- Implemented new exact-seven-right provisioning with write-free repeat checks,
+  and fresh identity/exclusive-membership-bound administrator upgrade scripts.
+- Added shared read-only transfer check/upgrade UI in both account settings views,
+  onboarding authority help, private dedicated transfer overrides/SSH ports and
+  connection-change invalidation. No optional write-probe API was added; probe
+  temporary-path/cleanup machinery is deferred until such an action is requested.
+- Exact policy matrices, metadata/credential/device isolation, SSH disabled/auth/
+  key/list denial and cancellation checks pass. SFTP test handlers count every
+  write/shell request and require zero. Frontend workflow/abort/parser regressions
+  pass in both control styles. Existing container/policy write gates are preserved.
+- The opt-in independent RouterOS suite exercises actual generated scripts and
+  both parsers: new roles, repeated provisioning with an externally changed
+  password, stale-policy/shared-membership/ownership refusal, old-to-new upgrade,
+  repeat no-op and SFTP reads using the preserved generated-account password.
+- Keep host-image downloading, shared proxy and durable generated-image cleanup
+  on the remaining task checklist. This checkpoint does not complete that scope,
+  grant production acceptance, merge the Draft PR or archive the task.

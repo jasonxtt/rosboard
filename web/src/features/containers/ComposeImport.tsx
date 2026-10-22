@@ -1,0 +1,111 @@
+import { ContainerButton, ContainerDialog } from './ContainerUI'
+import { useEffect, useRef, useState } from 'react'
+import { errorMessage } from '../../lib/api'
+import { parseCompose } from './api'
+import type { ComposeNotice, ComposeResult, ComposeService } from './compose'
+
+function Notices({ items }: { items: ComposeNotice[] }) {
+  return items.length ? <ul>{items.map((n, i) =>
+    <li key={i}><code>{n.field}</code>：{n.message}</li>,
+  )}</ul> : <p>无</p>
+}
+
+export function ComposeReport({ service, skipped }: {
+  service: ComposeService
+  skipped: ComposeNotice[]
+}) {
+  return <div className="ct-compose-report">
+    <h4>可导入字段</h4>
+    <p>{service.imported.join('、') || '无'}</p>
+    <h4>已跳过字段</h4>
+    <Notices items={[...skipped, ...service.skipped]} />
+    <h4>需要补填的信息</h4>
+    <Notices items={service.needsInput} />
+    {service.fields.mounts.length > 0 && <>
+      <h4>挂载来源参考</h4>
+      <ul>{service.fields.mounts.map((m, i) => <li key={i}>
+        {service.mountHints[i] || '匿名卷'} → {m.target}（{m.readOnly ? '只读' : '读写'}）；请选择 ROS 来源目录
+      </li>)}</ul>
+    </>}
+  </div>
+}
+
+export function ComposeImport({ deviceId, onApply, onClose }: {
+  deviceId: string
+  onApply: (service: ComposeService, skipped: ComposeNotice[]) => void
+  onClose: () => void
+}) {
+  const [source, setSource] = useState('')
+  const [result, setResult] = useState<ComposeResult | null>(null)
+  const [selected, setSelected] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const lifetime = useRef({ sequence: 0, pending: null as AbortController | null })
+  useEffect(() => {
+    const state = lifetime.current
+    return () => {
+      state.sequence++
+      state.pending?.abort()
+    }
+  }, [deviceId])
+  const service = result?.services.find((s) => s.name === selected)
+  const parse = async () => {
+    const state = lifetime.current
+    state.pending?.abort()
+    const controller = new AbortController()
+    state.pending = controller
+    const current = ++state.sequence
+    setBusy(true)
+    setError('')
+    setResult(null)
+    setSelected('')
+    try {
+      const next = await parseCompose(deviceId, source, controller.signal)
+      if (current !== state.sequence || controller.signal.aborted) return
+      setResult(next)
+      setSelected(next.services.length === 1 ? next.services[0].name : '')
+    } catch (e) {
+      if (current === state.sequence && !controller.signal.aborted) setError(errorMessage(e))
+    } finally {
+      if (current === state.sequence) setBusy(false)
+    }
+  }
+  return <ContainerDialog title="导入 Compose / Docker run" className="ct-compose-dialog" onClose={onClose}>
+    <p>粘贴整份 Compose 或一条 docker run 命令，自动识别并填入面板。解析不会创建容器。</p>
+    <label className="ct-field">
+      <span>Compose 或 Docker run</span>
+      <textarea autoFocus rows={10} value={source} spellCheck={false}
+        placeholder={'docker run -d --name ddns-go --restart=always --net=host -v /opt/ddns-go:/root jeessy/ddns-go'}
+        onChange={(e) => {
+          lifetime.current.sequence++
+          lifetime.current.pending?.abort()
+          setSource(e.target.value)
+          setResult(null)
+          setSelected('')
+          setBusy(false)
+          setError('')
+        }} />
+    </label>
+    {error && <p className="ct-alert" role="alert">{error}</p>}
+    {result && <>
+      <p>已识别为 {result.format === 'docker-run' ? 'Docker run 命令' : 'Compose'}</p>
+      <label className="ct-field">
+        <span>{result.format === 'docker-run' ? '导入容器' : '选择服务'}</span>
+        <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="">请选择一个服务</option>
+          {result.services.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+        </select>
+      </label>
+      {result.services.length > 1 && <p>仅导入所选服务；其他服务、依赖顺序和服务名解析不会创建。</p>}
+      {service && <ComposeReport service={service} skipped={result.skipped} />}
+    </>}
+    <div className="ct-compose-actions">
+      <ContainerButton type="button" onClick={onClose}>取消</ContainerButton>
+      <ContainerButton type="button" disabled={busy || !source.trim()} onClick={() => void parse()}>
+        {busy ? '解析中…' : '解析'}
+      </ContainerButton>
+      <ContainerButton type="button" className="ct-primary" disabled={!service || busy}
+        onClick={() => { if (service && result) onApply(service, result.skipped) }}>填入面板</ContainerButton>
+    </div>
+  </ContainerDialog>
+}
