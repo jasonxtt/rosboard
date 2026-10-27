@@ -3,7 +3,7 @@
 ## Before execution
 - [x] Obtain approval of the final planning summary and start the task.
 - [x] Resolve an isolated branch based on main; preserve unrelated work and use Draft PR #34.
-- [ ] Load backend/frontend specs and implementation/check helpers. Validate current routing filter ownership, ordering, FastTrack and conntrack capabilities before choosing mutation details.
+- [x] Load backend/frontend specs and implementation/check helpers. Validate routing ownership, ordering and FastTrack; reject unsupported untracked/classifier cases before apply.
 
 ## Ordered work
 1. Add meaningful desired-state regressions for disabled/missing family blocking, source scopes, cross-egress priority, IP and DNS-derived targets, router output and lifecycle.
