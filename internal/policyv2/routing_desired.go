@@ -279,7 +279,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 			for _, targetRule := range target.rules {
 				family := ipRuleFamily(targetRule.RuleType)
-				if family == "" || !familyEnabled(families, family) {
+				if family == "" {
 					continue
 				}
 				menu := routeros.MenuIPFirewallAddressList
