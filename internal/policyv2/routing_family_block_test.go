@@ -322,3 +322,76 @@ func TestAccessOrderingPreservesRoutingBlockPrefix(t *testing.T) {
 		t.Fatal("non-contiguous routing block must require routing reconciliation")
 	}
 }
+
+func TestRoutingBlockRejectsForwardMarkRewrites(t *testing.T) {
+	for _, family := range []struct {
+		name           string
+		filter, mangle routeros.MutationMenu
+	}{
+		{"ipv4", routeros.MenuIPFirewallFilter, routeros.MenuIPFirewallMangle},
+		{"ipv6", routeros.MenuIPv6FirewallFilter, routeros.MenuIPv6FirewallMangle},
+	} {
+		for _, tc := range []struct {
+			name, chain, action, disabled string
+			want                          bool
+		}{
+			{"mark overwrite", "forward", "mark-connection", "no", true},
+			{"jump to custom chain", "forward", "jump", "no", true},
+			{"disabled mark", "forward", "mark-connection", "yes", false},
+			{"packet qos marking", "forward", "mark-packet", "no", false},
+			{"routing mark", "forward", "mark-routing", "no", false},
+			{"mss clamp", "forward", "change-mss", "no", false},
+			{"forward accept", "forward", "accept", "no", false},
+			{"unrelated postrouting", "postrouting", "mark-connection", "no", false},
+		} {
+			t.Run(family.name+"/"+tc.name, func(t *testing.T) {
+				desired := []DesiredObject{{LogicalID: "routing-rule-block:e:" + family.name + ":x", Menu: string(family.filter), Fields: map[string]string{"chain": "forward", "disabled": "no"}}}
+				m := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{family.mangle: {{".id": "*F", "chain": tc.chain, "action": tc.action, "disabled": tc.disabled, "new-connection-mark": "external", "passthrough": "yes"}}}}
+				issues, err := routingBlockMangleIssues(context.Background(), m, desired, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if (len(issues) > 0) != tc.want {
+					t.Fatalf("issues=%#v want blocker=%v", issues, tc.want)
+				}
+			})
+		}
+	}
+}
+
+func TestForwardPreflightScopesFamiliesAndActiveBlocks(t *testing.T) {
+	m := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{
+		routeros.MenuIPFirewallMangle:   {{".id": "*4", "chain": "forward", "action": "mark-connection", "new-connection-mark": "foreign"}},
+		routeros.MenuIPv6FirewallMangle: {{".id": "*6", "chain": "forward", "action": "mark-connection", "new-connection-mark": "foreign"}},
+	}}
+	cases := []struct {
+		name    string
+		desired []DesiredObject
+		want    string
+	}{
+		{"ipv4 only", []DesiredObject{{LogicalID: "routing-rule-block:e:ipv4:x", Menu: string(routeros.MenuIPFirewallFilter), Fields: map[string]string{"chain": "forward", "disabled": "no"}}}, "*4"},
+		{"ipv6 only", []DesiredObject{{LogicalID: "routing-rule-block:e:ipv6:x", Menu: string(routeros.MenuIPv6FirewallFilter), Fields: map[string]string{"chain": "forward", "disabled": "no"}}}, "*6"},
+		{"disabled block", []DesiredObject{{LogicalID: "routing-rule-block:e:ipv4:x", Menu: string(routeros.MenuIPFirewallFilter), Fields: map[string]string{"chain": "forward", "disabled": "yes"}}}, ""},
+		{"router output only", []DesiredObject{{LogicalID: "routing-router-block:e:ipv4", Menu: string(routeros.MenuIPFirewallFilter), Fields: map[string]string{"chain": "output", "disabled": "no"}}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := routingBlockMangleIssues(context.Background(), m, tc.desired, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" && len(got) != 0 || tc.want != "" && (len(got) != 1 || got[0].LogicalID != tc.want) {
+				t.Fatalf("issues=%#v", got)
+			}
+		})
+	}
+}
+
+func TestForwardQoSWithPassthroughDisabledDoesNotOverwriteConnectionMark(t *testing.T) {
+	desired := []DesiredObject{{LogicalID: "routing-rule-block:e:ipv4:x", Menu: string(routeros.MenuIPFirewallFilter), Fields: map[string]string{"chain": "forward", "disabled": "no"}}}
+	m := &listedMoveRecorder{objects: map[routeros.MutationMenu][]routeros.RouterOSObject{routeros.MenuIPFirewallMangle: {{".id": "*1", "chain": "forward", "action": "mark-packet", "passthrough": "no"}, {".id": "*2", "chain": "forward", "action": "change-mss", "passthrough": "no"}}}}
+	got, err := routingBlockMangleIssues(context.Background(), m, desired, nil)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("safe forward actions blocked: %#v %v", got, err)
+	}
+}
