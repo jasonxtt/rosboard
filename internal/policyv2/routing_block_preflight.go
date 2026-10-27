@@ -76,6 +76,7 @@ func routingBlockMangleIssues(ctx context.Context, mutation PolicyMutation, desi
 		}
 		if o.Fields["chain"] == "forward" {
 			chains[menu]["prerouting"] = true
+			chains[menu]["forward"] = true
 		}
 		if o.Fields["chain"] == "output" {
 			chains[menu]["output"] = true
@@ -97,15 +98,29 @@ func routingBlockMangleIssues(ctx context.Context, mutation PolicyMutation, desi
 			return nil, fmt.Errorf("read %s: %w", menu, err)
 		}
 		for _, r := range rules {
-			if !chains[menu][r["chain"]] || normalizeRouterValue(r["disabled"]) == "yes" || owned[string(menu)+"\x00"+r.ID()] {
+			chain := strings.ToLower(strings.TrimSpace(r["chain"]))
+			if !chains[menu][chain] || normalizeRouterValue(r["disabled"]) == "yes" {
 				continue
 			}
 			action := strings.ToLower(strings.TrimSpace(r["action"]))
-			// These actions continue without changing connection classification.
-			if action == "log" || action == "passthrough" || (action == "change-mss" && normalizeRouterValue(r["passthrough"]) != "no") {
-				continue
+			if chain == "forward" {
+				// Forward mangle executes after classification but before filter.
+				// A jump can reach an arbitrary mark writer; neither it nor a
+				// direct mark-connection is safe to assume disjoint. Other
+				// forward actions cannot overwrite the connection mark.
+				if action != "mark-connection" && action != "jump" {
+					continue
+				}
+			} else {
+				if owned[string(menu)+"\x00"+r.ID()] {
+					continue
+				}
+				// These actions continue without changing connection classification.
+				if action == "log" || action == "passthrough" || (action == "change-mss" && normalizeRouterValue(r["passthrough"]) != "no") {
+					continue
+				}
 			}
-			issues = append(issues, PlanIssue{Code: "routing_block_mangle_conflict", Status: "blocker", LogicalID: r.ID(), Reason: fmt.Sprintf("%s 中外部规则 %s 可能先于策略分类处理流量；请调整该规则并重新预览。", menu, r.ID())})
+			issues = append(issues, PlanIssue{Code: "routing_block_mangle_conflict", Status: "blocker", LogicalID: r.ID(), Reason: fmt.Sprintf("%s 的 %s 链规则 %s 可能抢先分类或覆盖策略连接标记；请调整该规则并重新预览。", menu, chain, r.ID())})
 		}
 	}
 	return issues, nil

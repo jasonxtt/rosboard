@@ -310,7 +310,11 @@ only Access-owned filters; a non-contiguous routing block is a concrete ordering
 conflict requiring Routing reconciliation before Access can reorder its rules.
 Untracked packets cannot carry a connection mark: fail closed when tracking is
 off/unknown, a relevant family has an active raw notrack rule, or a foreign
-mangle rule could preempt classification. Recheck immediately before activation.
+mangle rule could preempt classification. Also block active forward-chain
+`mark-connection` and `jump` actions: they can overwrite the winner mark
+between prerouting and filter. Forward-chain MSS, packet QoS and other actions
+that do not write connection marks remain allowed. Recheck immediately before
+activation.
 
 When changing a firewall matcher from a direct interface to an aggregate list,
 RouterOS rejects an empty `in-interface` value in a patch. Disable the owned
