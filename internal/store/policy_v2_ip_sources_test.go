@@ -64,7 +64,7 @@ func hasDesiredField(objects []policyv2.DesiredObject, key, value string) bool {
 	return false
 }
 
-func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndFiltersFamily(t *testing.T) {
+func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndMaterializesBothFamilies(t *testing.T) {
 	storage, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -107,8 +107,8 @@ func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndFiltersFamily(t *testing.T
 		}
 	}
 	addr := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ip:ip-a:")
-	if len(addr) != 1 {
-		t.Fatalf("expected exactly one IPv4 target entry, got %#v", addr)
+	if len(addr) != 2 {
+		t.Fatalf("expected target entries for both families, got %#v", addr)
 	}
 	if addr[0].Menu != string(routeros.MenuIPFirewallAddressList) || addr[0].Fields["address"] != "91.108.0.0/16" || !strings.HasPrefix(addr[0].Fields["list"], "rb_rt_") {
 		t.Fatalf("unexpected IPv4 target address entry: %#v", addr[0])
@@ -118,8 +118,8 @@ func TestPolicyV2DesiredIPOnlySharedHasNoDNSObjectsAndFiltersFamily(t *testing.T
 		t.Fatalf("IPv4 entry used the wrong RouterOS family: %#v", ipv4)
 	}
 	ipv6 := desiredObjectsByLogicalPrefix(desired.Objects, "routing-target-addr:wan-ip:ip-a:IP-CIDR6:")
-	if len(ipv6) != 0 {
-		t.Fatalf("disabled IPv6 family must not materialize target entries: %#v", ipv6)
+	if len(ipv6) != 1 || ipv6[0].Menu != string(routeros.MenuIPv6FirewallAddressList) {
+		t.Fatalf("IPv6 target must remain available for disabled-family enforcement: %#v", ipv6)
 	}
 	mangle := desiredObjectsByMenu(desired.Objects, routeros.MenuIPFirewallMangle)
 	if !hasDesiredField(mangle, "dst-address-list", ipv4[0].Fields["list"]) {
