@@ -11,8 +11,8 @@ Keep current FWD/forwarder/alias transport behavior. Build static target members
 ## Filter ownership and ordering
 Use stable canonical routing logical IDs and exact scoped ownership. Extend routing desired/scan/domain-selection/diff/apply/stale cleanup to include these specific filter identities. Existing access filter identities remain access-owned. Review reconcile.go filter ordering and FastTrack capability handling before selecting final anchors. Block filters must precede established accept/FastTrack paths that can bypass them, while respecting foreign rule ownership. Never edit foreign rules except through the established explicit FastTrack recovery contract.
 
-## Existing connections
-New-connection-only marking is insufficient when the user disables a family on established traffic. Implementation must inspect the existing apply/connection handling before coding: preserve priority and account for FastTrack. Prefer exact, previewed invalidation of affected policy connections plus correct filter positioning; if safe identification is impossible, surface a concrete blocker/recovery action instead of silently claiming protection. No broad conntrack flush. The disposable ROS scenario is a required technical validation gate.
+## Connection lifetime
+The guarantee covers new connections after successful apply. Existing or already FastTracked and previously marked connections can continue until natural expiry; transitions do not retroactively change them. Never invalidate or flush connection tracking. Untracked or otherwise unclassifiable new traffic must not silently bypass blocking. Verify placement and FastTrack interaction on disposable RouterOS.
 
 ## Compatibility and presentation
 Reuse Egress.families without a schema change if feasible. Missing-family rows follow disabled-family blocking. Update canonical and compact UI wording wherever the switch/preview is exposed. This intentionally changes existing single-family policy behavior; surface a warning and exact changes in a fresh plan rather than silently mutating routers on app upgrade.

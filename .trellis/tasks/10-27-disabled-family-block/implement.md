@@ -1,17 +1,17 @@
 # Implementation plan
 
 ## Before execution
-- [ ] Obtain approval of the final planning summary, then run task.py start.
-- [ ] Resolve an appropriate isolated work branch/base relative to main; preserve all unrelated local files and the existing container-management workstream. Record branch and Draft PR metadata.
+- [x] Obtain approval of the final planning summary and start the task.
+- [x] Resolve an isolated branch based on main; preserve unrelated work and use Draft PR #34.
 - [ ] Load backend/frontend specs and implementation/check helpers. Validate current routing filter ownership, ordering, FastTrack and conntrack capabilities before choosing mutation details.
 
 ## Ordered work
 1. Add meaningful desired-state regressions for disabled/missing family blocking, source scopes, cross-egress priority, IP and DNS-derived targets, router output and lifecycle.
 2. Implement action-aware family/target/mark projection and routing-owned filters. Extend domain selection, scan, preview, lifecycle cleanup and ordering without access-domain contamination.
-3. Implement or reuse safe previewed existing-connection handling. Add explicit guards for unsupported cases; never globally flush conntrack.
+3. Guarantee new-connection enforcement, including FastTrack and untracked traffic. Existing connections may expire naturally; do not clean conntrack.
 4. Update canonical/compact family-toggle wording and preview warnings; explain that DNS AAAA remains unchanged and a disabled policy does not block.
 5. Add reconciliation/API/UI tests for idempotence, transitions, ownership and review visibility. Update policy-routing spec in the same workstream.
-6. Verify on disposable test ROS: A/AAAA answers; IPv4 success; IPv6 block counters; no WAN leak; unmatched traffic; router output; priority overlap; existing/FastTracked connections; enable/disable/delete and no-op replay.
+6. Verify on disposable test ROS: A/AAAA answers; IPv4 success; IPv6 block counters; no WAN leak; unmatched traffic; router output; priority overlap; new connections with FastTrack present; enable/disable/delete and no-op replay.
 
 ## Validation
 - Targeted tests in internal/policyv2, internal/api, internal/routeros and internal/store as affected.
