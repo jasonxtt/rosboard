@@ -294,3 +294,26 @@ If the next domain requires acknowledgement, discard its cached plan, retain
 the first domain's committed state and the pending desired state, and fail the
 job with a re-preview/confirmation recovery message before any next-domain
 mutation.
+
+## Disabled routing address families
+
+An enabled routing rule whose enabled egress omits or disables an address family
+classifies matching new connections through the same source, target and
+priority pipeline as routing, then uses Routing-owned forward/output DROP
+filters. Router output is included only when requested. Existing connections may
+continue until expiry; do not clear connection tracking. The reviewed plan
+must expose block operations and the effect of removing a block. DNS A/AAAA
+resolution is unchanged. Filters must precede rules that can accept or
+FastTrack those new connections, without taking ownership of Access filters.
+Access ordering must preserve the current-scoped routing DROP prefix and move
+only Access-owned filters; a non-contiguous routing block is a concrete ordering
+conflict requiring Routing reconciliation before Access can reorder its rules.
+Untracked packets cannot carry a connection mark: fail closed when tracking is
+off/unknown, a relevant family has an active raw notrack rule, or a foreign
+mangle rule could preempt classification. Recheck immediately before activation.
+
+When changing a firewall matcher from a direct interface to an aggregate list,
+RouterOS rejects an empty `in-interface` value in a patch. Disable the owned
+rule, unset only the allowlisted obsolete matcher, patch the replacement while
+disabled, then activate after dependencies converge. Any failed unset stops the
+apply and requires a fresh scan; never issue arbitrary RouterOS unset commands.
