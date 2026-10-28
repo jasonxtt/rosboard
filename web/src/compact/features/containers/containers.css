@@ -348,6 +348,11 @@
   transform: translateY(2px);
 }
 .ct [data-tip]:hover::after, .ct [data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
+/* disabled icon buttons stay opaque so their bubble remains readable; muting
+   comes from grayscale + faint ink instead of opacity */
+.ct button[data-tip]:disabled { opacity: 1; filter: grayscale(0.75); color: var(--ct-muted); }
+/* first data row opens its bubbles downward: above it is only the header */
+.ct tbody tr:first-child:not(:last-child) [data-tip]::after { top: calc(100% + 7px); bottom: auto; transform: translateY(-2px); }
 .ct table tbody tr:hover { background: color-mix(in srgb, var(--ct-accent) 4%, transparent); }
 .ct-pagination {
   display: flex;

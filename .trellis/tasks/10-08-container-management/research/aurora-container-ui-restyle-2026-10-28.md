@@ -66,6 +66,12 @@ Destructive actions still pass through the confirmation dialog with focus
 restored to the triggering icon; the dual-adapter regression test was updated
 accordingly and the dual-ui spec bullet now documents the flat-icon pattern.
 
+Bubble follow-up (same day, user report): the shell's `.btn:disabled` opacity
+also faded the bubble of disabled icons, and a first-row bubble could meet the
+table scroll container's top edge. Disabled tipped buttons now keep full
+opacity and mute via grayscale + faint ink, and the first data row (when it is
+not the only row) opens its bubbles downward, in both shells.
+
 ## Pending
 
 User-led visual acceptance (quality-guidelines): preview via
