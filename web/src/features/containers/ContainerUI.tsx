@@ -9,6 +9,16 @@ export type ContainerFloatProps = {
   onClose: () => void
   children: ReactNode
 }
+export type ContainerDialogProps = {
+  title: string
+  className?: string
+  onClose: () => void
+  /** block dismissal while an operation is in flight */
+  busy?: boolean
+  /** wide dialogs host the long create/edit form */
+  wide?: boolean
+  children: ReactNode
+}
 export type ContainerPresentation = {
   Button: ComponentType<ContainerButtonProps>
   Surface: ComponentType<ContainerSurfaceProps>
@@ -17,6 +27,9 @@ export type ContainerPresentation = {
   /** Optional floating layer for popover panels (directory browser).
    * Shells without one render the panel inline in the document flow. */
   Float?: ComponentType<ContainerFloatProps>
+  /** Optional modal dialog layer. Shells without one fall back to the
+   * native <dialog> implementation below. */
+  Dialog?: ComponentType<ContainerDialogProps>
 }
 const Presentation = createContext<ContainerPresentation>({
   tableClassName: 'data-table',
@@ -51,10 +64,15 @@ export function ContainerFloat({ anchor, onClose, children }: ContainerFloatProp
   return <>{children}</>
 }
 
-/** Native top-layer dialog keeps menus and inputs inside the active UI scope. */
-export function ContainerDialog({ title, className = '', onClose, busy = false, children }: {
-  title: string; className?: string; onClose: () => void; busy?: boolean; children: ReactNode
-}) {
+/** Modal dialog host: shells provide their dialog layer; the fallback uses
+ * the native top-layer <dialog> (Compact). */
+export function ContainerDialog(props: ContainerDialogProps) {
+  const { Dialog } = useContext(Presentation)
+  if (Dialog) return <Dialog {...props} />
+  return <NativeContainerDialog {...props} />
+}
+
+function NativeContainerDialog({ title, className = '', onClose, busy = false, wide = false, children }: ContainerDialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
   useEffect(() => {
@@ -66,7 +84,7 @@ export function ContainerDialog({ title, className = '', onClose, busy = false, 
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
   }, [])
-  return <dialog ref={ref} className={`ct-dialog ${className}`} aria-labelledby={titleId}
+  return <dialog ref={ref} className={`ct-dialog${wide ? ' ct-dialog-wide' : ''} ${className}`} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose() }}>
     <header className="ct-dialog-heading"><h2 id={titleId}>{title}</h2>
       <ContainerButton aria-label="关闭弹窗" disabled={busy} onClick={onClose}>×</ContainerButton>

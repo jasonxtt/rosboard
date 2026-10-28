@@ -388,12 +388,12 @@ for (const [name, Page] of [
           ?.disabled,
         false,
       )
-      assert.equal(document.querySelectorAll('thead th').length, 10)
+      assert.equal(document.querySelectorAll('thead th').length, 5)
       assert.doesNotMatch(
         document.querySelector('thead')!.textContent!,
         /端口映射/,
       )
-      assert.match(document.querySelector('thead')!.textContent!, /IP \/ VETH/)
+      assert.match(document.querySelector('thead')!.textContent!, /网络/)
       await act(async () => button('配置预览').click())
       assert.equal(document.querySelectorAll('.ct-section').length, 7)
     } finally {
@@ -1908,14 +1908,15 @@ for (const [name, Page] of [
       assert.equal(names().length, 5)
       assert.equal(names()[0], 'container-075')
       assert.equal(button('下一页').disabled, true)
-      for (const column of ['CPU', '内存']) {
+      // the merged resource column sorts by memory usage
+      for (const column of ['资源']) {
         await act(async () => button(column).click())
         assert.equal(names()[0], 'container-000')
         await act(async () => button(column).click())
         assert.equal(names()[0], 'container-079')
-        assert.equal(
-          document.querySelector('.ct-table-scroll tbody tr')?.children[6].textContent,
-          '79.0 KB',
+        assert.match(
+          document.querySelector('.ct-table-scroll tbody tr')?.children[3].textContent ?? '',
+          /79\.0 KB/,
         )
       }
       assert.equal(
@@ -2013,7 +2014,7 @@ for (const [name, presentation, surfaceClass, tableClass] of [
       assert.equal(document.querySelector('.ct-brand'), null)
       assert.equal(document.querySelector('.ct-stats .ct-card'), null)
       assert.equal(document.querySelector<HTMLDetailsElement>('.ct-help')!.open, false)
-      assert.equal(document.querySelector('[aria-label="日志 dns"]')!.textContent?.trim(), '日志')
+      assert.equal(document.querySelector('[aria-label="日志 dns"]')!.textContent?.trim(), '📋')
       const menu = document.querySelector<HTMLDetailsElement>('.ct-more')!
       const trigger = menu.querySelector('summary')!
       await act(async () => { menu.open = true; trigger.focus() })
@@ -2024,13 +2025,15 @@ for (const [name, presentation, surfaceClass, tableClass] of [
       const remove = menu.querySelector<HTMLButtonElement>('[aria-label="删除 dns"]')!
       await act(async () => { remove.focus(); remove.click() })
       assert.equal(menu.open, false)
-      const dialog = document.querySelector<HTMLDialogElement>('dialog')!
-      assert.ok(dialog.open)
+      const dialog = document.querySelector<HTMLElement>(
+        name === 'Aurora' ? '.modal[role="dialog"]' : 'dialog[open]',
+      )!
+      assert.ok(dialog)
       assert.equal(dialog.querySelector('h2')!.textContent, '删除容器')
       assert.match(dialog.textContent!, /独占运行目录/)
       assert.ok(dialog.querySelector('.ct-danger'))
       await act(async () => button('取消').click())
-      assert.equal(document.querySelector('dialog'), null)
+      assert.equal(document.querySelector(name === 'Aurora' ? '.modal' : 'dialog'), null)
       assert.equal(document.activeElement, trigger)
       assert.equal(writes, 0)
       await act(async () => { menu.open = true })
