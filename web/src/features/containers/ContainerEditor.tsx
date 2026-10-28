@@ -53,7 +53,7 @@ function Field({
       </span>
       {multiline ? (
         <textarea
-          rows={2}
+          rows={1}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
@@ -467,16 +467,11 @@ export function ContainerEditor({
             error={issue('rootDir')}
             hint={
               (resolution?.effective.rootDir
-                ? `最终目录：${resolution.effective.rootDir}`
-                : '自动选择空闲空间最大的可用磁盘') +
-              '；点击输入框选择，输入的末级目录不存在时按 Enter 创建'
+                ? ''
+                : '自动选择空闲空间最大的可用磁盘；') +
+              '点击输入框选择，输入的末级目录不存在时按 Enter 创建'
             }
           />
-          <p className="ct-storage-hint">
-            可放在同一父目录下：<code>nginx/rootdir/</code> 用作运行目录，
-            <code>nginx/data/config/</code>{' '}
-            用作配置挂载源。挂载源应位于运行目录之外，目录名称可自定义。
-          </p>
           <small>
             可用磁盘：
             {snapshot.options.disks
@@ -635,32 +630,34 @@ export function ContainerEditor({
           number="05"
           description="设置何时启动、自动重启和日志记录。通常无需修改高级设置。"
         >
-          {!item && (
+          <div className="ct-switch-row">
+            {!item && (
+              <label className="ct-check">
+                <input
+                  type="checkbox"
+                  checked={draft.startAfterCreate}
+                  onChange={(e) => patch('startAfterCreate', e.target.checked)}
+                />
+                创建后启动
+              </label>
+            )}
             <label className="ct-check">
               <input
                 type="checkbox"
-                checked={draft.startAfterCreate}
-                onChange={(e) => patch('startAfterCreate', e.target.checked)}
+                checked={draft.startOnBoot}
+                onChange={(e) => patch('startOnBoot', e.target.checked)}
               />
-              创建后启动
+              开机自动启动
             </label>
-          )}
-          <label className="ct-check">
-            <input
-              type="checkbox"
-              checked={draft.startOnBoot}
-              onChange={(e) => patch('startOnBoot', e.target.checked)}
-            />
-            开机自动启动
-          </label>
-          <label className="ct-check">
-            <input
-              type="checkbox"
-              checked={draft.logging}
-              onChange={(e) => patch('logging', e.target.checked)}
-            />
-            记录容器日志
-          </label>
+            <label className="ct-check">
+              <input
+                type="checkbox"
+                checked={draft.logging}
+                onChange={(e) => patch('logging', e.target.checked)}
+              />
+              记录容器日志
+            </label>
+          </div>
           <label className="ct-field">
             <span>自动重启策略</span>
             <select
