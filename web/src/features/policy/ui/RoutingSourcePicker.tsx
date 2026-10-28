@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react'
 import { Textarea } from '../../../ui/inputs'
 import { Notice } from './Notice'
 import { SubjectSelector } from './SubjectSelector'
@@ -116,16 +117,33 @@ function LegacyIngressPicker({ discovery, trafficIngress, selectedLists, subject
   </>
 }
 
+/** Recommended (and already selected) rows stay visible; the rest fold behind an arrow toggle. */
+function FoldedChoices<T extends { name: string; recommended?: boolean }>({ items, selected, noun, render }: { items: T[]; selected: string[]; noun: string; render: (item: T) => ReactNode }) {
+  const primary = items.filter((item) => item.recommended || selected.includes(item.name))
+  const extras = items.filter((item) => !primary.includes(item))
+  const [open, setOpen] = useState(false)
+  const expanded = open || primary.length === 0
+  return <>
+    {primary.map(render)}
+    {extras.length ? <>
+      {primary.length ? <button type="button" className="pol-more-toggle" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
+        <span aria-hidden="true">{expanded ? '▴' : '▾'}</span>其他{noun}（{extras.length}）
+      </button> : null}
+      {expanded ? extras.map(render) : null}
+    </> : null}
+  </>
+}
+
 function InterfaceMultiSelect({ title, selected, items, busy, onToggle }: { title: string; selected: string[]; items: PolicySourceSelectors['interfaces']; busy: boolean; onToggle: (name: string) => void }) {
-  return <div className="pol-choice-list"><h5 className="pol-section-subtitle">{title}</h5>{items.map((item) => <label key={item.name} className={`pol-choice${selected.includes(item.name) ? ' pol-choice-active' : ''}`}>
+  return <div className="pol-choice-list"><h5 className="pol-section-subtitle">{title}</h5><FoldedChoices items={items} selected={selected} noun="接口" render={(item) => <label key={item.name} className={`pol-choice${selected.includes(item.name) ? ' pol-choice-active' : ''}`}>
     <input type="checkbox" checked={selected.includes(item.name)} disabled={busy} onChange={() => onToggle(item.name)} />
     <span><strong>{item.name}</strong><small>{item.kind || item.type || 'interface'}{item.recommended ? ' · 推荐' : ' · 非推荐但可选'}{item.reason ? ` · ${item.reason}` : ''}</small>{item.warnings.map((warning) => <small key={warning} className="faint">⚠ {warning}</small>)}</span>
-  </label>)}{!items.length ? <p className="pol-hint">暂无 RouterOS 接口事实；请刷新后重试。</p> : null}</div>
+  </label>} />{!items.length ? <p className="pol-hint">暂无 RouterOS 接口事实；请刷新后重试。</p> : null}</div>
 }
 
 function InterfaceListMultiSelect({ title, selected, items, busy, onToggle }: { title: string; selected: string[]; items: PolicySourceSelectors['interfaceLists']; busy: boolean; onToggle: (name: string) => void }) {
-  return <div className="pol-choice-list"><h5 className="pol-section-subtitle">{title}</h5>{items.map((item) => <label key={item.name} className={`pol-choice${selected.includes(item.name) ? ' pol-choice-active' : ''}`}>
+  return <div className="pol-choice-list"><h5 className="pol-section-subtitle">{title}</h5><FoldedChoices items={items} selected={selected} noun="接口列表" render={(item) => <label key={item.name} className={`pol-choice${selected.includes(item.name) ? ' pol-choice-active' : ''}`}>
     <input type="checkbox" checked={selected.includes(item.name)} disabled={busy} onChange={() => onToggle(item.name)} />
     <span><strong>{item.name}</strong><small>接口列表{item.recommended ? ' · 推荐' : ' · 非推荐但可选'}{item.reason ? ` · ${item.reason}` : ''}</small>{item.warnings.map((warning) => <small key={warning} className="faint">⚠ {warning}</small>)}</span>
-  </label>)}{!items.length ? <p className="pol-hint">暂无 RouterOS 接口列表事实；请刷新后重试。</p> : null}</div>
+  </label>} />{!items.length ? <p className="pol-hint">暂无 RouterOS 接口列表事实；请刷新后重试。</p> : null}</div>
 }

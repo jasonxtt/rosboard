@@ -328,591 +328,600 @@ export function ContainerEditor({
         className="ct-form-grid"
         disabled={busy || validating || uploading}
       >
-        <Section
-          title="镜像"
-          number="01"
-          description="从仓库拉取或上传本地镜像归档，继承镜像默认配置。"
-        >
-          <label className="ct-field">
-            <span>镜像来源</span>
-            <select
-              value={draft.imageSource}
-              onChange={(e) => patch('imageSource', e.target.value)}
-            >
-              <option value="registry">镜像仓库</option>
-              <option value="archive">本地上传</option>
-            </select>
-          </label>
-          {draft.imageSource === 'archive' ? (
-            <>
-              <ImageUpload
-                deviceId={deviceId}
-                archives={snapshot.options.archives}
-                simulated={snapshot.capabilities.mode === 'simulation'}
-                enabled={snapshot.capabilities.writes}
-                archiveFile={draft.archiveFile}
-                onBusy={setUploading}
-                onUploaded={(archive) =>
-                  setDraft((d) => ({
-                    ...d,
-                    image: archive.reference,
-                    archiveId: archive.id,
-                    archiveFile: archive.remotePath,
-                  }))
+        <div className="ct-col">
+          <Section
+            title="镜像"
+            number="01"
+            description="从仓库拉取或上传本地镜像归档，继承镜像默认配置。"
+          >
+            <label className="ct-field">
+              <span>镜像来源</span>
+              <select
+                value={draft.imageSource}
+                onChange={(e) => patch('imageSource', e.target.value)}
+              >
+                <option value="registry">镜像仓库</option>
+                <option value="archive">本地上传</option>
+              </select>
+            </label>
+            {draft.imageSource === 'archive' ? (
+              <>
+                <ImageUpload
+                  deviceId={deviceId}
+                  archives={snapshot.options.archives}
+                  simulated={snapshot.capabilities.mode === 'simulation'}
+                  enabled={snapshot.capabilities.writes}
+                  archiveFile={draft.archiveFile}
+                  onBusy={setUploading}
+                  onUploaded={(archive) =>
+                    setDraft((d) => ({
+                      ...d,
+                      image: archive.reference,
+                      archiveId: archive.id,
+                      archiveFile: archive.remotePath,
+                    }))
+                  }
+                />
+                {issue('archiveId') && (
+                  <strong role="alert">{issue('archiveId')}</strong>
+                )}
+                {issue('imageSource') && (
+                  <strong role="alert">{issue('imageSource')}</strong>
+                )}
+              </>
+            ) : (
+              <Field
+                label="镜像引用"
+                value={draft.image}
+                onChange={(v) => patch('image', v)}
+                required
+                error={issue('image')}
+                hint={
+                  normalizedImage(draft.image) ||
+                  '例如 ghcr.io/example/service:1.0'
                 }
               />
-              {issue('archiveId') && (
-                <strong role="alert">{issue('archiveId')}</strong>
-              )}
-              {issue('imageSource') && (
-                <strong role="alert">{issue('imageSource')}</strong>
-              )}
-            </>
-          ) : (
+            )}
             <Field
-              label="镜像引用"
-              value={draft.image}
-              onChange={(v) => patch('image', v)}
-              required
-              error={issue('image')}
+              label="容器名称"
+              value={draft.name}
+              onChange={(v) => patch('name', v)}
+              error={issue('name')}
               hint={
-                normalizedImage(draft.image) ||
-                '例如 ghcr.io/example/service:1.0'
+                resolution?.effective.name
+                  ? `最终名称：${resolution.effective.name}`
+                  : '留空按镜像名称生成唯一名称'
               }
             />
-          )}
-          <Field
-            label="容器名称"
-            value={draft.name}
-            onChange={(v) => patch('name', v)}
-            error={issue('name')}
-            hint={
-              resolution?.effective.name
-                ? `最终名称：${resolution.effective.name}`
-                : '留空按镜像名称生成唯一名称'
-            }
-          />
-        </Section>
-        <Section
-          title="网络"
-          number="02"
-          description="专属 VETH 接入已有 bridge。通过容器 IP:应用端口访问，沿用现有路由与防火墙。"
-        >
-          {locked && (
-            <p className="ct-notice">
-              VETH 与 {item?.sharedVeth.join(', ')} 共享，网络参数已锁定。
-            </p>
-          )}
-          <Field
-            label="VETH 名称"
-            value={draft.network.veth}
-            onChange={(v) => net('veth', v)}
-            required
-            disabled={locked}
-            error={issue('network.veth')}
-          />
-          <label className="ct-field">
-            <span>
-              已有 bridge <em>*</em>
-            </span>
-            <select
-              value={draft.network.bridge}
-              onChange={(e) => net('bridge', e.target.value)}
-              disabled={locked}
-              aria-invalid={!!issue('network.bridge')}
-            >
-              <option value="">请选择 bridge</option>
-              {snapshot.options.bridges.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-            </select>
-            {issue('network.bridge') && (
-              <strong role="alert">{issue('network.bridge')}</strong>
-            )}
-          </label>
-          <div className="ct-pair">
-            <Field
-              label="静态 IPv4 / 掩码"
-              value={draft.network.address}
-              onChange={(v) => net('address', v)}
-              required
-              disabled={locked}
-              error={issue('network.address')}
-              hint="例如 172.20.0.2/24"
-            />
-            <Field
-              label="IPv4 网关"
-              value={draft.network.gateway}
-              onChange={(v) => net('gateway', v)}
-              required
-              disabled={locked}
-              error={issue('network.gateway')}
-            />
-          </div>
-          <ContainerButton
-            type="button"
-            className="ct-advanced-toggle"
-            aria-label="网络高级设置"
-            aria-expanded={advancedNetwork}
-            aria-controls={advancedNetworkID}
-            onClick={() => setAdvancedNetwork((open) => !open)}
+          </Section>
+          <Section
+            title="存储与挂载"
+            number="03"
+            description="容器运行目录与配置、数据挂载可共用父目录，分别使用子目录。"
           >
-            <span aria-hidden="true">{advancedNetwork ? '▴' : '▾'}</span>
-            高级设置
-            {(draft.network.address6 ||
-              draft.network.gateway6 ||
-              draft.network.mac) && <small>已配置</small>}
-          </ContainerButton>
-          {advancedNetwork && (
-            <div
-              className="ct-network-advanced ct-advanced-fields"
-              id={advancedNetworkID}
-            >
-              <div className="ct-pair">
-                <Field
-                  label="IPv6 / 掩码"
-                  value={draft.network.address6}
-                  onChange={(v) => net('address6', v)}
-                  disabled={locked}
-                  error={issue('network.address6')}
-                />
-                <Field
-                  label="IPv6 网关"
-                  value={draft.network.gateway6}
-                  onChange={(v) => net('gateway6', v)}
-                  disabled={locked}
-                  error={issue('network.gateway6')}
-                />
-              </div>
-              <Field
-                label="自定义 MAC"
-                value={draft.network.mac}
-                onChange={(v) => net('mac', v)}
-                disabled={locked}
-                error={issue('network.mac')}
-                hint="留空由 RouterOS 生成"
-              />
-            </div>
-          )}
-        </Section>
-        <Section
-          title="存储与挂载"
-          number="03"
-          description="容器运行目录与配置、数据挂载可共用父目录，分别使用子目录。"
-        >
-          <DirectoryField
-            label="容器运行目录（root-dir）"
-            purpose="容器运行目录"
-            deviceId={deviceId}
-            writable={snapshot.capabilities.directoryWrites}
-            value={draft.rootDir}
-            onChange={(v) => patch('rootDir', v)}
-            onMutation={applyDirectoryMutation}
-            error={issue('rootDir')}
-            hint={
-              (resolution?.effective.rootDir
-                ? ''
-                : '自动选择空闲空间最大的可用磁盘；') +
-              '点击输入框选择，输入的末级目录不存在时按 Enter 创建'
-            }
-          />
-          <small>
-            可用磁盘：
-            {snapshot.options.disks
-              .filter((d) => d.writable)
-              .map(
-                (d) =>
-                  `${d.name} · ${(d.freeBytes / 2 ** 30).toFixed(1)} GiB 空闲`,
-              )
-              .join(' / ') || '无'}
-          </small>
-          {draft.mounts.map((m, i) => (
-            <div className="ct-repeat ct-mount" key={i}>
-              <div className="ct-pair">
-                <DirectoryField
-                  label="主机源目录"
-                  purpose={`挂载源 ${i + 1}`}
-                  deviceId={deviceId}
-                  writable={snapshot.capabilities.directoryWrites}
-                  value={m.source}
-                  onChange={(v) =>
-                    patch(
-                      'mounts',
-                      draft.mounts.map((x, j) =>
-                        j === i ? { ...x, source: v } : x,
-                      ),
-                    )
-                  }
-                  onMutation={applyDirectoryMutation}
-                />
-                <Field
-                  label="容器目标目录"
-                  value={m.target}
-                  onChange={(v) =>
-                    patch(
-                      'mounts',
-                      draft.mounts.map((x, j) =>
-                        j === i ? { ...x, target: v } : x,
-                      ),
-                    )
-                  }
-                />
-              </div>
-              <div className="ct-mount-actions">
-                <label className="ct-check">
-                  <input
-                    type="checkbox"
-                    checked={m.readOnly}
-                    onChange={(e) =>
+            <DirectoryField
+              label="容器运行目录（root-dir）"
+              purpose="容器运行目录"
+              deviceId={deviceId}
+              writable={snapshot.capabilities.directoryWrites}
+              value={draft.rootDir}
+              onChange={(v) => patch('rootDir', v)}
+              onMutation={applyDirectoryMutation}
+              error={issue('rootDir')}
+              hint={
+                (resolution?.effective.rootDir
+                  ? ''
+                  : '自动选择空闲空间最大的可用磁盘；') +
+                '点击输入框选择，输入的末级目录不存在时按 Enter 创建'
+              }
+            />
+            <small>
+              可用磁盘：
+              {snapshot.options.disks
+                .filter((d) => d.writable)
+                .map(
+                  (d) =>
+                    `${d.name} · ${(d.freeBytes / 2 ** 30).toFixed(1)} GiB 空闲`,
+                )
+                .join(' / ') || '无'}
+            </small>
+            {draft.mounts.map((m, i) => (
+              <div className="ct-repeat ct-mount" key={i}>
+                <div className="ct-pair">
+                  <DirectoryField
+                    label="主机源目录"
+                    purpose={`挂载源 ${i + 1}`}
+                    deviceId={deviceId}
+                    writable={snapshot.capabilities.directoryWrites}
+                    value={m.source}
+                    onChange={(v) =>
                       patch(
                         'mounts',
                         draft.mounts.map((x, j) =>
-                          j === i ? { ...x, readOnly: e.target.checked } : x,
+                          j === i ? { ...x, source: v } : x,
+                        ),
+                      )
+                    }
+                    onMutation={applyDirectoryMutation}
+                  />
+                  <Field
+                    label="容器目标目录"
+                    value={m.target}
+                    onChange={(v) =>
+                      patch(
+                        'mounts',
+                        draft.mounts.map((x, j) =>
+                          j === i ? { ...x, target: v } : x,
                         ),
                       )
                     }
                   />
-                  只读
+                </div>
+                <div className="ct-mount-actions">
+                  <label className="ct-check">
+                    <input
+                      type="checkbox"
+                      checked={m.readOnly}
+                      onChange={(e) =>
+                        patch(
+                          'mounts',
+                          draft.mounts.map((x, j) =>
+                            j === i ? { ...x, readOnly: e.target.checked } : x,
+                          ),
+                        )
+                      }
+                    />
+                    只读
+                  </label>
+                  <ContainerButton
+                    type="button"
+                    className="ct-icon-delete"
+                    aria-label={`移除挂载 ${i + 1}`}
+                    data-tip={`移除挂载 ${i + 1}`}
+                    onClick={() =>
+                      patch(
+                        'mounts',
+                        draft.mounts.filter((_, j) => i !== j),
+                      )
+                    }
+                  >
+                    <span aria-hidden="true">🗑️</span>
+                  </ContainerButton>
+                </div>
+                {issue(`mounts.${i}`) && (
+                  <strong role="alert">{issue(`mounts.${i}`)}</strong>
+                )}
+              </div>
+            ))}
+            <ContainerButton
+              type="button"
+              className="ct-add"
+              onClick={() =>
+                patch('mounts', [
+                  ...draft.mounts,
+                  { source: '', target: '', readOnly: false },
+                ])
+              }
+            >
+              ＋ 添加挂载
+            </ContainerButton>
+          </Section>
+          <Section
+            title="启动配置"
+            number="05"
+            description="设置何时启动、自动重启和日志记录。通常无需修改高级设置。"
+          >
+            <div className="ct-switch-row">
+              {!item && (
+                <label className="ct-check">
+                  <input
+                    type="checkbox"
+                    checked={draft.startAfterCreate}
+                    onChange={(e) => patch('startAfterCreate', e.target.checked)}
+                  />
+                  创建后启动
                 </label>
-                <ContainerButton
-                  type="button"
-                  className="ct-icon-delete"
-                  aria-label={`移除挂载 ${i + 1}`}
-                  data-tip={`移除挂载 ${i + 1}`}
-                  onClick={() =>
-                    patch(
-                      'mounts',
-                      draft.mounts.filter((_, j) => i !== j),
-                    )
-                  }
-                >
-                  <span aria-hidden="true">🗑️</span>
-                </ContainerButton>
-              </div>
-              {issue(`mounts.${i}`) && (
-                <strong role="alert">{issue(`mounts.${i}`)}</strong>
               )}
-            </div>
-          ))}
-          <ContainerButton
-            type="button"
-            className="ct-add"
-            onClick={() =>
-              patch('mounts', [
-                ...draft.mounts,
-                { source: '', target: '', readOnly: false },
-              ])
-            }
-          >
-            ＋ 添加挂载
-          </ContainerButton>
-        </Section>
-        <Section
-          title="环境变量"
-          number="04"
-          description="只添加显式覆盖，值中的空格、引号和特殊字符原样保留。"
-        >
-          {draft.env.length === 0 && (
-            <p className="ct-empty-inline">继承镜像中的环境变量</p>
-          )}
-          {draft.env.map((v, i) => (
-            <div className="ct-repeat" key={i}>
-              <div className="ct-env-row">
-                <Field
-                  label="变量名"
-                  value={v.key}
-                  onChange={(value) =>
-                    patch(
-                      'env',
-                      draft.env.map((x, j) =>
-                        j === i ? { ...x, key: value } : x,
-                      ),
-                    )
-                  }
-                />
-                <Field
-                  label="变量值"
-                  multiline
-                  value={v.value}
-                  onChange={(value) =>
-                    patch(
-                      'env',
-                      draft.env.map((x, j) => (j === i ? { ...x, value } : x)),
-                    )
-                  }
-                />
-                <ContainerButton
-                  type="button"
-                  className="ct-icon-delete"
-                  aria-label={`删除变量 ${i + 1}`}
-                  data-tip={`删除变量 ${i + 1}`}
-                  onClick={() =>
-                    patch(
-                      'env',
-                      draft.env.filter((_, j) => i !== j),
-                    )
-                  }
-                >
-                  <span aria-hidden="true">🗑️</span>
-                </ContainerButton>
-              </div>
-              {issue(`env.${i}`) && (
-                <strong role="alert">{issue(`env.${i}`)}</strong>
-              )}
-            </div>
-          ))}
-          <ContainerButton
-            type="button"
-            className="ct-add"
-            onClick={() => patch('env', [...draft.env, { key: '', value: '' }])}
-          >
-            ＋ 添加变量
-          </ContainerButton>
-        </Section>
-        <Section
-          title="启动配置"
-          number="05"
-          description="设置何时启动、自动重启和日志记录。通常无需修改高级设置。"
-        >
-          <div className="ct-switch-row">
-            {!item && (
               <label className="ct-check">
                 <input
                   type="checkbox"
-                  checked={draft.startAfterCreate}
-                  onChange={(e) => patch('startAfterCreate', e.target.checked)}
+                  checked={draft.startOnBoot}
+                  onChange={(e) => patch('startOnBoot', e.target.checked)}
                 />
-                创建后启动
+                开机自动启动
               </label>
-            )}
-            <label className="ct-check">
-              <input
-                type="checkbox"
-                checked={draft.startOnBoot}
-                onChange={(e) => patch('startOnBoot', e.target.checked)}
-              />
-              开机自动启动
+              <label className="ct-check">
+                <input
+                  type="checkbox"
+                  checked={draft.logging}
+                  onChange={(e) => patch('logging', e.target.checked)}
+                />
+                记录容器日志
+              </label>
+            </div>
+            <label className="ct-field">
+              <span>自动重启策略</span>
+              <select
+                value={draft.restartPolicy || 'no'}
+                onChange={(e) => patch('restartPolicy', e.target.value)}
+              >
+                <option value="no">不自动重启（默认）</option>
+                <option value="on-failure">失败时重启</option>
+                <option value="always">总是重启</option>
+              </select>
             </label>
-            <label className="ct-check">
-              <input
-                type="checkbox"
-                checked={draft.logging}
-                onChange={(e) => patch('logging', e.target.checked)}
-              />
-              记录容器日志
-            </label>
-          </div>
-          <label className="ct-field">
-            <span>自动重启策略</span>
-            <select
-              value={draft.restartPolicy || 'no'}
-              onChange={(e) => patch('restartPolicy', e.target.value)}
+            <ContainerButton
+              type="button"
+              className="ct-advanced-toggle"
+              aria-label="启动高级设置"
+              aria-expanded={advancedStartup}
+              aria-controls={advancedStartupID}
+              onClick={() => setAdvancedStartup((open) => !open)}
             >
-              <option value="no">不自动重启（默认）</option>
-              <option value="on-failure">失败时重启</option>
-              <option value="always">总是重启</option>
-            </select>
-          </label>
-          <ContainerButton
-            type="button"
-            className="ct-advanced-toggle"
-            aria-label="启动高级设置"
-            aria-expanded={advancedStartup}
-            aria-controls={advancedStartupID}
-            onClick={() => setAdvancedStartup((open) => !open)}
+              <span aria-hidden="true">{advancedStartup ? '▴' : '▾'}</span>
+              高级设置
+              {(draft.command ||
+                draft.entrypoint ||
+                draft.user ||
+                draft.workdir) && <small>已配置</small>}
+            </ContainerButton>
+            {advancedStartup && (
+              <div
+                className="ct-startup-advanced ct-advanced-fields"
+                id={advancedStartupID}
+              >
+                <small>
+                  留空使用镜像自带的启动设置。编辑已有容器时保留原值。
+                </small>
+                <Field
+                  label="命令 CMD"
+                  value={draft.command}
+                  onChange={(v) => patch('command', v)}
+                  error={issue('command')}
+                  hint={item?.imageDefaults.cmd || '继承镜像命令'}
+                />
+                <Field
+                  label="入口 ENTRYPOINT"
+                  value={draft.entrypoint}
+                  onChange={(v) => patch('entrypoint', v)}
+                  error={issue('entrypoint')}
+                  hint={item?.imageDefaults.entrypoint || '继承镜像入口'}
+                />
+                <div className="ct-pair">
+                  <Field
+                    label="用户"
+                    value={draft.user}
+                    onChange={(v) => patch('user', v)}
+                    error={issue('user')}
+                    hint={item?.imageDefaults.user || '继承镜像用户'}
+                  />
+                  <Field
+                    label="工作目录"
+                    value={draft.workdir}
+                    onChange={(v) => patch('workdir', v)}
+                    error={issue('workdir')}
+                    hint={item?.imageDefaults.workdir || '继承镜像工作目录'}
+                  />
+                </div>
+              </div>
+            )}
+          </Section>
+        </div>
+        <div className="ct-col">
+          <Section
+            title="网络"
+            number="02"
+            description="专属 VETH 接入已有 bridge。通过容器 IP:应用端口访问，沿用现有路由与防火墙。"
           >
-            <span aria-hidden="true">{advancedStartup ? '▴' : '▾'}</span>
-            高级设置
-            {(draft.command ||
-              draft.entrypoint ||
-              draft.user ||
-              draft.workdir) && <small>已配置</small>}
-          </ContainerButton>
-          {advancedStartup && (
-            <div
-              className="ct-startup-advanced ct-advanced-fields"
-              id={advancedStartupID}
-            >
-              <small>
-                留空使用镜像自带的启动设置。编辑已有容器时保留原值。
-              </small>
-              <Field
-                label="命令 CMD"
-                value={draft.command}
-                onChange={(v) => patch('command', v)}
-                error={issue('command')}
-                hint={item?.imageDefaults.cmd || '继承镜像命令'}
-              />
-              <Field
-                label="入口 ENTRYPOINT"
-                value={draft.entrypoint}
-                onChange={(v) => patch('entrypoint', v)}
-                error={issue('entrypoint')}
-                hint={item?.imageDefaults.entrypoint || '继承镜像入口'}
-              />
-              <div className="ct-pair">
-                <Field
-                  label="用户"
-                  value={draft.user}
-                  onChange={(v) => patch('user', v)}
-                  error={issue('user')}
-                  hint={item?.imageDefaults.user || '继承镜像用户'}
-                />
-                <Field
-                  label="工作目录"
-                  value={draft.workdir}
-                  onChange={(v) => patch('workdir', v)}
-                  error={issue('workdir')}
-                  hint={item?.imageDefaults.workdir || '继承镜像工作目录'}
-                />
-              </div>
-            </div>
-          )}
-        </Section>
-        <Section
-          title="资源限制"
-          number="06"
-          description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
-          open={resourcesOpen}
-          onToggle={setResourcesOpen}
-          configured={resourcesEnabled}
-        >
-          <label className="ct-check ct-resource-toggle">
-            <input
-              type="checkbox"
-              checked={resourcesEnabled}
-              aria-controls={resourcesEnabled ? resourcesID : undefined}
-              onChange={(e) => setResourcesEnabled(e.target.checked)}
-            />
-            启用资源限制
-          </label>
-          {!resourcesEnabled && (
-            <small>
-              使用 RouterOS 全局内存设置（high：
-              {snapshot.options.memoryHigh || 'unlimited'}，max：
-              {snapshot.options.memoryMax || 'unlimited'}）与 CPU 默认值。
-            </small>
-          )}
-          {resourcesEnabled && (
-            <div className="ct-advanced-fields" id={resourcesID}>
-              <div className="ct-pair">
-                <Field
-                  label="内存 high(MB)"
-                  value={memoryLimitMB(draft.memoryHigh)}
-                  onChange={(v) => patch('memoryHigh', v ? `${v}M` : '')}
-                  type="number"
-                  error={issue('memoryHigh')}
-                  hint={`填写整数，例如 128；1MB = 1024² 字节；留空继承；全局：${snapshot.options.memoryHigh || 'unlimited'}`}
-                />
-                <Field
-                  label="内存 max(MB)"
-                  value={memoryLimitMB(draft.memoryMax)}
-                  onChange={(v) => patch('memoryMax', v ? `${v}M` : '')}
-                  type="number"
-                  error={issue('memoryMax')}
-                  hint={`填写整数，至少 1MB；留空继承；全局：${snapshot.options.memoryMax || 'unlimited'}`}
-                />
-              </div>
-              <Field
-                label="CPU 编号列表"
-                value={draft.cpuList}
-                onChange={(v) => patch('cpuList', v)}
-                error={issue('cpuList')}
-                hint="留空使用默认；例如 0,1"
-              />
-            </div>
-          )}
-        </Section>
-        <Section
-          title="健康检查"
-          number="07"
-          description="定时在容器内执行命令，确认服务能否正常响应。通常保留镜像设置即可。"
-          open={healthOpen}
-          onToggle={setHealthOpen}
-          configured={draft.health.mode === 'override'}
-        >
-          <label className="ct-field">
-            <span>检查方式</span>
-            <select
-              value={draft.health.mode}
-              onChange={(e) => health('mode', e.target.value)}
-            >
-              <option value="inherit">使用镜像自带的检查（推荐）</option>
-              <option value="override">自定义检查</option>
-            </select>
-            {issue('health.mode') && (
-              <strong role="alert">{issue('health.mode')}</strong>
+            {locked && (
+              <p className="ct-notice">
+                VETH 与 {item?.sharedVeth.join(', ')} 共享，网络参数已锁定。
+              </p>
             )}
-          </label>
-          <p className="ct-health-hint">
-            例如：定时访问 Nginx
-            的网页，确认服务有响应。镜像未提供检查时，默认不会检查，也不影响容器启动。
-            检查异常后的停机、重启或通知需要另行配置。
-          </p>
-          {draft.health.mode === 'override' && (
-            <div className="ct-advanced-fields">
-              <small>
-                自定义检查需填写命令；其余设置留空沿用镜像或 RouterOS 默认值。
-              </small>
+            <Field
+              label="VETH 名称"
+              value={draft.network.veth}
+              onChange={(v) => net('veth', v)}
+              required
+              disabled={locked}
+              error={issue('network.veth')}
+            />
+            <label className="ct-field">
+              <span>
+                已有 bridge <em>*</em>
+              </span>
+              <select
+                value={draft.network.bridge}
+                onChange={(e) => net('bridge', e.target.value)}
+                disabled={locked}
+                aria-invalid={!!issue('network.bridge')}
+              >
+                <option value="">请选择 bridge</option>
+                {snapshot.options.bridges.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
+              {issue('network.bridge') && (
+                <strong role="alert">{issue('network.bridge')}</strong>
+              )}
+            </label>
+            <div className="ct-pair">
               <Field
-                label="检查命令"
-                required={draft.health.mode === 'override'}
-                value={draft.health.command}
-                onChange={(v) => health('command', v)}
-                disabled={draft.health.mode !== 'override'}
-                error={issue('health.command')}
-                hint={
-                  item?.imageDefaults['healthcheck-cmd'] ||
-                  '例如 curl -f http://127.0.0.1:80/；127.0.0.1 指容器自身，端口按应用修改，镜像内需有 curl。'
-                }
+                label="静态 IPv4 / 掩码"
+                value={draft.network.address}
+                onChange={(v) => net('address', v)}
+                required
+                disabled={locked}
+                error={issue('network.address')}
+                hint="例如 172.20.0.2/24"
               />
-              <div className="ct-pair">
-                <Field
-                  label="检查间隔"
-                  error={issue('health.interval')}
-                  value={draft.health.interval}
-                  onChange={(v) => health('interval', v)}
-                  disabled={draft.health.mode !== 'override'}
-                  hint="每隔多久检查一次，例如 30s（30 秒）"
-                />
-                <Field
-                  label="单次检查超时"
-                  error={issue('health.timeout')}
-                  value={draft.health.timeout}
-                  onChange={(v) => health('timeout', v)}
-                  disabled={draft.health.mode !== 'override'}
-                  hint="一次检查最多等待多久，例如 5s（5 秒）"
-                />
-              </div>
-              <div className="ct-pair">
-                <Field
-                  label="连续失败次数"
-                  value={draft.health.retries}
-                  onChange={(v) => health('retries', v)}
-                  disabled={draft.health.mode !== 'override'}
-                  error={issue('health.retries')}
-                  hint="连续失败多少次才标记异常，例如 3"
-                />
-                <Field
-                  label="启动准备时间"
-                  error={issue('health.startPeriod')}
-                  value={draft.health.startPeriod}
-                  onChange={(v) => health('startPeriod', v)}
-                  disabled={draft.health.mode !== 'override'}
-                  hint="给服务启动留出时间，例如 20s（20 秒）；期间的失败不计入连续失败次数"
-                />
-              </div>
+              <Field
+                label="IPv4 网关"
+                value={draft.network.gateway}
+                onChange={(v) => net('gateway', v)}
+                required
+                disabled={locked}
+                error={issue('network.gateway')}
+              />
             </div>
-          )}
-        </Section>
+            <ContainerButton
+              type="button"
+              className="ct-advanced-toggle"
+              aria-label="网络高级设置"
+              aria-expanded={advancedNetwork}
+              aria-controls={advancedNetworkID}
+              onClick={() => setAdvancedNetwork((open) => !open)}
+            >
+              <span aria-hidden="true">{advancedNetwork ? '▴' : '▾'}</span>
+              高级设置
+              {(draft.network.address6 ||
+                draft.network.gateway6 ||
+                draft.network.mac) && <small>已配置</small>}
+            </ContainerButton>
+            {advancedNetwork && (
+              <div
+                className="ct-network-advanced ct-advanced-fields"
+                id={advancedNetworkID}
+              >
+                <div className="ct-pair">
+                  <Field
+                    label="IPv6 / 掩码"
+                    value={draft.network.address6}
+                    onChange={(v) => net('address6', v)}
+                    disabled={locked}
+                    error={issue('network.address6')}
+                  />
+                  <Field
+                    label="IPv6 网关"
+                    value={draft.network.gateway6}
+                    onChange={(v) => net('gateway6', v)}
+                    disabled={locked}
+                    error={issue('network.gateway6')}
+                  />
+                </div>
+                <Field
+                  label="自定义 MAC"
+                  value={draft.network.mac}
+                  onChange={(v) => net('mac', v)}
+                  disabled={locked}
+                  error={issue('network.mac')}
+                  hint="留空由 RouterOS 生成"
+                />
+              </div>
+            )}
+          </Section>
+          <Section
+            title="环境变量"
+            number="04"
+            description="只添加显式覆盖，值中的空格、引号和特殊字符原样保留。"
+          >
+            {draft.env.length === 0 && (
+              <p className="ct-empty-inline">继承镜像中的环境变量</p>
+            )}
+            {draft.env.map((v, i) => (
+              <div className="ct-repeat" key={i}>
+                <div className="ct-env-row">
+                  <Field
+                    label="变量名"
+                    value={v.key}
+                    onChange={(value) =>
+                      patch(
+                        'env',
+                        draft.env.map((x, j) =>
+                          j === i ? { ...x, key: value } : x,
+                        ),
+                      )
+                    }
+                  />
+                  <Field
+                    label="变量值"
+                    multiline
+                    value={v.value}
+                    onChange={(value) =>
+                      patch(
+                        'env',
+                        draft.env.map((x, j) => (j === i ? { ...x, value } : x)),
+                      )
+                    }
+                  />
+                  <ContainerButton
+                    type="button"
+                    className="ct-icon-delete"
+                    aria-label={`删除变量 ${i + 1}`}
+                    data-tip={`删除变量 ${i + 1}`}
+                    onClick={() =>
+                      patch(
+                        'env',
+                        draft.env.filter((_, j) => i !== j),
+                      )
+                    }
+                  >
+                    <span aria-hidden="true">🗑️</span>
+                  </ContainerButton>
+                </div>
+                {issue(`env.${i}`) && (
+                  <strong role="alert">{issue(`env.${i}`)}</strong>
+                )}
+              </div>
+            ))}
+            <ContainerButton
+              type="button"
+              className="ct-add"
+              onClick={() => patch('env', [...draft.env, { key: '', value: '' }])}
+            >
+              ＋ 添加变量
+            </ContainerButton>
+          </Section>
+          <Section
+            title="资源限制"
+            number="06"
+            description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
+            open={resourcesOpen}
+            onToggle={setResourcesOpen}
+            configured={resourcesEnabled}
+          >
+            <label className="ct-check ct-resource-toggle">
+              <input
+                type="checkbox"
+                checked={resourcesEnabled}
+                aria-controls={resourcesEnabled ? resourcesID : undefined}
+                onChange={(e) => setResourcesEnabled(e.target.checked)}
+              />
+              启用资源限制
+            </label>
+            {!resourcesEnabled && (
+              <small>
+                使用 RouterOS 全局内存设置（high：
+                {snapshot.options.memoryHigh || 'unlimited'}，max：
+                {snapshot.options.memoryMax || 'unlimited'}）与 CPU 默认值。
+              </small>
+            )}
+            {resourcesEnabled && (
+              <div className="ct-advanced-fields" id={resourcesID}>
+                <div className="ct-pair">
+                  <Field
+                    label="内存 high(MB)"
+                    value={memoryLimitMB(draft.memoryHigh)}
+                    onChange={(v) => patch('memoryHigh', v ? `${v}M` : '')}
+                    type="number"
+                    error={issue('memoryHigh')}
+                    hint={`填写整数，例如 128；1MB = 1024² 字节；留空继承；全局：${snapshot.options.memoryHigh || 'unlimited'}`}
+                  />
+                  <Field
+                    label="内存 max(MB)"
+                    value={memoryLimitMB(draft.memoryMax)}
+                    onChange={(v) => patch('memoryMax', v ? `${v}M` : '')}
+                    type="number"
+                    error={issue('memoryMax')}
+                    hint={`填写整数，至少 1MB；留空继承；全局：${snapshot.options.memoryMax || 'unlimited'}`}
+                  />
+                </div>
+                <Field
+                  label="CPU 编号列表"
+                  value={draft.cpuList}
+                  onChange={(v) => patch('cpuList', v)}
+                  error={issue('cpuList')}
+                  hint="留空使用默认；例如 0,1"
+                />
+              </div>
+            )}
+          </Section>
+          <Section
+            title="健康检查"
+            number="07"
+            description="定时在容器内执行命令，确认服务能否正常响应。通常保留镜像设置即可。"
+            open={healthOpen}
+            onToggle={setHealthOpen}
+            configured={draft.health.mode === 'override'}
+          >
+            <label className="ct-field">
+              <span>检查方式</span>
+              <select
+                value={draft.health.mode}
+                onChange={(e) => health('mode', e.target.value)}
+              >
+                <option value="inherit">使用镜像自带的检查（推荐）</option>
+                <option value="override">自定义检查</option>
+              </select>
+              {issue('health.mode') && (
+                <strong role="alert">{issue('health.mode')}</strong>
+              )}
+            </label>
+            <p className="ct-health-hint">
+              例如：定时访问 Nginx
+              的网页，确认服务有响应。镜像未提供检查时，默认不会检查，也不影响容器启动。
+              检查异常后的停机、重启或通知需要另行配置。
+            </p>
+            {draft.health.mode === 'override' && (
+              <div className="ct-advanced-fields">
+                <small>
+                  自定义检查需填写命令；其余设置留空沿用镜像或 RouterOS 默认值。
+                </small>
+                <Field
+                  label="检查命令"
+                  required={draft.health.mode === 'override'}
+                  value={draft.health.command}
+                  onChange={(v) => health('command', v)}
+                  disabled={draft.health.mode !== 'override'}
+                  error={issue('health.command')}
+                  hint={
+                    item?.imageDefaults['healthcheck-cmd'] ||
+                    '例如 curl -f http://127.0.0.1:80/；127.0.0.1 指容器自身，端口按应用修改，镜像内需有 curl。'
+                  }
+                />
+                <div className="ct-pair">
+                  <Field
+                    label="检查间隔"
+                    error={issue('health.interval')}
+                    value={draft.health.interval}
+                    onChange={(v) => health('interval', v)}
+                    disabled={draft.health.mode !== 'override'}
+                    hint="每隔多久检查一次，例如 30s（30 秒）"
+                  />
+                  <Field
+                    label="单次检查超时"
+                    error={issue('health.timeout')}
+                    value={draft.health.timeout}
+                    onChange={(v) => health('timeout', v)}
+                    disabled={draft.health.mode !== 'override'}
+                    hint="一次检查最多等待多久，例如 5s（5 秒）"
+                  />
+                </div>
+                <div className="ct-pair">
+                  <Field
+                    label="连续失败次数"
+                    value={draft.health.retries}
+                    onChange={(v) => health('retries', v)}
+                    disabled={draft.health.mode !== 'override'}
+                    error={issue('health.retries')}
+                    hint="连续失败多少次才标记异常，例如 3"
+                  />
+                  <Field
+                    label="启动准备时间"
+                    error={issue('health.startPeriod')}
+                    value={draft.health.startPeriod}
+                    onChange={(v) => health('startPeriod', v)}
+                    disabled={draft.health.mode !== 'override'}
+                    hint="给服务启动留出时间，例如 20s（20 秒）；期间的失败不计入连续失败次数"
+                  />
+                </div>
+              </div>
+            )}
+          </Section>
+        </div>
       </fieldset>
-      <ContainerSurface as="footer" className="ct-resolution">
-        <h3>最终采用的配置</h3>
+      <details className="ct-resolved">
+        <summary>
+          最终采用的配置
+          {resolution && <small>{resolution.defaults.length} 项使用默认值</small>}
+        </summary>
         <div className="ct-defaults">
           {resolution?.defaults.map((v) => <span key={v}>{v}</span>) || (
             <span>正在解析默认值…</span>
           )}
         </div>
+      </details>
+      <ContainerSurface as="footer" className="ct-resolution">
         {(submissionError || error) && <p className="ct-alert" role="alert">{submissionError || error}</p>}
         {submitted &&
           resolution &&

@@ -283,6 +283,20 @@
 .pol-selector { display: flex; flex-direction: column; gap: var(--space-3); }
 
 .pol-choice-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.pol-more-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-sm, 8px);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.pol-more-toggle:hover { background: var(--glass-2); color: var(--ink-1, var(--ink-2)); }
 
 /* 来源范围三选项横向排一行（用户指定）；窄屏回落纵向 */
 .pol-choice-row { flex-direction: row; }

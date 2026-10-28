@@ -50,7 +50,7 @@ export const NAV_GROUPS: Array<{ key: NavGroup; label: string; items: View[] }> 
   {
     key: 'host',
     label: '主机设置',
-    items: ['containers', 'target-library', 'policy-routing', 'access-control', 'recognition'],
+    items: ['policy-routing', 'containers', 'access-control', 'recognition'],
   },
 ]
 
