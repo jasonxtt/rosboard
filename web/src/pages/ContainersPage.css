@@ -332,6 +332,8 @@
 .ct-table-scroll {
   overflow-x: auto;
   max-width: 100%;
+  /* match the shell .table-scroll so the header strip gets rounded corners */
+  border-radius: var(--r-lg);
 }
 
 .ct table {
@@ -582,22 +584,23 @@
   background: color-mix(in srgb, var(--ct-accent) 4%, transparent);
 }
 
-/* sections flow in a balanced two-column masonry so a short section never
-   leaves a blank pocket beside a taller row partner; DOM order (and with it
-   the keyboard tab order) runs down the first column, then the second */
+/* two independent stacks: odd sections left, even right, so the numbers read
+   across (01 → 02, 03 → 04) and each stack packs tight with no blank pockets */
 .ct .ct-form-grid {
   border: 0;
   padding: 0;
   margin: 0;
   min-inline-size: 0;
-  display: block;
-  column-count: 2;
-  column-gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
 }
 
-.ct .ct-form-grid > .ct-section {
-  break-inside: avoid;
-  margin-bottom: 14px;
+.ct .ct-form-grid > .ct-col {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
 }
 
 /* sections inside the editor dialog are flat wizard-style boxes (pol-section
@@ -883,20 +886,44 @@
   font-size: var(--text-sm);
 }
 
-/* resolved-defaults footer: opaque sticky summary bar inside the modal */
+/* sticky action bar inside the modal; resolved defaults live in .ct-resolved */
 .ct .ct-editor .ct-card.ct-resolution {
   position: sticky;
   bottom: var(--space-5);
   z-index: 5;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   background: var(--ct-float);
   border: 1px solid var(--glass-float-stroke);
   border-radius: var(--ct-control-radius);
   box-shadow: var(--ct-pop-shadow);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  padding: 14px 16px;
+  padding: 10px 16px;
+}
+
+.ct .ct-resolved {
+  border: 1px solid var(--stroke);
+  border-radius: var(--ct-control-radius);
+  background: var(--glass);
+  padding: 10px 14px;
+}
+
+.ct .ct-resolved summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.ct .ct-resolved summary small {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.ct .ct-resolved .ct-defaults {
+  margin-top: 10px;
 }
 
 .ct-defaults {
@@ -1375,7 +1402,7 @@
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   .ct .ct-form-grid {
-    column-count: 1;
+    grid-template-columns: 1fr;
   }
 
   .ct-toolbar {

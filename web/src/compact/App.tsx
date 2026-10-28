@@ -1397,7 +1397,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               className={activeView === 'containers' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostActive}
               aria-controls="host-settings-menu"
-              onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null) }}
+              onClick={() => { setActiveView('policy-routing'); setSelectedTerminalID(null) }}
             >
               <NavLabel icon="policy" label="主机设置" />
             </button>
@@ -1446,14 +1446,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               <button type="button" className={activeView === 'dhcp' || activeView === 'routes' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('dhcp'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="network" label="网络服务" /></button>
               <button type="button" className={activeView === 'resource' || activeView === 'load' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('resource'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="系统运行" /></button>
             </div>) : hostActive ? (<div className="submenu" id="host-settings-menu">
-              <button type="button" className={activeView === 'containers' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('containers'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="容器管理" /></button>
-              <button
-                type="button"
-                className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
-              >
-                <NavLabel icon="network" label="目标库" />
-              </button>
               <button
                 type="button"
                 className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
@@ -1465,6 +1457,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               >
                 <NavLabel icon="route" label="策略路由" />
               </button>
+              <button type="button" className={activeView === 'containers' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('containers'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="容器管理" /></button>
               <button
                 type="button"
                 className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'}

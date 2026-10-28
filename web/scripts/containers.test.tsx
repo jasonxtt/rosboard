@@ -278,10 +278,15 @@ test('flat editor shows every section, keeps required errors inline and retains 
         />,
       ),
     )
+    // 01/03/05 stack left, 02/04/06/07 right, so the numbers read across; sorted by number they still cover all seven
     assert.deepEqual(
-      [...document.querySelectorAll('.ct-section h3')].map(
-        (e) => e.textContent,
-      ),
+      [...document.querySelectorAll('.ct-section')]
+        .map((e) => [
+          e.querySelector('.ct-section-number')!.textContent,
+          e.querySelector('h3')!.textContent,
+        ])
+        .sort(([a], [b]) => a!.localeCompare(b!))
+        .map(([, title]) => title),
       [
         '镜像',
         '网络',
@@ -292,8 +297,16 @@ test('flat editor shows every section, keeps required errors inline and retains 
         '健康检查',
       ],
     )
+    assert.deepEqual(
+      [...document.querySelectorAll('.ct-form-grid > .ct-col')].map((col) =>
+        [...col.querySelectorAll(':scope > .ct-section .ct-section-number')]
+          .map((n) => n.textContent)
+          .join(),
+      ),
+      ['01,03,05', '02,04,06,07'],
+    )
     assert.equal(document.querySelector('[role="tablist"]'), null)
-    assert.equal(document.querySelector('details'), null)
+    assert.equal(document.querySelector('.ct-form-grid details'), null)
     // 资源限制 / 健康检查默认折叠为标题栏（标题仍计入七个分区）
     for (const name of ['资源限制', '健康检查']) {
       const toggle = document.querySelector<HTMLButtonElement>(
@@ -636,7 +649,7 @@ test('advanced network starts collapsed, preserves values and reveals invalid hi
         />,
       ),
     )
-    const toggle = button('高级设置')
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label="网络高级设置"]')!
     assert.equal(toggle.getAttribute('aria-expanded'), 'false')
     assert.equal(document.querySelector('.ct-network-advanced'), null)
     await act(async () => toggle.click())

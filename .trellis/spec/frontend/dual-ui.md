@@ -56,9 +56,10 @@ manual-input explanations accessible after applying.
 Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
 container stylesheet; all selectors stay under `.ct`. The form is flat: seven
-sections, laid out in two balanced columns on desktop (Aurora flows them
-masonry-style so short sections leave no blank pockets) and one column on
-mobile, with inline defaults and errors. No configuration tab or wizard hides
+sections, laid out in two stacked columns on desktop (01/03/05 left, 02/04/06/07
+right, so numbers read across and each stack packs tight with no blank
+pockets) and one column on mobile; the resolved-defaults list is a collapsed
+`details` block above a slim sticky action bar, with inline defaults and errors. No configuration tab or wizard hides
 fields. 资源限制 and 健康检查 default to a collapsed header bar; the header
 toggle expands them in place, validation errors open them without clearing
 values, and a collapsed section holding non-default values carries a 已配置

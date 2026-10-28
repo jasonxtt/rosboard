@@ -379,6 +379,11 @@
   gap: 16px;
   margin: 0 0 16px;
 }
+.ct-form-grid > .ct-col {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
 .ct-form-grid {
   border: 0;
   padding: 0;
@@ -488,6 +493,18 @@
 }
 .ct-resolution {
   margin-top: 18px;
+}
+.ct-resolved {
+  margin-top: 18px;
+}
+.ct-resolved summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.ct-resolved summary small {
+  margin-left: 10px;
+  color: var(--ct-muted);
+  font-weight: 400;
 }
 .ct-defaults {
   display: flex;
