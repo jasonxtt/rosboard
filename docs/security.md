@@ -3,7 +3,7 @@
 - rosboard 使用单管理员账号和 7 天滚动会话；首次初始化页面受 `allowed_cidrs` 限制，仍不应直接暴露到公网。
 - `/api/*` 受 `allowed_cidrs` 限制；请按实际管理网段收紧默认配置，并配合主机防火墙或反向代理访问控制。
 - 如果由反向代理终止 HTTPS，启动配置的 `trusted_proxy_cidrs` 可写为 `true` 以免排查 Docker 代理源地址，也可写代理回源 IP/CIDR 进行严格限制；省略或写 `false` 保持直连策略。`true` 会信任任意直接来源提交的转发来源信息，但没有转发头的局域网直连仍按实际连接处理；因此只适合 8080 已由防火墙或受控反代路径保护的部署。
-- rosboard 会向 RouterOS 写入策略路由与访问控制配置，但**只管理自己创建的对象**：所有写入对象带 `rbs_` 前缀的归属标记，人工配置和其他工具创建的对象不受影响。快速接入账号权限为 `read,write,test,api,rest-api`，无 `policy`、`sensitive` 权限。
+- rosboard 会向 RouterOS 写入策略路由与访问控制配置，但**只管理自己创建的对象**：所有写入对象带 `rbs_` 前缀的归属标记，人工配置和其他工具创建的对象不受影响。快速接入账号权限为 `read,write,test,api,rest-api,ssh,ftp`，无 `policy`、`sensitive` 权限。
 - RouterOS 凭据保存在原子写入的本地 YAML 中，不会返回浏览器。请保持文件权限为 `0600`，使用专用的最小权限账号，并优先在可信网络中通过 HTTPS 连接 RouterOS。
 - `config.yaml`、`configs/config.local.yaml`、`data/`、`web/node_modules/` 和本地 `rosboard` 二进制已加入 `.gitignore`。
 
@@ -18,3 +18,29 @@ rosboard admin reset-password -config /opt/rosboard/config.yaml
 ## 完全重新初始化
 
 维护设置中的「完全重新初始化」是独立的不可撤销操作：确认后会删除配置文件、管理员、全部会话、所有 RouterOS 设备及采集历史，并在服务重启后回到首次创建管理员页面。「重置界面偏好」只影响当前浏览器，两者不会互相替代。
+
+## Image-transfer checks and guarded role upgrades
+
+Generated accounts include SSH/SFTP group authority (`ssh`, `ftp`) but receive
+neither user-management authority nor automatic service/firewall/key changes.
+The FTP listener is not required for SFTP. Container writes are available for enabled connected devices without a private
+rollout flag; actual account permissions and pinned host keys still apply. First-use key observation,
+credential authentication and SFTP read verification are automatic during an explicit
+image operation; no fingerprint prompt is shown. The key is persisted only after
+verification and an unchanged device identity check. This uses trust on first use.
+Existing pins are never silently replaced, and GET/preview checks do not enroll keys.
+
+Existing-role upgrades are administrator-run scripts, never RouterOS mutations
+from an application GET/preview/verification call. They require recorded generated
+account metadata, fresh object identities, managed ownership and exclusive group
+membership. Only exact-old to exact-new is allowed; exact-new does not write.
+Other/invalid policies fail closed. Execution-time checks and read-back detect
+ordinary drift but do not provide atomic compare-and-set. Unknown results require
+manual inspection. Passwords are preserved.
+
+SFTP capability checks only authenticate and list metadata. They do not exercise
+write operations or prove upload success; no write-probe API is implemented.
+Dedicated transfer credentials are optional private configuration and never
+appear in public settings responses. REST connection edits invalidate the saved
+transfer/key authority; checks always read fresh state and do not cache write
+verification across credential sources or host-key changes.

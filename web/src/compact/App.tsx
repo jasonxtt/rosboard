@@ -1,3 +1,6 @@
+import { ImageTransferPanel } from '../features/settings/ImageTransferPanel'
+import { DownloadProxyPanel } from '../features/settings/DownloadProxyPanel'
+import { AccountTransferPanel, transferPermissionHelp } from '../features/settings/AccountTransferPanel'
 import { UpdatePanel } from '../features/update/UpdatePanel'
 import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel'
 import { UI_OPTIONS, isUiVariant, switchUi, readPanelRecord, savePanelRecord, readRefreshPreference, readThemePreference, readLocal, writeLocal, removeLocal, readSession, writeSession, removeSession, resetSharedPanelPreferences, THEME_KEY, REFRESH_KEY, type UiVariant } from '../uiPreference'
@@ -226,7 +229,9 @@ async function requestJSON(path: string, method: string, body?: unknown) {
   if (!response.ok) throw new APIRequestError(failure?.error || `HTTP ${response.status}`, response.status, failure?.code)
   return response
 }
-const landingViews: ActiveView[] = ['fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'target-library', 'policy-routing', 'access-control']
+const ContainersPage = lazy(() => import('./features/containers/ContainersPage'))
+
+const landingViews: ActiveView[] = ['containers', 'fleet', 'overview', 'interfaces', 'terminals', 'load', 'resource', 'protocols', 'policies', 'dhcp', 'routes', 'settings', 'target-library', 'policy-routing', 'access-control']
 
 function loadPanelPreferences(): PanelPreferences {
   const parsed = readPanelRecord()
@@ -796,7 +801,7 @@ function RouterOSSetupPage(props: { onComplete: () => void }) {
 function PanelApp(props: { username: string; onAuthenticationChanged: () => void }) {
   const [panelPreferences, setPanelPreferences] = useState<PanelPreferences>(() => loadPanelPreferences())
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() || window.location.hash.startsWith('#/settings') ? 'settings' : panelPreferences.landingView)
+  const [activeView, setActiveView] = useState<ActiveView>(() => pendingRouterOSCleanup() || window.location.hash.startsWith('#/settings') ? 'settings' : window.location.hash === '#/containers' ? 'containers' : panelPreferences.landingView)
   const [query, setQuery] = useState('')
   const [fleetQuery, setFleetQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -1002,7 +1007,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
   }, [])
 
   useEffect(() => {
-    if (activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
+    if (activeView === 'containers' || activeView === 'fleet' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control') return
     let cancelled = false
     let refreshing = false
 
@@ -1239,7 +1244,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
 	return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
   }
 
-  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'target-library' && activeView !== 'policy-routing' && activeView !== 'access-control') {
+  if (!dashboard && !(activeView === 'fleet' && fleetOverview) && activeView !== 'containers' && activeView !== 'target-library' && activeView !== 'policy-routing' && activeView !== 'access-control') {
 	if (devicesLoaded && devices.filter((device) => device.enabled && !device.archived).length === 0 && settings) return <EmptyDevicePanel settings={settings} devices={devices} username={props.username} onAuthenticationChanged={props.onAuthenticationChanged} onOrderChanged={refreshDeviceOrder} />
     return (
       <main className="shell loading-shell">
@@ -1299,7 +1304,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
       ? 'topbar overview-topbar'
       : activeView === 'fleet'
         ? 'topbar fleet-topbar'
-        : activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
+        : activeView === 'containers' || activeView === 'settings' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition'
           ? 'topbar settings-topbar'
           : monitorTabs
             ? activeView === 'terminals' ? 'topbar terminal-topbar monitor-topbar' : 'topbar monitor-topbar'
@@ -1313,7 +1318,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
     { key: 'diagnostics', label: '系统诊断', icon: 'alert' },
   ]
   const settingsSectionLabel = settingsSections.find((section) => section.key === settingsSection)?.label ?? '面板设置'
-  const hostActive = ['target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
+  const hostActive = ['containers', 'target-library', 'policy-routing', 'access-control', 'recognition'].includes(activeView)
   const hasSecondary = statusActive || hostActive || activeView === 'settings'
 
   return (
@@ -1389,10 +1394,10 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
           <div className="menu-group">
             <button
               type="button"
-              className={activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
+              className={activeView === 'containers' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' || activeView === 'recognition' ? 'menu-item active' : 'menu-item'}
               aria-expanded={hostActive}
               aria-controls="host-settings-menu"
-              onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null) }}
+              onClick={() => { setActiveView('policy-routing'); setSelectedTerminalID(null) }}
             >
               <NavLabel icon="policy" label="主机设置" />
             </button>
@@ -1443,13 +1448,6 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
             </div>) : hostActive ? (<div className="submenu" id="host-settings-menu">
               <button
                 type="button"
-                className={activeView === 'target-library' ? 'submenu-item active' : 'submenu-item'}
-                onClick={() => { setActiveView('target-library'); setSelectedTerminalID(null); setSidebarOpen(false) }}
-              >
-                <NavLabel icon="network" label="目标库" />
-              </button>
-              <button
-                type="button"
                 className={activeView === 'policy-routing' ? 'submenu-item active' : 'submenu-item'}
                 onClick={() => {
                   setActiveView('policy-routing')
@@ -1459,6 +1457,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
               >
                 <NavLabel icon="route" label="策略路由" />
               </button>
+              <button type="button" className={activeView === 'containers' ? 'submenu-item active' : 'submenu-item'} onClick={() => { setActiveView('containers'); setSelectedTerminalID(null); setSidebarOpen(false) }}><NavLabel icon="runtime" label="容器管理" /></button>
               <button
                 type="button"
                 className={activeView === 'access-control' ? 'submenu-item active' : 'submenu-item'}
@@ -1570,7 +1569,7 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
                   renderOption={(option) => <><span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><i /><i /><i /></span><span><strong>{option.label}</strong><small>{option.description}</small></span></>}
                   onChange={(theme) => updatePanelPreferences({ ...panelPreferences, theme })}
                 />
-                {activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
+                {activeView === 'containers' || activeView === 'target-library' || activeView === 'policy-routing' || activeView === 'access-control' ? null : <div className="refresh-control-group" role="group" aria-label="刷新控制">
                   <button type="button" className="pill refresh-control-action" aria-label="立即刷新" title="立即刷新" onClick={() => setRefreshNonce((value) => value + 1)}><Icon name="refresh" /></button>
                   <ChoiceMenu
                     value={dashboardRefreshMs}
@@ -1639,6 +1638,11 @@ function PanelApp(props: { username: string; onAuthenticationChanged: () => void
         {activeView === 'resource' && dashboard ? <ResourcePage overview={dashboard.overview} /> : null}
         {activeView === 'protocols' && protocolAnalysisEnabled && dashboard ? <ProtocolPage protocols={dashboard.protocols ?? []} deviceID={selectedDeviceID} /> : null}
         {activeView === 'policies' && dashboard ? <PolicyPage policies={dashboard.policies ?? []} /> : null}
+        {activeView === 'containers' ? (
+          <Suspense fallback={<p>正在加载容器管理…</p>}>
+            <ContainersPage key={selectedDeviceID} deviceId={selectedDeviceID} refreshNonce={refreshNonce} refreshMs={dashboardRefreshMs} />
+          </Suspense>
+        ) : null}
         {activeView === 'target-library' ? (
           <Suspense fallback={<main className="shell loading-shell"><div className="loading-card"><p>正在加载目标库…</p></div></main>}>
             <TargetLibraryPage key={selectedDeviceID} deviceID={selectedDeviceID} refreshNonce={refreshNonce} />
@@ -2603,7 +2607,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
           <div className="provisioning-step">
             <div className="provisioning-step-card">
 			  <div className="provisioning-step-head"><strong>步骤 1：复制脚本</strong></div>
-			  <p>直接复制完整脚本，无需查看内容；需要核对时可展开。</p>
+			  <p>{transferPermissionHelp}</p>
 			  <div className="provisioning-script-actions">
 				<button type="button" className="toolbar-button" aria-expanded={provisioningScriptVisible} onClick={() => setProvisioningScriptVisible((visible) => !visible)}>{provisioningScriptVisible ? '隐藏脚本' : '查看脚本'}</button>
 				<button type="button" className="toolbar-button" disabled={quickGenerating || quickCompleting} onClick={() => { setProvisioningSession(null); setProvisioningScriptVisible(false); setQuickError(null); setQuickCopied(false); setQuickScopeDraft(emptyScopeOverrideDraft); setVerification(null); setVerificationDialogMode(null) }}>重新生成脚本</button>
@@ -2649,6 +2653,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
         {draft.id ? <div className="device-account-meta"><span>当前权限 <strong className={accountStatus?.writeAccess ? 'account-permission-ok' : 'account-permission-warn'}>{accountLoading ? '读取中…' : accountStatus?.permission === 'write' ? '可写' : accountStatus?.permission === 'read_only' ? '只读' : '未知'}</strong></span><div className="device-account-actions"><button type="button" className="toolbar-button" disabled={replacementBusy} onClick={() => void generateReplacementScript()}>{replacementBusy ? '正在生成…' : '一键更换'}</button><button type="button" className="link-button link-button--danger" onClick={() => void removeDeviceAccount()}>删除账号</button></div></div> : null}
         {draft.id && original?.passwordSet ? <small className="device-field-help">编辑设备时密码可留空，系统将保留当前凭据。</small> : null}
         {accountStatus?.error ? <small className="settings-message" role="alert">{accountStatus.error}</small> : null}
+        {draft.id ? <ImageTransferPanel key={`transfer:${draft.id}:${original?.username}`} deviceId={draft.id} buttonClass="toolbar-button" inputClass="settings-input" /> : null}
+        {draft.id ? <AccountTransferPanel key={`${draft.id}:${original?.username}`} deviceId={draft.id} buttonClass="toolbar-button" inputClass="settings-input" /> : null}
       </section>
 
 	      {draft.id ? <section className="device-form-card device-topology-card wide" aria-labelledby="device-topology-title">
@@ -2710,7 +2716,7 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
 	{replacementSession ? (
 		<div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="replace-account-title">
 			<div className="remark-modal account-replacement-modal">
-				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">脚本会创建具备 read、write、test、api、rest-api 权限的新账号，不授予用户管理权限。</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
+				<div className="dialog-head"><div><h3 id="replace-account-title">一键更换 RouterOS 账号</h3><p className="muted-text">{transferPermissionHelp}</p></div><button type="button" className="close-button" disabled={replacementBusy} onClick={() => setReplacementSession(null)}>关闭</button></div>
 				<div className="remark-modal-body">
 					<div className="provisioning-step-card"><strong>步骤 1：复制并执行脚本</strong><textarea readOnly value={replacementSession.script} rows={12} spellCheck={false} /><button type="button" className="toolbar-button copy-script-button" onClick={() => void copyReplacementScript()}>{replacementCopied ? '已复制' : '复制脚本'}</button></div>
 					<div className="provisioning-step-card"><strong>步骤 2：验证并替换</strong><p>在 RouterOS Terminal 执行成功后点击下方按钮，rosboard 会验证新账号、替换保存的凭据并重启。</p></div>
@@ -4185,5 +4191,5 @@ function DetailSummary(props: { label: string; value: string }) {
 export default App
 
 function CompactUpdateCard({ disabled = false }: { disabled?: boolean }) {
-  return <section className="panel settings-panel"><h3>版本与更新</h3><UpdatePanel buttonClass="toolbar-button" primaryClass="primary-button" disabled={disabled} /></section>
+  return <><section className="panel settings-panel"><h3>版本与更新</h3><UpdatePanel buttonClass="toolbar-button" primaryClass="primary-button" disabled={disabled} /></section><section className="panel settings-panel"><h3>代理设置</h3><DownloadProxyPanel buttonClass="toolbar-button" inputClass="settings-input" disabled={disabled} /></section></>
 }

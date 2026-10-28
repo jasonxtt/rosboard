@@ -247,6 +247,24 @@ func (c *MutationClient) UnsetFirewallConnectionMark(ctx context.Context, menu M
 	return err
 }
 
+// UnsetFirewallMatcher clears a narrowly allowlisted matcher on a managed
+// firewall rule. RouterOS rejects empty interface names in a PATCH.
+func (c *MutationClient) UnsetFirewallMatcher(ctx context.Context, menu MutationMenu, id, field string) error {
+	if menu != MenuIPFirewallMangle && menu != MenuIPv6FirewallMangle && menu != MenuIPFirewallFilter && menu != MenuIPv6FirewallFilter {
+		return errors.New("invalid firewall matcher menu")
+	}
+	switch field {
+	case "in-interface", "in-interface-list", "out-interface", "out-interface-list", "src-address-list", "dst-address-list":
+	default:
+		return errors.New("firewall matcher is not allowlisted")
+	}
+	if _, err := c.objectEndpoint(menu, id); err != nil {
+		return err
+	}
+	_, err := c.execute(ctx, http.MethodPost, c.baseURL+"/rest/"+string(menu)+"/unset", RouterOSFields{".id": id, "value-name": field}, maxMutationJSONBytes, mutationNoRetryMutation)
+	return err
+}
+
 func (c *MutationClient) Delete(ctx context.Context, menu MutationMenu, id string) error {
 	target, err := c.objectEndpoint(menu, id)
 	if err != nil {

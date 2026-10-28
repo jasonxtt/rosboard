@@ -98,3 +98,27 @@ docker buildx build --platform linux/amd64 \
 ```
 
 构建过程与发布流水线一致：Node 阶段构建前端 → Go 阶段交叉编译静态二进制 → Alpine 运行时镜像。CI（`.github/workflows/docker.yml`）在 `VERSION` 变更时自动构建并推送多架构镜像。
+
+## Host-side container image downloads
+
+Container registry imports run inside rosboard without Docker CLI, a Docker socket,
+or a privileged container. Public Docker Hub, GHCR and HTTPS registries are supported
+for linux/amd64 and linux/arm64; ARM32 targets are rejected before writes.
+The downloaded archive and durable job metadata live below the effective data
+directory in the mounted volume. Keep this volume writable by UID/GID 1000.
+
+The Maintenance page exposes one shared download proxy for registry imports and
+release downloads, including when no RouterOS device is configured. HTTP, HTTPS,
+SOCKS and SOCKS5 proxies support URL credentials (percent-encode reserved characters).
+The test button tests the candidate without saving; Confirm saves it, and confirming
+an empty field restores direct access. Saved passwords are masked. Downloads use
+the explicitly selected route without falling back to direct access or environment
+proxy variables. Each operation keeps its captured configuration.
+
+Images are verified by digest, compressed size and expanded layer DiffID, then
+transferred through pinned SFTP and imported from a verified tar. Stopped or failed
+imports retain their artifacts. Cleanup occurs after verified successful runtime
+(including health checks), or confirmed deletion, with durable retry on failures.
+Allow space for a 1 GiB archive, a 5 GiB local staging quota, and a 256 MiB reserve.
+The container network must reach the RouterOS REST and SSH endpoints; registry
+egress may use the shared proxy. Docker self-update remains disabled.

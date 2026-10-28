@@ -16,6 +16,7 @@ export function viewTitle(view: ActiveView) {
     'target-library': '目标库',
     'policy-routing': '策略路由',
     'access-control': '访问控制',
+    containers: '容器管理',
     recognition: '识别设置',
   }
   return titles[view]

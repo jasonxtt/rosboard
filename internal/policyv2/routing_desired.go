@@ -279,7 +279,7 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 			for _, targetRule := range target.rules {
 				family := ipRuleFamily(targetRule.RuleType)
-				if family == "" || !familyEnabled(families, family) {
+				if family == "" {
 					continue
 				}
 				menu := routeros.MenuIPFirewallAddressList
@@ -291,6 +291,13 @@ func buildRoutingDesiredWithTargetScope(ctx context.Context, result *DesiredResu
 			}
 		}
 
+		// Disabled and absent families have no route foundation, but still need
+		// the same ordered source/target classification as routed families.
+		for _, familyName := range []AddressFamily{FamilyIPv4, FamilyIPv6} {
+			if !familyEnabled(families, familyName) {
+				buildRoutingMangleFamily(result, addEgress, egress, EgressFamily{Family: familyName}, ingressLists, ingressReady, "", targets, rules, terminals, disabled, managerID, deviceID)
+			}
+		}
 		for _, family := range families {
 			gateway := strings.TrimSpace(family.Gateway)
 			if gateway == "" && family.WANSource != "next-hop" {
@@ -730,9 +737,10 @@ func buildRoutingFamilyFoundation(result *DesiredResult, add func(string, router
 
 func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.MutationMenu, string, map[string]string), egress Egress, family EgressFamily, ingressLists map[string]string, ingressReady map[string]bool, table string, targets []*routingTargetProjection, rules []RoutingRule, terminals []accesscontrol.Terminal, egressDisabled, managerID, deviceID string) {
 	familyName := string(family.Family)
-	mangleMenu := routeros.MenuIPFirewallMangle
+	block := table == ""
+	mangleMenu, filterMenu := routeros.MenuIPFirewallMangle, routeros.MenuIPFirewallFilter
 	if family.Family == FamilyIPv6 {
-		mangleMenu = routeros.MenuIPv6FirewallMangle
+		mangleMenu, filterMenu = routeros.MenuIPv6FirewallMangle, routeros.MenuIPv6FirewallFilter
 	}
 	sortedRules := sortedRoutingRules(rules)
 	usedRouterTargets := make(map[string]bool)
@@ -782,10 +790,19 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 				executionState = "enabled"
 			}
 			logicalID += ":" + executionState
+			markPrefix := "rb_"
+			if block {
+				markPrefix = "rb_bl_"
+				logicalID = strings.Replace(logicalID, "routing-rule-routing:", "routing-rule-block:", 1)
+			}
+			markKey := "routing-execution-mark:" + groupKey
+			if block {
+				markKey += "\x00" + managerID + "\x00" + deviceID
+			}
 			group = routingExecutionGroup{
 				boundary: matcher.boundary, subjectList: matcher.subjectList, ingressList: matcher.ingressList,
 				inInterface: matcher.inInterface, inInterfaceList: matcher.inInterfaceList,
-				mark:      "rb_" + shortHash("routing-execution-mark:"+groupKey, 12),
+				mark:      markPrefix + shortHash(markKey, 12),
 				logicalID: logicalID, enabled: effectiveEnabled,
 			}
 			executionGroups[groupKey] = group
@@ -825,6 +842,14 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			}
 		}
 	}
+	if block {
+		for _, group := range executionGroups {
+			if group.enabled {
+				result.Warnings = append(result.Warnings, PlanIssue{Code: "disabled_family_drops_new_connections", Status: "warning", Family: familyName, EgressID: egress.ID, Reason: "关闭的地址族将阻断匹配策略的新连接，不会回落 main；已建立连接可持续至自然结束。DNS 的 A/AAAA 解析不变。"})
+				break
+			}
+		}
+	}
 	groupKeys := make([]string, 0, len(executionGroups))
 	for key := range executionGroups {
 		groupKeys = append(groupKeys, key)
@@ -835,6 +860,10 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 		disabled := "no"
 		if !group.enabled {
 			disabled = "yes"
+		}
+		if block {
+			add(group.logicalID, filterMenu, "activation", map[string]string{"chain": "forward", "connection-mark": group.mark, "action": "drop", "disabled": disabled})
+			continue
 		}
 		fields := map[string]string{"chain": "prerouting", "dst-address-type": "!local", "connection-mark": group.mark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": disabled}
 		if group.boundary == "ingress" {
@@ -867,7 +896,15 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 	if len(activeTargets) == 0 {
 		return
 	}
-	routerMark := "rb_" + shortHash("routing-router:"+egress.ID+":"+familyName, 12)
+	markPrefix := "rb_"
+	if block {
+		markPrefix = "rb_bl_"
+	}
+	routerKey := "routing-router:" + egress.ID + ":" + familyName
+	if block {
+		routerKey += "\x00" + managerID + "\x00" + deviceID
+	}
+	routerMark := markPrefix + shortHash(routerKey, 12)
 	for _, target := range activeTargets {
 		for _, targetList := range routingTargetListsForRouterOutput(target) {
 			logicalID := "routing-router-connection:" + egress.ID + ":" + familyName + ":" + target.id
@@ -877,7 +914,11 @@ func buildRoutingMangleFamily(result *DesiredResult, add func(string, routeros.M
 			add(logicalID, mangleMenu, "activation", map[string]string{"chain": "output", "dst-address-type": "!local", "connection-state": "new", "connection-mark": "no-mark", "dst-address-list": targetList, "action": "mark-connection", "new-connection-mark": routerMark, "passthrough": "yes", "disabled": egressDisabled})
 		}
 	}
-	add("routing-router-routing:"+egress.ID+":"+familyName, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": egressDisabled})
+	if block {
+		add("routing-router-block:"+egress.ID+":"+familyName, filterMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "drop", "disabled": egressDisabled})
+	} else {
+		add("routing-router-routing:"+egress.ID+":"+familyName, mangleMenu, "activation", map[string]string{"chain": "output", "connection-mark": routerMark, "action": "mark-routing", "new-routing-mark": table, "passthrough": "no", "disabled": egressDisabled})
+	}
 }
 
 func recordRoutingConnectionOrder(result *DesiredResult, logicalID string, rule RoutingRule) {
@@ -1396,6 +1437,10 @@ func routingObjectCommentLabel(logicalID, strategyLabel string, target *routingT
 		return "入口路由标记 · " + strategyLabel + " · " + routingFamilyLabel(logicalID)
 	case "routing-router-routing":
 		return "路由器路由标记 · " + strategyLabel + " · " + routingFamilyLabel(logicalID)
+	case "routing-rule-block":
+		return "入口地址族阻断 · " + strategyLabel + " · " + routingFamilyLabel(logicalID)
+	case "routing-router-block":
+		return "路由器地址族阻断 · " + strategyLabel + " · " + routingFamilyLabel(logicalID)
 	case "routing-target-addr":
 		return "目标地址 · " + strategyLabel + targetLabel
 	case "routing-dns":

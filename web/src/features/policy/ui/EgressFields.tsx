@@ -27,6 +27,7 @@ export function EgressFields({ draft, discovery, onChange, readOnly = false }: E
 
   return (
     <div className="pol-egr-fields">
+      <p className="faint">启用的策略关闭某地址族后，匹配该策略的新连接将被阻断，不会回落 main。已建立连接可能持续至自然结束；DNS 的 A/AAAA 解析不变。停用整条策略后不再执行其阻断。</p>
       {(['ipv4', 'ipv6'] as const).map((family) => (
         <FamilyEditor
           key={`${draft.id || 'new'}:${family}`}
