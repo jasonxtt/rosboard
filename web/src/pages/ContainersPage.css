@@ -514,13 +514,17 @@
   transform: translateY(0);
 }
 
-/* disabled icon buttons stay opaque so their bubble remains readable; the
-   muted look comes from grayscale + faint ink instead of opacity (opacity
-   would fade the bubble along with the button) */
+/* disabled icon buttons must not gain opacity or filter on the button
+   itself: either would make the button a stacking context and trap its
+   bubble under the sticky table header (z-index 2). Dim only the glyph
+   span; the bubble ::after is the button's own child and stays opaque. */
 .ct button[data-tip]:disabled {
   opacity: 1;
-  filter: grayscale(0.75);
   color: var(--ink-3);
+}
+
+.ct button[data-tip]:disabled > span {
+  opacity: 0.45;
 }
 
 /* first data row opens its bubbles downward: above it is only the header,
