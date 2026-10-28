@@ -294,6 +294,14 @@ test('flat editor shows every section, keeps required errors inline and retains 
     )
     assert.equal(document.querySelector('[role="tablist"]'), null)
     assert.equal(document.querySelector('details'), null)
+    // 资源限制 / 健康检查默认折叠为标题栏（标题仍计入七个分区）
+    for (const name of ['资源限制', '健康检查']) {
+      const toggle = document.querySelector<HTMLButtonElement>(
+        `[aria-label="展开${name}设置"]`,
+      )
+      assert.ok(toggle)
+      assert.equal(toggle!.getAttribute('aria-expanded'), 'false')
+    }
     assert.doesNotMatch(document.body.textContent!, /下一步|端口映射|dst-nat/)
     assert.match(document.body.textContent!, /通过容器 IP:应用端口访问/)
     assert.equal(field('已有 bridge').value, '')
@@ -1076,6 +1084,12 @@ test('health check choices gate custom settings and retain the command when swit
         />,
       ),
     )
+    // 健康检查分区默认折叠为标题栏，点击标题箭头展开
+    const healthSection = document.querySelector<HTMLButtonElement>(
+      '[aria-label="展开健康检查设置"]',
+    )!
+    assert.ok(healthSection)
+    await act(async () => healthSection.click())
     const mode = field('检查方式') as HTMLSelectElement
     assert.equal(mode.value, 'inherit')
     assert.doesNotMatch(
@@ -1824,6 +1838,13 @@ test('resource switch starts off, preserves hidden values, submits inheritance o
           />,
         ),
       )
+      // 资源限制分区：新建默认折叠，编辑带显式限制的容器时默认展开
+      const sectionToggle = document.querySelector<HTMLButtonElement>(
+        '[aria-label$="资源限制设置"]',
+      )!
+      assert.ok(sectionToggle)
+      assert.equal(sectionToggle.getAttribute('aria-expanded'), String(editing))
+      if (!editing) await act(async () => sectionToggle.click())
       const toggle = document.querySelector<HTMLInputElement>(
         '.ct-resource-toggle input',
       )!
