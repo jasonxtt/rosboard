@@ -19,6 +19,13 @@ Use targeted `go test -race` for code that coordinates concurrent monitors,
 jobs, or stores. Record a known pre-existing failure instead of weakening the
 test or hiding it.
 
+### macOS staging tests
+
+Image staging rejects symlinked directory ancestors. macOS default temporary
+paths can traverse `/var` or `/tmp` symlinks; run these tests with
+`TMPDIR=/private/tmp go test ./...` when that boundary rejects a fixture path.
+Keep production path checks intact rather than weakening them for the test host.
+
 ## Forbidden Patterns
 
 - Do not put secrets in source, fixtures, logs, task artifacts, or test output.

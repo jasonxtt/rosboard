@@ -510,3 +510,30 @@ func TestLoadRejectsInvalidPortFromEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyContainerRolloutFlagIsIgnored(t *testing.T) {
+	for _, flag := range []string{"true", "false"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		payload := "devices:\n  - id: lab\n    name: Lab\n    enabled: true\n    container_writes: " + flag + "\n    routeros:\n      base_url: http://router.test\n      username: test\n      password: test\n"
+		if err := os.WriteFile(path, []byte(payload), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Devices) != 1 || !cfg.Devices[0].Enabled {
+			t.Fatal("legacy flag affected device availability")
+		}
+		if err := Save(path, cfg); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "container_writes") {
+			t.Fatal("obsolete rollout flag persisted")
+		}
+	}
+}

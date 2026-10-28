@@ -63,6 +63,9 @@ const (
 	ReadMenuIPDNS                   ReadMenu = "ip/dns"
 	ReadMenuIPDNSForwarders         ReadMenu = "ip/dns/forwarders"
 	ReadMenuIPDNSStatic             ReadMenu = "ip/dns/static"
+	ReadMenuIPFirewallRaw           ReadMenu = "ip/firewall/raw"
+	ReadMenuIPv6FirewallRaw         ReadMenu = "ipv6/firewall/raw"
+	ReadMenuFirewallTracking        ReadMenu = "ip/firewall/connection/tracking"
 	ReadMenuIPFirewallMangle        ReadMenu = "ip/firewall/mangle"
 	ReadMenuIPFirewallNAT           ReadMenu = "ip/firewall/nat"
 	ReadMenuIPFirewallFilter        ReadMenu = "ip/firewall/filter"
@@ -98,6 +101,9 @@ func (menu ReadMenu) valid() bool {
 		ReadMenuIPDNS,
 		ReadMenuIPDNSForwarders,
 		ReadMenuIPDNSStatic,
+		ReadMenuIPFirewallRaw,
+		ReadMenuIPv6FirewallRaw,
+		ReadMenuFirewallTracking,
 		ReadMenuIPFirewallMangle,
 		ReadMenuIPFirewallNAT,
 		ReadMenuIPFirewallFilter,

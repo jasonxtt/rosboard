@@ -41,3 +41,96 @@ On an observed job's verified success, reload to use the new embedded frontend.
 Version metadata uses four columns on desktop and two columns at viewport widths
 up to 768px: current/latest version, then platform/last check. Preserve DOM order
 and permit long values to wrap inside their own cells.
+
+## Native container feature
+
+The shared create editor supports a transient Compose import dialog in both
+stylesheets. Parse one full document, select exactly one service, then explicitly
+apply only the closed supported field set. Preserve draft identity, ROS network
+and root; replace old imported env/mount/startup/resource values. Mount sources
+are always blank even if a response supplies one. No source or secrets go into
+browser storage. Cancel, source edits and device remounts invalidate pending
+results; form submission is blocked while the dialog is open. Keep skipped and
+manual-input explanations accessible after applying.
+
+Both shells mount `features/containers/ContainerPage` through UI-specific lazy
+page entries. The shared feature imports no shell CSS. Each entry owns its
+container stylesheet; all selectors stay under `.ct`. The form is flat: seven
+sections, laid out in two stacked columns on desktop (01/03/05 left, 02/04/06/07
+right, so numbers read across and each stack packs tight with no blank
+pockets) and one column on mobile; the resolved-defaults list is a collapsed
+`details` block above a slim sticky action bar, with inline defaults and errors. No configuration tab or wizard hides
+fields. 资源限制 and 健康检查 default to a collapsed header bar; the header
+toggle expands them in place, validation errors open them without clearing
+values, and a collapsed section holding non-default values carries a 已配置
+marker. Optional IPv6/MAC and startup command/entrypoint/user/workdir collapse
+under separate advanced toggles; validation errors expand those fields without
+clearing their values.
+Startup behavior, logging and restart policy precede startup advanced settings.
+Health-check labels explain service response checks; custom fields appear only
+in override mode. Resource limits default off for new drafts; edits with explicit
+limits start on. Turning off submits inheritance without discarding hidden input.
+Runtime-directory input supports direct typing and a bound Files picker. Its
+compact breadcrumb scrolls horizontally; pending creation and renaming use
+focused inline rows. Enter/valid blur saves once and Escape cancels locally.
+Folders sort first; files are muted and cannot become a runtime root. Recursive
+folder deletion displays its exact name/path and all-content warning.
+
+Container lifecycle capabilities fail closed for writes; directory CRUD uses
+the independent `directoryWrites` capability and device-scoped API. The development preview uses
+fake device APIs and a separate HTML entry. Check both lazy container CSS graphs
+and absence of the preview entry/fixtures in `check:ui-build`. Device remounts
+cancel reads and clear drafts, logs and job selection; subsequent reads restore
+the device's pending job to permit unknown-result recovery. Visual acceptance
+remains user-led at the documented viewport/theme combinations.
+
+Container draft/request identifiers use `crypto.getRandomValues`, which is
+available on HTTP LAN panels; do not require secure-context `randomUUID`.
+
+Container surface, input, border, ink, accent and semantic colours must alias
+the active shell tokens in each UI-specific stylesheet. Do not maintain a
+separate hard-coded container palette. Floating menus/dialogs use opaque shell
+surfaces; development previews load only the selected shell token stylesheet.
+
+Container memory telemetry may be a raw byte count. Format numeric values with
+the shared byte formatter in both the table and log details; preserve readable
+unit strings and distinguish unavailable values from zero. Show localized
+operation names while retaining the API action identifiers.
+
+Aurora's mobile top navigation wraps when the device name and action controls
+cannot fit. Keep theme/settings controls reachable without widening the document.
+
+Registry DNS preparation uses the existing container job progress area, without
+an extra confirmation or connectivity gate. Parse optional safe `warnings` as
+strings, accepting older jobs without them; render warnings as text separately
+from native operation errors in both shared UI variants.
+
+Both connection-account settings views mount the shared `AccountTransferPanel`
+with shell-native controls. Transfer checks are explicit GET-only actions and
+abort/discard their response on device/credential remount. Render administrator
+scripts as readonly text. Keep declared role, SFTP read connectivity and actual
+write success distinct. Onboarding help explains SSH/FTP group authority without
+opening services, trusting keys or performing container writes.
+
+Container resource memory inputs are labeled high(MB)/max(MB) and accept numeric
+MB values (RouterOS M, 1024² bytes). Convert existing byte/unit quantities for
+display and send explicit M suffixes on edits. Blank still inherits defaults;
+never reinterpret bare API quantities as MB or change untouched saved limits.
+
+## Container presentation adapters
+
+Container behaviour stays shared through a presentation context. The Aurora entry
+provides public Card/Button/Badge components and the table class; Compact provides
+its native panel/control classes. Preserve native section/footer semantics and
+forward button accessibility, keyboard, blur and form attributes. Keep shell
+imports in the entry adapters, never in the shared container feature. Separate
+container CSS graphs alias shell typography, spacing, radii and elevation as well
+as colour. The development preview must mount the selected adapter and load that
+shell's base styles. Compact already provides the page title in its topbar.
+
+Container row actions are direct icon buttons in the last table column; there is
+no overflow menu. Each icon button names its action in a `data-tip` hover/focus
+bubble (styled per shell) and an `aria-label` with the action and container name.
+Shared native dialogs retain accessible headings, close controls and existing
+cancel/busy safeguards; dialog close restores focus to the triggering icon.
+Regression tests must exercise both real adapters.

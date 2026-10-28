@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/policy-routing.md", "reason": "Routing ownership, source/priority and apply lifecycle contracts"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Required checks and typed mutation boundaries"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend conventions and quality checks"}
+{"file": ".trellis/tasks/10-27-disabled-family-block/research/current-behavior.md", "reason": "Verified failure and enforcement risks"}
