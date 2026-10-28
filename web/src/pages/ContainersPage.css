@@ -359,7 +359,7 @@
 .ct th:nth-child(2) { width: 128px; }
 .ct th:nth-child(3) { width: 190px; }
 .ct th:nth-child(4) { width: 124px; }
-.ct th:nth-child(5) { width: 156px; }
+.ct th:nth-child(5) { width: 228px; }
 
 .ct th:nth-child(4),
 .ct td:nth-child(4) { text-align: right; }
@@ -479,74 +479,50 @@
   color: var(--ink);
 }
 
-.ct-more {
-  min-width: 44px;
+/* icon buttons explain themselves through an instant bubble; the shared
+   markup carries data-tip instead of title so the native tooltip never
+   doubles the bubble */
+.ct [data-tip] {
+  position: relative;
 }
 
-.ct-more summary {
-  cursor: pointer;
-  color: var(--ink-2);
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 0 6px;
+.ct [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 60;
+  padding: 4px 9px;
   border-radius: 8px;
-  font-size: var(--text-md);
-}
-
-.ct-more summary:hover {
-  background: var(--glass-2);
+  background: var(--ct-float);
+  border: 1px solid var(--glass-float-stroke);
   color: var(--ink);
-}
-
-.ct-more summary::after {
-  content: '▾';
-  font-size: 10px;
-}
-
-.ct-more[open] summary::after {
-  content: '▴';
-}
-
-.ct-more-options {
-  display: grid;
-  gap: 2px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--stroke);
-}
-
-/* expanded row actions read as flat menu rows, not stacked ghost buttons */
-.ct .ct-more-options button {
-  justify-content: flex-start;
-  text-align: left;
-  height: 32px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ink);
+  font-size: var(--text-xs);
   font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-fast),
+    transform var(--motion-fast);
+  transform: translateY(2px);
 }
 
-.ct .ct-more-options button:hover:not(:disabled) {
-  background: var(--glass-2);
-  color: var(--ink);
+.ct [data-tip]:hover::after,
+.ct [data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
-.ct .ct-danger,
-.ct .ct-row-actions .ct-danger {
+.ct .ct-danger {
   color: var(--ct-danger);
 }
 
-.ct .ct-more-options button.ct-danger {
-  background: transparent;
+.ct .ct-row-actions button.ct-icon.ct-danger {
+  color: var(--ct-danger);
 }
 
-.ct .ct-more-options button.ct-danger:hover:not(:disabled) {
+.ct .ct-row-actions button.ct-icon.ct-danger:hover:not(:disabled) {
   background: var(--err-soft);
   color: var(--ct-danger);
 }
@@ -1338,7 +1314,11 @@
   }
 
   .ct th:nth-child(5) {
-    width: 140px;
+    width: 152px;
+  }
+
+  .ct-row-actions {
+    flex-wrap: wrap;
   }
 }
 

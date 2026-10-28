@@ -332,12 +332,22 @@
 }
 .ct .ct-danger, .ct .ct-row-actions .ct-danger { color: var(--ct-danger); background: color-mix(in srgb, var(--ct-danger) 9%, transparent); }
 .ct .ct-danger:hover:not(:disabled) { color: var(--ct-danger); border-color: var(--ct-danger); }
-.ct-more { min-width: 44px; }
-.ct-more summary { cursor: pointer; color: var(--ct-accent); min-height: 44px; display: flex; align-items: center; gap: 4px; }
-.ct-more summary::after { content: '▾'; font-size: 10px; }
-.ct-more[open] summary::after { content: '▴'; }
-.ct-more-options { display: grid; gap: 4px; border-top: 1px solid var(--ct-border); }
-.ct-more-options button { text-align: left; justify-content: flex-start; }
+/* icon buttons explain themselves through an instant bubble; the shared
+   markup carries data-tip instead of title so the native tooltip never
+   doubles the bubble */
+.ct [data-tip] { position: relative; }
+.ct [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; right: 0; bottom: calc(100% + 7px); z-index: 60;
+  padding: 3px 8px; border-radius: 6px;
+  background: var(--ct-float); border: 1px solid var(--ct-border);
+  box-shadow: var(--ct-pop-shadow);
+  color: var(--ct-text); font-size: 11px; font-weight: 500; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+  transform: translateY(2px);
+}
+.ct [data-tip]:hover::after, .ct [data-tip]:focus-visible::after { opacity: 1; transform: translateY(0); }
 .ct table tbody tr:hover { background: color-mix(in srgb, var(--ct-accent) 4%, transparent); }
 .ct-pagination {
   display: flex;

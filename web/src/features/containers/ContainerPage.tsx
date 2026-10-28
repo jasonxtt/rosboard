@@ -1,7 +1,6 @@
 import {
   ContainerButton,
   ContainerDialog,
-  ContainerMoreActions,
   ContainerStatus,
   ContainerSurface,
   ContainerTable,
@@ -537,7 +536,7 @@ export function ContainerPage({
                     <div className="ct-row-actions">
                       <ContainerButton
                         className="ct-icon"
-                        title={item.status === 'running' ? '停止' : '启动'}
+                        data-tip={item.status === 'running' ? '停止' : '启动'}
                         aria-label={`${item.status === 'running' ? '停止' : '启动'} ${item.name}`}
                         disabled={
                           !c.writes ||
@@ -555,7 +554,7 @@ export function ContainerPage({
                       </ContainerButton>
                       <ContainerButton
                         className="ct-icon"
-                        title="日志"
+                        data-tip="日志"
                         aria-label={`日志 ${item.name}`}
                         disabled={!c.logs}
                         onClick={() => setLogItem(item)}
@@ -564,7 +563,7 @@ export function ContainerPage({
                       </ContainerButton>
                       <ContainerButton
                         className="ct-icon"
-                        title="编辑配置"
+                        data-tip="编辑配置"
                         aria-label={`编辑 ${item.name}`}
                         disabled={busy}
                         onClick={() =>
@@ -573,47 +572,47 @@ export function ContainerPage({
                       >
                         <span aria-hidden="true">✎</span>
                       </ContainerButton>
-                      <ContainerMoreActions name={item.name || item.id}>
+                      <ContainerButton
+                        className="ct-icon"
+                        data-tip="重启"
+                        aria-label={`重启 ${item.name}`}
+                        disabled={!c.writes || busy || item.status !== 'running'}
+                        onClick={() => requestAction('restart', item)}
+                      >
+                        <span aria-hidden="true">⟳</span>
+                      </ContainerButton>
+                      {item.ownership === 'managed' ? (
+                        <>
+                          <ContainerButton
+                            className="ct-icon"
+                            data-tip="更新镜像"
+                            aria-label={`更新 ${item.name}`}
+                            disabled={!c.writes || busy}
+                            onClick={() => requestAction('update', item)}
+                          >
+                            <span aria-hidden="true">⬆</span>
+                          </ContainerButton>
+                          <ContainerButton
+                            className="ct-icon ct-danger"
+                            data-tip="删除"
+                            aria-label={`删除 ${item.name}`}
+                            disabled={!c.writes || busy}
+                            onClick={() => requestAction('delete', item)}
+                          >
+                            <span aria-hidden="true">🗑️</span>
+                          </ContainerButton>
+                        </>
+                      ) : (
                         <ContainerButton
                           className="ct-icon"
-                          title="重启"
-                          aria-label={`重启 ${item.name}`}
-                          disabled={!c.writes || busy || item.status !== 'running'}
-                          onClick={() => requestAction('restart', item)}
+                          data-tip="接管已有容器"
+                          aria-label={`接管 ${item.name}`}
+                          disabled={!c.writes || busy}
+                          onClick={() => requestAction('adopt', item)}
                         >
-                          <span aria-hidden="true">⟳</span> 重启
+                          <span aria-hidden="true">📥</span>
                         </ContainerButton>
-                        {item.ownership === 'managed' ? (
-                          <>
-                            <ContainerButton
-                              title="手动更新镜像"
-                              aria-label={`更新 ${item.name}`}
-                              disabled={!c.writes || busy}
-                              onClick={() => requestAction('update', item)}
-                            >
-                              更新镜像
-                            </ContainerButton>
-                            <ContainerButton
-                              className="ct-danger"
-                              title="删除"
-                              aria-label={`删除 ${item.name}`}
-                              disabled={!c.writes || busy}
-                              onClick={() => requestAction('delete', item)}
-                            >
-                              删除
-                            </ContainerButton>
-                          </>
-                        ) : (
-                          <ContainerButton
-                            title="接管已有容器"
-                            aria-label={`接管 ${item.name}`}
-                            disabled={!c.writes || busy}
-                            onClick={() => requestAction('adopt', item)}
-                          >
-                            接管
-                          </ContainerButton>
-                        )}
-                      </ContainerMoreActions>
+                      )}
                     </div>
                   </td>
                 </tr>

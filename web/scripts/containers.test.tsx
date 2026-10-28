@@ -1992,7 +1992,7 @@ for (const [name, presentation, surfaceClass, tableClass] of [
   ['Aurora', auroraContainerPresentation, 'glass', 'table'],
   ['Compact', compactContainerPresentation, 'panel', 'data-table'],
 ] as const) {
-  test(`${name}: native presentation and more actions retain confirmations, keyboard dismissal and focus`, async () => {
+  test(`${name}: flat row action icons carry tips and destructive actions confirm before writing`, async () => {
     const env = installDOM()
     const root = createRoot(document.getElementById('root')!)
     const state = snapshot(true)
@@ -2015,16 +2015,13 @@ for (const [name, presentation, surfaceClass, tableClass] of [
       assert.equal(document.querySelector('.ct-stats .ct-card'), null)
       assert.equal(document.querySelector<HTMLDetailsElement>('.ct-help')!.open, false)
       assert.equal(document.querySelector('[aria-label="日志 dns"]')!.textContent?.trim(), '📋')
-      const menu = document.querySelector<HTMLDetailsElement>('.ct-more')!
-      const trigger = menu.querySelector('summary')!
-      await act(async () => { menu.open = true; trigger.focus() })
-      await act(async () => menu.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-      assert.equal(menu.open, false)
-      assert.equal(document.activeElement, trigger)
-      await act(async () => { menu.open = true })
-      const remove = menu.querySelector<HTMLButtonElement>('[aria-label="删除 dns"]')!
+      // flat icon row: no overflow menu, every icon explains itself via data-tip
+      assert.equal(document.querySelector('.ct-more'), null)
+      const restart = document.querySelector<HTMLButtonElement>('[aria-label="重启 dns"]')!
+      assert.equal(restart.getAttribute('data-tip'), '重启')
+      const remove = document.querySelector<HTMLButtonElement>('[aria-label="删除 dns"]')!
+      assert.equal(remove.getAttribute('data-tip'), '删除')
       await act(async () => { remove.focus(); remove.click() })
-      assert.equal(menu.open, false)
       const dialog = document.querySelector<HTMLElement>(
         name === 'Aurora' ? '.modal[role="dialog"]' : 'dialog[open]',
       )!
@@ -2034,11 +2031,8 @@ for (const [name, presentation, surfaceClass, tableClass] of [
       assert.ok(dialog.querySelector('.ct-danger'))
       await act(async () => button('取消').click())
       assert.equal(document.querySelector(name === 'Aurora' ? '.modal' : 'dialog'), null)
-      assert.equal(document.activeElement, trigger)
+      assert.equal(document.activeElement, remove)
       assert.equal(writes, 0)
-      await act(async () => { menu.open = true })
-      await act(async () => document.body.dispatchEvent(new env.dom.window.Event('pointerdown', { bubbles: true })))
-      assert.equal(menu.open, false)
     } finally {
       await act(async () => root.unmount())
       env.restore()

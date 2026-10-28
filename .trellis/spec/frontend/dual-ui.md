@@ -122,8 +122,9 @@ container CSS graphs alias shell typography, spacing, radii and elevation as wel
 as colour. The development preview must mount the selected adapter and load that
 shell's base styles. Compact already provides the page title in its topbar.
 
-Secondary row actions expand inline within the scrolling table; do not position a
-menu where its overflow would be clipped. Escape, outside pointer and selecting
-an enabled action dismiss it; keyboard dismissal and dialog close restore focus.
+Container row actions are direct icon buttons in the last table column; there is
+no overflow menu. Each icon button names its action in a `data-tip` hover/focus
+bubble (styled per shell) and an `aria-label` with the action and container name.
 Shared native dialogs retain accessible headings, close controls and existing
-cancel/busy safeguards. Regression tests must exercise both real adapters.
+cancel/busy safeguards; dialog close restores focus to the triggering icon.
+Regression tests must exercise both real adapters.

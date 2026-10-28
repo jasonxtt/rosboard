@@ -53,6 +53,19 @@ to shell `.btn` variants while a blanket `.ct button` rule re-skinned them.
   container CSS chunk regenerated under `internal/ui/dist`.
 - `go build ./...` — pass.
 
+## Follow-up 2026-10-28: flat row actions with icon bubbles
+
+User found the 更多 overflow menu messy and translucent. Removed the
+expandable menu (and `ContainerMoreActions`): restart/update/delete/adopt are
+now direct icon buttons in the last column alongside start/log/edit, widening
+操作 to 228px (152px with wrapping at ≤767px). Every row icon and the
+editor's mount/env delete buttons now carry `data-tip` instead of `title`;
+each shell's stylesheet renders an instant hover/focus bubble (Aurora
+glass-float tokens, Compact surface tokens) with no native-tooltip doubling.
+Destructive actions still pass through the confirmation dialog with focus
+restored to the triggering icon; the dual-adapter regression test was updated
+accordingly and the dual-ui spec bullet now documents the flat-icon pattern.
+
 ## Pending
 
 User-led visual acceptance (quality-guidelines): preview via
