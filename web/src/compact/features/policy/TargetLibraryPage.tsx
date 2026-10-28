@@ -7,9 +7,9 @@ type SourceType = 'manual' | 'url' | 'upload'
 
 function jobID(value: { jobId?: string; job?: { id: string } }) { return value.jobId ?? value.job?.id ?? '' }
 
-export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string; refreshNonce: number }) {
+export function TargetLibraryPage({ deviceID, refreshNonce, kind }: { deviceID: string; refreshNonce: number; kind?: 'domain' | 'ip' }) {
   const [targets, setTargets] = useState<TargetList[]>([])
-  const [filter, setFilter] = useState<KindFilter>('all')
+  const [filter, setFilter] = useState<KindFilter>(kind ?? 'all')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -70,11 +70,11 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
         <button type="button" className="primary-button" onClick={() => setEditing(null)}>新增目标列表</button>
       </div>
       <div className="policy-toolbar">
-        <div className="segmented-control">
+        {kind ? null : <div className="segmented-control">
           <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部</button>
           <button type="button" className={filter === 'domain' ? 'active' : ''} onClick={() => setFilter('domain')}>域名</button>
           <button type="button" className={filter === 'ip' ? 'active' : ''} onClick={() => setFilter('ip')}>IP</button>
-        </div>
+        </div>}
         <input className="settings-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索目标列表" />
       </div>
       {visible.length === 0 ? <PolicyEmptyState title="暂无目标列表" description="从手动内容、URL 或上传文件创建可复用目标。" action={<button type="button" className="primary-button" onClick={() => setEditing(null)}>新增目标列表</button>} /> : (
@@ -103,7 +103,7 @@ export function TargetLibraryPage({ deviceID, refreshNonce }: { deviceID: string
         </div>
       )}
     </section>
-	{editing !== undefined ? <TargetListModal deviceID={deviceID} target={editing} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); setNotice(editing ? '目标列表已更新。' : '目标列表已创建。'); await reload() }} /> : null}
+	{editing !== undefined ? <TargetListModal deviceID={deviceID} target={editing} initialKind={kind} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); setNotice(editing ? '目标列表已更新。' : '目标列表已创建。'); await reload() }} /> : null}
   </div>
 }
 

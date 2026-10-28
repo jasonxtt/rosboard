@@ -27,7 +27,7 @@ import { Notice } from './Notice'
 import { PlanReviewBody } from './PlanReview'
 import type { PlanSummaryEntry } from './PlanReview'
 import { RoutingSourcePicker, type RoutingSourceSelectionKind } from './RoutingSourcePicker'
-import { TargetListModal } from './TargetListModal'
+import { TargetLibraryManagerModal } from './TargetLibraryManagerModal'
 import { TargetSelector } from './TargetSelector'
 import type { PresetPresentation } from './TargetSelector'
 import { WizardSteps } from './WizardSteps'
@@ -573,16 +573,15 @@ export function RoutingRuleWizard({ deviceID, context, rule, onClose, onSaved }:
         ) : null}
       </Modal>
       {creatingTargetKind ? (
-        <TargetListModal
+        <TargetLibraryManagerModal
           deviceID={deviceID}
-          target={null}
-          initialKind={creatingTargetKind}
-          onClose={() => setCreatingTargetKind(null)}
-          onSaved={({ targetList }) => {
-            markDraftChanged()
-            setTargetLists((current) => (current.some((item) => item.id === targetList.id) ? current.map((item) => (item.id === targetList.id ? targetList : item)) : [...current, targetList]))
-            setTargetListIDs((current) => (current.includes(targetList.id) ? current : [...current, targetList.id]))
+          kind={creatingTargetKind}
+          onClose={(lists) => {
             setCreatingTargetKind(null)
+            if (!lists) return
+            markDraftChanged()
+            setTargetLists((current) => [...lists, ...current.filter((item) => item.sourceType === 'preset' && !lists.some((fresh) => fresh.id === item.id))])
+            setTargetListIDs((current) => current.filter((id) => id.startsWith('preset:') || lists.some((fresh) => fresh.id === id)))
           }}
         />
       ) : null}
