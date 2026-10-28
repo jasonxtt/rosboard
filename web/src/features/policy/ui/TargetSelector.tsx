@@ -165,7 +165,7 @@ export function TargetSelector({ deviceID, targetLists, selectedIDs, onChange, o
         <h5>{title}</h5>
         {onCreateTargetList ? (
           <button type="button" className="link-button" onClick={() => onCreateTargetList(kind)}>
-            ＋ 新建{kind === 'ip' ? ' IP ' : '域名'}目标库
+            管理{kind === 'ip' ? ' IP ' : '域名'}目标库
           </button>
         ) : null}
       </div>
