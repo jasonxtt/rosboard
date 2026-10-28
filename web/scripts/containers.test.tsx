@@ -574,15 +574,13 @@ test('readonly local upload stays disabled while directory selection updates onl
     await settle()
     await act(async () => button('sata1').click())
     await settle()
-    // clicking a folder enters it and selects it live, before any confirm
+    // clicking a folder row selects it live; read-only mode offers no creation
     assert.equal(field('主机源目录').value, '/sata1')
-    assert.equal(
-      [...document.querySelectorAll('button')].some(
-        (b) => b.textContent === '新建文件夹',
-      ),
-      false,
+    assert.ok(!document.querySelector('.ct-tree-menu'))
+    assert.ok(!document.querySelector('[aria-label="文件夹 sata1 操作"]'))
+    await act(async () =>
+      keyInput(field('主机源目录') as HTMLInputElement, 'Escape', env.dom),
     )
-    await act(async () => button('使用此目录').click())
     assert.equal(field('主机源目录').value, '/sata1')
     assert.equal(field('容器目标目录').value, '/etc/app')
     assert.equal(field('容器运行目录').value, '')
@@ -715,6 +713,7 @@ test('runtime input supports typing and inline Files browsing without changing m
       input.getAttribute('aria-controls')!,
     )!
     assert.ok(picker?.classList.contains('ct-directory-picker'))
+    assert.ok(picker.classList.contains('ct-tree'))
     assert.equal(input.closest('.ct-field')!.nextElementSibling, picker)
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -723,12 +722,16 @@ test('runtime input supports typing and inline Files browsing without changing m
       )!.set!.call(input, '/sata1/manual')
       input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
     })
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="关闭目录浏览"]')!
-        .click(),
+    await settle()
+    // typing a missing leaf reveals its parent and offers create-and-select
+    assert.match(
+      document.querySelector('.ct-tree-create')?.textContent ?? '',
+      /创建并选择文件夹“manual”/,
     )
+    // Escape keeps the typed value and closes the panel
+    await act(async () => keyInput(input, 'Escape', env.dom))
     assert.equal(input.value, '/sata1/manual')
+    assert.ok(!document.querySelector('.ct-directory-picker'))
     await act(async () =>
       input.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', {
@@ -738,15 +741,95 @@ test('runtime input supports typing and inline Files browsing without changing m
       ),
     )
     await settle()
-    await act(async () => button('sata1').click())
-    await settle()
+    // the tree reopens with the typed value revealed (sata1 expanded)
     await act(async () => button('nginx').click())
     await settle()
-    await act(async () => button('使用此目录').click())
     assert.equal(input.value, '/sata1/nginx')
-    assert.equal(document.querySelector('.ct-directory-picker'), null)
+    await act(async () => keyInput(input, 'Escape', env.dom))
+    assert.ok(!document.querySelector('.ct-directory-picker'))
     assert.equal(field('主机源目录').value, draft.mounts[0].source)
     assert.equal(field('容器目标目录').value, draft.mounts[0].target)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('path input Enter creates a missing leaf folder, selects it and closes the panel', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  const posts: DirectoryRequest[] = []
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/directories')) {
+      if (init?.method === 'POST') {
+        const req = JSON.parse(String(init.body)) as DirectoryRequest
+        posts.push(req)
+        return response(
+          {
+            action: 'mkdir',
+            requestId: req.requestId,
+            path: req.parent + '/' + req.name,
+            previousPath: '',
+            state: 'succeeded',
+          },
+          201,
+        )
+      }
+      const path = new URL(String(url), 'http://localhost').searchParams.get(
+        'path',
+      )!
+      return response({
+        path,
+        entries:
+          path === '/'
+            ? [{ name: 'sata1', path: '/sata1', directory: true }]
+            : [],
+      })
+    }
+    return response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="a"
+          snapshot={snapshot()}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    )
+    const input = field('容器运行目录') as HTMLInputElement
+    await act(async () => input.click())
+    await settle()
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        env.dom.window.HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, '/sata1/created')
+      input.dispatchEvent(new env.dom.window.Event('input', { bubbles: true }))
+    })
+    await settle()
+    assert.match(
+      document.querySelector('.ct-tree-create')?.textContent ?? '',
+      /创建并选择文件夹“created”/,
+    )
+    await act(async () => keyInput(input, 'Enter', env.dom))
+    await settle()
+    assert.equal(posts.length, 1)
+    assert.equal(posts[0].action, 'mkdir')
+    assert.equal(posts[0].parent, '/sata1')
+    assert.equal(posts[0].name, 'created')
+    assert.equal(input.value, '/sata1/created')
+    assert.ok(!document.querySelector('.ct-directory-picker'))
   } finally {
     await act(async () => root.unmount())
     env.restore()
@@ -810,7 +893,7 @@ test('Aurora adapter renders the Files browser as a body portal that outside-cli
         new env.dom.window.MouseEvent('mousedown', { bubbles: true }),
       ),
     )
-    assert.equal(document.querySelector('.ct-directory-picker'), null)
+    assert.ok(!document.querySelector('.ct-directory-picker'))
     await act(async () =>
       input.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', {
@@ -829,7 +912,7 @@ test('Aurora adapter renders the Files browser as a body portal that outside-cli
         }),
       ),
     )
-    assert.equal(document.querySelector('.ct-directory-picker'), null)
+    assert.ok(!document.querySelector('.ct-directory-picker'))
   } finally {
     await act(async () => root.unmount())
     env.restore()
@@ -1186,7 +1269,7 @@ function directoryFetchFixture() {
   }
   return { entries, requests, reads, fetcher }
 }
-async function renderPicker(initialPath = '/sata1/docker', allowFiles = false) {
+async function renderPicker(initialPath = '/sata1/docker') {
   const env = installDOM(),
     root = createRoot(document.getElementById('root')!),
     fixture = directoryFetchFixture()
@@ -1196,30 +1279,34 @@ async function renderPicker(initialPath = '/sata1/docker', allowFiles = false) {
     mutations: [] as DirectoryMutation[],
   }
   globalThis.fetch = fixture.fetcher
-  await act(async () =>
-    root.render(
-      <DirectoryPicker
-        deviceId="test"
-        writable
-        initialPath={initialPath}
-        purpose="容器运行目录"
-        allowFiles={allowFiles}
-        onSelect={(p) => {
-          values.selected = p
-        }}
-        onClose={() => {
-          values.closed = true
-        }}
-        onMutation={(r) => values.mutations.push(r)}
-      />,
-    ),
-  )
+  // rerender with a new bound input value (simulates typing in the field)
+  const render = (value: string) =>
+    act(async () =>
+      root.render(
+        <DirectoryPicker
+          deviceId="test"
+          writable
+          initialPath={initialPath}
+          value={value}
+          purpose="容器运行目录"
+          onSelect={(p) => {
+            values.selected = p
+          }}
+          onClose={() => {
+            values.closed = true
+          }}
+          onMutation={(r) => values.mutations.push(r)}
+        />,
+      ),
+    )
+  await render(initialPath)
   await settle()
   return {
     ...env,
     root,
     fixture,
     values,
+    render,
     cleanup: async () => {
       await act(async () => root.unmount())
       env.restore()
@@ -1250,60 +1337,99 @@ test('directory paths reject traversal and preserve Unicode and spaces when sync
   )
 })
 
-test('bound picker opens at current path, browses ancestors and root, and keeps files unselectable', async () => {
-  const env = await renderPicker('sata1/docker')
+test('tree reveals the bound path, hides files and chrome, and selects/expands on row click', async () => {
+  const env = await renderPicker('/sata1/docker')
   try {
-    assert.equal(env.fixture.reads[0], '/sata1/docker')
-    assert.ok(document.body.textContent?.includes('1.0 KiB'))
+    // initial reveal loads and expands the whole ancestor chain
+    assert.deepEqual(env.fixture.reads.slice(0, 3), [
+      '/',
+      '/sata1',
+      '/sata1/docker',
+    ])
+    // files are filtered out entirely; no header/toolbar/footer chrome
     assert.equal(
-      document.querySelector('.ct-directory-picker header strong'),
-      null,
+      [...document.querySelectorAll('.ct-tree-name')].some(
+        (n) => n.textContent === 'config.yaml',
+      ),
+      false,
+    )
+    assert.equal(document.querySelector('.ct-file-name'), null)
+    assert.equal(document.querySelector('.ct-directory-picker header'), null)
+    assert.equal(document.querySelector('.ct-directory-picker footer'), null)
+    assert.equal(
+      [...document.querySelectorAll('button')].some(
+        (b) => b.textContent === '新建文件夹',
+      ),
+      false,
     )
     assert.equal(
-      document.querySelectorAll('.ct-directory-file button').length,
-      0,
+      [...document.querySelectorAll('button')].some(
+        (b) => b.textContent === '使用此目录',
+      ),
+      false,
     )
+    // clicking a folder selects it live and expands its children
+    const data = button('data')
+    assert.equal(data.className, 'ct-tree-name')
+    await act(async () => data.click())
+    await settle()
+    assert.equal(env.values.selected, '/sata1/docker/data')
+    assert.ok(env.fixture.reads.includes('/sata1/docker/data'))
     assert.ok(
-      document.querySelector(
-        '.ct-directory-row:first-child .ct-directory-folder',
+      [...document.querySelectorAll('.ct-tree-name')].some(
+        (n) => n.textContent === 'child',
       ),
     )
-    await act(async () => button('data').click())
-    await settle()
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('nav [aria-current="location"]')!
-        .click(),
-    )
-    await settle()
-    await act(async () => button('docker').click())
-    await settle()
-    assert.equal(env.fixture.reads.at(-1), '/sata1/docker')
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('nav button')!.click(),
-    )
-    await settle()
-    assert.equal(button('使用此目录').disabled, true)
-    assert.equal(button('新建文件夹').disabled, true)
+    // clicking again collapses without another read
+    const reads = env.fixture.reads.length
+    await act(async () => data.click())
+    assert.equal(env.fixture.reads.length, reads)
     assert.equal(
-      document.querySelector<HTMLButtonElement>(
-        '[aria-label="文件夹 sata1 操作"]',
-      )!.disabled,
-      true,
+      [...document.querySelectorAll('.ct-tree-name')].some(
+        (n) => n.textContent === 'child',
+      ),
+      false,
     )
-    await act(async () => button('sata1').click())
-    await settle()
-    await act(async () => button('使用此目录').click())
-    assert.equal(env.values.selected, '/sata1')
   } finally {
     await env.cleanup()
   }
 })
 
-test('inline creation focuses/selects a draft row and Enter saves once while remaining in parent', async () => {
-  const env = await renderPicker()
+test('typing a missing leaf offers create-and-select; the action row creates it and closes', async () => {
+  const env = await renderPicker('/sata1/docker')
   try {
-    await act(async () => button('新建文件夹').click())
+    await env.render('/sata1/docker/config')
+    await settle()
+    const createRow = document.querySelector<HTMLButtonElement>('.ct-tree-create')
+    assert.ok(createRow)
+    assert.match(createRow.textContent!, /创建并选择文件夹“config”/)
+    assert.match(createRow.textContent!, /按 Enter 确认/)
+    await act(async () => createRow.click())
+    await settle()
+    assert.equal(env.fixture.requests.at(-1)!.action, 'mkdir')
+    assert.equal(env.fixture.requests.at(-1)!.parent, '/sata1/docker')
+    assert.equal(env.fixture.requests.at(-1)!.name, 'config')
+    assert.equal(env.values.selected, '/sata1/docker/config')
+    assert.equal(env.values.closed, true)
+    // a typed leaf behind a missing ancestor offers no premature create
+    await env.render('/sata1/absent/deeper')
+    await settle()
+    assert.ok(!document.querySelector('.ct-tree-create'))
+  } finally {
+    await env.cleanup()
+  }
+})
+
+test('row menu creates a child folder inline; Enter saves once, selects and keeps the tree open', async () => {
+  const env = await renderPicker('/sata1/docker')
+  try {
+    const actions = () =>
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="文件夹 data 操作"]',
+      )!
+    await act(async () => actions().click())
+    assert.ok(document.querySelector('.ct-tree-menu'))
+    await act(async () => button('新建子文件夹').click())
     const input = inlineName()
     assert.equal(document.activeElement, input)
     assert.equal(input.selectionStart, 0)
@@ -1317,26 +1443,32 @@ test('inline creation focuses/selects a draft row and Enter saves once while rem
     await settle()
     assert.equal(env.fixture.requests.length, 1)
     assert.equal(env.fixture.requests[0].action, 'mkdir')
-    assert.equal(env.fixture.requests[0].expectedId, '*2')
+    assert.equal(env.fixture.requests[0].parent, '/sata1/docker/data')
     assert.equal(env.fixture.requests[0].name, '配置 文件夹')
-    assert.equal(env.fixture.reads.at(-1), '/sata1/docker')
-    await act(async () => button('配置 文件夹').click())
-    await settle()
-    await act(async () => button('使用此目录').click())
-    assert.equal(env.values.selected, '/sata1/docker/配置 文件夹')
+    assert.equal(env.values.selected, '/sata1/docker/data/配置 文件夹')
+    assert.equal(env.values.closed, false)
+    assert.ok(!document.querySelector('[aria-label="新文件夹名称"]'))
   } finally {
     await env.cleanup()
   }
 })
 
 test('inline creation Escape cancels, invalid blur stays local, and valid blur commits', async () => {
-  const env = await renderPicker()
+  const env = await renderPicker('/sata1/docker')
+  const openCreate = async () => {
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 docker 操作"]')!
+        .click(),
+    )
+    await act(async () => button('新建子文件夹').click())
+  }
   try {
-    await act(async () => button('新建文件夹').click())
+    await openCreate()
     await act(async () => keyInput(inlineName(), 'Escape', env.dom))
     assert.equal(env.fixture.requests.length, 0)
-    assert.equal(document.querySelector('[aria-label="新文件夹名称"]'), null)
-    await act(async () => button('新建文件夹').click())
+    assert.ok(!document.querySelector('[aria-label="新文件夹名称"]'))
+    await openCreate()
     const input = inlineName()
     await act(async () => typeInput(input, '../bad', env.dom))
     await act(async () => {
@@ -1358,8 +1490,8 @@ test('inline creation Escape cancels, invalid blur stays local, and valid blur c
   }
 })
 
-test('inline rename Escape retains name, successful rename retains children, and failure restores original', async () => {
-  const env = await renderPicker()
+test('rename menu item edits the row inline; Escape cancels, failure keeps editing, success remaps children', async () => {
+  const env = await renderPicker('/sata1/docker')
   const actions = () =>
     document.querySelector<HTMLButtonElement>(
       '[aria-label="文件夹 data 操作"]',
@@ -1372,8 +1504,7 @@ test('inline rename Escape retains name, successful rename retains children, and
     assert.equal(input.selectionEnd, 4)
     await act(async () => keyInput(input, 'Escape', env.dom))
     assert.equal(env.fixture.requests.length, 0)
-    await act(async () => actions().click())
-    await act(async () => button('重命名').click())
+    assert.ok(!document.querySelector('[aria-label="重命名文件夹"]'))
     globalThis.fetch = async (url, init) =>
       init?.method === 'POST'
         ? response(
@@ -1381,6 +1512,8 @@ test('inline rename Escape retains name, successful rename retains children, and
             403,
           )
         : env.fixture.fetcher(url, init)
+    await act(async () => actions().click())
+    await act(async () => button('重命名').click())
     await act(async () =>
       typeInput(inlineName('重命名文件夹'), 'rejected', env.dom),
     )
@@ -1388,9 +1521,10 @@ test('inline rename Escape retains name, successful rename retains children, and
       keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
     )
     await settle()
-    assert.equal(document.querySelector('[aria-label="重命名文件夹"]'), null)
-    assert.ok(actions())
+    // failure keeps the inline editor so nothing is lost
+    assert.ok(inlineName('重命名文件夹'))
     assert.match(document.body.textContent!, /目录权限不足/)
+    await act(async () => keyInput(inlineName('重命名文件夹'), 'Escape', env.dom))
     globalThis.fetch = env.fixture.fetcher
     await act(async () => actions().click())
     await act(async () => button('重命名').click())
@@ -1410,33 +1544,34 @@ test('inline rename Escape retains name, successful rename retains children, and
   }
 })
 
-test('nonempty directory deletion requires exact name/path warning and explicit confirmation', async () => {
-  const env = await renderPicker()
+test('delete menu item swaps the row for an inline confirmation and removes the subtree on confirm', async () => {
+  const env = await renderPicker('/sata1/docker')
+  const actions = () =>
+    document.querySelector<HTMLButtonElement>(
+      '[aria-label="文件夹 data 操作"]',
+    )!
   try {
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
-        .click(),
-    )
+    await act(async () => actions().click())
     await act(async () => button('删除').click())
-    const confirm = document.querySelector('[role="alertdialog"]')!
-    assert.match(confirm.textContent!, /data/)
-    assert.match(confirm.textContent!, /\/sata1\/docker\/data/)
+    const confirm = document.querySelector('.ct-tree-confirm')!
+    assert.ok(confirm)
+    assert.match(confirm.textContent!, /确定删除“data”？/)
+    assert.match(confirm.textContent!, /sata1\/docker\/data/)
     assert.match(confirm.textContent!, /全部文件和子目录/)
-    assert.equal(env.fixture.requests.length, 0)
     await act(async () => button('取消').click())
+    assert.ok(!document.querySelector('.ct-tree-confirm'))
     assert.equal(env.fixture.requests.length, 0)
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
-        .click(),
-    )
+    await act(async () => actions().click())
     await act(async () => button('删除').click())
     await act(async () => button('删除全部内容').click())
     await settle()
+    assert.equal(env.fixture.requests[0].action, 'delete')
     assert.equal(env.fixture.requests[0].confirmPath, '/sata1/docker/data')
+    assert.equal(env.values.mutations[0].action, 'delete')
     assert.equal(
-      env.fixture.entries.some((e) => e.path.startsWith('/sata1/docker/data')),
+      [...document.querySelectorAll('.ct-tree-name')].some(
+        (n) => n.textContent === 'data',
+      ),
       false,
     )
   } finally {
@@ -1444,23 +1579,45 @@ test('nonempty directory deletion requires exact name/path warning and explicit 
   }
 })
 
-test('invalid initial directory falls back to root without selecting or replacing a form value', async () => {
-  for (const initial of ['/sata1/absent', '/sata1/../bad']) {
-    const env = await renderPicker(initial)
+test('invalid initial directory reveals the root, keeps the form value and only offers typed creation', async () => {
+  // a missing leaf under a real parent: nothing is selected, but typed
+  // creation is offered — the value itself is never silently replaced
+  {
+    const env = await renderPicker('/sata1/absent')
     try {
       await settle()
-      assert.equal(env.fixture.reads.at(-1), '/')
+      assert.ok(env.fixture.reads.includes('/'))
       assert.equal(env.values.selected, '')
+      assert.match(
+        document.querySelector('.ct-tree-create')?.textContent ?? '',
+        /创建并选择文件夹“absent”/,
+      )
+      await env.render('/sata1/absent/deeper')
+      await settle()
+      // the parent itself is missing, so nothing can be created yet
+      assert.ok(!document.querySelector('.ct-tree-create'))
+      assert.equal(env.values.selected, '')
+    } finally {
+      await env.cleanup()
+    }
+  }
+  // a syntactically invalid path: only the root loads, nothing is offered
+  {
+    const env = await renderPicker('/sata1/../bad')
+    try {
+      await settle()
+      assert.ok(env.fixture.reads.includes('/'))
+      assert.equal(env.values.selected, '')
+      assert.ok(!document.querySelector('.ct-tree-create'))
       assert.match(document.body.textContent!, /原输入保留/)
-      assert.equal(button('使用此目录').disabled, true)
     } finally {
       await env.cleanup()
     }
   }
 })
 
-test('unknown directory outcome disables further writes and recovers only by request ID', async () => {
-  const env = await renderPicker()
+test('unknown directory outcome blocks writes and recovers only by request ID', async () => {
+  const env = await renderPicker('/sata1/docker')
   try {
     let original: DirectoryRequest | undefined
     globalThis.fetch = async (url, init) => {
@@ -1482,19 +1639,130 @@ test('unknown directory outcome disables further writes and recovers only by req
         state: 'succeeded',
       })
     }
-    await act(async () => button('新建文件夹').click())
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 docker 操作"]')!
+        .click(),
+    )
+    await act(async () => button('新建子文件夹').click())
     await act(async () => typeInput(inlineName(), 'pending', env.dom))
     await act(async () => keyInput(inlineName(), 'Enter', env.dom))
     await settle()
-    assert.equal(button('新建文件夹').disabled, true)
-    assert.equal(button('使用此目录').disabled, true)
+    assert.ok(document.querySelector('.ct-tree-pending'))
+    assert.equal(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="文件夹 data 操作"]',
+      )!.disabled,
+      true,
+    )
     assert.equal(button('刷新确认结果').disabled, false)
     await act(async () => button('刷新确认结果').click())
     await settle()
     assert.equal(env.fixture.requests.length, 1)
-    assert.equal(button('新建文件夹').disabled, false)
+    assert.ok(!document.querySelector('.ct-tree-pending'))
+    // the abandoned inline draft can now be dismissed and rows are usable
+    await act(async () => keyInput(inlineName(), 'Escape', env.dom))
+    assert.equal(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="文件夹 data 操作"]',
+      )!.disabled,
+      false,
+    )
   } finally {
     await env.cleanup()
+  }
+})
+
+test('real directory capability updates bound root and mount inputs after rename and preserves them on failed delete', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!),
+    fixture = directoryFetchFixture()
+  const draft = newDraft(),
+    data = snapshot()
+  draft.rootDir = '/sata1/docker/data'
+  draft.mounts = [
+    {
+      source: '/sata1/docker/data/child',
+      target: '/etc/config',
+      readOnly: true,
+    },
+  ]
+  data.capabilities.directoryWrites = true
+  globalThis.fetch = async (url, init) =>
+    String(url).includes('/directories')
+      ? fixture.fetcher(url, init)
+      : response({
+          effective: JSON.parse(String(init?.body)),
+          errors: {},
+          defaults: [],
+        })
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerEditor
+          deviceId="test"
+          snapshot={data}
+          initial={draft}
+          item={null}
+          busy={false}
+          onClose={() => {}}
+          onSubmit={async () => {}}
+        />,
+      ),
+    )
+    await act(async () => (field('容器运行目录') as HTMLInputElement).click())
+    await settle()
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
+        .click(),
+    )
+    await act(async () => button('重命名').click())
+    await act(async () =>
+      typeInput(inlineName('重命名文件夹'), 'renamed', env.dom),
+    )
+    await act(async () =>
+      keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
+    )
+    await settle()
+    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
+    assert.equal(field('容器目标目录').value, '/etc/config')
+    const directoryFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) =>
+      init?.method === 'POST' && String(url).includes('/directories')
+        ? response(
+            { code: 'directory_permission_denied', error: '删除权限不足' },
+            403,
+          )
+        : directoryFetch(url, init)
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    await act(async () => button('删除全部内容').click())
+    await settle()
+    assert.match(document.body.textContent!, /删除权限不足/)
+    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
+    globalThis.fetch = directoryFetch
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
+        .click(),
+    )
+    await act(async () => button('删除').click())
+    await act(async () => button('删除全部内容').click())
+    await settle()
+    assert.equal(field('容器运行目录').value, '')
+    assert.equal(field('主机源目录').value, '')
+    assert.equal(field('容器目标目录').value, '/etc/config')
+    assert.equal(data.capabilities.writes, false)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
   }
 })
 
@@ -1564,120 +1832,6 @@ test('resource switch starts off, preserves hidden values, submits inheritance o
       await act(async () => root.unmount())
       env.restore()
     }
-  }
-})
-
-test('real directory capability updates bound root and mount inputs after rename and preserves them on failed delete', async () => {
-  const env = installDOM(),
-    root = createRoot(document.getElementById('root')!),
-    fixture = directoryFetchFixture()
-  const draft = newDraft(),
-    data = snapshot()
-  draft.rootDir = '/sata1/docker/data'
-  draft.mounts = [
-    {
-      source: '/sata1/docker/data/child',
-      target: '/etc/config',
-      readOnly: true,
-    },
-  ]
-  data.capabilities.directoryWrites = true
-  globalThis.fetch = async (url, init) =>
-    String(url).includes('/directories')
-      ? fixture.fetcher(url, init)
-      : response({
-          effective: JSON.parse(String(init?.body)),
-          errors: {},
-          defaults: [],
-        })
-  try {
-    await act(async () =>
-      root.render(
-        <ContainerEditor
-          deviceId="test"
-          snapshot={data}
-          initial={draft}
-          item={null}
-          busy={false}
-          onClose={() => {}}
-          onSubmit={async () => {}}
-        />,
-      ),
-    )
-    await act(async () => (field('容器运行目录') as HTMLInputElement).click())
-    await settle()
-    assert.equal(fixture.reads[0], draft.rootDir)
-    await act(async () => button('docker').click())
-    await settle()
-    // breadcrumb navigation live-selects the clicked ancestor
-    assert.equal(field('容器运行目录').value, '/sata1/docker')
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
-        .click(),
-    )
-    await act(async () => button('重命名').click())
-    await act(async () =>
-      typeInput(inlineName('重命名文件夹'), 'renamed', env.dom),
-    )
-    await act(async () =>
-      keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
-    )
-    await settle()
-    // the browsed root no longer sits under the renamed folder; the mount does
-    assert.equal(field('容器运行目录').value, '/sata1/docker')
-    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
-    assert.equal(field('容器目标目录').value, '/etc/config')
-    const directoryFetch = globalThis.fetch
-    globalThis.fetch = async (url, init) =>
-      init?.method === 'POST' && String(url).includes('/directories')
-        ? response(
-            { code: 'directory_permission_denied', error: '删除权限不足' },
-            403,
-          )
-        : directoryFetch(url, init)
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
-        .click(),
-    )
-    await act(async () => button('删除').click())
-    await act(async () => button('删除全部内容').click())
-    await settle()
-    assert.match(document.body.textContent!, /删除权限不足/)
-    assert.equal(field('容器运行目录').value, '/sata1/docker')
-    assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
-    globalThis.fetch = directoryFetch
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="文件夹 renamed 操作"]')!
-        .click(),
-    )
-    await act(async () => button('删除').click())
-    await act(async () => button('删除全部内容').click())
-    await settle()
-    assert.equal(field('容器运行目录').value, '/sata1/docker')
-    assert.equal(field('主机源目录').value, '')
-    assert.equal(field('容器目标目录').value, '/etc/config')
-    assert.equal(data.capabilities.writes, false)
-  } finally {
-    await act(async () => root.unmount())
-    env.restore()
-  }
-})
-
-test('mount source picker retains file selection while runtime picker excludes file actions', async () => {
-  const env = await renderPicker('/sata1/docker', true)
-  try {
-    await act(async () => button('选用文件').click())
-    assert.equal(env.values.selected, '/sata1/docker/config.yaml')
-    assert.equal(
-      document.querySelectorAll('.ct-directory-file [aria-label*="操作"]')
-        .length,
-      0,
-    )
-  } finally {
-    await env.cleanup()
   }
 })
 
