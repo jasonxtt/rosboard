@@ -81,22 +81,55 @@ function Section({
   number,
   children,
   description,
+  open,
+  onToggle,
+  configured = false,
 }: {
   title: string
   number: string
   children: ReactNode
   description: string
+  /** when set, the section collapses to its header bar until toggled open */
+  open?: boolean
+  onToggle?: (open: boolean) => void
+  /** collapsed sections flag preserved non-default values */
+  configured?: boolean
 }) {
+  const header = (
+    <>
+      <span className="ct-section-number">{number}</span>
+      <div>
+        <h3>{title}</h3>
+        {(open === undefined || open) && <p>{description}</p>}
+      </div>
+    </>
+  )
+  if (open === undefined)
+    return (
+      <ContainerSurface as="section" className="ct-section">
+        <header>{header}</header>
+        <div className="ct-section-body">{children}</div>
+      </ContainerSurface>
+    )
   return (
-    <ContainerSurface as="section" className="ct-section">
-      <header>
-        <span className="ct-section-number">{number}</span>
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-      </header>
-      <div className="ct-section-body">{children}</div>
+    <ContainerSurface
+      as="section"
+      className={`ct-section ct-section-collapsible${open ? '' : ' ct-section-collapsed'}`}
+    >
+      <button
+        type="button"
+        className="ct-section-toggle"
+        aria-expanded={open}
+        aria-label={`${open ? '收起' : '展开'}${title}设置`}
+        onClick={() => onToggle?.(!open)}
+      >
+        {header}
+        {configured && <small className="ct-section-flag">已配置</small>}
+        <span className="ct-section-chevron" aria-hidden="true">
+          {open ? '▴' : '▾'}
+        </span>
+      </button>
+      {open && <div className="ct-section-body">{children}</div>}
     </ContainerSurface>
   )
 }
@@ -129,6 +162,12 @@ export function ContainerEditor({
     [advancedStartup, setAdvancedStartup] = useState(false),
     [resourcesEnabled, setResourcesEnabled] = useState(
       () => !!(initial.memoryHigh || initial.memoryMax || initial.cpuList),
+    ),
+    [resourcesOpen, setResourcesOpen] = useState(
+      () => !!(initial.memoryHigh || initial.memoryMax || initial.cpuList),
+    ),
+    [healthOpen, setHealthOpen] = useState(
+      () => initial.health.mode === 'override',
     )
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeReport, setComposeReport] = useState<{
@@ -216,6 +255,10 @@ export function ContainerEditor({
         )
       )
         setAdvancedStartup(true)
+      if (['memoryHigh', 'memoryMax', 'cpuList'].some((key) => r.errors[key]))
+        setResourcesOpen(true)
+      if (Object.keys(r.errors).some((key) => key.startsWith('health.')))
+        setHealthOpen(true)
       if (Object.keys(r.errors).length === 0) await onSubmit(r.effective)
     } catch (e) {
       if (lifetime.current.active) setError(errorMessage(e))
@@ -261,6 +304,7 @@ export function ContainerEditor({
         onApply={(service, skipped) => {
           setDraft((d) => applyCompose(d, service.fields))
           setResourcesEnabled(!!(service.fields.memoryHigh || service.fields.memoryMax || service.fields.cpuList))
+          setResourcesOpen(!!(service.fields.memoryHigh || service.fields.memoryMax || service.fields.cpuList))
           setAdvancedStartup(!!(service.fields.command || service.fields.entrypoint || service.fields.user || service.fields.workdir))
           setSubmitted(false)
           setResolution(null)
@@ -729,6 +773,9 @@ export function ContainerEditor({
           title="资源限制"
           number="06"
           description="留空继承 RouterOS 全局内存设置与 CPU 默认值。"
+          open={resourcesOpen}
+          onToggle={setResourcesOpen}
+          configured={resourcesEnabled}
         >
           <label className="ct-check ct-resource-toggle">
             <input
@@ -780,6 +827,9 @@ export function ContainerEditor({
           title="健康检查"
           number="07"
           description="定时在容器内执行命令，确认服务能否正常响应。通常保留镜像设置即可。"
+          open={healthOpen}
+          onToggle={setHealthOpen}
+          configured={draft.health.mode === 'override'}
         >
           <label className="ct-field">
             <span>检查方式</span>

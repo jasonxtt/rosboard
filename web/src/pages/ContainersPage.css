@@ -582,15 +582,22 @@
   background: color-mix(in srgb, var(--ct-accent) 4%, transparent);
 }
 
+/* sections flow in a balanced two-column masonry so a short section never
+   leaves a blank pocket beside a taller row partner; DOM order (and with it
+   the keyboard tab order) runs down the first column, then the second */
 .ct .ct-form-grid {
   border: 0;
   padding: 0;
   margin: 0;
   min-inline-size: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  align-items: start;
+  display: block;
+  column-count: 2;
+  column-gap: 14px;
+}
+
+.ct .ct-form-grid > .ct-section {
+  break-inside: avoid;
+  margin-bottom: 14px;
 }
 
 /* sections inside the editor dialog are flat wizard-style boxes (pol-section
@@ -636,6 +643,57 @@
 .ct-section-body {
   display: grid;
   gap: 12px;
+}
+
+/* collapsible sections: the header bar itself is the expand/collapse toggle */
+.ct .ct-section-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ct .ct-section-toggle > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct .ct-section-toggle p {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.ct .ct-section-flag {
+  flex: none;
+  margin-top: 4px;
+  color: var(--ct-accent);
+  font-size: var(--text-xs);
+}
+
+.ct .ct-section-chevron {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.ct .ct-section-toggle:hover h3,
+.ct .ct-section-toggle:hover .ct-section-chevron {
+  color: var(--ct-accent);
+}
+
+.ct .ct-section-collapsed .ct-section-toggle {
+  margin-bottom: 0;
 }
 
 /* fields: shell .field parity */
@@ -1317,7 +1375,7 @@
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   .ct .ct-form-grid {
-    grid-template-columns: 1fr;
+    column-count: 1;
   }
 
   .ct-toolbar {

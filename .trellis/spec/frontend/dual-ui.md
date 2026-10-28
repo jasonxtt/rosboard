@@ -56,10 +56,15 @@ manual-input explanations accessible after applying.
 Both shells mount `features/containers/ContainerPage` through UI-specific lazy
 page entries. The shared feature imports no shell CSS. Each entry owns its
 container stylesheet; all selectors stay under `.ct`. The form is flat: seven
-visible sections, two columns on desktop and one on mobile, with inline defaults
-and errors. No configuration tab or wizard hides sections. Optional IPv6/MAC
-and startup command/entrypoint/user/workdir collapse under separate advanced
-toggles; validation errors expand those fields without clearing their values.
+sections, laid out in two balanced columns on desktop (Aurora flows them
+masonry-style so short sections leave no blank pockets) and one column on
+mobile, with inline defaults and errors. No configuration tab or wizard hides
+fields. 资源限制 and 健康检查 default to a collapsed header bar; the header
+toggle expands them in place, validation errors open them without clearing
+values, and a collapsed section holding non-default values carries a 已配置
+marker. Optional IPv6/MAC and startup command/entrypoint/user/workdir collapse
+under separate advanced toggles; validation errors expand those fields without
+clearing their values.
 Startup behavior, logging and restart policy precede startup advanced settings.
 Health-check labels explain service response checks; custom fields appear only
 in override mode. Resource limits default off for new drafts; edits with explicit

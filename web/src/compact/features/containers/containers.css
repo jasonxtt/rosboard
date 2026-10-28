@@ -399,6 +399,12 @@
   color: var(--ct-muted);
   margin-top: 3px;
 }
+/* collapsible sections: the header bar itself is the expand/collapse toggle */
+.ct .ct-section-toggle { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 16px; text-align: left; }
+.ct .ct-section-toggle > div { flex: 1; min-width: 0; }
+.ct .ct-section-flag { flex: none; color: var(--ct-accent); font-size: 11px; }
+.ct .ct-section-chevron { flex: none; color: var(--ct-muted); font-size: 11px; }
+.ct .ct-section-collapsed .ct-section-toggle { margin-bottom: 0; }
 .ct-section-number {
   width: 24px;
   height: 24px;
