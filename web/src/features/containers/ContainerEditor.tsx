@@ -539,7 +539,7 @@ export function ContainerEditor({
                   type="button"
                   className="ct-icon-delete"
                   aria-label={`移除挂载 ${i + 1}`}
-                  title={`移除挂载 ${i + 1}`}
+                  data-tip={`移除挂载 ${i + 1}`}
                   onClick={() =>
                     patch(
                       'mounts',
@@ -606,7 +606,7 @@ export function ContainerEditor({
                   type="button"
                   className="ct-icon-delete"
                   aria-label={`删除变量 ${i + 1}`}
-                  title={`删除变量 ${i + 1}`}
+                  data-tip={`删除变量 ${i + 1}`}
                   onClick={() =>
                     patch(
                       'env',

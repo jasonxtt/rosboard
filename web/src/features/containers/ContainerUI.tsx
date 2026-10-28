@@ -92,26 +92,3 @@ function NativeContainerDialog({ title, className = '', onClose, busy = false, w
     {children}
   </dialog>
 }
-
-export function ContainerMoreActions({ name, children }: { name: string; children: ReactNode }) {
-  const ref = useRef<HTMLDetailsElement>(null)
-  useEffect(() => {
-    const dismiss = (event: PointerEvent) => {
-      if (event.target instanceof window.Node && !ref.current?.contains(event.target)) ref.current?.removeAttribute('open')
-    }
-    document.addEventListener('pointerdown', dismiss)
-    return () => document.removeEventListener('pointerdown', dismiss)
-  }, [])
-  return <details ref={ref} className="ct-more"
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') { ref.current?.removeAttribute('open'); ref.current?.querySelector('summary')?.focus(); event.stopPropagation() }
-    }}>
-    <summary aria-label={`更多操作 ${name}`}>更多</summary>
-    <div className="ct-more-options" onClick={(event) => {
-      if (event.target instanceof window.Element && event.target.closest('button:not(:disabled)')) {
-        ref.current?.removeAttribute('open')
-        ref.current?.querySelector('summary')?.focus()
-      }
-    }}>{children}</div>
-  </details>
-}
