@@ -8,7 +8,7 @@ import { alwaysAccessSchedule, validateAccessSchedule } from '../schedule'
 import { errorMessage } from '../../../lib/api'
 import { Notice } from './Notice'
 import { SubjectSelector } from './SubjectSelector'
-import { TargetListModal } from './TargetListModal'
+import { TargetLibraryManagerModal } from './TargetLibraryManagerModal'
 import { TargetSelector } from './TargetSelector'
 import type { PresetPresentation } from './TargetSelector'
 import { AccessScheduleEditor } from './AccessScheduleEditor'
@@ -137,15 +137,14 @@ export function AccessRuleModal({ deviceID, rule, terminals, targetLists, saving
         </Field>
       </Modal>
       {creatingTargetKind ? (
-        <TargetListModal
+        <TargetLibraryManagerModal
           deviceID={deviceID}
-          target={null}
-          initialKind={creatingTargetKind}
-          onClose={() => setCreatingTargetKind(null)}
-          onSaved={({ targetList }) => {
-            setAvailableTargetLists((current) => (current.some((item) => item.id === targetList.id) ? current.map((item) => (item.id === targetList.id ? targetList : item)) : [...current, targetList]))
-            setTargetListIds((current) => (current.includes(targetList.id) ? current : [...current, targetList.id]))
+          kind={creatingTargetKind}
+          onClose={(lists) => {
             setCreatingTargetKind(null)
+            if (!lists) return
+            setAvailableTargetLists((current) => [...lists, ...current.filter((item) => item.sourceType === 'preset' && !lists.some((fresh) => fresh.id === item.id))])
+            setTargetListIds((current) => current.filter((id) => id.startsWith('preset:') || lists.some((fresh) => fresh.id === id)))
           }}
         />
       ) : null}

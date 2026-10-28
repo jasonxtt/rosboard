@@ -41,12 +41,12 @@ function formatNextRun(iso: string): string {
   return `${Math.floor(hours / 24)} 天后`
 }
 
-export default function TargetLibraryPage() {
+export default function TargetLibraryPage({ kind }: { kind?: 'domain' | 'ip' } = {}) {
   const { selectedDeviceId, reloadNonce } = useShell()
   const [entries, setEntries] = useState<TargetListEntry[] | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<KindFilter>('all')
+  const [filter, setFilter] = useState<KindFilter>(kind ?? 'all')
   const [query, setQuery] = useState('')
   const [trackedJob, setTrackedJob] = useState<TrackedJob | null>(null)
   const [jobError, setJobError] = useState<string | null>(null)
@@ -294,8 +294,8 @@ export default function TargetLibraryPage() {
   return (
     <div className="page pol-page">
       <header className="page-head">
-        <h1>目标库</h1>
-        <span className="page-sub">域名 / IP 目标列表，供分流规则与访问控制复用</span>
+        {kind ? null : <h1>目标库</h1>}
+        {kind ? null : <span className="page-sub">域名 / IP 目标列表，供分流规则与访问控制复用</span>}
         <span className="pol-page-actions">
           <Button variant="primary" onClick={() => setEditing(null)}>
             ＋ 新建目标库
@@ -334,7 +334,7 @@ export default function TargetLibraryPage() {
 
       <Card>
         <div className="pol-tl-toolbar">
-          <SegTabs
+          {kind ? null : <SegTabs
             options={[
               { value: 'all', label: '全部' },
               { value: 'domain', label: '域名' },
@@ -343,7 +343,7 @@ export default function TargetLibraryPage() {
             value={filter}
             onChange={setFilter}
             ariaLabel="目标库类型筛选"
-          />
+          />}
           <SearchInput value={query} onChange={setQuery} placeholder="搜索名称、ID 或 URL" ariaLabel="搜索目标库" width={240} />
           {partition.hiddenPresets.length > 0 ? (
             <button type="button" className="link-button pol-tl-presets-toggle" onClick={() => setShowUnusedPresets((value) => !value)}>
@@ -365,6 +365,7 @@ export default function TargetLibraryPage() {
         <TargetListModal
           deviceID={selectedDeviceId}
           target={editing}
+          initialKind={kind}
           onClose={() => setEditing(undefined)}
           onSaved={async ({ jobId }) => {
             const creating = !editing

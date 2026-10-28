@@ -291,7 +291,7 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		if issueErr != nil {
 			return PlanEnvelope{}, issueErr
 		}
-		desired.Blockers = append(desired.Blockers, issues...)
+		desired.Warnings = append(desired.Warnings, issues...)
 	}
 	operations, diffBlockers := DiffDesired(desired.Objects, actual)
 	operations = append(operations, planCrossDomainDNSMoves(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual)...)
@@ -1681,22 +1681,6 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-activation", err)
 		return job, false
-	}
-	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
-		current, _, scanErr := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, cached.Desired, domain)
-		if scanErr != nil {
-			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", scanErr)
-			return job, false
-		}
-		issues, issueErr := routingBlockMangleIssues(ctx, applier.Mutation, cached.Desired, current)
-		if issueErr != nil {
-			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", issueErr)
-			return job, false
-		}
-		if len(issues) > 0 {
-			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", ErrPlanStale)
-			return job, false
-		}
 	}
 	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
 		issues, issueErr := routingBlockTrackingIssues(ctx, applier.Reader, cached.Desired)

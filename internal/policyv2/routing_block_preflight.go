@@ -58,7 +58,7 @@ func routingBlockTrackingIssues(ctx context.Context, reader PolicyReader, desire
 	return issues, nil
 }
 
-// Conservatively reject foreign classifiers that could mark or terminate a
+// Conservatively flag foreign classifiers that could mark or terminate a
 // packet before our ordered winner rules. Ownership comes from the scanner,
 // never from a name or prefix supplied by another manager.
 func routingBlockMangleIssues(ctx context.Context, mutation PolicyMutation, desired []DesiredObject, actual []ActualObject) ([]PlanIssue, error) {
@@ -120,7 +120,7 @@ func routingBlockMangleIssues(ctx context.Context, mutation PolicyMutation, desi
 					continue
 				}
 			}
-			issues = append(issues, PlanIssue{Code: "routing_block_mangle_conflict", Status: "blocker", LogicalID: r.ID(), Reason: fmt.Sprintf("%s 的 %s 链规则 %s 可能抢先分类或覆盖策略连接标记；请调整该规则并重新预览。", menu, chain, r.ID())})
+			issues = append(issues, PlanIssue{Code: "routing_block_mangle_conflict", Status: "warning", LogicalID: r.ID(), Reason: fmt.Sprintf("%s 的 %s 链规则 %s 可能抢先分类或覆盖策略连接标记；请确认其匹配范围与策略流量不重叠。", menu, chain, r.ID())})
 		}
 	}
 	return issues, nil
