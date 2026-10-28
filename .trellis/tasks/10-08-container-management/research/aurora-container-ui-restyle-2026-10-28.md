@@ -66,11 +66,15 @@ Destructive actions still pass through the confirmation dialog with focus
 restored to the triggering icon; the dual-adapter regression test was updated
 accordingly and the dual-ui spec bullet now documents the flat-icon pattern.
 
-Bubble follow-up (same day, user report): the shell's `.btn:disabled` opacity
-also faded the bubble of disabled icons, and a first-row bubble could meet the
-table scroll container's top edge. Disabled tipped buttons now keep full
-opacity and mute via grayscale + faint ink, and the first data row (when it is
-not the only row) opens its bubbles downward, in both shells.
+Bubble follow-up (same day, user report): a disabled icon's bubble was
+occluded by the sticky table header. Root cause: any opacity/filter on the
+button makes the button a stacking context, trapping its bubble ::after under
+the z-index 2 header cells; the first attempt traded opacity for grayscale
+filter, which traps identically. Final fix: the disabled button itself stays
+free of opacity/filter (faint ink color only) and only its glyph span is
+dimmed, so the bubble keeps its z-index 60 above the header; the first data
+row (when it is not the only row) also opens its bubbles downward. Both shell
+stylesheets carry the fix.
 
 ## Pending
 
