@@ -287,6 +287,9 @@ export function ContainerPage({
       if (active.current) {
         setJob(j)
         setConfirm(null)
+        // a validated create/edit closes its dialog as soon as the task is
+        // accepted; the page-level job card carries the progress from here
+        if (draft) setEditor(null)
       }
     } catch (e) {
       if (active.current) setError(errorMessage(e))
