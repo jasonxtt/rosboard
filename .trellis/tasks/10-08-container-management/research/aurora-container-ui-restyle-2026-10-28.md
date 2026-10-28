@@ -76,6 +76,50 @@ dimmed, so the bubble keeps its z-index 60 above the header; the first data
 row (when it is not the only row) also opens its bubbles downward. Both shell
 stylesheets carry the fix.
 
+## Follow-up 2026-10-28 (second round): declutter pass per user review
+
+- 容器管理说明 disclosure removed from the native-writes page head.
+- The job progress card renders only while a task is queued/running/unknown
+  or needs recovery (failed native / cleanupPending); a finished job no
+  longer lingers under 操作进度 — its result stays in the notice/error line.
+- Editor: pair-field inputs now level (`align-content: start` on `.ct-field`;
+  grid stretch was distributing free space into label/input tracks and
+  pushing the second input down); the directory combobox is exactly 36px
+  like every other control; the 最终目录 echo hint and the mount-placement
+  hint paragraph removed on user request; env name/value fields share equal
+  width and single-line height (textarea rows=1, min-height 36px, still
+  multiline-capable); the three startup toggles share one compact wrapping
+  row (Aurora only — Compact keeps its stacked layout, zero CSS change).
+- 110/110 tests updated only where the removed help disclosure was asserted.
+
+## Follow-up 2026-10-28 (third round): collapsible sections + masonry
+
+- 资源限制 / 健康检查 collapse to a header bar by default (button toggle,
+  no `<details>` — the no-details editor constraint stands). They auto-open
+  when the draft holds explicit values, on Compose import of resource
+  fields, and when validation flags their fields; a collapsed section with
+  non-default values shows a 已配置 marker. Collapsing never clears values.
+- Aurora form layout switched from a paired 2-col grid to CSS multi-column
+  masonry (`column-count: 2`, `break-inside: avoid`): short sections no
+  longer leave blank pockets beside taller partners (the 01/04 gaps the
+  user reported). DOM order is unchanged, so keyboard tab order follows the
+  visual column-major flow; mobile stays single column. Compact keeps its
+  paired grid and gains the same collapse behavior with its native look.
+- Tests: expand-before-interact steps added where sections start collapsed;
+  collapsed-by-default assertions added for new drafts; the resource test
+  asserts auto-expanded state when editing a container with limits.
+
+## Follow-up 2026-10-28 (fourth round): close editor on accepted submission
+
+Per user report, the create/edit dialog lingered with a disabled form until
+the background job finished, hiding the page-level job card behind the modal.
+`run()` now closes the editor as soon as a validated create/edit task is
+accepted by the API; progress and any later failure surface through the job
+card and the page error line. Submission failures (e.g. 409
+ssh_key_required) still keep the dialog open with the error in the editor
+footer; the unmanaged-adopt guard and the read-only validation preview keep
+the draft open as before.
+
 ## Pending
 
 User-led visual acceptance (quality-guidelines): preview via
