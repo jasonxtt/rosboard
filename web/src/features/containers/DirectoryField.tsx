@@ -3,10 +3,11 @@ import { useId, useRef, useState } from 'react'
 import { DirectoryPicker } from './DirectoryPicker'
 import type { DirectoryMutation } from './types'
 
-/** Path combobox: clicking the input (or ▾) opens a bound Files browser as a
- * floating panel. Clicking a folder enters it and selects it live, so the
- * input always shows the folder you last clicked; typing a path manually
- * still works and the next open starts there. */
+/** Path combobox: clicking the input (or ▾) opens a bound directory tree as
+ * a floating panel. Clicking a folder selects it live (entering it), so the
+ * input always shows the folder you last clicked; typing a path reveals its
+ * ancestors and Enter creates-and-selects a missing leaf folder. Manual path
+ * input still works and the next open starts there. */
 export function DirectoryField({
   deviceId,
   writable,
@@ -27,14 +28,17 @@ export function DirectoryField({
   value: string
   onChange: (value: string) => void
   onMutation?: (result: DirectoryMutation) => void
+  /** retained for the field contract; the tree only ever offers directories */
   allowFiles?: boolean
   error?: string
   hint?: string
   disabled?: boolean
 }) {
+  void allowFiles
   const inputId = useId(),
     pickerId = useId()
   const anchor = useRef<HTMLDivElement>(null)
+  const createRef = useRef<(() => void) | null>(null)
   const [open, setOpen] = useState(false),
     [session, setSession] = useState(0)
   const openPicker = () => {
@@ -70,6 +74,12 @@ export function DirectoryField({
                 e.preventDefault()
                 openPicker()
               }
+              if (e.key === 'Enter' && open) {
+                e.preventDefault()
+                e.stopPropagation()
+                if (createRef.current) createRef.current()
+                else close()
+              }
               if (e.key === 'Escape' && open) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -100,7 +110,8 @@ export function DirectoryField({
             writable={writable}
             purpose={purpose}
             initialPath={value}
-            allowFiles={allowFiles}
+            value={value}
+            createRef={createRef}
             onMutation={onMutation}
             onSelect={onChange}
             onClose={close}

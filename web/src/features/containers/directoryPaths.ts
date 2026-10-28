@@ -37,6 +37,10 @@ export function parentDirectory(path: string): string {
   return path.slice(0, path.lastIndexOf('/')) || '/'
 }
 
+export function childDirectory(parent: string, name: string): string {
+  return parent === '/' ? '/' + name : parent + '/' + name
+}
+
 export function replaceDirectory(
   value: string,
   oldPath: string,

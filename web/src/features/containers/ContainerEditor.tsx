@@ -479,7 +479,7 @@ export function ContainerEditor({
               (resolution?.effective.rootDir
                 ? `最终目录：${resolution.effective.rootDir}`
                 : '自动选择空闲空间最大的可用磁盘') +
-              '；点击输入框选择，也可直接输入'
+              '；点击输入框选择，输入的末级目录不存在时按 Enter 创建'
             }
           />
           <p className="ct-storage-hint">
@@ -505,7 +505,6 @@ export function ContainerEditor({
                   purpose={`挂载源 ${i + 1}`}
                   deviceId={deviceId}
                   writable={snapshot.capabilities.directoryWrites}
-                  allowFiles
                   value={m.source}
                   onChange={(v) =>
                     patch(
