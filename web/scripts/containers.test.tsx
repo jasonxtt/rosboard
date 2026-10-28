@@ -1375,7 +1375,7 @@ test('tree reveals the bound path, hides files and chrome, and selects/expands o
     )!
     assert.ok(diskMore)
     assert.ok(!diskMore.disabled)
-    assert.equal(diskMore.textContent, '🔒')
+    assert.equal(diskMore.textContent, '⋯')
     await act(async () => diskMore.click())
     const menu = document.querySelector('.ct-tree-menu')!
     assert.ok(menu)

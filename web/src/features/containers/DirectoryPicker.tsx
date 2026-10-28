@@ -300,7 +300,7 @@ export function DirectoryPicker({
                 openMenu(entry, event.currentTarget)
               }}
             >
-              {entry.protected ? '🔒' : '⋯'}
+              ⋯
             </button>
           )}
         </div>
