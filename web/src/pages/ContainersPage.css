@@ -235,22 +235,10 @@
   color: var(--ink-2);
 }
 
-.ct-help {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-
-.ct-help summary,
 .ct-compose-summary summary {
   cursor: pointer;
   min-height: 44px;
   align-content: center;
-}
-
-.ct-help p {
-  padding: 0 0 12px;
-  max-width: 85ch;
-  line-height: 1.7;
 }
 
 /* ---------- notices: pol-notice parity ---------- */
@@ -655,6 +643,10 @@
   display: grid;
   gap: 6px;
   min-width: 0;
+  /* keep tracks content-sized: without this, a stretched pair field would
+     distribute free space into its label/input tracks and the two inputs of
+     a pair would sit at different vertical offsets */
+  align-content: start;
 }
 
 .ct-field > span,
@@ -708,6 +700,19 @@
   flex: none;
 }
 
+/* startup toggles share one compact row and wrap naturally when narrow */
+.ct .ct-switch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 18px;
+  row-gap: 4px;
+}
+
+.ct .ct-switch-row .ct-check {
+  min-height: 32px;
+}
+
 /* advanced toggles read as full-width disclosure rows */
 .ct .ct-advanced-toggle {
   width: 100%;
@@ -740,8 +745,7 @@
   border-radius: var(--ct-control-radius);
 }
 
-.ct .ct-health-hint,
-.ct .ct-storage-hint {
+.ct .ct-health-hint {
   margin: 0;
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -760,9 +764,13 @@
 
 .ct .ct-env-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 36px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
   gap: 12px;
   align-items: start;
+}
+
+.ct .ct-env-row textarea {
+  min-height: 36px;
 }
 
 .ct .ct-icon-delete {
@@ -906,6 +914,7 @@
 .ct .ct-directory-input {
   display: flex;
   min-width: 0;
+  height: 36px;
   border: 1px solid var(--stroke);
   border-radius: var(--ct-control-radius);
   overflow: hidden;
@@ -918,6 +927,7 @@
 .ct .ct-directory-input input {
   flex: 1;
   min-width: 0;
+  height: auto;
   border: 0;
   border-radius: 0;
   background: transparent;

@@ -394,12 +394,7 @@ export function ContainerPage({
           </ContainerButton>
         </div>
       </header>
-      {c.mode === 'native' && c.writes ? (
-        <details className="ct-help">
-          <summary>容器管理说明</summary>
-          <p>操作将直接写入所选 RouterOS。服务通过容器 IP 访问；删除容器时同时删除其独占运行目录，挂载数据保留。</p>
-        </details>
-      ) : (
+      {!(c.mode === 'native' && c.writes) && (
         <div className="ct-notice">
           {c.mode === 'simulation'
             ? '这里的数据与所有操作均为模拟，可测试创建、失败和恢复。'
@@ -645,7 +640,10 @@ export function ContainerPage({
           </ContainerButton>
         </footer>
       </ContainerSurface>
-      {job && (
+      {job &&
+        (['queued', 'running', 'unknown'].includes(job.state) ||
+          job.cleanupPending ||
+          (job.state === 'failed' && c.mode === 'native')) && (
         <ContainerSurface as="section" className="ct-job" role="status">
           <div>
             <h3>操作进度 · {actionLabels[job.action as Action] || '容器操作'}</h3>

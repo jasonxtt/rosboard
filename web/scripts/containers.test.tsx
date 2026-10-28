@@ -2013,7 +2013,7 @@ for (const [name, presentation, surfaceClass, tableClass] of [
       assert.ok(document.querySelector(`table.${tableClass}`))
       assert.equal(document.querySelector('.ct-brand'), null)
       assert.equal(document.querySelector('.ct-stats .ct-card'), null)
-      assert.equal(document.querySelector<HTMLDetailsElement>('.ct-help')!.open, false)
+      assert.equal(document.querySelector('.ct-help'), null)
       assert.equal(document.querySelector('[aria-label="日志 dns"]')!.textContent?.trim(), '📋')
       // flat icon row: no overflow menu, every icon explains itself via data-tip
       assert.equal(document.querySelector('.ct-more'), null)
