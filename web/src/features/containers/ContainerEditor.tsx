@@ -11,13 +11,12 @@ import {
 import { errorMessage } from '../../lib/api'
 import { resolveDraft } from './api'
 import { memoryLimitMB, normalizedImage } from './drafts'
-import { DirectoryPicker } from './DirectoryPicker'
-import { RootDirectoryField } from './RootDirectoryField'
+import { DirectoryField } from './DirectoryField'
 import { replaceDirectory } from './directoryPaths'
 import { ImageUpload } from './ImageUpload'
 import { ComposeImport, ComposeReport } from './ComposeImport'
 import { applyCompose, type ComposeNotice, type ComposeService } from './compose'
-import type { Draft, Item, Resolution, Snapshot } from './types'
+import type { Draft, DirectoryMutation, Item, Resolution, Snapshot } from './types'
 
 function Field({
   label,
@@ -126,7 +125,6 @@ export function ContainerEditor({
     [validating, setValidating] = useState(false),
     [submitted, setSubmitted] = useState(false),
     [uploading, setUploading] = useState(false),
-    [picker, setPicker] = useState<'root' | number | null>(null),
     [advancedNetwork, setAdvancedNetwork] = useState(false),
     [advancedStartup, setAdvancedStartup] = useState(false),
     [resourcesEnabled, setResourcesEnabled] = useState(
@@ -138,7 +136,7 @@ export function ContainerEditor({
   } | null>(null)
   const advancedNetworkID = useId(),
     advancedStartupID = useId(),
-    directoryID = useId()
+    resourcesID = useId()
   const lifetime = useRef<{ active: boolean; submit?: AbortController }>({
     active: true,
   })
@@ -225,45 +223,21 @@ export function ContainerEditor({
       if (lifetime.current.active) setValidating(false)
     }
   }
-  const directoryPicker =
-    picker !== null ? (
-      <DirectoryPicker
-        key={String(picker)}
-        id={directoryID}
-        deviceId={deviceId}
-        writable={snapshot.capabilities.directoryWrites}
-        initialPath={
-          picker === 'root' ? draft.rootDir : draft.mounts[picker]?.source || ''
-        }
-        purpose={picker === 'root' ? '容器运行目录' : `挂载源 ${picker + 1}`}
-        allowFiles={picker !== 'root'}
-        onMutation={(result) => {
-          if (result.action !== 'rename' && result.action !== 'delete') return
-          const oldPath = result.previousPath || result.path,
-            newPath = result.action === 'delete' ? '' : result.path
-          setDraft((d) => ({
-            ...d,
-            rootDir: replaceDirectory(d.rootDir, oldPath, newPath),
-            mounts: d.mounts.map((m) => ({
-              ...m,
-              source: replaceDirectory(m.source, oldPath, newPath),
-            })),
-          }))
-        }}
-        onClose={() => setPicker(null)}
-        onSelect={(path) => {
-          if (picker === 'root') patch('rootDir', path)
-          else
-            patch(
-              'mounts',
-              draft.mounts.map((m, i) =>
-                i === picker ? { ...m, source: path } : m,
-              ),
-            )
-          setPicker(null)
-        }}
-      />
-    ) : null
+  /** rename/delete inside any bound Files browser rewrites the paths that
+   * referenced the mutated directory so drafts stay consistent */
+  const applyDirectoryMutation = (result: DirectoryMutation) => {
+    if (result.action !== 'rename' && result.action !== 'delete') return
+    const oldPath = result.previousPath || result.path,
+      newPath = result.action === 'delete' ? '' : result.path
+    setDraft((d) => ({
+      ...d,
+      rootDir: replaceDirectory(d.rootDir, oldPath, newPath),
+      mounts: d.mounts.map((m) => ({
+        ...m,
+        source: replaceDirectory(m.source, oldPath, newPath),
+      })),
+    }))
+  }
 
   return (
     <form
@@ -492,21 +466,22 @@ export function ContainerEditor({
           number="03"
           description="容器运行目录与配置、数据挂载可共用父目录，分别使用子目录。"
         >
-          <RootDirectoryField
+          <DirectoryField
+            label="容器运行目录（root-dir）"
+            purpose="容器运行目录"
+            deviceId={deviceId}
+            writable={snapshot.capabilities.directoryWrites}
             value={draft.rootDir}
             onChange={(v) => patch('rootDir', v)}
-            onOpen={() => setPicker('root')}
-            onClose={() => setPicker(null)}
-            open={picker === 'root'}
-            pickerID={directoryID}
+            onMutation={applyDirectoryMutation}
             error={issue('rootDir')}
             hint={
-              resolution?.effective.rootDir
+              (resolution?.effective.rootDir
                 ? `最终目录：${resolution.effective.rootDir}`
-                : '自动选择空闲空间最大的可用磁盘'
+                : '自动选择空闲空间最大的可用磁盘') +
+              '；点击输入框选择，也可直接输入'
             }
           />
-          {picker === 'root' && directoryPicker}
           <p className="ct-storage-hint">
             可放在同一父目录下：<code>nginx/rootdir/</code> 用作运行目录，
             <code>nginx/data/config/</code>{' '}
@@ -523,65 +498,69 @@ export function ContainerEditor({
               .join(' / ') || '无'}
           </small>
           {draft.mounts.map((m, i) => (
-            <div className="ct-repeat" key={i}>
-              <Field
-                label="主机源目录"
-                value={m.source}
-                onChange={(v) =>
-                  patch(
-                    'mounts',
-                    draft.mounts.map((x, j) =>
-                      j === i ? { ...x, source: v } : x,
-                    ),
-                  )
-                }
-              />
-              <ContainerButton
-                type="button"
-                className="ct-add"
-                onClick={() => setPicker(i)}
-              >
-                浏览挂载源 {i + 1}
-              </ContainerButton>
-              <Field
-                label="容器目标目录"
-                value={m.target}
-                onChange={(v) =>
-                  patch(
-                    'mounts',
-                    draft.mounts.map((x, j) =>
-                      j === i ? { ...x, target: v } : x,
-                    ),
-                  )
-                }
-              />
-              <label className="ct-check">
-                <input
-                  type="checkbox"
-                  checked={m.readOnly}
-                  onChange={(e) =>
+            <div className="ct-repeat ct-mount" key={i}>
+              <div className="ct-pair">
+                <DirectoryField
+                  label="主机源目录"
+                  purpose={`挂载源 ${i + 1}`}
+                  deviceId={deviceId}
+                  writable={snapshot.capabilities.directoryWrites}
+                  allowFiles
+                  value={m.source}
+                  onChange={(v) =>
                     patch(
                       'mounts',
                       draft.mounts.map((x, j) =>
-                        j === i ? { ...x, readOnly: e.target.checked } : x,
+                        j === i ? { ...x, source: v } : x,
+                      ),
+                    )
+                  }
+                  onMutation={applyDirectoryMutation}
+                />
+                <Field
+                  label="容器目标目录"
+                  value={m.target}
+                  onChange={(v) =>
+                    patch(
+                      'mounts',
+                      draft.mounts.map((x, j) =>
+                        j === i ? { ...x, target: v } : x,
                       ),
                     )
                   }
                 />
-                只读
-              </label>
-              <ContainerButton
-                type="button"
-                onClick={() => {
-                  setPicker(null)
-                  patch(
-                    'mounts',
-                    draft.mounts.filter((_, j) => i !== j),
-                  )
-                }}
-              >
-                移除挂载 {i + 1}
-              </ContainerButton>
+              </div>
+              <div className="ct-mount-actions">
+                <label className="ct-check">
+                  <input
+                    type="checkbox"
+                    checked={m.readOnly}
+                    onChange={(e) =>
+                      patch(
+                        'mounts',
+                        draft.mounts.map((x, j) =>
+                          j === i ? { ...x, readOnly: e.target.checked } : x,
+                        ),
+                      )
+                    }
+                  />
+                  只读
+                </label>
+                <ContainerButton
+                  type="button"
+                  className="ct-icon-delete"
+                  aria-label={`移除挂载 ${i + 1}`}
+                  title={`移除挂载 ${i + 1}`}
+                  onClick={() =>
+                    patch(
+                      'mounts',
+                      draft.mounts.filter((_, j) => i !== j),
+                    )
+                  }
+                >
+                  <span aria-hidden="true">🗑️</span>
+                </ContainerButton>
+              </div>
               {issue(`mounts.${i}`) && (
                 <strong role="alert">{issue(`mounts.${i}`)}</strong>
               )}
@@ -599,7 +578,6 @@ export function ContainerEditor({
           >
             ＋ 添加挂载
           </ContainerButton>
-          {typeof picker === 'number' && directoryPicker}
         </Section>
         <Section
           title="环境变量"
@@ -770,9 +748,7 @@ export function ContainerEditor({
             <input
               type="checkbox"
               checked={resourcesEnabled}
-              aria-controls={
-                resourcesEnabled ? `${directoryID}-resources` : undefined
-              }
+              aria-controls={resourcesEnabled ? resourcesID : undefined}
               onChange={(e) => setResourcesEnabled(e.target.checked)}
             />
             启用资源限制
@@ -785,7 +761,7 @@ export function ContainerEditor({
             </small>
           )}
           {resourcesEnabled && (
-            <div className="ct-advanced-fields" id={`${directoryID}-resources`}>
+            <div className="ct-advanced-fields" id={resourcesID}>
               <div className="ct-pair">
                 <Field
                   label="内存 high(MB)"
