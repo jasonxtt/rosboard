@@ -1,0 +1,36 @@
+{
+  "id": "disabled-family-block",
+  "name": "disabled-family-block",
+  "title": "Block policy-matched traffic for disabled egress address families",
+  "description": "Prevent policy-matched traffic in disabled egress address families from bypassing via main; enforce scoped DROP with lifecycle, priority and preview safety.",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "policy-routing",
+  "package": null,
+  "priority": "P1",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-10-27",
+  "completedAt": null,
+  "branch": "codex/disabled-family-block",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/34",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "2026-10-28: User accepted ssjy Google IPv6 new-connection DROP and IPv4 control in production. Explicit hold: do not merge main; keep Draft PR #34 and task unarchived.",
+  "meta": {
+    "production_acceptance": {
+      "status": "accepted_scoped",
+      "recordedAt": "2026-10-28T09:25:03.068661+08:00",
+      "scope": "ssjy Google IPv6 new-connection DROP without main egress; IPv4 remains successful",
+      "record": "research/production-acceptance.md",
+      "merge_main": "on_hold_by_user",
+      "feature_commit": "10ce620f066c72cadd78ad2dc98e848fff0e3c90",
+      "deployed_integration_commit": "5eccbfb9e5ab860f27888752f96db7e81a35fc5a"
+    }
+  }
+}

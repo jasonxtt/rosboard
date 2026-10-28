@@ -270,6 +270,13 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 			return PlanEnvelope{}, err
 		}
 	}
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		issues, issueErr := routingBlockTrackingIssues(ctx, applier.Reader, desired.Objects)
+		if issueErr != nil {
+			return PlanEnvelope{}, issueErr
+		}
+		desired.Blockers = append(desired.Blockers, issues...)
+	}
 	keywordImpact, err := keywordImpactForProposal(ctx, applier.Repo, planningRepository, proposal, targetScope)
 	if err != nil {
 		return PlanEnvelope{}, err
@@ -279,8 +286,22 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		return PlanEnvelope{}, err
 	}
 	appendCrossDomainPrecedenceBlockers(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual, &desired)
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		issues, issueErr := routingBlockMangleIssues(ctx, applier.Mutation, desired.Objects, actual)
+		if issueErr != nil {
+			return PlanEnvelope{}, issueErr
+		}
+		desired.Blockers = append(desired.Blockers, issues...)
+	}
 	operations, diffBlockers := DiffDesired(desired.Objects, actual)
 	operations = append(operations, planCrossDomainDNSMoves(domain, desired.Objects, desired.crossDomainDesired, desired.crossDomainConstraints, allActual)...)
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		blockOrderOperations, orderErr := planRoutingBlocksFirst(ctx, applier.Mutation, desired.Objects, actual)
+		if orderErr != nil {
+			return PlanEnvelope{}, orderErr
+		}
+		operations = append(operations, blockOrderOperations...)
+	}
 	if domain == PolicyDomainAccess {
 		accessOrderOperations, orderErr := planAccessJumpsFirst(ctx, applier.Mutation, desired.Objects, actual)
 		if orderErr != nil {
@@ -289,6 +310,11 @@ func (m *Manager) GeneratePlanWithOptions(ctx context.Context, deviceID, kind st
 		operations = append(operations, accessOrderOperations...)
 	}
 	sortPlanOperations(operations)
+	for _, operation := range operations {
+		if isRemovedRoutingBlock(operation) {
+			desired.Warnings = append(desired.Warnings, PlanIssue{Code: "disabled_family_block_removed", Status: "warning", LogicalID: operation.LogicalID, Reason: "原有地址族阻断将移除或停用；之后的新连接可能由其他策略或 main 处理。已建立连接不追溯改变。"})
+		}
+	}
 	if len(desired.Blockers) == 0 {
 		if len(operations) > 0 {
 			preflightRelease, acquired := m.gate.TryAcquire(deviceID)
@@ -1540,6 +1566,17 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			return job, false
 		}
 	}
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		issues, issueErr := routingBlockTrackingIssues(ctx, applier.Reader, planned.Objects)
+		if issueErr != nil {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-tracking", issueErr)
+			return job, false
+		}
+		if len(issues) > 0 {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-tracking", ErrPlanStale)
+			return job, false
+		}
+	}
 	if err := checkFastTrackPlan(ctx, applier, applier.Repo, planned.Objects, cached.Plan); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "fasttrack-state-check", err)
 		return job, false
@@ -1630,6 +1667,12 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 			return job, false
 		}
 	}
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		if err := ensureRoutingBlocksFirst(ctx, applier.Mutation, cached.Desired); err != nil {
+			m.failJob(ctx, applier.Repo, &job, "routing-filter-order", err)
+			return job, false
+		}
+	}
 	if err := convergeCrossDomainDNSOrder(ctx, applier.Mutation, applier.Repo, planned, domain); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "cross-domain-dns-order", err)
 		return job, false
@@ -1638,6 +1681,33 @@ func (m *Manager) runApplyDomain(ctx context.Context, deviceID string, applier *
 	if err := applier.Repo.SaveApplyJob(ctx, job); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "save-activation", err)
 		return job, false
+	}
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		current, _, scanErr := ScanManagedForDomain(ctx, applier.Mutation, applier.Repo, cached.Desired, domain)
+		if scanErr != nil {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", scanErr)
+			return job, false
+		}
+		issues, issueErr := routingBlockMangleIssues(ctx, applier.Mutation, cached.Desired, current)
+		if issueErr != nil {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", issueErr)
+			return job, false
+		}
+		if len(issues) > 0 {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-mangle", ErrPlanStale)
+			return job, false
+		}
+	}
+	if domain == PolicyDomainRouting || domain == PolicyDomainCombined {
+		issues, issueErr := routingBlockTrackingIssues(ctx, applier.Reader, cached.Desired)
+		if issueErr != nil {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-tracking", issueErr)
+			return job, false
+		}
+		if len(issues) > 0 {
+			m.failJob(ctx, applier.Repo, &job, "routing-block-tracking", ErrPlanStale)
+			return job, false
+		}
 	}
 	if err := activateDesiredObjectsForDomain(ctx, applier, cached.Desired, domain); err != nil {
 		m.failJob(ctx, applier.Repo, &job, "activation", err)
@@ -2033,6 +2103,32 @@ func applyOperationWithFields(ctx context.Context, mutation PolicyMutation, oper
 		}
 		return err
 	case "patch":
+		var clear []string
+		if menu == routeros.MenuIPFirewallMangle || menu == routeros.MenuIPv6FirewallMangle || menu == routeros.MenuIPFirewallFilter || menu == routeros.MenuIPv6FirewallFilter {
+			for _, key := range []string{"in-interface", "in-interface-list", "out-interface", "out-interface-list", "src-address-list", "dst-address-list"} {
+				if value, exists := fields[key]; exists && value == "" {
+					clear = append(clear, key)
+					delete(fields, key)
+				}
+			}
+		}
+		if len(clear) > 0 {
+			unset, ok := mutation.(interface {
+				UnsetFirewallMatcher(context.Context, routeros.MutationMenu, string, string) error
+			})
+			if !ok {
+				return errors.New("RouterOS adapter cannot safely unset firewall matchers")
+			}
+			if _, err := mutation.Patch(ctx, menu, operation.RouterID, routeros.RouterOSFields{"disabled": true}); err != nil {
+				return err
+			}
+			for _, key := range clear {
+				if err := unset.UnsetFirewallMatcher(ctx, menu, operation.RouterID, key); err != nil {
+					return fmt.Errorf("unset %s: %w", key, err)
+				}
+			}
+			fields["disabled"] = true // activation enables the completed desired rule
+		}
 		_, err := mutation.Patch(ctx, menu, operation.RouterID, fields)
 		return err
 	case "delete":
@@ -2206,10 +2302,34 @@ func accessFilterOrderingUnavailableError(routerID string) error {
 }
 
 func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
+	return ensureSelectedFiltersFirst(ctx, mutation, desired, isAccessDesiredFilter, true)
+}
+
+func isAccessDesiredFilter(object DesiredObject) bool {
+	return isAccessFilterFields(object.Menu, object.Fields)
+}
+func isRemovedRoutingBlock(operation PlanOperation) bool {
+	if operation.Action != "delete" && !(operation.Action == "patch" && normalizeRouterValue(operation.After["disabled"]) == "yes") {
+		return false
+	}
+	if strings.HasPrefix(operation.LogicalID, "routing-rule-block:") || strings.HasPrefix(operation.LogicalID, "routing-router-block:") {
+		return true
+	}
+	// Stale canonical comments are intentionally opaque; after scoped ownership
+	// is proven, the dedicated mark identifies our old block for preview only.
+	return operation.Ownership == "owned" && (operation.Menu == string(routeros.MenuIPFirewallFilter) || operation.Menu == string(routeros.MenuIPv6FirewallFilter)) && operation.Before["action"] == "drop" && strings.HasPrefix(operation.Before["connection-mark"], "rb_bl_")
+}
+func isRoutingBlockFilter(object DesiredObject) bool {
+	return strings.HasPrefix(object.LogicalID, "routing-rule-block:") || strings.HasPrefix(object.LogicalID, "routing-router-block:")
+}
+func ensureRoutingBlocksFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject) error {
+	return ensureSelectedFiltersFirst(ctx, mutation, desired, isRoutingBlockFilter, false)
+}
+func ensureSelectedFiltersFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject, selected func(DesiredObject) bool, protectRouting bool) error {
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
 		identities := make([]string, 0)
 		for _, object := range desired {
-			if object.Menu != string(menu) || !isAccessFilterFields(object.Menu, object.Fields) {
+			if object.Menu != string(menu) || !selected(object) {
 				continue
 			}
 			identities = append(identities, managedCommentIdentity(object.Fields["comment"]))
@@ -2222,6 +2342,14 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 			return fmt.Errorf("read %s before access-control ordering: %w", menu, err)
 		}
 		objects = accessOrderingFirewallFilterObjects(objects)
+		protected := 0
+		if protectRouting {
+			var prefixErr error
+			protected, prefixErr = protectedRoutingFilterPrefix(objects, identities)
+			if prefixErr != nil {
+				return prefixErr
+			}
+		}
 		desiredIdentities := make(map[string]struct{}, len(identities))
 		for _, identity := range identities {
 			desiredIdentities[identity] = struct{}{}
@@ -2250,9 +2378,9 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if len(order) == 0 {
 			return fmt.Errorf("%s has no rules after access-control apply", menu)
 		}
-		correct := len(order) >= len(identities)
+		correct := len(order) >= protected+len(identities)
 		for index, identity := range identities {
-			if !correct || managedCommentIdentity(objects[index]["comment"]) != identity {
+			if !correct || managedCommentIdentity(objects[protected+index]["comment"]) != identity {
 				correct = false
 				break
 			}
@@ -2265,10 +2393,10 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 			if sourceID == "" {
 				return fmt.Errorf("managed access-control jump %s is missing", identities[index])
 			}
-			if order[0] == sourceID {
+			if order[protected] == sourceID {
 				continue
 			}
-			anchorID := order[0]
+			anchorID := order[protected]
 			if _, err := mutation.Move(ctx, menu, routeros.MoveRequest{ID: sourceID, BeforeID: anchorID}); err != nil {
 				return fmt.Errorf("move access-control rule %s to top of %s: %w", identities[index], menu, err)
 			}
@@ -2282,11 +2410,11 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 		if routerID := firstNonIgnorableDynamicBeforeAccess(objects, desiredIdentities, nil); routerID != "" {
 			return accessFilterOrderingUnavailableError(routerID)
 		}
-		if len(objects) < len(identities) {
-			return fmt.Errorf("%s returned fewer rules than managed access-control rules", menu)
+		if len(objects) < protected+len(identities) {
+			return fmt.Errorf("%s returned fewer rules than managed filters", menu)
 		}
 		for index, identity := range identities {
-			if managedCommentIdentity(objects[index]["comment"]) != identity {
+			if managedCommentIdentity(objects[protected+index]["comment"]) != identity {
 				return fmt.Errorf("managed access-control rule %s is not at position %d of %s", identity, index, menu)
 			}
 		}
@@ -2294,14 +2422,100 @@ func ensureAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desire
 	return nil
 }
 
+// Access may move its own filters, but must not place them ahead of this
+// manager's routing DROP rules. A non-contiguous block prefix is a concrete
+// ordering conflict requiring routing reconciliation, not Access ownership.
+func protectedRoutingFilterPrefix(objects []routeros.RouterOSObject, selectedIdentities []string) (int, error) {
+	if len(selectedIdentities) == 0 || !strings.HasPrefix(selectedIdentities[0], "rbs_") || len(selectedIdentities[0]) < 13 {
+		return 0, nil
+	}
+	scope := selectedIdentities[0][:13]
+	count := 0
+	seenOther := false
+	for _, object := range objects {
+		identity := managedCommentIdentity(object["comment"])
+		isBlock := strings.HasPrefix(identity, scope) && object["action"] == "drop" && strings.HasPrefix(object["connection-mark"], "rb_bl_")
+		if isBlock {
+			if seenOther {
+				return 0, errors.New("routing_filter_order_conflict: 路由阻断规则顺序已变化，请先重新同步路由策略")
+			}
+			count++
+		} else {
+			seenOther = true
+		}
+	}
+	return count, nil
+}
+
 func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject, scanned ...[]ActualObject) ([]PlanOperation, error) {
+	return planSelectedFiltersFirst(ctx, mutation, desired, isAccessDesiredFilter, scanned...)
+}
+func planRoutingBlocksFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject, scanned ...[]ActualObject) ([]PlanOperation, error) {
+	var result []PlanOperation
+	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
+		var blocks []DesiredObject
+		identities := map[string]struct{}{}
+		for _, object := range desired {
+			if object.Menu == string(menu) && isRoutingBlockFilter(object) {
+				blocks = append(blocks, object)
+				identities[managedCommentIdentity(object.Fields["comment"])] = struct{}{}
+			}
+		}
+		if len(blocks) == 0 {
+			continue
+		}
+		objects, err := mutation.List(ctx, menu, routeros.MutationQuery{})
+		if err != nil {
+			return nil, err
+		}
+		objects = accessOrderingFirewallFilterObjects(objects)
+		if id := firstNonIgnorableDynamicBeforeAccess(objects, identities, nil); id != "" {
+			return nil, accessFilterOrderingUnavailableError(id)
+		}
+		ids := map[string]string{}
+		var boundary string
+		for _, object := range objects {
+			identity := managedCommentIdentity(object["comment"])
+			if _, ok := identities[identity]; ok {
+				if ids[identity] != "" {
+					return nil, fmt.Errorf("duplicate routing block %s", identity)
+				}
+				ids[identity] = object.ID()
+			} else if boundary == "" {
+				boundary = object.ID()
+			}
+		}
+		if boundary == "" {
+			continue
+		}
+		ordered := len(objects) >= len(blocks)
+		for i, block := range blocks {
+			if !ordered || managedCommentIdentity(objects[i]["comment"]) != managedCommentIdentity(block.Fields["comment"]) {
+				ordered = false
+				break
+			}
+		}
+		if ordered {
+			continue
+		}
+		anchor := &PlanAnchor{RouterID: boundary, Relation: "before", Menu: string(menu)}
+		for i := len(blocks) - 1; i >= 0; i-- {
+			block := blocks[i]
+			id := ids[managedCommentIdentity(block.Fields["comment"])]
+			result = append(result, PlanOperation{Order: -i, Phase: block.Phase, Action: "move", Menu: block.Menu, LogicalID: block.LogicalID, RouterID: id, Ownership: "owned", Anchor: anchor})
+			anchor = &PlanAnchor{LogicalID: block.LogicalID, RouterID: id, Relation: "before", Menu: block.Menu}
+		}
+	}
+	return result, nil
+}
+func planSelectedFiltersFirst(ctx context.Context, mutation PolicyMutation, desired []DesiredObject, selected func(DesiredObject) bool, scanned ...[]ActualObject) ([]PlanOperation, error) {
 	result := make([]PlanOperation, 0)
 	for _, menu := range []routeros.MutationMenu{routeros.MenuIPFirewallFilter, routeros.MenuIPv6FirewallFilter} {
 		jumps := make([]DesiredObject, 0)
 		desiredByIdentity := make(map[string]DesiredObject)
 		desiredIdentityByLogicalID := make(map[string]string)
 		for _, object := range desired {
-			if object.Menu != string(menu) || !isAccessFilterFields(object.Menu, object.Fields) {
+			if object.Menu != string(menu) || !selected(object) {
 				continue
 			}
 			identity := managedCommentIdentity(object.Fields["comment"])
@@ -2332,6 +2546,14 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 			return nil, fmt.Errorf("read %s before planning access-control ordering: %w", menu, err)
 		}
 		objects = accessOrderingFirewallFilterObjects(objects)
+		selectedIdentities := make([]string, 0, len(jumps))
+		for _, jump := range jumps {
+			selectedIdentities = append(selectedIdentities, managedCommentIdentity(jump.Fields["comment"]))
+		}
+		protected, prefixErr := protectedRoutingFilterPrefix(objects, selectedIdentities)
+		if prefixErr != nil {
+			return nil, prefixErr
+		}
 		desiredIdentities := make(map[string]struct{}, len(desiredByIdentity))
 		for identity := range desiredByIdentity {
 			desiredIdentities[identity] = struct{}{}
@@ -2346,6 +2568,9 @@ func planAccessJumpsFirst(ctx context.Context, mutation PolicyMutation, desired 
 		boundaryID := ""
 		ambiguous := false
 		for index, object := range objects {
+			if index < protected {
+				continue
+			}
 			identity := managedCommentIdentity(object["comment"])
 			if desiredIdentity := routerIDToDesiredIdentity[object.ID()]; desiredIdentity != "" {
 				identity = desiredIdentity

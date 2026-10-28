@@ -26,6 +26,7 @@
 - An `internet` access rule is expanded per address family and per RouterOS default-route egress interface into direct `forward` filters (`src-address-list + out-interface` and `dst-address-list + in-interface`). When a family has multiple egresses, they share one managed RouterOS interface list and the filters use `out-interface-list` / `in-interface-list`, so interface count does not multiply filter rules. All non-disabled default routes across routing tables are considered, including standby routes; PPPoE and other known WAN/tunnel interfaces take precedence over stale local-scope evidence. If a family cannot be proven, the plan blocks without an unconditional drop and returns scanned interface candidates for explicit multi-selection; the backend revalidates selected interfaces before applying.
 - Auto-follow access members project every currently observed usable address. IPv6 link-local addresses are excluded because they are interface-scoped and cannot be matched reliably in a forwarded address-list rule.
 - `Egress.ListMode` and `Egress.ListName` remain only as legacy migration/storage compatibility. They are not the canonical RoutingRule target-grouping authority and are not exposed as new user configuration; the desired-state Execution Group projection determines safe physical sharing automatically.
+- Routing IP target projection materializes valid IPv4 and IPv6 CIDR members independently of the enabled egress families. Target availability alone does not create a route or enforce a block; consumers must apply the family action separately. Whole-rule and egress disable still control member activation.
 - Custom canonical routing TargetLists use hash-stable physical names such as `rb_rt_<hash>`. Preset-backed routing TargetLists may use a stable preset-ID slug for readability, such as `rb_rt_<hash>_<preset>_d` or `_ip`; mutable display-name changes must not change ownership identity.
 - Dynamic VPN ingress is included through a selected stable RouterOS interface list. WireGuard and other fixed interfaces may be selected directly; rosboard does not configure the VPN service itself.
 - Ordinary saves for a TargetList referenced by an enabled canonical
@@ -293,3 +294,30 @@ If the next domain requires acknowledgement, discard its cached plan, retain
 the first domain's committed state and the pending desired state, and fail the
 job with a re-preview/confirmation recovery message before any next-domain
 mutation.
+
+## Disabled routing address families
+
+An enabled routing rule whose enabled egress omits or disables an address family
+classifies matching new connections through the same source, target and
+priority pipeline as routing, then uses Routing-owned forward/output DROP
+filters. Router output is included only when requested. Existing connections may
+continue until expiry; do not clear connection tracking. The reviewed plan
+must expose block operations and the effect of removing a block. DNS A/AAAA
+resolution is unchanged. Filters must precede rules that can accept or
+FastTrack those new connections, without taking ownership of Access filters.
+Access ordering must preserve the current-scoped routing DROP prefix and move
+only Access-owned filters; a non-contiguous routing block is a concrete ordering
+conflict requiring Routing reconciliation before Access can reorder its rules.
+Untracked packets cannot carry a connection mark: fail closed when tracking is
+off/unknown, a relevant family has an active raw notrack rule, or a foreign
+mangle rule could preempt classification. Also block active forward-chain
+`mark-connection` and `jump` actions: they can overwrite the winner mark
+between prerouting and filter. Forward-chain MSS, packet QoS and other actions
+that do not write connection marks remain allowed. Recheck immediately before
+activation.
+
+When changing a firewall matcher from a direct interface to an aggregate list,
+RouterOS rejects an empty `in-interface` value in a patch. Disable the owned
+rule, unset only the allowlisted obsolete matcher, patch the replacement while
+disabled, then activate after dependencies converge. Any failed unset stops the
+apply and requires a fresh scan; never issue arbitrary RouterOS unset commands.

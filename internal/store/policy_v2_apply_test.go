@@ -723,6 +723,9 @@ func newPolicyV2FakeRouter() *policyV2FakeRouter {
 }
 
 func (r *policyV2FakeRouter) PolicyList(_ context.Context, menu routeros.ReadMenu, _ []string) ([]routeros.RouterOSObject, error) {
+	if menu == routeros.ReadMenuFirewallTracking {
+		return []routeros.RouterOSObject{{"enabled": "auto"}}, nil
+	}
 	if menu == routeros.ReadMenuInterfaceList {
 		names := append([]string{"LAN"}, r.interfaceLists...)
 		objects := make([]routeros.RouterOSObject, 0, len(names))
@@ -804,6 +807,20 @@ func (r *policyV2FakeRouter) Patch(_ context.Context, menu routeros.MutationMenu
 		object[key] = fmt.Sprint(value)
 	}
 	return clonePolicyV2RouterObject(object), nil
+}
+
+func (r *policyV2FakeRouter) UnsetFirewallMatcher(_ context.Context, menu routeros.MutationMenu, id, field string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.beforeWrite(); err != nil {
+		return err
+	}
+	object := r.objects[menu][id]
+	if object == nil {
+		return fmt.Errorf("missing object %s", id)
+	}
+	delete(object, field)
+	return nil
 }
 
 func (r *policyV2FakeRouter) Delete(_ context.Context, menu routeros.MutationMenu, id string) error {

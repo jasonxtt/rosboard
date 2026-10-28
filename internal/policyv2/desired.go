@@ -1066,6 +1066,10 @@ func managedObjectPurpose(logicalID string) string {
 		return "路由器连接标记"
 	case "routing-router-routing":
 		return "路由器路由标记"
+	case "routing-rule-block":
+		return "入口地址族阻断"
+	case "routing-router-block":
+		return "路由器地址族阻断"
 	case "routing-subject":
 		return "路由来源地址列表"
 	default:
