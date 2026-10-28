@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchPolicyDiscoverySnapshot, generatePolicyPlan, initialIncludeKeywordDomains, type ApplicationPresetSelection, type Egress, type EgressFamily, type PlanEnvelope, type PolicyDiscovery, type PolicyPlanProposal, type PolicySourceSelectors, type RoutingRule, type RoutingSourceKind, type Subject, type PolicyTerminal, type TargetList, type TrafficIngressScope } from './canonical'
 import { TargetSelector } from './Selectors'
-import { TargetListModal } from './TargetLibraryPage'
+import { TargetLibraryManagerModal } from './TargetLibraryManagerModal'
 import { gatewayCandidatesForWAN, suggestedGatewayForWAN } from './gateway'
 import { PolicyPlanPreview, type PolicyPlanSummary } from './PolicyPlanPreview'
 import { hasTrafficIngress, parseSourcePrefixLines, sourceIsValid, typedSourceIsValid, type RoutingInterfaceSource } from './source'
@@ -226,13 +226,6 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     setEnabled(next)
   }
 
-  const addTargetList = (target: TargetList) => {
-    markDraftChanged()
-    setTargetLists((current) => current.some((item) => item.id === target.id) ? current.map((item) => item.id === target.id ? target : item) : [...current, target])
-    setTargetListIDs((current) => current.includes(target.id) ? current : [...current, target.id])
-    setCreatingTargetKind(null)
-  }
-
   const toggleIngress = (candidate: PolicyDiscovery['trafficIngress'][number]) => {
     markDraftChanged()
     if (candidate.kind === 'interface-list') {
@@ -383,7 +376,7 @@ export function RoutingRuleWizard({ deviceID, context, rule, egress, onClose, on
     {activeStep === 1 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><TargetStep deviceID={deviceID} targetLists={targetLists} targetListIDs={targetListIDs} includeKeywordDomains={includeKeywordDomains} onIncludeKeywordDomains={(value) => { markDraftChanged(); setIncludeKeywordDomains(value) }} onTargetLists={updateTargetLists} onRemoveTarget={(id) => updateTargetLists(targetListIDs.filter((targetID) => targetID !== id))} onPresetPresentation={updatePresetPresentations} onCreateTargetList={setCreatingTargetKind} errors={targetErrors} invalidTargetIDs={invalidTargetIDs} /></fieldset></> : null}
     {activeStep === 2 ? <><StepLockedNotice locked={stepLocked} /><fieldset className="policy-wizard-fields" disabled={busy || stepLocked}><EgressStep draft={draft} discovery={discovery} errors={errors} onDraft={updateDraft} onFamily={updateFamily} readOnly={busy || stepLocked} /></fieldset></> : null}
   </PolicyModal>
-  {creatingTargetKind ? <TargetListModal deviceID={deviceID} target={null} initialKind={creatingTargetKind} onClose={() => setCreatingTargetKind(null)} onSaved={async (target) => { addTargetList(target) }} /> : null}
+  {creatingTargetKind ? <TargetLibraryManagerModal deviceID={deviceID} kind={creatingTargetKind} onClose={(lists) => { setCreatingTargetKind(null); if (!lists) return; markDraftChanged(); setTargetLists((current) => [...lists, ...current.filter((item) => item.sourceType === 'preset' && !lists.some((fresh) => fresh.id === item.id))]); setTargetListIDs((current) => current.filter((id) => id.startsWith('preset:') || lists.some((fresh) => fresh.id === id))) }} /> : null}
   </>
 }
 

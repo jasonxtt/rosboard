@@ -15,7 +15,7 @@ import {
 import { accessScheduleSummary, alwaysAccessSchedule, validateAccessSchedule } from '../../../features/policy/schedule'
 import { AccessScheduleEditor } from '../../../features/policy/ui/AccessScheduleEditor'
 import { SubjectSelector, TargetSelector } from '../policy/Selectors'
-import { TargetListModal } from '../policy/TargetLibraryPage'
+import { TargetLibraryManagerModal } from '../policy/TargetLibraryManagerModal'
 import { PolicyEmptyState, PolicyErrorDisplay, PolicyField, PolicyModal, PolicyNotice, PolicyPreparing, PolicyStatusBadge, type StatusTone } from '../policy-routing/components'
 
 const statusPresentation: Record<string, { tone: StatusTone; label: string }> = {
@@ -89,11 +89,6 @@ function AccessRuleModal({ deviceID, rule, terminals, targetLists, onClose, onSa
   const [presetPresentations, setPresetPresentations] = useState<Array<ApplicationPresetSelection & { name: string }>>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const addTargetList = (target: TargetList) => {
-    setAvailableTargetLists((current) => current.some((item) => item.id === target.id) ? current.map((item) => item.id === target.id ? target : item) : [...current, target])
-    setTargetListIds((current) => current.includes(target.id) ? current : [...current, target.id])
-    setCreatingTargetKind(null)
-  }
   const submit = async () => {
     if (!name.trim() || (subject.mode === 'selected' && subject.members.length === 0 && subject.prefixes.length === 0) || (targetScope === 'targets' && targetListIds.length === 0) || validateAccessSchedule(schedule)) return
     setSaving(true); setError(null)
@@ -105,6 +100,6 @@ function AccessRuleModal({ deviceID, rule, terminals, targetLists, onClose, onSa
     <PolicyModal title={rule ? '编辑访问规则' : '新增访问规则'} wide onClose={onClose} footer={<><button type="button" className="toolbar-button" disabled={saving} onClick={onClose}>取消</button><button type="button" className="primary-button" disabled={saving || !name.trim() || (subject.mode === 'selected' && !subject.members.length && !subject.prefixes.length) || (targetScope === 'targets' && !targetListIds.length) || Boolean(validateAccessSchedule(schedule))} onClick={() => void submit()}>{saving ? '正在保存…' : '保存'}</button></>}>
       <div className="policy-form">{error ? <PolicyErrorDisplay error={error} /> : null}<PolicyField label="规则名称" htmlFor="access-rule-name"><input id="access-rule-name" className="settings-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：儿童娱乐限制" /></PolicyField><PolicyField label="Who · 受控对象"><SubjectSelector terminals={terminals} value={subject} onChange={setSubject} /></PolicyField><PolicyField label="What · 访问范围"><div className="policy-choice-list"><label className={`policy-choice${targetScope === 'internet' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'internet'} onChange={() => setTargetScope('internet')} /><span><strong>整个互联网</strong><small>阻断互联网，局域网访问不受影响</small></span></label><label className={`policy-choice${targetScope === 'targets' ? ' active' : ''}`}><input type="radio" checked={targetScope === 'targets'} onChange={() => setTargetScope('targets')} /><span><strong>目标列表</strong><small>阻断目标库中的域名或 IP 列表</small></span></label></div>{targetScope === 'targets' ? <TargetSelector deviceID={deviceID} targetLists={availableTargetLists} selectedIDs={targetListIds} onChange={setTargetListIds} onPresetPresentationChange={setPresetPresentations} onCreateTargetList={setCreatingTargetKind} /> : null}</PolicyField><PolicyField label="时间控制"><AccessScheduleEditor value={schedule} disabled={saving} onChange={setSchedule} /></PolicyField></div>
     </PolicyModal>
-    {creatingTargetKind ? <TargetListModal deviceID={deviceID} target={null} initialKind={creatingTargetKind} onClose={() => setCreatingTargetKind(null)} onSaved={async (target) => { addTargetList(target) }} /> : null}
+    {creatingTargetKind ? <TargetLibraryManagerModal deviceID={deviceID} kind={creatingTargetKind} onClose={(lists) => { setCreatingTargetKind(null); if (!lists) return; setAvailableTargetLists((current) => [...lists, ...current.filter((item) => item.sourceType === 'preset' && !lists.some((fresh) => fresh.id === item.id))]); setTargetListIds((current) => current.filter((id) => id.startsWith('preset:') || lists.some((fresh) => fresh.id === id))) }} /> : null}
   </>
 }
