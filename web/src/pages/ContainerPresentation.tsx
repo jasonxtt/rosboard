@@ -13,7 +13,10 @@ export const auroraContainerPresentation: ContainerPresentation = {
   Status: ({ status, children }) => <Badge dot tone={status === 'running' ? 'ok' : status === 'error' ? 'err'
     : ['starting', 'downloading', 'extracting'].includes(status) ? 'warn' : 'neutral'}>{children}</Badge>,
   Float: AuroraContainerFloat,
-  Dialog: ({ title, onClose, busy, wide, children }) => (
+  // Modal portals to document.body, outside the page's .ct root. Re-establish
+  // the .ct context (and the dialog's own class) on an inner wrapper so the
+  // container stylesheet reaches dialog content exactly as on the page.
+  Dialog: ({ title, className = '', onClose, busy, wide, children }) => (
     <Modal
       open
       onClose={() => { if (!busy) onClose() }}
@@ -21,7 +24,7 @@ export const auroraContainerPresentation: ContainerPresentation = {
       maxWidth={wide ? 880 : 640}
       persistent
     >
-      {children}
+      <div className={`ct ${className}`.trim()}>{children}</div>
     </Modal>
   ),
 }
