@@ -325,6 +325,10 @@
   font-size: 12px;
   font-weight: 550;
 }
+.ct-field > label {
+  font-size: 12px;
+  font-weight: 550;
+}
 .ct-field em {
   color: var(--ct-accent);
   font-style: normal;
@@ -501,25 +505,93 @@
   font-size: 12px;
   line-height: 1.7;
 }
-.ct .ct-root-directory-input {
+/* Path combobox: input + ▾ browse button open the floating Files browser. */
+.ct .ct-directory-input {
   display: flex;
   min-width: 0;
   border: 1px solid var(--ct-border);
   border-radius: var(--ct-control-radius);
   overflow: hidden;
+  background: var(--ct-input-bg);
 }
-.ct .ct-root-directory-input input {
+.ct .ct-directory-input input {
   flex: 1;
   min-width: 0;
   border: 0;
   border-radius: 0;
+  background: transparent;
 }
-.ct .ct-root-directory-input button {
+.ct .ct-directory-input button {
   flex: 0 0 44px;
   border: 0;
   border-left: 1px solid var(--ct-border);
   border-radius: 0;
   min-height: 44px;
+  background: transparent;
+  color: var(--ct-muted);
+}
+.ct .ct-directory-input button[aria-expanded='true'] {
+  color: var(--ct-accent);
+}
+.ct .ct-directory-input:focus-within {
+  border-color: var(--ct-accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Floating Files browser (Aurora shell only; Compact expands inline).
+   Opaque floating surface per the token contract; above the modal layer so
+   it stays usable from future dialog-hosted editors. */
+.ct-float {
+  position: fixed;
+  z-index: 90;
+  color: var(--ct-text);
+  font: var(--ct-font-size, 13px)/1.5 var(--font-sans, system-ui);
+}
+.ct-float .ct-directory-picker {
+  background: var(--ct-float);
+  border: 1px solid var(--glass-float-stroke);
+  border-radius: var(--ct-radius);
+  box-shadow: var(--ct-pop-shadow);
+  padding: 12px;
+  max-height: min(440px, calc(100dvh - 32px));
+  overflow: auto;
+}
+.ct-float .ct-directory-row {
+  border-bottom: 0;
+  border-radius: var(--ct-control-radius);
+  padding: 0;
+}
+.ct-float .ct-directory-folder {
+  border-radius: var(--ct-control-radius);
+  min-height: 40px;
+  padding: 0 10px;
+}
+.ct-float .ct-directory-folder:hover:not(:disabled) {
+  background: var(--glass-2);
+  border-color: transparent;
+  color: var(--ct-text);
+}
+.ct-float .ct-directory-folder span[aria-hidden='true']:last-child {
+  color: var(--ct-muted);
+}
+.ct-float .ct-directory-close {
+  color: var(--ct-muted);
+}
+.ct-float .ct-directory-toolbar {
+  border-bottom: 1px solid var(--ct-border);
+  padding-bottom: 8px;
+}
+
+/* Mount rows: source/target side by side, only/read-only + remove on one line. */
+.ct .ct-mount-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.ct .ct-mount-actions .ct-check {
+  min-height: 0;
 }
 .ct .ct-directory-picker {
   border: 1px solid var(--ct-border);

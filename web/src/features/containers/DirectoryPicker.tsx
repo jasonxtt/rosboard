@@ -22,6 +22,7 @@ export function DirectoryPicker({
   purpose: string
   initialPath?: string
   allowFiles?: boolean
+  /** called live whenever a folder is clicked (navigate-and-select) */
   onSelect: (path: string) => void
   onClose: () => void
   onMutation?: (result: DirectoryMutation) => void
@@ -101,7 +102,9 @@ export function DirectoryPicker({
               onClick={() => {
                 setEditing(null)
                 setMenu(null)
-                state.navigate('/' + parts.slice(0, i + 1).join('/'))
+                const target = '/' + parts.slice(0, i + 1).join('/')
+                state.navigate(target)
+                onSelect(target)
               }}
             >
               {part}
@@ -178,10 +181,12 @@ export function DirectoryPicker({
                   <ContainerButton
                     type="button"
                     className="ct-directory-folder"
+                    title={`进入并选中 ${entry.name}`}
                     disabled={blocked || !!editing || !!deleting}
                     onClick={() => {
                       setMenu(null)
                       state.navigate(entry.path)
+                      onSelect(entry.path)
                     }}
                   >
                     <span aria-hidden="true">📁</span>
@@ -248,7 +253,10 @@ export function DirectoryPicker({
                   <ContainerButton
                     type="button"
                     disabled={blocked || !!editing || !!deleting}
-                    onClick={() => onSelect(entry.path)}
+                    onClick={() => {
+                      onSelect(entry.path)
+                      onClose()
+                    }}
                   >
                     选用文件
                   </ContainerButton>
@@ -310,9 +318,12 @@ export function DirectoryPicker({
           disabled={
             blocked || !listing || path === '/' || !!editing || !!deleting
           }
-          onClick={() => onSelect(path)}
+          onClick={() => {
+            onSelect(path)
+            onClose()
+          }}
         >
-          选择此目录
+          使用此目录
         </ContainerButton>
       </footer>
     </div>

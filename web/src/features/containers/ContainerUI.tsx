@@ -3,11 +3,20 @@ import { createContext, useContext, useEffect, useId, useRef, type ButtonHTMLAtt
 export type ContainerButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 export type ContainerSurfaceProps = Pick<HTMLAttributes<HTMLDivElement>, 'className' | 'children' | 'role' | 'aria-label' | 'id'> & { as?: 'div' | 'section' | 'footer' }
 export type ContainerStatusProps = { status: string; children: ReactNode }
+export type ContainerFloatProps = {
+  /** element to anchor the floating layer to; null while measuring */
+  anchor: HTMLElement | null
+  onClose: () => void
+  children: ReactNode
+}
 export type ContainerPresentation = {
   Button: ComponentType<ContainerButtonProps>
   Surface: ComponentType<ContainerSurfaceProps>
   Status: ComponentType<ContainerStatusProps>
   tableClassName: string
+  /** Optional floating layer for popover panels (directory browser).
+   * Shells without one render the panel inline in the document flow. */
+  Float?: ComponentType<ContainerFloatProps>
 }
 const Presentation = createContext<ContainerPresentation>({
   tableClassName: 'data-table',
@@ -32,6 +41,14 @@ export function ContainerStatus(props: ContainerStatusProps) {
 export function ContainerTable({ children }: { children: ReactNode }) {
   const { tableClassName } = useContext(Presentation)
   return <table className={tableClassName}>{children}</table>
+}
+
+/** Floating panel host: shells provide their popover layer; the fallback
+ * keeps the panel inline (Compact document flow). */
+export function ContainerFloat({ anchor, onClose, children }: ContainerFloatProps) {
+  const { Float } = useContext(Presentation)
+  if (Float) return <Float anchor={anchor} onClose={onClose}>{children}</Float>
+  return <>{children}</>
 }
 
 /** Native top-layer dialog keeps menus and inputs inside the active UI scope. */

@@ -321,7 +321,8 @@
   gap: 6px;
   min-width: 0;
 }
-.ct-field > span {
+.ct-field > span,
+.ct-field > label {
   font-size: 12px;
   font-weight: 550;
 }
@@ -352,6 +353,16 @@
 }
 .ct-check input {
   accent-color: var(--ct-accent);
+}
+.ct-mount-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.ct-mount-actions .ct-check {
+  min-height: 0;
 }
 .ct-repeat {
   display: grid;
@@ -501,20 +512,20 @@
   font-size: 12px;
   line-height: 1.7;
 }
-.ct .ct-root-directory-input {
+.ct .ct-directory-input {
   display: flex;
   min-width: 0;
   border: 1px solid var(--ct-border);
   border-radius: var(--ct-control-radius);
   overflow: hidden;
 }
-.ct .ct-root-directory-input input {
+.ct .ct-directory-input input {
   flex: 1;
   min-width: 0;
   border: 0;
   border-radius: 0;
 }
-.ct .ct-root-directory-input button {
+.ct .ct-directory-input button {
   flex: 0 0 44px;
   border: 0;
   border-left: 1px solid var(--ct-border);

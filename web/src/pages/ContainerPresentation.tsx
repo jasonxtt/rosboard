@@ -1,4 +1,5 @@
 import type { ContainerPresentation } from '../features/containers/ContainerUI'
+import { AuroraContainerFloat } from './ContainerFloat'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -10,4 +11,5 @@ export const auroraContainerPresentation: ContainerPresentation = {
   Surface: ({ className = '', children, ...props }) => <Card {...props} className={`ct-card ${className}`}>{children}</Card>,
   Status: ({ status, children }) => <Badge dot tone={status === 'running' ? 'ok' : status === 'error' ? 'err'
     : ['starting', 'downloading', 'extracting'].includes(status) ? 'warn' : 'neutral'}>{children}</Badge>,
+  Float: AuroraContainerFloat,
 }

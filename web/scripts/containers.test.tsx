@@ -570,17 +570,19 @@ test('readonly local upload stays disabled while directory selection updates onl
     })
     assert.equal((field('本地镜像归档') as HTMLInputElement).disabled, true)
     assert.match(document.body.textContent!, /真实镜像上传尚未启用/)
-    await act(async () => button('浏览挂载源').click())
+    await act(async () => field('主机源目录').click())
     await settle()
     await act(async () => button('sata1').click())
     await settle()
+    // clicking a folder enters it and selects it live, before any confirm
+    assert.equal(field('主机源目录').value, '/sata1')
     assert.equal(
       [...document.querySelectorAll('button')].some(
         (b) => b.textContent === '新建文件夹',
       ),
       false,
     )
-    await act(async () => button('选择此目录').click())
+    await act(async () => button('使用此目录').click())
     assert.equal(field('主机源目录').value, '/sata1')
     assert.equal(field('容器目标目录').value, '/etc/app')
     assert.equal(field('容器运行目录').value, '')
@@ -740,11 +742,94 @@ test('runtime input supports typing and inline Files browsing without changing m
     await settle()
     await act(async () => button('nginx').click())
     await settle()
-    await act(async () => button('选择此目录').click())
+    await act(async () => button('使用此目录').click())
     assert.equal(input.value, '/sata1/nginx')
     assert.equal(document.querySelector('.ct-directory-picker'), null)
     assert.equal(field('主机源目录').value, draft.mounts[0].source)
     assert.equal(field('容器目标目录').value, draft.mounts[0].target)
+  } finally {
+    await act(async () => root.unmount())
+    env.restore()
+  }
+})
+
+test('Aurora adapter renders the Files browser as a body portal that outside-click and Escape close', async () => {
+  const env = installDOM(),
+    root = createRoot(document.getElementById('root')!)
+  const draft = newDraft()
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/directories')) {
+      const path = new URL(String(url), 'http://localhost').searchParams.get(
+        'path',
+      )!
+      return response({
+        path,
+        entries:
+          path === '/'
+            ? [{ name: 'sata1', path: '/sata1', directory: true }]
+            : [],
+      })
+    }
+    return response({
+      effective: JSON.parse(String(init?.body)),
+      errors: {},
+      defaults: [],
+    })
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <ContainerPresentationProvider value={auroraContainerPresentation}>
+          <ContainerEditor
+            deviceId="a"
+            snapshot={snapshot()}
+            initial={draft}
+            item={null}
+            busy={false}
+            onClose={() => {}}
+            onSubmit={async () => {}}
+          />
+        </ContainerPresentationProvider>,
+      ),
+    )
+    const input = field('容器运行目录') as HTMLInputElement
+    await act(async () => input.click())
+    await settle()
+    const picker = document.getElementById(
+      input.getAttribute('aria-controls')!,
+    )!
+    // portaled: visible in the document, but not inside the page root
+    assert.ok(picker.classList.contains('ct-directory-picker'))
+    assert.equal(picker.closest('#root'), null)
+    assert.ok(document.querySelector('.ct-float'))
+    await act(async () => button('sata1').click())
+    await settle()
+    assert.equal(input.value, '/sata1')
+    await act(async () =>
+      document.body.dispatchEvent(
+        new env.dom.window.MouseEvent('mousedown', { bubbles: true }),
+      ),
+    )
+    assert.equal(document.querySelector('.ct-directory-picker'), null)
+    await act(async () =>
+      input.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+        }),
+      ),
+    )
+    await settle()
+    assert.ok(document.querySelector('.ct-directory-picker'))
+    await act(async () =>
+      document.dispatchEvent(
+        new env.dom.window.KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+        }),
+      ),
+    )
+    assert.equal(document.querySelector('.ct-directory-picker'), null)
   } finally {
     await act(async () => root.unmount())
     env.restore()
@@ -1198,7 +1283,7 @@ test('bound picker opens at current path, browses ancestors and root, and keeps 
       document.querySelector<HTMLButtonElement>('nav button')!.click(),
     )
     await settle()
-    assert.equal(button('选择此目录').disabled, true)
+    assert.equal(button('使用此目录').disabled, true)
     assert.equal(button('新建文件夹').disabled, true)
     assert.equal(
       document.querySelector<HTMLButtonElement>(
@@ -1208,7 +1293,7 @@ test('bound picker opens at current path, browses ancestors and root, and keeps 
     )
     await act(async () => button('sata1').click())
     await settle()
-    await act(async () => button('选择此目录').click())
+    await act(async () => button('使用此目录').click())
     assert.equal(env.values.selected, '/sata1')
   } finally {
     await env.cleanup()
@@ -1237,7 +1322,7 @@ test('inline creation focuses/selects a draft row and Enter saves once while rem
     assert.equal(env.fixture.reads.at(-1), '/sata1/docker')
     await act(async () => button('配置 文件夹').click())
     await settle()
-    await act(async () => button('选择此目录').click())
+    await act(async () => button('使用此目录').click())
     assert.equal(env.values.selected, '/sata1/docker/配置 文件夹')
   } finally {
     await env.cleanup()
@@ -1367,7 +1452,7 @@ test('invalid initial directory falls back to root without selecting or replacin
       assert.equal(env.fixture.reads.at(-1), '/')
       assert.equal(env.values.selected, '')
       assert.match(document.body.textContent!, /原输入保留/)
-      assert.equal(button('选择此目录').disabled, true)
+      assert.equal(button('使用此目录').disabled, true)
     } finally {
       await env.cleanup()
     }
@@ -1402,7 +1487,7 @@ test('unknown directory outcome disables further writes and recovers only by req
     await act(async () => keyInput(inlineName(), 'Enter', env.dom))
     await settle()
     assert.equal(button('新建文件夹').disabled, true)
-    assert.equal(button('选择此目录').disabled, true)
+    assert.equal(button('使用此目录').disabled, true)
     assert.equal(button('刷新确认结果').disabled, false)
     await act(async () => button('刷新确认结果').click())
     await settle()
@@ -1524,6 +1609,8 @@ test('real directory capability updates bound root and mount inputs after rename
     assert.equal(fixture.reads[0], draft.rootDir)
     await act(async () => button('docker').click())
     await settle()
+    // breadcrumb navigation live-selects the clicked ancestor
+    assert.equal(field('容器运行目录').value, '/sata1/docker')
     await act(async () =>
       document
         .querySelector<HTMLButtonElement>('[aria-label="文件夹 data 操作"]')!
@@ -1537,7 +1624,8 @@ test('real directory capability updates bound root and mount inputs after rename
       keyInput(inlineName('重命名文件夹'), 'Enter', env.dom),
     )
     await settle()
-    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    // the browsed root no longer sits under the renamed folder; the mount does
+    assert.equal(field('容器运行目录').value, '/sata1/docker')
     assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
     assert.equal(field('容器目标目录').value, '/etc/config')
     const directoryFetch = globalThis.fetch
@@ -1557,7 +1645,7 @@ test('real directory capability updates bound root and mount inputs after rename
     await act(async () => button('删除全部内容').click())
     await settle()
     assert.match(document.body.textContent!, /删除权限不足/)
-    assert.equal(field('容器运行目录').value, '/sata1/docker/renamed')
+    assert.equal(field('容器运行目录').value, '/sata1/docker')
     assert.equal(field('主机源目录').value, '/sata1/docker/renamed/child')
     globalThis.fetch = directoryFetch
     await act(async () =>
@@ -1568,7 +1656,7 @@ test('real directory capability updates bound root and mount inputs after rename
     await act(async () => button('删除').click())
     await act(async () => button('删除全部内容').click())
     await settle()
-    assert.equal(field('容器运行目录').value, '')
+    assert.equal(field('容器运行目录').value, '/sata1/docker')
     assert.equal(field('主机源目录').value, '')
     assert.equal(field('容器目标目录').value, '/etc/config')
     assert.equal(data.capabilities.writes, false)
