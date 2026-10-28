@@ -548,7 +548,7 @@
   color: var(--ct-text);
   font: var(--ct-font-size, 13px)/1.5 var(--font-sans, system-ui);
 }
-.ct-float .ct-directory-picker {
+.ct.ct-float .ct-directory-picker {
   background: var(--ct-float);
   border: 1px solid var(--glass-float-stroke);
   border-radius: var(--ct-radius);
@@ -557,7 +557,7 @@
   max-height: min(440px, calc(100dvh - 32px));
   overflow: visible;
 }
-.ct-float .ct-tree-list {
+.ct.ct-float .ct-tree-list {
   max-height: min(340px, calc(100dvh - 120px));
 }
 
@@ -662,10 +662,13 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
   font-size: 14px;
   line-height: 1;
 }
-.ct .ct-tree-row:hover .ct-tree-more,
+.ct .ct-tree-row:hover .ct-tree-more:not(:disabled),
 .ct .ct-tree-more:focus-visible,
 .ct .ct-tree-more.ct-tree-more-open {
   opacity: 1;
+}
+.ct .ct-tree-row:hover .ct-tree-more:disabled {
+  opacity: 0.45;
 }
 .ct .ct-tree-more:hover:not(:disabled) {
   color: var(--ct-accent);
@@ -751,6 +754,9 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
   padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--ct-danger) 45%, var(--ct-border));
   border-radius: 6px;
+  background: var(--ct-float);
+  position: relative;
+  z-index: 1;
 }
 .ct .ct-tree-confirm p {
   margin: 0;
@@ -796,6 +802,12 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
 }
 .ct .ct-tree-menu button.ct-danger {
   color: var(--ct-danger);
+}
+.ct .ct-tree-menu .ct-tree-menu-note {
+  margin: 2px 10px 4px;
+  font-size: 12px;
+  color: var(--ct-muted);
+  overflow-wrap: anywhere;
 }
 .ct .ct-image-upload {
   display: grid;

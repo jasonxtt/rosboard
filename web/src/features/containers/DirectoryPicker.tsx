@@ -287,19 +287,20 @@ export function DirectoryPicker({
               {name}
             </button>
           )}
-          {!inlineHere && writable && entry && !entry.protected && entry.id && (
+          {!inlineHere && writable && entry && entry.id && (
             <button
               type="button"
               className={`ct-tree-more${menu?.entry.path === entry.path ? ' ct-tree-more-open' : ''}`}
               aria-label={`文件夹 ${entry.name} 操作`}
               aria-expanded={menu?.entry.path === entry.path}
               disabled={blocked}
+              title={entry.protected || '重命名或删除'}
               onClick={(event) => {
                 event.stopPropagation()
                 openMenu(entry, event.currentTarget)
               }}
             >
-              ⋯
+              {entry.protected ? '🔒' : '⋯'}
             </button>
           )}
         </div>
@@ -400,6 +401,7 @@ export function DirectoryPicker({
           <button
             type="button"
             role="menuitem"
+            disabled={busy || !!pending}
             onClick={() => startCreateChild(menu.entry.path)}
           >
             新建子文件夹
@@ -407,6 +409,8 @@ export function DirectoryPicker({
           <button
             type="button"
             role="menuitem"
+            disabled={!!menu.entry.protected}
+            title={menu.entry.protected || undefined}
             onClick={() => {
               setInline({ kind: 'rename', entry: menu.entry })
               setMenu(null)
@@ -418,6 +422,8 @@ export function DirectoryPicker({
             type="button"
             role="menuitem"
             className="ct-danger"
+            disabled={!!menu.entry.protected}
+            title={menu.entry.protected || undefined}
             onClick={() => {
               setInline({ kind: 'delete', entry: menu.entry })
               setMenu(null)
@@ -425,6 +431,9 @@ export function DirectoryPicker({
           >
             删除
           </button>
+          {menu.entry.protected && (
+            <p className="ct-tree-menu-note">{menu.entry.protected}</p>
+          )}
         </div>
       )}
     </div>

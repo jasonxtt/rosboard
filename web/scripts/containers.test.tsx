@@ -1368,6 +1368,31 @@ test('tree reveals the bound path, hides files and chrome, and selects/expands o
       ),
       false,
     )
+    // protected rows (disk mount points) keep the menu: creation stays
+    // available while rename/delete are gated with the reason
+    const diskMore = document.querySelector<HTMLButtonElement>(
+      '[aria-label="文件夹 sata1 操作"]',
+    )!
+    assert.ok(diskMore)
+    assert.ok(!diskMore.disabled)
+    assert.equal(diskMore.textContent, '🔒')
+    await act(async () => diskMore.click())
+    const menu = document.querySelector('.ct-tree-menu')!
+    assert.ok(menu)
+    assert.match(menu.textContent!, /磁盘挂载点/)
+    const menuButtons = [...menu.querySelectorAll('button')]
+    assert.equal(
+      menuButtons.find((b) => b.textContent === '新建子文件夹')!.disabled,
+      false,
+    )
+    assert.equal(menuButtons.find((b) => b.textContent === '重命名')!.disabled, true)
+    assert.equal(menuButtons.find((b) => b.textContent === '删除')!.disabled, true)
+    await act(async () =>
+      document.body.dispatchEvent(
+        new env.dom.window.MouseEvent('pointerdown', { bubbles: true }),
+      ),
+    )
+    assert.equal(document.querySelector('.ct-tree-menu'), null)
     // clicking a folder selects it live and expands its children
     const data = button('data')
     assert.equal(data.className, 'ct-tree-name')

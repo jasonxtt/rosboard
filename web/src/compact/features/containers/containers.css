@@ -621,10 +621,13 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
   font-size: 14px;
   line-height: 1;
 }
-.ct .ct-tree-row:hover .ct-tree-more,
+.ct .ct-tree-row:hover .ct-tree-more:not(:disabled),
 .ct .ct-tree-more:focus-visible,
 .ct .ct-tree-more.ct-tree-more-open {
   opacity: 1;
+}
+.ct .ct-tree-row:hover .ct-tree-more:disabled {
+  opacity: 0.45;
 }
 .ct .ct-tree-loading {
   list-style: none;
@@ -705,6 +708,9 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
   padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--ct-danger) 45%, var(--ct-border));
   border-radius: 6px;
+  background: var(--ct-float);
+  position: relative;
+  z-index: 1;
 }
 .ct .ct-tree-confirm p {
   margin: 0;
@@ -750,6 +756,12 @@ button.ct-tree-row.ct-tree-create:hover:not(:disabled) {
 }
 .ct .ct-tree-menu button.ct-danger {
   color: var(--ct-danger);
+}
+.ct .ct-tree-menu .ct-tree-menu-note {
+  margin: 2px 10px 4px;
+  font-size: 12px;
+  color: var(--ct-muted);
+  overflow-wrap: anywhere;
 }
 .ct .ct-image-upload code {
   overflow-wrap: anywhere;
