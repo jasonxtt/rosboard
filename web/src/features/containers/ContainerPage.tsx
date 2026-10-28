@@ -1,4 +1,11 @@
-import { ContainerButton, ContainerSurface, ContainerStatus, ContainerDialog, ContainerMoreActions, ContainerTable } from './ContainerUI'
+import {
+  ContainerButton,
+  ContainerDialog,
+  ContainerMoreActions,
+  ContainerStatus,
+  ContainerSurface,
+  ContainerTable,
+} from './ContainerUI'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorMessage } from '../../lib/api'
 import { formatBytes } from '../../lib/format'
@@ -38,6 +45,57 @@ function memoryLabel(value: string, unavailable = '—'): string {
     : value
 }
 
+/** clickable pill that hosts the simulation scenario picker */
+function ModePill({
+  simulation,
+  busy,
+  scenario,
+  onScenario,
+  label,
+}: {
+  simulation: boolean
+  busy: boolean
+  scenario: string
+  onScenario: (value: string) => void
+  label: string
+}) {
+  const ref = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!simulation) return
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof window.Node && !ref.current?.contains(event.target))
+        ref.current?.removeAttribute('open')
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [simulation])
+  if (!simulation)
+    return <span className="ct-mode-pill" aria-label="容器管理模式">{label}</span>
+  return (
+    <details ref={ref} className="ct-mode-pop">
+      <summary className="ct-mode-pill" aria-label="容器管理模式（模拟，点击调整情景）">
+        {label} ⌄
+      </summary>
+      <div className="ct-mode-pop-body">
+        <label>
+          下一次模拟操作
+          <select
+            aria-label="模拟情景"
+            value={scenario}
+            disabled={busy}
+            onChange={(e) => onScenario(e.target.value)}
+          >
+            <option value="success">正常完成</option>
+            <option value="failure">下载 / 操作失败</option>
+            <option value="unknown">超时结果不明 → 回读恢复</option>
+          </select>
+        </label>
+        <small>这里的数据与所有操作均为模拟。结果不明时不会重复创建，请使用任务中的回读确认。</small>
+      </div>
+    </details>
+  )
+}
+
 export function ContainerPage({
   deviceId,
   refreshNonce = 0,
@@ -58,16 +116,16 @@ export function ContainerPage({
     [descending, setDescending] = useState(false),
     [page, setPage] = useState(0)
   const [editor, setEditor] = useState<{
-      draft: Draft
-      item: Item | null
-    } | null>(null),
-    [job, setJob] = useState<Job | null>(null),
+    draft: Draft
+    item: Item | null
+  } | null>(null)
+  const [job, setJob] = useState<Job | null>(null),
     [sending, setSending] = useState(false),
     [message, setMessage] = useState('')
   const [confirm, setConfirm] = useState<{ action: Action; item: Item } | null>(
-      null,
-    ),
-    [logItem, setLogItem] = useState<Item | null>(null),
+    null,
+  )
+  const [logItem, setLogItem] = useState<Item | null>(null),
     [logs, setLogs] = useState<ContainerLog[] | null>(null),
     [logError, setLogError] = useState('')
   const [scenario, setScenario] = useState('success')
@@ -137,7 +195,7 @@ export function ContainerPage({
           setNonce((n) => n + 1)
           setMessage(snapshot?.capabilities.mode === 'simulation' ? '模拟操作完成' : '操作完成，已回读确认')
           setEditor(null)
-          if(next.action==='update'||next.action==='delete') setLogItem(null)
+          if (next.action === 'update' || next.action === 'delete') setLogItem(null)
         } else if (next.state === 'failed') setError(next.error || '操作失败')
         else if (next.state !== 'unknown')
           timer = setTimeout(() => void poll(), 650)
@@ -177,7 +235,10 @@ export function ContainerPage({
     const q = query.trim().toLowerCase()
     const list = (snapshot?.items || []).filter(
       (i) =>
-        (status === 'all' || i.status === status) &&
+        (status === 'all' ||
+          (status === 'other'
+            ? !['running', 'stopped'].includes(i.status)
+            : i.status === status)) &&
         [
           i.name,
           i.image,
@@ -188,26 +249,14 @@ export function ContainerPage({
         ].some((v) => v.toLowerCase().includes(q)),
     )
     return list.sort((a, b) => {
-      const av =
-        sort === 'cpu'
-          ? Number.parseFloat(a.cpu) || 0
-          : sort === 'memory'
-            ? memoryBytes(a.memory)
-            : sort === 'status'
-              ? a.status
-              : sort === 'image'
-                ? a.image
-                : a.name
-      const bv =
-        sort === 'cpu'
-          ? Number.parseFloat(b.cpu) || 0
-          : sort === 'memory'
-            ? memoryBytes(b.memory)
-            : sort === 'status'
-              ? b.status
-              : sort === 'image'
-                ? b.image
-                : b.name
+      const value = (i: Item) =>
+        sort === 'memory'
+          ? memoryBytes(i.memory)
+          : sort === 'status'
+            ? i.status
+            : i.name
+      const av = value(a),
+        bv = value(b)
       const n =
         typeof av === 'number' && typeof bv === 'number'
           ? av - bv
@@ -247,9 +296,18 @@ export function ContainerPage({
     }
   }
   const cancelPreparation = async () => {
- if (!job) return;setSending(true);try {const j=await cancelJob(deviceId,job.id);if(active.current)setJob(j)}catch(e){if(active.current)setError(errorMessage(e))}finally{if(active.current)setSending(false)}
- }
- const recover = async () => {
+    if (!job) return
+    setSending(true)
+    try {
+      const j = await cancelJob(deviceId, job.id)
+      if (active.current) setJob(j)
+    } catch (e) {
+      if (active.current) setError(errorMessage(e))
+    } finally {
+      if (active.current) setSending(false)
+    }
+  }
+  const recover = async () => {
     if (!job) return
     setSending(true)
     try {
@@ -304,15 +362,39 @@ export function ContainerPage({
       </section>
     )
   const c = snapshot.capabilities
+  const modeLabel = `${c.mode === 'simulation' ? '模拟预览' : c.writes ? '可管理' : '只读'}${c.version ? ` · ROS ${c.version}` : ''}`
+  const stats = [
+    `共 ${snapshot.items.length}`,
+    `运行中 ${snapshot.items.filter((i) => i.status === 'running').length}`,
+    `已停止 ${snapshot.items.filter((i) => i.status === 'stopped').length}`,
+  ].join(' · ')
   return (
     <section className="ct" aria-label="容器管理">
-      <div className="ct-page-heading">
-        <h1>容器管理</h1>
-        <span className="ct-mode">
-          {c.mode === 'simulation' ? '模拟预览' : c.writes ? '可管理' : '只读'}
-          {c.version && ` · ROS ${c.version}`}
-        </span>
-      </div>
+      <header className="ct-page-head">
+        <div className="ct-page-title">
+          <h1>容器管理</h1>
+          <ModePill
+            simulation={c.mode === 'simulation'}
+            busy={busy}
+            scenario={scenario}
+            onScenario={setScenario}
+            label={modeLabel}
+          />
+        </div>
+        <div className="ct-page-actions">
+          <span className="ct-stats-pill" aria-label="容器统计">{stats}</span>
+          <ContainerButton
+            className="ct-primary"
+            disabled={!c.supported || busy}
+            onClick={() => {
+              setEditor({ draft: newDraft(), item: null })
+              setMessage('')
+            }}
+          >
+            {c.writes ? '＋ 创建容器' : '＋ 配置预览'}
+          </ContainerButton>
+        </div>
+      </header>
       {c.mode === 'native' && c.writes ? (
         <details className="ct-help">
           <summary>容器管理说明</summary>
@@ -333,261 +415,237 @@ export function ContainerPage({
         </p>
       ))}
       {loadError && <p className="ct-alert" role="alert">读取失败：{loadError}</p>}
-      {error && !editor && <p className="ct-alert" role="alert">{error}</p>}
+      {error && !editor && !confirm && <p className="ct-alert" role="alert">{error}</p>}
       {message && (
         <p className="ct-notice" role="status">
           {message}
         </p>
       )}
-      {c.mode === 'simulation' && (
-        <div className="ct-simulation">
-          <label>
-            下一次模拟操作{' '}
-            <select
-              aria-label="模拟情景"
-              value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
-              disabled={busy}
-            >
-              <option value="success">正常完成</option>
-              <option value="failure">下载 / 操作失败</option>
-              <option value="unknown">超时结果不明 → 回读恢复</option>
-            </select>
-          </label>
-          <small>结果不明时不会重复创建，请使用任务中的回读确认。</small>
-        </div>
-      )}
-      {editor ? (
-        <ContainerEditor
-          key={editor.draft.draftId || editor.item?.id}
-          deviceId={deviceId}
-          snapshot={snapshot}
-          initial={editor.draft}
-          submissionError={error}
-          item={editor.item}
-          busy={busy}
+      {editor && (
+        <ContainerDialog
+          wide
+          title={editor.item ? '编辑容器' : '创建容器'}
           onClose={() => setEditor(null)}
-          onSubmit={async (d) => {
-            if (editor.item?.ownership === 'unmanaged') {
-              setMessage('配置校验通过；编辑此容器前请先明确接管。')
-              return
-            }
-            await run(d.existingId ? 'edit' : 'create', d.existingId, d)
-          }}
-        />
-      ) : (
-        <>
-          <ContainerSurface className="ct-list">
-            <header className="ct-list-heading">
-              <h3>容器列表</h3>
-              <div className="ct-stats" aria-label="容器统计">
-                <span>全部 <strong>{snapshot.items.length}</strong></span>
-                <span>运行中 <strong className="ct-green">{snapshot.items.filter((i) => i.status === 'running').length}</strong></span>
-                <span>已停止 <strong>{snapshot.items.filter((i) => i.status === 'stopped').length}</strong></span>
-                <span>已接管 <strong>{snapshot.items.filter((i) => i.ownership === 'managed').length}</strong></span>
-              </div>
-            </header>
-            <div className="ct-toolbar">
-              <label className="ct-search">
-                <span>搜索容器</span>
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="名称、镜像、IP 或 VETH"
-                />
-              </label>
-              <label>
-                状态{' '}
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <option value="all">全部状态</option>
-                  {Object.entries(statusLabels).map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="ct-toolbar-actions">
-                <ContainerButton onClick={() => setNonce((n) => n + 1)} disabled={loading}>刷新</ContainerButton>
-                <ContainerButton className="ct-primary" disabled={!c.supported || busy}
-                  onClick={() => { setEditor({ draft: newDraft(), item: null }); setMessage('') }}>
-                  {c.writes ? '＋ 创建容器' : '＋ 配置预览'}
-                </ContainerButton>
-              </div>
-            </div>
-            <div className="ct-table-scroll">
-              <ContainerTable>
-                <thead>
-                  <tr>
-                    <th>{heading('name', '名称')}</th>
-                    <th>{heading('status', '状态')}</th>
-                    <th>{heading('image', '镜像')}</th>
-                    <th>IP / VETH</th>
-                    <th>Bridge</th>
-                    <th>{heading('cpu', 'CPU')}</th>
-                    <th>{heading('memory', '内存')}</th>
-                    <th>开机启动</th>
-                    <th>归属</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(page * 25, (page + 1) * 25).map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <ContainerButton
-                          className="ct-name"
-                          title={item.name || item.id}
-                          onClick={() =>
-                            setEditor({ draft: editDraft(item), item })
-                          }
-                        >
-                          {item.name || item.id}
-                        </ContainerButton>
-                      </td>
-                      <td>
-                        <ContainerStatus status={item.status}>
-                          {statusLabels[item.status] || item.status}
-                        </ContainerStatus>
-                      </td>
-                      <td className="ct-image" title={item.image}>
-                        <span className="ct-image-name">{item.image || '本地导入镜像'}</span>{item.imageDigest ? <small title={item.imageDigest}>{item.imagePlatform} · {item.imageDigest.slice(0, 19)}…</small> : null}
-                      </td>
-                      <td>
-                        <span>{item.network.address || '—'}</span>
-                        <small>
-                          {item.network.veth || '—'}
-                          {item.sharedVeth.length > 0 &&
-                            ` · 共享 ${item.sharedVeth.length + 1} 个容器`}
-                        </small>
-                      </td>
-                      <td>{item.network.bridge || '—'}</td>
-                      <td>
-                        {item.cpu ? `${item.cpu.replace('%', '')}%` : '—'}
-                      </td>
-                      <td>{memoryLabel(item.memory)}</td>
-                      <td>{item.startOnBoot ? '开启' : '关闭'}</td>
-                      <td>
-                        <span className="ct-ownership">
-                          {item.ownership === 'managed' ? 'rosboard' : '未接管'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="ct-row-actions">
-                          <ContainerButton
-                            title={item.status === 'running' ? '停止' : '启动'}
-                            aria-label={`${item.status === 'running' ? '停止' : '启动'} ${item.name}`}
-                            disabled={
-                              !c.writes ||
-                              busy ||
-                              !['running', 'stopped'].includes(item.status)
-                            }
-                            onClick={() =>
-                              requestAction(
-                                item.status === 'running' ? 'stop' : 'start',
-                                item,
-                              )
-                            }
-                          >
-                            {item.status === 'running' ? '停止' : '启动'}
-                          </ContainerButton>
-                          <ContainerButton
-                            title="日志"
-                            aria-label={`日志 ${item.name}`}
-                            disabled={!c.logs}
-                            onClick={() => setLogItem(item)}
-                          >
-                            日志
-                          </ContainerButton>
-                          <ContainerButton
-                            title="编辑配置"
-                            aria-label={`编辑 ${item.name}`}
-                            disabled={busy}
-                            onClick={() =>
-                              setEditor({ draft: editDraft(item), item })
-                            }
-                          >
-                            编辑
-                          </ContainerButton>
-                          <ContainerMoreActions name={item.name || item.id}>
-                          <ContainerButton
-                            title="重启"
-                            aria-label={`重启 ${item.name}`}
-                            disabled={
-                              !c.writes || busy || item.status !== 'running'
-                            }
-                            onClick={() => requestAction('restart', item)}
-                          >
-                            重启
-                          </ContainerButton>
-                          {item.ownership === 'managed' ? (
-                            <>
-                              <ContainerButton
-                                title="手动更新镜像"
-                                aria-label={`更新 ${item.name}`}
-                                disabled={!c.writes || busy}
-                                onClick={() => requestAction('update', item)}
-                              >
-                                更新镜像
-                              </ContainerButton>
-                              <ContainerButton
-                                className="ct-danger"
-                                title="删除"
-                                aria-label={`删除 ${item.name}`}
-                                disabled={!c.writes || busy}
-                                onClick={() => requestAction('delete', item)}
-                              >
-                                删除
-                              </ContainerButton>
-                            </>
-                          ) : (
-                            <ContainerButton
-                              title="接管已有容器"
-                              aria-label={`接管 ${item.name}`}
-                              disabled={!c.writes || busy}
-                              onClick={() => requestAction('adopt', item)}
-                            >
-                              接管
-                            </ContainerButton>
-                          )}
-                          </ContainerMoreActions>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </ContainerTable>
-            </div>
-            {rows.length === 0 && (
-              <div className="ct-empty">
-                {c.supported ? '没有匹配的容器' : '当前设备不支持原生容器读取'}
-              </div>
-            )}
-            <footer className="ct-pagination">
-              <span>
-                {rows.length} 个结果 · 每页 25 个 ·{' '}
-                {Math.min(page + 1, Math.max(1, Math.ceil(rows.length / 25)))} /{' '}
-                {Math.max(1, Math.ceil(rows.length / 25))}
-              </span>
-              <ContainerButton
-                disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                上一页
-              </ContainerButton>
-              <ContainerButton
-                disabled={(page + 1) * 25 >= rows.length}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                下一页
-              </ContainerButton>
-            </footer>
-          </ContainerSurface>
-        </>
+          busy={busy}
+        >
+          <ContainerEditor
+            key={editor.draft.draftId || editor.item?.id}
+            deviceId={deviceId}
+            snapshot={snapshot}
+            initial={editor.draft}
+            submissionError={error}
+            item={editor.item}
+            busy={busy}
+            onClose={() => setEditor(null)}
+            onSubmit={async (d) => {
+              if (editor.item?.ownership === 'unmanaged') {
+                setMessage('配置校验通过；编辑此容器前请先明确接管。')
+                return
+              }
+              await run(d.existingId ? 'edit' : 'create', d.existingId, d)
+            }}
+          />
+        </ContainerDialog>
       )}
+      <ContainerSurface className="ct-list">
+        <header className="ct-list-heading">
+          <h3>容器列表</h3>
+          <div className="ct-toolbar">
+            <label className="ct-search">
+              <span>搜索容器</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="名称、镜像、IP 或 VETH"
+              />
+            </label>
+            <label>
+              状态{' '}
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="all">全部状态</option>
+                <option value="running">运行中</option>
+                <option value="stopped">已停止</option>
+                <option value="other">其他状态</option>
+              </select>
+            </label>
+            <div className="ct-toolbar-actions">
+              <ContainerButton onClick={() => setNonce((n) => n + 1)} disabled={loading}>刷新</ContainerButton>
+            </div>
+          </div>
+        </header>
+        <div className="ct-table-scroll">
+          <ContainerTable>
+            <thead>
+              <tr>
+                <th>{heading('name', '名称')}</th>
+                <th>{heading('status', '状态')}</th>
+                <th className="col-hide-sm">网络</th>
+                <th className="col-hide-sm">{heading('memory', '资源')}</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(page * 25, (page + 1) * 25).map((item) => (
+                <tr key={item.id} className={item.ownership === 'unmanaged' ? 'ct-row-unmanaged' : undefined}>
+                  <td>
+                    <div className="ct-name-stack">
+                      <ContainerButton
+                        className="ct-name"
+                        title={item.name || item.id}
+                        onClick={() =>
+                          setEditor({ draft: editDraft(item), item })
+                        }
+                      >
+                        {item.name || item.id}
+                      </ContainerButton>
+                      <small className="ct-image" title={item.image}>
+                        {item.image || '本地导入镜像'}
+                        {item.imageDigest ? ` · ${item.imageDigest.slice(0, 12)}…` : null}
+                      </small>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="ct-status-stack">
+                      <ContainerStatus status={item.status}>
+                        {statusLabels[item.status] || item.status}
+                      </ContainerStatus>
+                      <small className="ct-tags">
+                        {item.ownership === 'unmanaged' && <span>未接管</span>}
+                        {item.startOnBoot && <span>开机启动</span>}
+                        {item.sharedVeth.length > 0 && <span>共享 VETH</span>}
+                      </small>
+                    </div>
+                  </td>
+                  <td className="col-hide-sm">
+                    <div className="ct-name-stack">
+                      <span className="ct-network-address">{item.network.address || '—'}</span>
+                      <small>
+                        {item.network.veth || '—'}
+                        {item.network.bridge && ` · ${item.network.bridge}`}
+                      </small>
+                    </div>
+                  </td>
+                  <td className="ct-resource col-hide-sm">
+                    <span className="ct-resource-value">
+                      {item.cpu ? `${item.cpu.replace('%', '')}%` : '—'} · {memoryLabel(item.memory)}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="ct-row-actions">
+                      <ContainerButton
+                        className="ct-icon"
+                        title={item.status === 'running' ? '停止' : '启动'}
+                        aria-label={`${item.status === 'running' ? '停止' : '启动'} ${item.name}`}
+                        disabled={
+                          !c.writes ||
+                          busy ||
+                          !['running', 'stopped'].includes(item.status)
+                        }
+                        onClick={() =>
+                          requestAction(
+                            item.status === 'running' ? 'stop' : 'start',
+                            item,
+                          )
+                        }
+                      >
+                        <span aria-hidden="true">{item.status === 'running' ? '⏸' : '▶'}</span>
+                      </ContainerButton>
+                      <ContainerButton
+                        className="ct-icon"
+                        title="日志"
+                        aria-label={`日志 ${item.name}`}
+                        disabled={!c.logs}
+                        onClick={() => setLogItem(item)}
+                      >
+                        <span aria-hidden="true">📋</span>
+                      </ContainerButton>
+                      <ContainerButton
+                        className="ct-icon"
+                        title="编辑配置"
+                        aria-label={`编辑 ${item.name}`}
+                        disabled={busy}
+                        onClick={() =>
+                          setEditor({ draft: editDraft(item), item })
+                        }
+                      >
+                        <span aria-hidden="true">✎</span>
+                      </ContainerButton>
+                      <ContainerMoreActions name={item.name || item.id}>
+                        <ContainerButton
+                          className="ct-icon"
+                          title="重启"
+                          aria-label={`重启 ${item.name}`}
+                          disabled={!c.writes || busy || item.status !== 'running'}
+                          onClick={() => requestAction('restart', item)}
+                        >
+                          <span aria-hidden="true">⟳</span> 重启
+                        </ContainerButton>
+                        {item.ownership === 'managed' ? (
+                          <>
+                            <ContainerButton
+                              title="手动更新镜像"
+                              aria-label={`更新 ${item.name}`}
+                              disabled={!c.writes || busy}
+                              onClick={() => requestAction('update', item)}
+                            >
+                              更新镜像
+                            </ContainerButton>
+                            <ContainerButton
+                              className="ct-danger"
+                              title="删除"
+                              aria-label={`删除 ${item.name}`}
+                              disabled={!c.writes || busy}
+                              onClick={() => requestAction('delete', item)}
+                            >
+                              删除
+                            </ContainerButton>
+                          </>
+                        ) : (
+                          <ContainerButton
+                            title="接管已有容器"
+                            aria-label={`接管 ${item.name}`}
+                            disabled={!c.writes || busy}
+                            onClick={() => requestAction('adopt', item)}
+                          >
+                            接管
+                          </ContainerButton>
+                        )}
+                      </ContainerMoreActions>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </ContainerTable>
+        </div>
+        {rows.length === 0 && (
+          <div className="ct-empty">
+            {c.supported ? '没有匹配的容器' : '当前设备不支持原生容器读取'}
+          </div>
+        )}
+        <footer className="ct-pagination">
+          <span>
+            {rows.length} 个结果 · 每页 25 个 ·{' '}
+            {Math.min(page + 1, Math.max(1, Math.ceil(rows.length / 25)))} /{' '}
+            {Math.max(1, Math.ceil(rows.length / 25))}
+          </span>
+          <ContainerButton
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            上一页
+          </ContainerButton>
+          <ContainerButton
+            disabled={(page + 1) * 25 >= rows.length}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            下一页
+          </ContainerButton>
+        </footer>
+      </ContainerSurface>
       {job && (
         <ContainerSurface as="section" className="ct-job" role="status">
           <div>
@@ -615,29 +673,27 @@ export function ContainerPage({
         </ContainerSurface>
       )}
       {logItem && (
-        <ContainerSurface as="section" className="ct-logs">
-          <header>
-            <h3>{logItem.name} · 日志</h3>
-            <ContainerButton onClick={() => setLogItem(null)}>关闭日志</ContainerButton>
-          </header>
-          <p>
-            CPU {logItem.cpu || '不可用'} · 内存 {memoryLabel(logItem.memory, '不可用')} ·{' '}
-            {logItem.network.veth} / {logItem.network.bridge}
-          </p>
-          {logError ? (
-            <p role="alert">{logError}</p>
-          ) : logs === null ? (
-            <p>正在读取日志…</p>
-          ) : (
-            <pre>
-              {logs.length
-                ? logs.map((l) => `${l.time} ${l.message}`).join('\n')
-                : logItem.config.logging
-                  ? '暂无日志'
-                  : '此容器的日志记录已关闭'}
-            </pre>
-          )}
-        </ContainerSurface>
+        <ContainerDialog title={`${logItem.name} · 日志`} onClose={() => setLogItem(null)}>
+          <section className="ct-logs">
+            <p>
+              CPU {logItem.cpu || '不可用'} · 内存 {memoryLabel(logItem.memory, '不可用')} ·{' '}
+              {logItem.network.veth} / {logItem.network.bridge}
+            </p>
+            {logError ? (
+              <p role="alert">{logError}</p>
+            ) : logs === null ? (
+              <p>正在读取日志…</p>
+            ) : (
+              <pre>
+                {logs.length
+                  ? logs.map((l) => `${l.time} ${l.message}`).join('\n')
+                  : logItem.config.logging
+                    ? '暂无日志'
+                    : '此容器的日志记录已关闭'}
+              </pre>
+            )}
+          </section>
+        </ContainerDialog>
       )}
       {confirm && (
         <ContainerDialog title={actionLabels[confirm.action]} busy={sending} onClose={() => setConfirm(null)}>

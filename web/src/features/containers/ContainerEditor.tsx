@@ -249,23 +249,13 @@ export function ContainerEditor({
       }}
       noValidate
     >
-      <div className="ct-editor-heading">
-        <div>
-          <h2>{item ? '编辑容器' : '创建容器'}</h2>
-          <p>所有配置在这一页。带 * 的项目需填写，其余项目保留默认值。</p>
+      {!item && (
+        <div className="ct-editor-import">
+          <ContainerButton type="button" disabled={busy || validating || uploading}
+            onClick={() => setComposeOpen(true)}>导入配置</ContainerButton>
+          <small>从 Compose 文件或 docker run 命令解析填充，必填的 ROS 网络项仍需补齐</small>
         </div>
-        <div className="ct-editor-actions">
-        {!item && <ContainerButton type="button" disabled={busy || validating || uploading}
-          onClick={() => setComposeOpen(true)}>导入配置</ContainerButton>}
-        <ContainerButton
-          type="button"
-          onClick={onClose}
-          disabled={busy || validating || uploading}
-        >
-          返回列表
-        </ContainerButton>
-        </div>
-      </div>
+      )}
       {composeOpen && <ComposeImport key={deviceId} deviceId={deviceId}
         onClose={() => setComposeOpen(false)}
         onApply={(service, skipped) => {
@@ -890,7 +880,7 @@ export function ContainerEditor({
                 ? '容器配置仅校验 · 目录操作直接写入 RouterOS'
                 : '只读模式 · 可校验配置，真实写入尚未启用'}
           </small>
-          <ContainerButton type="button" onClick={onClose} disabled={busy || validating || uploading}>返回列表</ContainerButton>
+          <ContainerButton type="button" onClick={onClose} disabled={busy || validating || uploading}>取消</ContainerButton>
           <ContainerButton
             className="ct-primary"
             type="submit"
