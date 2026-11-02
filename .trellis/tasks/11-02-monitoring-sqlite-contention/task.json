@@ -15,8 +15,8 @@
   "branch": "codex/fix-issue-38-sqlite-contention",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
-  "pr_url": null,
+  "commit": "75e8129693580922262a2c3af7fa9d22dd31ebe3",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/39",
   "subtasks": [],
   "children": [],
   "parent": null,
@@ -24,6 +24,6 @@
     "internal/store/sqlite.go",
     "internal/service/monitor.go"
   ],
-  "notes": "Implementation and local/Linux synthetic runtime checks passed. Draft PR/root review pending; no production deployment or issue comment published.",
+  "notes": "Implementation and local/Linux synthetic runtime checks passed. Draft PR #39 awaits root review / acceptance; no production deployment or issue comment published.",
   "meta": {}
 }

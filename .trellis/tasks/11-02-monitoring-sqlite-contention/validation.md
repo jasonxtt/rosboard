@@ -35,3 +35,5 @@ Coverage includes bounded latest-history reads (an invalid old row catches accid
 This reproduces the connection-wait failure mechanism and fixes two verified sources of unbounded work. It does not establish the sole cause of the reporter's multi-hour episodes or guarantee latency on their storage. Additive index creation can extend first startup; row batching and contexts cannot promise a hard disk-latency bound.
 
 Production has not been deployed. Keep the PR Draft and task in progress pending root review / required acceptance; do not merge, release, or archive. The GitHub issue response remains a draft until publishing is explicitly authorized.
+
+Checkpoint: implementation commit 75e8129693580922262a2c3af7fa9d22dd31ebe3; Draft PR https://github.com/jasonxtt/rosboard/pull/39 targets main. Issue response drafted with the PR link; not posted.
