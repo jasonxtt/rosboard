@@ -21,6 +21,15 @@
 - Store/API: traffic ranges are bounded and scoped by device.
 - Race: one failed device retry does not block healthy device snapshots or heartbeat fan-out.
 
+## Scenario: Independent monitoring retention
+
+- Each Monitor starts one retention worker before its initial collection attempt, guarded against duplicate workers when MonitorManager retries startup with the same lifecycle context.
+- Maintenance runs once at startup and then every five minutes, regardless of viewers or successful RouterOS collection. Cancellation stops the worker and batch waits.
+- Realtime and full refreshes never perform retention deletion. Maintenance uses its own 30-second context rather than collection store deadlines.
+- Keep interface retention configurable through `sample_retention_hours`, connection state at two hours, and terminal/load/protocol history at 35 days. Maintenance cadence may leave recently expired data until a subsequent pass.
+- Report maintenance failures separately in logs; they must not create a RouterOS collection alert or discard a newly collected snapshot.
+- Verify startup failure/retry, no-viewer execution, expiry boundaries, shutdown, device isolation, and concurrent sampling during batched cleanup.
+
 ## Scenario: Interface topology and physical-egress attribution
 
 ### Signatures

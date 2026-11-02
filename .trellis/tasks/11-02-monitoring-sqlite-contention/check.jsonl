@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Issue #38 persistence, scheduling, verification, and investigation context"}
+{"file": ".trellis/spec/backend/monitoring-contracts.md", "reason": "Issue #38 persistence, scheduling, verification, and investigation context"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Issue #38 persistence, scheduling, verification, and investigation context"}
+{"file": ".trellis/tasks/11-02-monitoring-sqlite-contention/research/findings.md", "reason": "Issue #38 persistence, scheduling, verification, and investigation context"}
