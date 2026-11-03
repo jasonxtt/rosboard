@@ -48,7 +48,7 @@ func TestRetentionMaintenanceRunsWithoutViewersAndStops(t *testing.T) {
 	m := NewMonitor(config.Config{SampleRetentionHours: 48}, nil, s, log.New(io.Discard, "", 0))
 	now := time.Now().UTC()
 	expired := now.Add(-36 * 24 * time.Hour)
-	retained := now.Add(-34 * 24 * time.Hour)
+	retained := now.Add(-23 * time.Hour)
 	for _, at := range []time.Time{expired, retained} {
 		if err := s.SaveTerminalHistory(context.Background(), "terminal", at, 1, 2, 3); err != nil {
 			t.Fatal(err)

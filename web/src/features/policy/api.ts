@@ -125,36 +125,38 @@ export type PolicyOverviewMeta = {
 }
 
 export function fetchPolicyOverviewMeta(deviceID: string): Promise<PolicyOverviewMeta> {
-  return requestPolicy(scoped('/api/policy-routing/overview', deviceID), { cache: 'no-store' }, (value) => {
-    const object = objectValue(value)
-    const device = objectValue(object.device)
-    const account = objectValue(object.account)
-    const setup = objectValue(object.setup)
-    const health = objectValue(object.health)
-    const drift = objectValue(object.drift)
-    return {
-      deviceName: stringValue(device.name),
-      deviceEnabled: booleanValue(device.enabled),
-      account: {
-        username: stringValue(account.username),
-        permission: stringValue(account.permission),
-        writeAccess: booleanValue(account.writeAccess),
-        group: stringValue(account.group) || undefined,
-        error: stringValue(account.error) || undefined,
-      },
-      setupState: stringValue(setup.state),
-      activeJobs: safeArray<unknown>(object.activeJobs).map(parsePolicyJob).filter((job) => job.id),
-      health: {
-        state: stringValue(health.state),
-        driftState: stringValue(health.driftState),
-        mutationPaused: booleanValue(health.mutationPaused),
-        manualInterventionRequired: booleanValue(health.manualInterventionRequired),
-        pauseReason: stringValue(health.pauseReason),
-      },
-      driftState: stringValue(drift.state),
-      applied: booleanValue(object.applied),
-    }
-  })
+  return requestPolicy(scoped('/api/policy-routing/overview', deviceID), { cache: 'no-store' }, parsePolicyOverviewMeta)
+}
+
+export function parsePolicyOverviewMeta(value: unknown): PolicyOverviewMeta {
+  const object = objectValue(value)
+  const device = objectValue(object.device)
+  const account = objectValue(object.account)
+  const setup = objectValue(object.setup)
+  const health = objectValue(object.health)
+  const drift = objectValue(object.drift)
+  return {
+    deviceName: stringValue(device.name),
+    deviceEnabled: booleanValue(device.enabled),
+    account: {
+      username: stringValue(account.username),
+      permission: stringValue(account.permission),
+      writeAccess: booleanValue(account.writeAccess),
+      group: stringValue(account.group) || undefined,
+      error: stringValue(account.error) || undefined,
+    },
+    setupState: stringValue(setup.state),
+    activeJobs: safeArray<unknown>(object.activeJobs).map(parsePolicyJob).filter((job) => job.id),
+    health: {
+      state: stringValue(health.state),
+      driftState: stringValue(health.driftState),
+      mutationPaused: booleanValue(health.mutationPaused),
+      manualInterventionRequired: booleanValue(health.manualInterventionRequired),
+      pauseReason: stringValue(health.pauseReason),
+    },
+    driftState: stringValue(drift.state),
+    applied: booleanValue(object.applied),
+  }
 }
 
 /* ---------- egress state / delete (not covered by canonical) ---------- */

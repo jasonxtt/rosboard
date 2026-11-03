@@ -26,9 +26,9 @@ import {
   type TrafficIngressScope,
 } from '../features/policy/canonical'
 import {
-  fetchPolicyOverviewMeta,
   jobIdOf,
   mutationPartialStateOf,
+  parsePolicyOverviewMeta,
   type PolicyOverviewMeta,
 } from '../features/policy/api'
 import { JobProgress, JobProgressLine } from '../features/policy/ui/JobProgress'
@@ -130,7 +130,8 @@ export default function PolicyRoutingPage() {
     async (silent: boolean) => {
       if (!selectedDeviceId) return
       try {
-        const [nextContext, nextMeta] = await Promise.all([fetchRoutingContext(selectedDeviceId), fetchPolicyOverviewMeta(selectedDeviceId)])
+        let nextMeta: PolicyOverviewMeta | null = null
+        const nextContext = await fetchRoutingContext(selectedDeviceId, (overview) => { nextMeta = parsePolicyOverviewMeta(overview) })
         setContext(nextContext)
         setMeta(nextMeta)
         setLoadError(null)
@@ -143,7 +144,8 @@ export default function PolicyRoutingPage() {
     [selectedDeviceId],
   )
 
-  usePolling(() => void load(true), 5000, [load, reloadNonce])
+  // Background refreshes would compete with the open editor's own requests.
+  usePolling(() => { if (wizard === undefined) void load(true) }, 5000, [load, reloadNonce])
 
   const egressByID = useMemo(() => new Map((context?.egresses ?? []).map((egress) => [egress.id, egress])), [context])
   const targetByID = useMemo(() => new Map((context?.targetLists ?? []).map((target) => [target.id, target])), [context])

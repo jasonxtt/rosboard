@@ -203,7 +203,7 @@ func TestRetentionBatchesPreserveBoundaryAndDeviceIsolation(t *testing.T) {
 		}
 	}
 	cutoff := time.Unix(10000, 0)
-	if err := s.PruneMonitoringState(context.Background(), cutoff, cutoff, cutoff); err != nil {
+	if err := s.PruneMonitoringState(context.Background(), cutoff, cutoff, cutoff, cutoff); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range tables {
@@ -328,5 +328,129 @@ func BenchmarkTerminalHistoriesLargeHistory(b *testing.B) {
 		if len(history) != 49 || len(history[ids[0]]) != 30 {
 			b.Fatal("unexpected history result")
 		}
+	}
+}
+
+func queryPlan(t *testing.T, s *Store, query string, args ...any) string {
+	t.Helper()
+	rows, err := s.db.Query(`EXPLAIN QUERY PLAN `+query, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan string
+	for rows.Next() {
+		var a, b, c int
+		var detail string
+		if err := rows.Scan(&a, &b, &c, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan += detail
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func TestTerminalMergeUsesConnectionTerminalIndex(t *testing.T) {
+	root, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	child, err := root.OpenDevice("merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []*Store{root, child} {
+		plan := queryPlan(t, s, `UPDATE connection_state SET terminal_id = ? WHERE device_id = ? AND terminal_id = ?`, "to", s.deviceID, "from")
+		if !strings.Contains(plan, "idx_connection_state_device_terminal") {
+			t.Fatalf("terminal merge scans connection_state: %s", plan)
+		}
+	}
+}
+
+func TestPruneDNSStateKeepsRecentRows(t *testing.T) {
+	root, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	s, err := root.OpenDevice("dns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutoff := time.Unix(10000, 0)
+	for i, at := range []time.Time{cutoff.Add(-time.Second), cutoff, cutoff.Add(time.Second)} {
+		if _, err := s.db.Exec(`INSERT INTO dns_observations (dedupe_key, trace_id, client_ip, domain, answer_ip, query_type, query_time_ns, ttl, ingested_at_ns) VALUES (?, 't', 'c', 'd', 'a', 'A', ?, 60, 0)`, fmt.Sprint(i), at.UnixNano()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.Exec(`INSERT INTO dns_features (client_ip, domain, answer_ip, query_type, first_seen_ns, last_seen_ns, hit_count, last_ttl) VALUES ('c', ?, 'a', 'A', 0, ?, 1, 60)`, fmt.Sprint(i), at.UnixNano()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PruneDNSState(context.Background(), cutoff, cutoff); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"dns_observations", "dns_features"} {
+		var count int
+		if err := s.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 2 {
+			t.Fatalf("%s kept %d rows, want 2", table, count)
+		}
+	}
+	if plan := queryPlan(t, s, `SELECT rowid FROM dns_features WHERE last_seen_ns < ? ORDER BY last_seen_ns LIMIT 500`, 1); !strings.Contains(plan, "idx_dns_features_last_seen") || strings.Contains(plan, "TEMP B-TREE") {
+		t.Fatalf("unbounded DNS feature retention plan: %s", plan)
+	}
+}
+
+func TestCompactIfMostlyFreeShrinksOnlyLargeFreeSpace(t *testing.T) {
+	root, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	s, err := root.OpenDevice("compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.db.Exec(`CREATE TABLE filler (data BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(rows int) {
+		if _, err := s.db.Exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?) INSERT INTO filler SELECT zeroblob(1048576) FROM n`, rows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pages := func() int64 {
+		var count int64
+		if err := s.db.QueryRow(`PRAGMA page_count`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	// A small amount of free space is reused by SQLite and not worth a rebuild.
+	insert(8)
+	if _, err := s.db.Exec(`DELETE FROM filler`); err != nil {
+		t.Fatal(err)
+	}
+	if compacted, err := s.CompactIfMostlyFree(ctx); err != nil || compacted {
+		t.Fatalf("small free space compacted=%v err=%v", compacted, err)
+	}
+	insert(80)
+	if _, err := s.db.Exec(`DELETE FROM filler`); err != nil {
+		t.Fatal(err)
+	}
+	before := pages()
+	compacted, err := s.CompactIfMostlyFree(ctx)
+	if err != nil || !compacted {
+		t.Fatalf("large free space compacted=%v err=%v", compacted, err)
+	}
+	if after := pages(); after*4 > before {
+		t.Fatalf("page count %d -> %d, want a much smaller file", before, after)
 	}
 }

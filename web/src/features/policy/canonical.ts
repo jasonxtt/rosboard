@@ -585,9 +585,10 @@ export function saveEgress(deviceID: string, egress: Egress) { return requestJSO
 export function generatePolicyPlan(deviceID: string, kind: string, proposal?: PolicyPlanProposal) { return requestJSON('/api/policy-routing/plans', deviceID, jsonInit('POST', { kind, ...(proposal ? { proposal } : {}) }), parsePlanEnvelope) }
 export function applyPolicyPlan(deviceID: string, planId: string, acknowledgements: string[], planHash?: string) { return requestJSON(`/api/policy-routing/plans/${encodeURIComponent(planId)}/apply`, deviceID, jsonInit('POST', { acknowledgements, ...(planHash ? { planHash } : {}) }), (value) => { const object = objectValue(value); return { jobId: stringValue(object.jobId) || undefined, job: object.job ? { id: stringValue(objectValue(object.job).id) } : undefined } }) }
 
-export function fetchRoutingContext(deviceID: string) {
+/** onOverview receives the raw overview so callers can parse more of it without a second request. */
+export function fetchRoutingContext(deviceID: string, onOverview?: (overview: unknown) => void) {
   return Promise.all([
-    requestJSON('/api/policy-routing/overview', deviceID, { cache: 'no-store' }, (value) => { const object = objectValue(value); const scope = objectValue(object.trafficIngress); return { egresses: (object.egresses as unknown[] ?? []).map(parseEgress), trafficIngress: { interfaceLists: stringArray(scope.interfaceLists), interfaces: stringArray(scope.interfaces) } } }),
+    requestJSON('/api/policy-routing/overview', deviceID, { cache: 'no-store' }, (value) => { onOverview?.(value); const object = objectValue(value); const scope = objectValue(object.trafficIngress); return { egresses: (object.egresses as unknown[] ?? []).map(parseEgress), trafficIngress: { interfaceLists: stringArray(scope.interfaceLists), interfaces: stringArray(scope.interfaces) } } }),
     requestJSON('/api/policy-routing/rules', deviceID, { cache: 'no-store' }, (value) => (objectValue(value).rules as unknown[] ?? []).map(parseRoutingRule)),
     fetchTargetLists(deviceID, true),
     loadAccessOverview(deviceID),
