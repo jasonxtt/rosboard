@@ -95,3 +95,17 @@ func TestNormalizeAddressesRejectsZonesAndSkipsLinkLocalIPv6(t *testing.T) {
 		t.Fatal("zoned prefix was accepted")
 	}
 }
+
+func TestNormalizeSubjectExpandsAddressRanges(t *testing.T) {
+	got, err := Normalize(Subject{Mode: ModeSelected, Prefixes: []string{"10.0.0.100-10.0.0.199", "10.0.0.100/30", "2001:db8::-2001:db8::ff"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.0.0.100/30", "10.0.0.104/29", "10.0.0.112/28", "10.0.0.128/26", "10.0.0.192/29", "2001:db8::/120"}
+	if !reflect.DeepEqual(got.Prefixes, want) {
+		t.Fatalf("prefixes=%v, want %v", got.Prefixes, want)
+	}
+	if _, err := Normalize(Subject{Mode: ModeSelected, Prefixes: []string{"10.0.0.1-2001:db8::1"}}); err == nil || err.Error() != `IP 段 "10.0.0.1-2001:db8::1" 两端必须同为 IPv4 或同为 IPv6` {
+		t.Fatalf("mixed family range error=%v", err)
+	}
+}

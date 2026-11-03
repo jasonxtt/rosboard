@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rosboard/internal/config"
+	"rosboard/internal/iprange"
 	"rosboard/internal/routeros"
 	"rosboard/internal/service"
 )
@@ -193,16 +194,29 @@ func canonicalCIDRs(values []string) ([]string, error) {
 		if value == "" {
 			continue
 		}
-		_, network, err := net.ParseCIDR(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR %q", value)
+		var canonicals []string
+		if iprange.IsRange(value) {
+			prefixes, err := iprange.Prefixes(value)
+			if err != nil {
+				return nil, err
+			}
+			for _, prefix := range prefixes {
+				canonicals = append(canonicals, prefix.String())
+			}
+		} else {
+			_, network, err := net.ParseCIDR(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q", value)
+			}
+			canonicals = []string{network.String()}
 		}
-		canonical := network.String()
-		if _, ok := seen[canonical]; ok {
-			continue
+		for _, canonical := range canonicals {
+			if _, ok := seen[canonical]; ok {
+				continue
+			}
+			seen[canonical] = struct{}{}
+			result = append(result, canonical)
 		}
-		seen[canonical] = struct{}{}
-		result = append(result, canonical)
 	}
 	sort.Strings(result)
 	return result, nil

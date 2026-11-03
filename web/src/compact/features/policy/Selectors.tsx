@@ -112,7 +112,7 @@ export function SubjectSelector({
         })}
         {!visibleTerminals.length ? <p className="policy-hint">没有匹配的终端。</p> : null}
       </div>
-      {selectedOnly ? null : <label className="policy-field canonical-prefix-field"><span>{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span><textarea className="settings-input policy-textarea" rows={3} value={value.prefixes.join('\n')} onChange={(event) => update({ prefixes: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'} /><small>每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；后端会执行严格校验。</small></label>}
+      {selectedOnly ? null : <label className="policy-field canonical-prefix-field"><span>{value.mode === 'excluded' ? '排除地址 / CIDR' : '手动地址 / CIDR'}</span><textarea className="settings-input policy-textarea" rows={3} value={value.prefixes.join('\n')} onChange={(event) => update({ prefixes: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} placeholder={'192.168.1.50\n192.168.1.0/24\n192.168.1.100-192.168.1.199\n2001:db8::/64'} /><small>每行一个 IPv4、IPv6、CIDR 或 IP 段（如 192.168.1.100-192.168.1.199，保存时自动拆成 CIDR）；后端会执行严格校验。</small></label>}
     </> : null}
   </div>
 }

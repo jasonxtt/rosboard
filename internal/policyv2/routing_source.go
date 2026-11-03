@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"rosboard/internal/iprange"
 	"rosboard/internal/subject"
 )
 
@@ -136,19 +137,22 @@ func NormalizeRoutingSourceScope(value *RoutingSourceScope) (*RoutingSourceScope
 }
 
 // normalizeRoutingSourceExclusions canonicalizes the optional per-source
-// address exclusions. Every entry accepts a plain IP or a CIDR, exactly like
-// subject prefixes.
+// address exclusions. Every entry accepts a plain IP, a CIDR or a start-end
+// range, exactly like subject prefixes.
 func normalizeRoutingSourceExclusions(values []string) ([]string, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
 	result := make([]string, 0, len(values))
 	for _, value := range values {
-		canonical, err := subject.NormalizePrefix(value)
+		canonical, err := subject.NormalizePrefixes(value)
 		if err != nil {
+			if iprange.IsRange(value) {
+				return nil, fmt.Errorf("%w：无效的排除来源地址：%v", ErrRoutingSourceScopeInvalid, err)
+			}
 			return nil, fmt.Errorf("%w：无效的排除来源地址 %q", ErrRoutingSourceScopeInvalid, strings.TrimSpace(value))
 		}
-		result = append(result, canonical)
+		result = append(result, canonical...)
 	}
 	sort.Strings(result)
 	unique := result[:0]

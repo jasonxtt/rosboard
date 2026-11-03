@@ -2073,8 +2073,8 @@ function ScopeOverrideFields(props: { value: ScopeOverrideDraft; onChange: (fiel
       <div className="scope-override-grid">
         {field('includeInterfaces', '强制纳入 LAN 接口')}
         {field('excludeInterfaces', '强制排除接口')}
-        {field('includeCidrs', '额外纳入 CIDR', '10.0.0.0/24')}
-        {field('excludeCidrs', '排除 CIDR')}
+        {field('includeCidrs', '额外纳入 CIDR / IP 段', '10.0.0.0/24\n10.0.0.100-10.0.0.199')}
+        {field('excludeCidrs', '排除 CIDR / IP 段')}
       </div>
     </section>
   </>
@@ -2698,8 +2698,8 @@ function DeviceSettingsPanel(props: { settings: SettingsResponse; deviceStatuses
               <div className="scope-override-grid">
                 <label><span>强制纳入接口</span><textarea rows={2} value={draft.includeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, includeInterfaces: event.target.value }))} /></label>
                 <label><span>强制排除接口</span><textarea rows={2} value={draft.excludeInterfaces} onChange={(event) => setDraft((current) => ({ ...current, excludeInterfaces: event.target.value }))} /></label>
-                <label><span>额外纳入 CIDR</span><textarea rows={2} value={draft.includeCidrs} placeholder="10.0.0.0/24" onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
-                <label><span>排除 CIDR</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
+                <label><span>额外纳入 CIDR / IP 段</span><textarea rows={2} value={draft.includeCidrs} placeholder={'10.0.0.0/24\n10.0.0.100-10.0.0.199'} onChange={(event) => setDraft((current) => ({ ...current, includeCidrs: event.target.value }))} /></label>
+                <label><span>排除 CIDR / IP 段</span><textarea rows={2} value={draft.excludeCidrs} onChange={(event) => setDraft((current) => ({ ...current, excludeCidrs: event.target.value }))} /></label>
               </div>
             </section>
           </div>

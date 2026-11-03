@@ -3,6 +3,8 @@ package policyv2
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -260,6 +262,7 @@ func TestNormalizeRoutingSourceScopeInterfaceMultiSelectorAndExclusions(t *testi
 		{Kind: RoutingSourceInterface},
 		{Kind: RoutingSourceInterface, ExcludePrefixes: []string{"10.0.0.2"}},
 		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"not-an-ip"}},
+		{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"10.0.0.199-10.0.0.100"}},
 		{Kind: RoutingSourceInterfaceList, Name: "LAN", ExcludePrefixes: []string{"10.0.0.2"}},
 		{Kind: RoutingSourceDevice, Interfaces: []string{"wg1"}},
 		{Kind: RoutingSourceIP, ExcludePrefixes: []string{"10.0.0.2"}},
@@ -358,5 +361,22 @@ func TestUpgradeLegacyRoutingSource(t *testing.T) {
 		if upgraded := UpgradeLegacyRoutingSource(rule); upgraded.SourceScope != rule.SourceScope {
 			t.Fatalf("unconvertible or typed rule changed its source scope: %#v -> %#v", rule.SourceScope, upgraded.SourceScope)
 		}
+	}
+}
+
+func TestNormalizeRoutingSourceScopeExpandsExclusionRange(t *testing.T) {
+	normalized, err := NormalizeRoutingSourceScope(&RoutingSourceScope{
+		Kind: RoutingSourceInterface, Interfaces: []string{"wg1"},
+		ExcludePrefixes: []string{"10.0.0.100-10.0.0.103", "10.0.0.200"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"10.0.0.100/30", "10.0.0.200/32"}; !reflect.DeepEqual(normalized.ExcludePrefixes, want) {
+		t.Fatalf("exclusions=%v, want %v", normalized.ExcludePrefixes, want)
+	}
+	_, err = NormalizeRoutingSourceScope(&RoutingSourceScope{Kind: RoutingSourceInterface, Interfaces: []string{"wg1"}, ExcludePrefixes: []string{"10.0.0.9-10.0.0.1"}})
+	if err == nil || !strings.Contains(err.Error(), "起始地址不能大于结束地址") {
+		t.Fatalf("reversed exclusion range error=%v", err)
 	}
 }

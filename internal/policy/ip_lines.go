@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"strings"
 	"unicode/utf8"
+
+	"rosboard/internal/iprange"
 )
 
 // Source content kinds. They mirror policyv2 source kinds; the parser layer
@@ -18,8 +20,9 @@ const (
 )
 
 // ParseIPLines parses IP rules from one-entry-per-line source content. A line
-// may be a bare IPv4/IPv6 address or CIDR, or the Clash single-line form with
-// an optional YAML list marker and trailing policy fields
+// may be a bare IPv4/IPv6 address, CIDR or "start-end" range (expanded to its
+// minimal CIDR list), or the Clash single-line form with an optional YAML list
+// marker and trailing policy fields
 // ("- IP-CIDR,91.108.0.0/16,no-resolve"). IP-CIDR only accepts IPv4 and
 // IP-CIDR6 only accepts IPv6; family mismatches, duplicates, and invalid lines
 // are reported as ignored entries without affecting other rules. Structural
@@ -39,7 +42,7 @@ func ParseIPLines(text string) (ParseResult, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		ruleType, address, err := parseIPLine(line)
+		ruleType, addresses, err := parseIPLine(line)
 		if err != nil {
 			if ruleType != "" {
 				addIgnored(&result, string(ruleType), err.Error())
@@ -48,15 +51,17 @@ func ParseIPLines(text string) (ParseResult, error) {
 			}
 			continue
 		}
-		key := string(ruleType) + "\x00" + address
-		if _, exists := seen[key]; exists {
-			addIgnored(&result, "duplicate", "duplicate rule")
-			continue
-		}
-		seen[key] = struct{}{}
-		result.Rules = append(result.Rules, ParsedRule{Type: ruleType, Domain: address})
-		if len(result.Rules) > MaxSourceRules {
-			return result, fmt.Errorf("source contains more than %d valid rules", MaxSourceRules)
+		for _, address := range addresses {
+			key := string(ruleType) + "\x00" + address
+			if _, exists := seen[key]; exists {
+				addIgnored(&result, "duplicate", "duplicate rule")
+				continue
+			}
+			seen[key] = struct{}{}
+			result.Rules = append(result.Rules, ParsedRule{Type: ruleType, Domain: address})
+			if len(result.Rules) > MaxSourceRules {
+				return result, fmt.Errorf("source contains more than %d valid rules", MaxSourceRules)
+			}
 		}
 	}
 	return result, nil
@@ -91,11 +96,36 @@ func PrepareIPLines(text string) (PreparedSourceContent, error) {
 	}, nil
 }
 
-func parseIPLine(line string) (RuleType, string, error) {
+func parseIPLine(line string) (RuleType, []string, error) {
 	if strings.Contains(line, ",") {
-		return parseIPRule(line)
+		ruleType, address, err := parseIPRule(line)
+		return ruleType, []string{address}, err
 	}
-	return bareIPRule(line)
+	if iprange.IsRange(line) {
+		return rangeIPRule(line)
+	}
+	ruleType, address, err := bareIPRule(line)
+	return ruleType, []string{address}, err
+}
+
+// rangeIPRule expands a bare "start-end" range into its minimal CIDR list.
+func rangeIPRule(text string) (RuleType, []string, error) {
+	prefixes, err := iprange.Prefixes(text)
+	if err != nil {
+		return "", nil, err
+	}
+	addresses := make([]string, len(prefixes))
+	for i, prefix := range prefixes {
+		if prefix.IsSingleIP() {
+			addresses[i] = prefix.Addr().String()
+		} else {
+			addresses[i] = prefix.String()
+		}
+	}
+	if prefixes[0].Addr().Is4() {
+		return RuleTypeIPCIDR, addresses, nil
+	}
+	return RuleTypeIP6, addresses, nil
 }
 
 // bareIPRule classifies a bare address/prefix by its actual family.

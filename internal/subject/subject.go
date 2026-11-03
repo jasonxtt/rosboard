@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+
+	"rosboard/internal/iprange"
 )
 
 const (
@@ -105,11 +107,11 @@ func Normalize(value Subject) (Subject, error) {
 	}
 	sort.Slice(result.Members, func(i, j int) bool { return result.Members[i].TerminalID < result.Members[j].TerminalID })
 	for _, prefix := range value.Prefixes {
-		canonical, err := NormalizePrefix(prefix)
+		canonical, err := NormalizePrefixes(prefix)
 		if err != nil {
 			return Subject{}, err
 		}
-		result.Prefixes = append(result.Prefixes, canonical)
+		result.Prefixes = append(result.Prefixes, canonical...)
 	}
 	sort.Strings(result.Prefixes)
 	result.Prefixes = unique(result.Prefixes)
@@ -176,6 +178,27 @@ func NormalizeAddresses(values []string, ipv4 bool) ([]string, error) {
 		}
 	}
 	sort.Strings(result)
+	return result, nil
+}
+
+// NormalizePrefixes canonicalizes one entry that may be an IP, a CIDR or a
+// "start-end" range; a range expands to its minimal covering CIDR list.
+func NormalizePrefixes(value string) ([]string, error) {
+	if !iprange.IsRange(value) {
+		canonical, err := NormalizePrefix(value)
+		if err != nil {
+			return nil, err
+		}
+		return []string{canonical}, nil
+	}
+	prefixes, err := iprange.Prefixes(value)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, len(prefixes))
+	for i, prefix := range prefixes {
+		result[i] = prefix.String()
+	}
 	return result, nil
 }
 

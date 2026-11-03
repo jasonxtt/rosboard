@@ -3,14 +3,14 @@ import type { RoutingSourceKind, Subject, TrafficIngressScope } from './canonica
 /** 指定接口来源的编辑状态：接口与接口列表合并多选，排除地址按行输入。 */
 export type RoutingInterfaceSource = { interfaces: string[]; interfaceLists: string[]; excludePrefixes: string[] }
 
-// 轻量预检：IPv4/IPv6 字面量加可选 CIDR 前缀长度；严格校验仍由后端执行。
-const sourcePrefixPattern = /^[0-9a-fA-F:.]+(\/\d{1,3})?$/
+// 轻量预检：IPv4/IPv6 字面量加可选 CIDR 前缀长度，或「起始-结束」IP 段；严格校验仍由后端执行。
+const sourcePrefixPattern = /^(?:[0-9a-fA-F:.]+(\/\d{1,3})?|[0-9a-fA-F:.]+\s*-\s*[0-9a-fA-F:.]+)$/
 
 export function sourcePrefixesAreValid(prefixes: string[]): boolean {
   return prefixes.every((prefix) => sourcePrefixPattern.test(prefix))
 }
 
-/** 按行拆分用户输入的 IP/CIDR 列表。 */
+/** 按行拆分用户输入的 IP/CIDR/IP 段列表。 */
 export function parseSourcePrefixLines(text: string): string[] {
   return text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
 }
