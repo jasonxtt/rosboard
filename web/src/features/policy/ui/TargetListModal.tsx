@@ -234,7 +234,7 @@ export function TargetListModal({ deviceID, target, initialKind = 'domain', onCl
         </Field>
       ) : null}
       {sourceType === 'manual' ? (
-        <Field label="内容" hint={contentLoading ? '正在读取已保存内容…' : kind === 'ip' ? '每行一个 IP 或 CIDR。' : '每行一个域名；支持精确 / 后缀匹配。'}>
+        <Field label="内容" hint={contentLoading ? '正在读取已保存内容…' : kind === 'ip' ? '每行一个 IP、CIDR 或 IP 段（如 10.0.0.100-10.0.0.199，保存时自动拆成 CIDR）。' : '每行一个域名；支持精确 / 后缀匹配。'}>
           {contentLoading ? (
             <Skeleton lines={4} height={12} />
           ) : (
