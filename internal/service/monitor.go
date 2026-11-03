@@ -29,6 +29,7 @@ type Monitor struct {
 	applicationResolver *ApplicationResolver
 	protocolAnalysis    bool
 
+	retentionOnce     sync.Once
 	refreshMu         sync.Mutex
 	metadataMu        sync.Mutex
 	resourceDetailMu  sync.Mutex
@@ -141,6 +142,7 @@ func notifyWakeAfter(channel chan struct{}, delay time.Duration) {
 }
 
 func (m *Monitor) Start(ctx context.Context) error {
+	m.startRetentionMaintenance(ctx)
 	if err := m.refresh(ctx); err != nil {
 		return err
 	}
@@ -1119,12 +1121,6 @@ func (m *Monitor) refresh(ctx context.Context) error {
 		interfaceSamples = append(interfaceSamples, store.InterfaceSample{Name: name, DownloadBps: parseFloat(entry.RXBitsPerSecond), UploadBps: parseFloat(entry.TXBitsPerSecond)})
 	}
 	if err := m.store.SaveInterfaceSamples(storeCtx, now, interfaceSamples); err != nil {
-		return err
-	}
-	if err := m.store.PruneInterfaceSamples(storeCtx, now.Add(-time.Duration(m.cfg.SampleRetentionHours)*time.Hour)); err != nil {
-		return err
-	}
-	if err := m.store.PruneRuntimeState(storeCtx, now.Add(-2*time.Hour), now.Add(-35*24*time.Hour)); err != nil {
 		return err
 	}
 
