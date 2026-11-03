@@ -180,3 +180,33 @@ func TestPrepareIPLinesRoundTripsThroughClashParser(t *testing.T) {
 		}
 	}
 }
+
+func TestParseIPLinesExpandsRanges(t *testing.T) {
+	result, err := ParseIPLines("10.0.0.100-10.0.0.199\n10.0.0.104/29\n2001:db8::1-2001:db8::2\n10.0.0.9-10.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ParsedRule{
+		{Type: RuleTypeIPCIDR, Domain: "10.0.0.100/30"},
+		{Type: RuleTypeIPCIDR, Domain: "10.0.0.104/29"},
+		{Type: RuleTypeIPCIDR, Domain: "10.0.0.112/28"},
+		{Type: RuleTypeIPCIDR, Domain: "10.0.0.128/26"},
+		{Type: RuleTypeIPCIDR, Domain: "10.0.0.192/29"},
+		{Type: RuleTypeIP6, Domain: "2001:db8::1"},
+		{Type: RuleTypeIP6, Domain: "2001:db8::2"},
+	}
+	if len(result.Rules) != len(want) {
+		t.Fatalf("rules=%#v, want %#v", result.Rules, want)
+	}
+	for i, rule := range want {
+		if result.Rules[i] != rule {
+			t.Fatalf("rule %d = %#v, want %#v", i, result.Rules[i], rule)
+		}
+	}
+	if result.Ignored["duplicate"] != 1 || result.Ignored["invalid"] != 1 {
+		t.Fatalf("ignored=%#v, want one duplicate and one invalid", result.Ignored)
+	}
+	if len(result.ErrorSamples) != 2 || !strings.Contains(result.ErrorSamples[1], "起始地址不能大于结束地址") {
+		t.Fatalf("error samples=%#v", result.ErrorSamples)
+	}
+}

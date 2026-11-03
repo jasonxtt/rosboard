@@ -139,10 +139,10 @@ export function SubjectSelector({ terminals, value = emptySubject, onChange, all
                 rows={3}
                 value={value.prefixes.join('\n')}
                 onChange={(text) => update({ prefixes: text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })}
-                placeholder={'192.168.1.50\n192.168.1.0/24\n2001:db8::/64'}
+                placeholder={'192.168.1.50\n192.168.1.0/24\n192.168.1.100-192.168.1.199\n2001:db8::/64'}
                 ariaLabel="手动地址或 CIDR"
               />
-              <small className="faint">每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR；保存时后端会执行严格校验。</small>
+              <small className="faint">每行一个 IPv4、IPv6、CIDR 或 IP 段（如 192.168.1.100-192.168.1.199，保存时自动拆成 CIDR）；保存时后端会执行严格校验。</small>
             </label>
           ) : null}
         </>
