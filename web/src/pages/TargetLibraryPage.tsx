@@ -71,7 +71,8 @@ export default function TargetLibraryPage({ kind }: { kind?: 'domain' | 'ip' } =
     [selectedDeviceId],
   )
 
-  usePolling(() => void load(true), 5000, [load, reloadNonce])
+  // Background refreshes would compete with the open editor's own requests.
+  usePolling(() => { if (editing === undefined) void load(true) }, 5000, [load, reloadNonce])
 
   const partition = useMemo(() => {
     const keyword = query.trim().toLowerCase()
