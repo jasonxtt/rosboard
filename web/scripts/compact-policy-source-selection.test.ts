@@ -38,3 +38,11 @@ test('typed routing sources validate without a TrafficIngress candidate', () => 
   assert.equal(typedSourceIsValid('interface-list', noInterface, allSubject), false)
   assert.equal(typedSourceIsValid('all', noInterface, allSubject), false)
 })
+
+test('typed routing sources accept start-end IP ranges', () => {
+  const noInterface = { interfaces: [], interfaceLists: [], excludePrefixes: [] }
+  assert.equal(typedSourceIsValid('ip', noInterface, { mode: 'selected', members: [], prefixes: ['10.0.0.100-10.0.0.199', '2001:db8::1 - 2001:db8::ff'] }), true)
+  assert.equal(typedSourceIsValid('interface', { interfaces: ['bridge'], interfaceLists: [], excludePrefixes: ['10.0.0.100-10.0.0.199'] }, { mode: 'all', members: [], prefixes: [] }), true)
+  assert.equal(typedSourceIsValid('ip', noInterface, { mode: 'selected', members: [], prefixes: ['10.0.0.100-'] }), false)
+  assert.equal(typedSourceIsValid('ip', noInterface, { mode: 'selected', members: [], prefixes: ['10.0.0.0/24-10.0.1.0'] }), false)
+})

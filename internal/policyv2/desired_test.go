@@ -1,6 +1,7 @@
 package policyv2
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -644,4 +645,38 @@ func hasRoutingWarning(warnings []PlanIssue, code, fragment string) bool {
 func withRoutingSubjectMember(rule RoutingRule, terminalID, anchorMAC string) RoutingRule {
 	rule.Subject.Members = append(rule.Subject.Members, SubjectMember{TerminalID: terminalID, Binding: "auto", AnchorMAC: anchorMAC})
 	return rule
+}
+
+func TestRoutingIPSourceRangeMaterializesMinimalCIDRAddressList(t *testing.T) {
+	target := &routingTargetProjection{
+		id: "youtube", list: "target-youtube", source: Source{ID: "youtube", Kind: KindDomain},
+		rules: []SourceRule{{RuleType: "DOMAIN", Domain: "youtube.example"}},
+	}
+	rule, err := NormalizeRoutingRule(RoutingRule{
+		ID: "rule-range", Name: "range", EgressID: "wan-a", TargetListIDs: []string{"youtube"}, Enabled: true,
+		SourceScope: &RoutingSourceScope{Kind: RoutingSourceIP},
+		Subject:     Subject{Mode: SubjectModeSelected, Prefixes: []string{"10.0.0.100-10.0.0.199"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := DesiredResult{}
+	add := func(logicalID string, menu routeros.MutationMenu, phase string, fields map[string]string) {
+		result.Objects = append(result.Objects, DesiredObject{LogicalID: logicalID, Menu: string(menu), Phase: phase, Fields: fields})
+	}
+	buildRoutingMangleFamily(&result, add, Egress{ID: "wan-a", Enabled: true}, EgressFamily{Family: FamilyIPv4}, map[string]string{}, map[string]bool{}, "wan-a-table", []*routingTargetProjection{target}, []RoutingRule{rule}, nil, "no", "manager", "device")
+	if len(result.Blockers) != 0 {
+		t.Fatalf("range source produced blockers: %#v", result.Blockers)
+	}
+	listName := RoutingSubjectListName("manager", "device", rule.ID, FamilyIPv4)
+	var addresses []string
+	for _, object := range result.Objects {
+		if object.Menu == string(routeros.MenuIPFirewallAddressList) && object.Fields["list"] == listName {
+			addresses = append(addresses, object.Fields["address"])
+		}
+	}
+	want := []string{"10.0.0.100/30", "10.0.0.104/29", "10.0.0.112/28", "10.0.0.128/26", "10.0.0.192/29"}
+	if !reflect.DeepEqual(addresses, want) {
+		t.Fatalf("range address list=%v, want %v", addresses, want)
+	}
 }

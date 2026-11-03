@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -390,5 +391,19 @@ func TestDeviceConnectionChangeClearsOnlyTransferIdentity(t *testing.T) {
 	}
 	if !saved.Enabled || saved.ContainerSSHHostKey != "" || saved.ContainerTransfer != nil || saved.ContainerSSHPort != 0 {
 		t.Fatal("new credentials inherited old native authority")
+	}
+}
+
+func TestCanonicalCIDRsExpandsAddressRanges(t *testing.T) {
+	got, err := canonicalCIDRs([]string{"10.0.0.100-10.0.0.199", "10.0.0.128/26"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.0.0.100/30", "10.0.0.104/29", "10.0.0.112/28", "10.0.0.128/26", "10.0.0.192/29"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CIDRs=%v, want %v", got, want)
+	}
+	if _, err := canonicalCIDRs([]string{"10.0.0.199-10.0.0.100"}); err == nil || !strings.Contains(err.Error(), "起始地址不能大于结束地址") {
+		t.Fatalf("reversed range error=%v", err)
 	}
 }

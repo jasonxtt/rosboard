@@ -67,15 +67,15 @@ export function RoutingSourcePicker({ sourceKind, interfaceSource, excludeText, 
         <InterfaceListMultiSelect title="RouterOS 接口列表" selected={interfaceSource.interfaceLists} items={sourceSelectors?.interfaceLists ?? []} busy={busy} onToggle={(name) => onInterfaceSource({ ...interfaceSource, interfaceLists: toggleName(interfaceSource.interfaceLists, name) })} />
         <label className="pol-prefix-field">
           <span className="field-label">排除以下来源 IP / CIDR（可选）</span>
-          <Textarea rows={3} value={excludeText} disabled={busy} onChange={onExcludeText} placeholder={'10.0.0.10\n10.0.0.0/24\nfd86::/64'} ariaLabel="排除的来源 IP 或 CIDR" />
-          <small className="faint">仅「指定接口」可用；每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR。命中所选接口但来源地址在排除列表中的流量不匹配本规则。</small>
+          <Textarea rows={3} value={excludeText} disabled={busy} onChange={onExcludeText} placeholder={'10.0.0.10\n10.0.0.0/24\n10.0.0.100-10.0.0.199\nfd86::/64'} ariaLabel="排除的来源 IP 或 CIDR" />
+          <small className="faint">仅「指定接口」可用；每行一个 IPv4、IPv6、CIDR 或 IP 段（如 10.0.0.100-10.0.0.199，保存时自动拆成 CIDR）。命中所选接口但来源地址在排除列表中的流量不匹配本规则。</small>
         </label>
       </> : null}
       {sourceKind === 'device' ? <SubjectSelector terminals={terminals} value={subject} selectedOnly requireObservedAddress onChange={onSubject} /> : null}
       {sourceKind === 'ip' ? <label className="pol-prefix-field">
         <span className="field-label">来源 IP / CIDR</span>
-        <Textarea rows={4} value={ipText} disabled={busy} onChange={onIpText} placeholder={'10.0.0.10\n10.0.0.0/24\nfd86::/64'} ariaLabel="来源 IP 或 CIDR" />
-        <small className="faint">每行一个 IPv4、IPv6、IPv4 CIDR 或 IPv6 CIDR，可回车换行；后端会按地址族严格校验。当前共 {parseSourcePrefixLines(ipText).length} 条。</small>
+        <Textarea rows={4} value={ipText} disabled={busy} onChange={onIpText} placeholder={'10.0.0.10\n10.0.0.0/24\n10.0.0.100-10.0.0.199\nfd86::/64'} ariaLabel="来源 IP 或 CIDR" />
+        <small className="faint">每行一个 IPv4、IPv6、CIDR 或 IP 段（如 10.0.0.100-10.0.0.199，保存时自动拆成 CIDR），可回车换行；后端会按地址族严格校验。当前共 {parseSourcePrefixLines(ipText).length} 条。</small>
       </label> : null}
     </>}
   </section>

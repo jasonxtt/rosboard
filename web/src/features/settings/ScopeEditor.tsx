@@ -40,8 +40,8 @@ export function ScopeEditor({ value, onChange, disabled = false }: ScopeEditorPr
         <div className="scope-editor-grid">
           {field('includeInterfaces', '强制纳入 LAN 接口', 'bridge')}
           {field('excludeInterfaces', '强制排除接口')}
-          {field('includeCidrs', '额外纳入 CIDR', '10.0.0.0/24')}
-          {field('excludeCidrs', '排除 CIDR')}
+          {field('includeCidrs', '额外纳入 CIDR / IP 段', '10.0.0.0/24\n10.0.0.100-10.0.0.199')}
+          {field('excludeCidrs', '排除 CIDR / IP 段')}
         </div>
       </section>
     </div>
