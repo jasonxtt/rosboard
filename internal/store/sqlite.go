@@ -400,6 +400,9 @@ func (s *Store) initSchema() error {
 	if err := s.migrateDeviceScope(); err != nil {
 		return err
 	}
+	if err := s.initRetentionIndexes(); err != nil {
+		return err
+	}
 	if err := s.migrateLegacyDNSScope(); err != nil {
 		return err
 	}
@@ -463,6 +466,9 @@ func (s *Store) initDeviceSchema() error {
 		if _, err := s.db.Exec(statement); err != nil {
 			return fmt.Errorf("init device schema: %w", err)
 		}
+	}
+	if err := s.initRetentionIndexes(); err != nil {
+		return err
 	}
 	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("checkpoint device schema: %w", err)
@@ -738,14 +744,6 @@ func (s *Store) LoadInterfaceSamples(ctx context.Context, interfaceNames []strin
 		result = append(result, aggregated[ts])
 	}
 	return result, nil
-}
-
-func (s *Store) PruneInterfaceSamples(ctx context.Context, before time.Time) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM interface_samples WHERE device_id = ? AND ts < ?`, s.deviceID, before.Unix())
-	if err != nil {
-		return fmt.Errorf("prune interface samples: %w", err)
-	}
-	return nil
 }
 
 // migrateLegacyDNSScope clears DNS data that was ingested while MosDNS was a
@@ -1543,22 +1541,6 @@ func (s *Store) SaveTerminalHistory(ctx context.Context, terminalID string, at t
 	return nil
 }
 
-func (s *Store) PruneRuntimeState(ctx context.Context, connectionBefore, historyBefore time.Time) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM connection_state WHERE device_id = ? AND last_seen < ?`, s.deviceID, connectionBefore.Unix()); err != nil {
-		return fmt.Errorf("prune connection state: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM terminal_history WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
-		return fmt.Errorf("prune terminal history: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM load_samples WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
-		return fmt.Errorf("prune load samples: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM protocol_samples WHERE device_id = ? AND ts < ?`, s.deviceID, historyBefore.Unix()); err != nil {
-		return fmt.Errorf("prune protocol samples: %w", err)
-	}
-	return nil
-}
-
 func (s *Store) TerminalHistory(ctx context.Context, terminalID string, limit int) ([]model.TerminalHistoryEntry, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
@@ -1597,34 +1579,22 @@ func (s *Store) TerminalHistories(ctx context.Context, terminalIDs []string, lim
 	if len(terminalIDs) == 0 || limit <= 0 {
 		return result, nil
 	}
-	query := fmt.Sprintf(`SELECT terminal_id, ts, online_seconds, upload_bytes, download_bytes
-		FROM terminal_history WHERE device_id = ? AND terminal_id IN (%s)
-		ORDER BY terminal_id ASC, ts DESC`, placeholders(len(terminalIDs)))
-	args := make([]any, 0, len(terminalIDs)+1)
-	args = append(args, s.deviceID)
+	seen := make(map[string]bool, len(terminalIDs))
 	for _, id := range terminalIDs {
-		args = append(args, id)
-	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query terminal histories: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var entry model.TerminalHistoryEntry
-		var ts int64
-		if err := rows.Scan(&id, &ts, &entry.OnlineSeconds, &entry.TotalUploadBytes, &entry.TotalDownloadBytes); err != nil {
-			return nil, fmt.Errorf("scan terminal history batch: %w", err)
-		}
-		if len(result[id]) >= limit {
+		if seen[id] {
 			continue
 		}
-		entry.Timestamp = time.Unix(ts, 0).UTC()
-		result[id] = append(result[id], entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate terminal histories: %w", err)
+		seen[id] = true
+		// Apply the limit in SQLite, using (device_id, terminal_id, ts).
+		// Scanning every retained row and discarding extras holds the device's
+		// only connection long enough to starve realtime sampling.
+		history, err := s.TerminalHistory(ctx, id, limit)
+		if err != nil {
+			return nil, fmt.Errorf("query terminal histories: %w", err)
+		}
+		if len(history) > 0 {
+			result[id] = history
+		}
 	}
 	return result, nil
 }

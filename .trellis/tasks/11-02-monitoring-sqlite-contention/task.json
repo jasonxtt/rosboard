@@ -1,0 +1,29 @@
+{
+  "id": "monitoring-sqlite-contention",
+  "name": "monitoring-sqlite-contention",
+  "title": "Fix Issue #38 monitoring SQLite contention",
+  "description": "Fix unbounded terminal-history reads and retention maintenance that starve realtime SQLite sampling; prepare Issue #38 response.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "monitoring",
+  "package": null,
+  "priority": "P2",
+  "creator": "tom",
+  "assignee": "tom",
+  "createdAt": "2026-11-02",
+  "completedAt": null,
+  "branch": "codex/fix-issue-38-sqlite-contention",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "75e8129693580922262a2c3af7fa9d22dd31ebe3",
+  "pr_url": "https://github.com/jasonxtt/rosboard/pull/39",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/store/sqlite.go",
+    "internal/service/monitor.go"
+  ],
+  "notes": "Implementation and local/Linux synthetic runtime checks passed. Draft PR #39 awaits root review / acceptance; no production deployment or issue comment published.",
+  "meta": {}
+}

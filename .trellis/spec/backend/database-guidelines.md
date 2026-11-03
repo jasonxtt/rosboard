@@ -14,6 +14,13 @@
 - `load_samples.connection_count` stores the RouterOS IPv4+IPv6 conntrack total in the same minute bucket as CPU, memory, terminal count, and traffic. Legacy rows migrate with `-1` to mean unavailable; never present an invented zero as historical evidence.
 - `dns_observations`, `dns_features`, and `mosdns_state` exist in every device database; MosDNS log ingestion is owned by the individual device, so observations, learned features, watermarks, and sync state never cross devices. The owner database hosts the `default` device's DNS data only. The one-time `dns_scope_migrated` marker wipes the former process-global DNS rows from the owner database; do not reintroduce unscoped DNS writes.
 
+### Monitoring history and retention
+
+- `TerminalHistories` must apply `ORDER BY ts DESC LIMIT ?` in SQLite for each unique terminal using `(device_id, terminal_id, ts)`. Do not read all retained rows and discard extras in Go, or rank the entire history with a window function merely to return the latest 30 records.
+- Retention indexes are `(device_id, ts)` for terminal history and `(device_id, last_seen)` for connection state. Create them idempotently for owner/default and device databases, after legacy device-scope migration. Existing interface/load/protocol primary keys already support device/time expiry.
+- Monitoring cleanup deletes at most 500 rowids per statement, scoped to the device and a strict `<` cutoff. Each statement commits independently with a two-second context; yield for 25ms after nonempty batches and visit remaining tables round-robin. Do not wrap a whole retention pass in a transaction.
+- The monitor supplies a separate 30-second maintenance context. An incomplete pass returns its error and leaves remaining expired data for a later pass; never delete retained data to resolve a backlog or run automatic VACUUM in the sampling path.
+
 ### Tests Required
 
 - Open a legacy database containing terminal totals and metadata; verify all values survive under `default` only.
