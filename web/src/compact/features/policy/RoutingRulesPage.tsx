@@ -65,7 +65,8 @@ export function RoutingRulesPage({ deviceID, refreshNonce }: { deviceID: string;
     try { setContext(await fetchRoutingContext(deviceID)); setError(null) } catch (loadError) { setError(loadError) } finally { setLoading(false) }
   }, [deviceID])
   useEffect(() => { setLoading(true); void reload() }, [reload, refreshNonce])
-  useEffect(() => { const timer = window.setInterval(() => void reload(), 5000); return () => window.clearInterval(timer) }, [reload])
+  // Background refreshes would compete with the open editor's own requests.
+  useEffect(() => { if (editing !== undefined) return; const timer = window.setInterval(() => void reload(), 5000); return () => window.clearInterval(timer) }, [reload, editing])
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(null), 5000); return () => window.clearTimeout(timer) }, [notice])
 
   if (loading && !context) return <PolicyPreparing text="正在读取策略路由…" />
